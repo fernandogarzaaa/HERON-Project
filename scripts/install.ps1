@@ -1,7 +1,7 @@
 # Heron installer for Windows. Downloads the release, checks it against the published checksums,
 # and installs it for the current user (no administrator rights needed).
 #
-#   irm https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/main/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.1.0/scripts/install.ps1 | iex
 #
 # Set $env:HERON_VERSION to install a different release (default below).
 $ErrorActionPreference = "Stop"

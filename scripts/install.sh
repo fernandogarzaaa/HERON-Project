@@ -2,7 +2,7 @@
 # Heron installer for macOS and Linux. Downloads the release for your computer, checks it against
 # the published checksums, and installs it for the current user.
 #
-#   curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.1.0/scripts/install.sh | sh
 #
 # Set HERON_VERSION to install a different release (default below).
 set -eu
