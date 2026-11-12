@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232F6690'/%3E%3Cpath d='M4 13c5-1 8 0 12 4 4-4 7-5 12-4-3 2-6 4-8 8l-4 5-4-5c-2-4-5-6-8-8z' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+:root{
+  --paper:#EDF1F4; --surface:#F9FBFC; --ink:#16212B; --muted:#566878; --line:#D2DAE1;
+  --slate:#2F6690; --slate-ink:#fff; --slate-soft:#DCE7EF;
+  --talon:#C98F00; --talon-soft:#FBF0CC; --talon-ink:#4A3600;
+  --danger:#B3362B; --danger-soft:#F8E1DE; --ok:#2B7A57;
+  --serif:"Iowan Old Style","Sitka Display","Sitka Text",Constantia,Charter,Georgia,serif;
+  --sans:"Avenir Next","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Code",Consolas,"Liberation Mono",monospace;
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme:dark){:root{
+  --paper:#10181F; --surface:#17212A; --ink:#E3EAF0; --muted:#93A4B3; --line:#293642;
+  --slate:#7DB3D8; --slate-ink:#0D1B26; --slate-soft:#1D3040;
+  --talon:#EDB92B; --talon-soft:#352C0F; --talon-ink:#F6E3A6;
+  --danger:#EC7A6F; --danger-soft:#3A1D1A; --ok:#6EC49C;
+}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{font:16px/1.55 var(--sans);color:var(--ink);background:var(--paper);display:grid;grid-template-columns:264px minmax(0,1fr);-webkit-font-smoothing:antialiased}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--slate);outline-offset:2px;border-radius:4px}
+h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:-.01em;margin:0}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+
+/* ---------- rail ---------- */
+.rail{display:flex;flex-direction:column;border-right:1px solid var(--line);min-height:0;height:100vh;padding:18px 12px 12px}
+.brand{display:flex;align-items:center;gap:10px;padding:0 8px 16px}
+.brand svg{width:26px;height:26px;flex:none}
+.brand span{font:600 21px/1 var(--serif);letter-spacing:-.01em}
+.new{width:100%;padding:9px 12px;border:1px solid var(--slate);background:var(--slate);color:var(--slate-ink);border-radius:8px;font-weight:600;text-align:left}
+.new:hover{filter:brightness(1.08)}
+nav{display:flex;flex-direction:column;gap:1px;margin:14px 0 6px}
+nav button{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border:0;background:none;border-radius:6px;text-align:left}
+nav button:hover{background:var(--slate-soft)}
+nav button[aria-current="page"]{background:var(--slate-soft);font-weight:600}
+.count{font-size:12px;font-weight:700;background:var(--talon);color:#201700;border-radius:9px;padding:0 7px;line-height:18px}
+.rail h2{font:600 13px/1 var(--sans);color:var(--muted);padding:14px 10px 6px;letter-spacing:0}
+.sessions{flex:1;overflow:auto;min-height:0;display:flex;flex-direction:column;gap:1px}
+.sessions button{display:block;width:100%;border:0;background:none;padding:6px 10px;border-radius:6px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14.5px}
+.sessions button:hover{background:var(--slate-soft)}
+.sessions button[aria-current="true"]{background:var(--surface);box-shadow:inset 2px 0 0 var(--slate)}
+.sessions p{color:var(--muted);font-size:14px;padding:4px 10px;margin:0}
+.rail footer{font-size:12.5px;color:var(--muted);padding:10px 10px 0;border-top:1px solid var(--line);margin-top:8px;overflow-wrap:anywhere}
+
+/* ---------- main ---------- */
+main{display:flex;flex-direction:column;min-width:0;height:100vh}
+.bar{display:flex;align-items:center;gap:12px;padding:10px 24px;border-bottom:1px solid var(--line);min-height:54px;flex-wrap:wrap}
+.bar h1{font-size:18px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.menu{display:none;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:5px 10px}
+.modes{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.modes button{border:0;background:none;padding:5px 11px;font-size:13.5px;border-right:1px solid var(--line)}
+.modes button:last-child{border-right:0}
+.modes button[aria-pressed="true"]{background:var(--slate);color:var(--slate-ink);font-weight:600}
+.modes button[data-mode="yolo"][aria-pressed="true"]{background:var(--danger);color:#fff}
+.ghost{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:5px 11px;font-size:13.5px}
+.ghost:hover{border-color:var(--slate)}
+.view{flex:1;overflow:auto;min-height:0}
+.view[hidden]{display:none}
+.col{max-width:780px;margin:0 auto;padding:28px 24px 40px}
+
+/* ---------- conversation ---------- */
+.empty{padding-top:9vh}
+.empty h2{font-size:clamp(30px,4.4vw,44px);line-height:1.08;max-width:14ch}
+.empty p{color:var(--muted);max-width:52ch;margin:14px 0 26px}
+.starters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-width:640px}
+.starters button{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:11px 13px;text-align:left;line-height:1.35}
+.starters button:hover{border-color:var(--slate)}
+.connect{border:1px solid var(--talon);background:var(--talon-soft);color:var(--talon-ink);border-radius:10px;padding:14px 16px;margin-bottom:26px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.connect p{margin:0;flex:1;min-width:220px;color:inherit}
+.offer{border:1px solid var(--line);border-left:3px solid var(--slate);background:var(--surface);border-radius:8px;padding:12px 14px;margin:0 0 10px;max-width:70ch}
+.offer h3{font:600 16px/1.35 var(--sans);margin:0}
+.offer .why{color:var(--muted);font-size:14px;margin:3px 0 10px}
+.offer .prose{font-size:14.5px;border-top:1px solid var(--line);padding-top:10px;margin-bottom:10px;max-height:240px;overflow:auto}
+.offer .row{display:flex;gap:8px;flex-wrap:wrap}
+.offer .btn{padding:5px 12px;font-size:14px}
+.steps{list-style:none;margin:0;padding:0;counter-reset:step}
+.steps>li{counter-increment:step;position:relative;padding:0 0 30px 46px;border-left:2px solid var(--line);margin-left:15px}
+.steps>li:last-child{border-left-color:transparent;padding-bottom:0}
+.steps>li::before{content:counter(step);position:absolute;left:-16px;top:-3px;width:30px;height:30px;border-radius:50%;background:var(--paper);border:2px solid var(--slate);color:var(--slate);font:600 15px/26px var(--sans);text-align:center}
+.steps>li.ok::before{background:var(--slate);color:var(--slate-ink)}
+.steps h3{font:600 19px/1.3 var(--serif);margin:0 0 4px}
+.steps>li>p{color:var(--muted);margin:0 0 14px;max-width:60ch}
+.src{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:14px 16px;margin:0 0 10px}
+.src.on{border-left:3px solid var(--slate)}
+.src h4{font:600 16px/1.3 var(--sans);margin:0}
+.src .st{color:var(--muted);font-size:14px;margin:2px 0 10px}
+.src .st b{color:var(--ok);font-weight:600}
+.src .inline{margin-bottom:8px}
+.src .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.src .btn{padding:6px 12px;font-size:14px}
+.src small{display:block;color:var(--muted);font-size:13px;margin-top:8px;max-width:64ch}
+.src ul{margin:10px 0 0;padding-left:1.2em;font-size:14.5px}
+.src .fail{margin:10px 0 0;font-size:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+@media (max-width:760px){.grid2{grid-template-columns:1fr}.steps>li{padding-left:30px}}
+.offers-h{font:600 15px/1.3 var(--sans);color:var(--muted);margin:0 0 10px}
+.empty .offer:last-child{margin-bottom:34px}
+.you{margin:26px 0 14px auto;max-width:62ch;width:fit-content;background:var(--slate-soft);border-radius:12px 12px 3px 12px;padding:9px 14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.turn{margin:0 0 8px}
+.prose{max-width:70ch;overflow-wrap:anywhere}
+.prose p{margin:0 0 .8em}
+.prose h3{font-size:19px;margin:1.1em 0 .4em}
+.prose ul,.prose ol{margin:0 0 .8em;padding-left:1.3em}
+.prose li{margin:.15em 0}
+.prose a{color:var(--slate)}
+.prose code{font:.88em var(--mono);background:var(--slate-soft);padding:1px 5px;border-radius:4px}
+.prose pre{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;margin:0 0 .9em}
+.prose pre code{background:none;padding:0;font-size:13.5px;line-height:1.5}
+.prose blockquote{margin:0 0 .8em;padding-left:12px;border-left:3px solid var(--line);color:var(--muted)}
+/* the flight track: one tick per action the agent takes */
+.track{list-style:none;margin:4px 0 12px 5px;padding:0;border-left:2px solid var(--line)}
+.step{position:relative;padding:3px 0 3px 18px;font-size:14px;color:var(--muted);line-height:1.45}
+.step::before{content:"";position:absolute;left:-6px;top:9px;width:10px;height:10px;border-radius:50%;background:var(--paper);border:2px solid var(--slate)}
+.step.ok::before{background:var(--slate)}
+.step.err::before{border-color:var(--danger);background:var(--danger)}
+.step.run::before{border-color:var(--talon);background:var(--talon);animation:hover 1.1s ease-in-out infinite}
+@keyframes hover{0%,100%{transform:translateY(-2px)}50%{transform:translateY(2px)}}
+.step button{all:unset;cursor:pointer;display:block;width:100%}
+.step button:focus-visible{outline:2px solid var(--slate);outline-offset:2px;border-radius:4px}
+.step b{font-weight:600;color:var(--ink)}
+.step .what{font-family:var(--mono);font-size:12.5px;overflow-wrap:anywhere}
+.step .res{display:none;margin:4px 0 6px;padding:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font:12.5px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
+.step.open .res{display:block}
+.step.err .res{display:block;color:var(--danger);border-color:var(--danger-soft);background:var(--danger-soft)}
+.note{font-size:13.5px;color:var(--muted);margin:4px 0 10px}
+.track .note{margin:2px 0;padding-left:18px}
+.ask{position:relative;margin:8px 0 10px -7px;padding:14px 16px;border:1px solid var(--talon);background:var(--talon-soft);color:var(--talon-ink);border-radius:10px;max-width:70ch}
+.ask.danger{border-color:var(--danger);background:var(--danger-soft);color:var(--ink)}
+.ask h3{font:600 16px/1.3 var(--sans)}
+.ask .warn{color:var(--danger);font-weight:600;font-size:14px;margin:4px 0 0}
+.ask pre{margin:10px 0 12px;padding:9px 11px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;font:13px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}
+.ask .row{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--slate);background:var(--slate);color:var(--slate-ink);border-radius:8px;padding:7px 14px;font-weight:600}
+.btn.quiet{background:var(--surface);color:var(--ink);border-color:var(--line);font-weight:500}
+.btn.quiet:hover{border-color:var(--slate)}
+.btn:disabled{opacity:.55;cursor:default}
+.fail{border:1px solid var(--danger);background:var(--danger-soft);border-radius:10px;padding:12px 14px;margin:8px 0;max-width:70ch;overflow-wrap:anywhere}
+.fail b{color:var(--danger)}
+.composer{border-top:1px solid var(--line);padding:14px 24px 16px;background:var(--paper)}
+.composer form{max-width:780px;margin:0 auto;display:flex;gap:10px;align-items:flex-end}
+.composer textarea{flex:1;resize:none;max-height:38vh;min-height:46px;padding:11px 13px;border:1px solid var(--line);border-radius:10px;background:var(--surface);line-height:1.45}
+.composer textarea:focus{outline:2px solid var(--slate);outline-offset:0;border-color:var(--slate)}
+.composer small{display:block;max-width:780px;margin:6px auto 0;color:var(--muted);font-size:12.5px}
+.stop{background:var(--surface);color:var(--danger);border-color:var(--danger)}
+
+/* ---------- pages ---------- */
+.page h2{font-size:30px;margin-bottom:6px}
+.page>p{color:var(--muted);margin:0 0 22px;max-width:60ch}
+.field{display:block;margin:0 0 16px}
+.field span{display:block;font-weight:600;font-size:14.5px;margin-bottom:5px}
+.field small{display:block;color:var(--muted);font-size:13px;margin-top:4px}
+.field input,.field select,.inline input,.inline select{width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.inline{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+.inline input{flex:1;min-width:180px}
+.inline select{width:auto}
+.list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.list li{display:flex;gap:12px;align-items:flex-start;padding:10px 2px;border-bottom:1px solid var(--line)}
+.list .body{flex:1;min-width:0;overflow-wrap:anywhere}
+.list .meta{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+.list .x{border:0;background:none;color:var(--muted);padding:2px 6px;border-radius:5px;font-size:13.5px;flex:none}
+.list .x:hover{color:var(--danger);background:var(--danger-soft)}
+.list input[type=checkbox]{width:18px;height:18px;margin:3px 0 0;accent-color:var(--slate);flex:none}
+.list .done .body{color:var(--muted);text-decoration:line-through}
+.kind{display:inline-block;font-size:12.5px;color:var(--slate);border:1px solid var(--slate);border-radius:5px;padding:0 6px;margin-right:6px;line-height:18px}
+.blank{color:var(--muted);padding:18px 2px}
+.page h3{font:600 17px/1.3 var(--sans);margin:30px 0 10px}
+.choices{display:grid;gap:8px;margin-bottom:18px}
+.choices label{display:flex;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);cursor:pointer}
+.choices label:has(input:checked){border-color:var(--slate);box-shadow:inset 0 0 0 1px var(--slate)}
+.choices input{margin-top:4px;accent-color:var(--slate)}
+.choices b{display:block}
+.choices span{color:var(--muted);font-size:14px}
+.presets{display:flex;gap:6px;flex-wrap:wrap;margin:-8px 0 16px}
+.presets button{font-size:13px;padding:3px 10px}
+.saved{color:var(--ok);font-weight:600;margin-left:10px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;color:var(--muted);padding:6px 8px 6px 0;border-bottom:1px solid var(--line)}
+td{padding:7px 8px 7px 0;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+td.m{font:12.5px/1.5 var(--mono)}
+.d-denied{color:var(--danger);font-weight:600}
+
+@media (max-width:760px){
+  body{grid-template-columns:1fr}
+  .rail{position:fixed;inset:0 20% 0 0;z-index:5;background:var(--paper);transform:translateX(-102%);transition:transform .18s ease-out;box-shadow:0 0 0 100vmax rgba(0,0,0,0)}
+  body.nav-open .rail{transform:none;box-shadow:0 0 0 100vmax rgba(0,0,0,.35)}
+  .menu{display:block}
+  .bar,.composer{padding-left:16px;padding-right:16px}
+  .col{padding:20px 16px 32px}
+  .starters{grid-template-columns:1fr}
+  .modes button{padding:5px 8px;font-size:12.5px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<aside class="rail" id="rail">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--slate)"/><path d="M4 13c5-1 8 0 12 4 4-4 7-5 12-4-3 2-6 4-8 8l-4 5-4-5c-2-4-5-6-8-8z" fill="var(--slate-ink)"/></svg>
+    <span>Heron</span>
+  </div>
+  <button class="new" id="new">New conversation</button>
+  <nav aria-label="Sections">
+    <button data-view="chat" aria-current="page">Conversation</button>
+    <button data-view="onboarding">Getting to know you</button>
+    <button data-view="awareness">Awareness <span class="count" id="offers-n" hidden></span></button>
+    <button data-view="memory">Memory</button>
+    <button data-view="tasks">Tasks</button>
+    <button data-view="reminders">Reminders <span class="count" id="unread" hidden></span></button>
+    <button data-view="activity">Activity log</button>
+    <button data-view="settings">Settings</button>
+  </nav>
+  <h2 id="recent-h">Recent conversations</h2>
+  <div class="sessions" id="sessions" aria-labelledby="recent-h"></div>
+  <footer id="foot"></footer>
+</aside>
+
+<main>
+  <header class="bar">
+    <button class="menu" id="menu" aria-label="Open menu">Menu</button>
+    <h1 id="title">New conversation</h1>
+    <button class="ghost" id="undo" hidden title="Restore the last file Heron changed in this conversation">Undo last file change</button>
+    <div class="modes" id="modes" role="group" aria-label="How much Heron may do without asking">
+      <button data-mode="readonly" title="Heron can look, search and read — never change anything">Read only</button>
+      <button data-mode="ask" title="Heron asks before changing files or running commands">Ask first</button>
+      <button data-mode="auto" title="Heron edits files and runs commands in your folder, and asks only before risky actions">Auto</button>
+      <button data-mode="yolo" title="Heron never asks. Only catastrophic commands are blocked.">Unrestricted</button>
+    </div>
+  </header>
+
+  <section class="view" id="v-chat" aria-live="polite">
+    <div class="col" id="thread"></div>
+  </section>
+
+  <section class="view page" id="v-memory" hidden><div class="col">
+    <h2>Memory</h2>
+    <p>What Heron knows about you. It stays in a file on this computer, and you can remove anything.</p>
+    <form class="inline" id="mem-add"><input id="mem-new" aria-label="Something to remember" placeholder="e.g. I'm vegetarian and allergic to peanuts"><select id="mem-kind" aria-label="Kind"><option value="profile">About me</option><option value="preference">Preference</option><option value="workflow">How I like things done</option><option value="project">Project</option><option value="person">Person</option><option value="fact" selected>Fact</option></select><button class="btn">Remember this</button></form>
+    <div class="inline"><input id="mem-q" type="search" aria-label="Search memory" placeholder="Search memory"></div>
+    <ul class="list" id="mem-list"></ul>
+  </div></section>
+
+  <section class="view page" id="v-onboarding" hidden><div class="col">
+    <h2>Help Heron get to know you</h2>
+    <p>The more Heron knows about you and your world, the more it can do without being told. Everything you connect is read-only and is indexed on this computer. Nothing is sent to your AI model until you press “Learn from it”.</p>
+    <ol class="steps">
+      <li id="ob-model"><h3>Connect an AI model</h3><p id="ob-model-st"></p><div class="row" id="ob-model-row" style="display:flex;gap:8px;flex-wrap:wrap"></div></li>
+      <li id="ob-about"><h3>Tell Heron about yourself</h3><p>A few sentences are enough. You can change or remove any of it later under Memory.</p>
+        <form id="ob-about-form">
+          <div class="grid2">
+            <label class="field"><span>Your name</span><input id="ab-name" autocomplete="name"></label>
+            <label class="field"><span>What you do</span><input id="ab-work" placeholder="e.g. I run a small design studio"></label>
+          </div>
+          <label class="field"><span>What you want help with most</span><input id="ab-goals" placeholder="e.g. keeping on top of client work and invoices"></label>
+          <label class="field"><span>How you like things done</span><input id="ab-style" placeholder="e.g. short answers, metric units, ask before sending anything"></label>
+          <label class="field"><span>Important people</span><textarea id="ab-people" rows="2" style="width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);resize:vertical" placeholder="One per line, e.g. Maria — my sister"></textarea></label>
+          <label class="field"><span>Anything else</span><textarea id="ab-notes" rows="3" style="width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);resize:vertical" placeholder="Paste a bio, a CV, your routines, or notes another assistant kept about you"></textarea></label>
+          <button class="btn">Save what I wrote</button><span class="saved" id="ab-saved" role="status"></span>
+        </form></li>
+      <li id="ob-world"><h3>Connect your world</h3><p>Each connection lets Heron look things up for you. Connect as many or as few as you like.</p><div id="ob-sources"></div></li>
+      <li id="ob-pro"><h3>Decide how much Heron does on its own</h3><p>You can change this at any time under Awareness.</p>
+        <div class="choices" id="ob-level">
+          <label><input type="radio" name="obpro" value="off"><div><b>Only when I ask</b><span>Heron stays aware but waits for you.</span></div></label>
+          <label><input type="radio" name="obpro" value="suggest"><div><b>Suggest work</b><span>Heron offers to take things off your hands. It does nothing until you say so.</span></div></label>
+          <label><input type="radio" name="obpro" value="prepare"><div><b>Prepare ahead</b><span>Heron also does the groundwork in advance without changing anything.</span></div></label>
+          <label><input type="radio" name="obpro" value="takeover"><div><b>Take over</b><span>Heron does the work itself: it may create and edit files in your working folder, and nothing beyond that.</span></div></label>
+        </div>
+        <button class="btn" id="ob-finish">Finish setup</button></li>
+    </ol>
+  </div></section>
+
+  <section class="view page" id="v-awareness" hidden><div class="col">
+    <h2>Awareness</h2>
+    <p>While Heron is open, it quietly watches your working folder so it already knows what you are in the middle of. It sees file names and times, never what is inside, and never passwords or key files. Everything it notices stays on this computer.</p>
+    <div class="choices">
+      <label><input type="checkbox" id="aw-on"><div><b>Watch my folder in the background</b><span id="aw-ws"></span></div></label>
+      <label><input type="checkbox" id="aw-reflect"><div><b>Think about what it notices</b><span>A few times a day, Heron asks your AI model what the activity says about your projects and habits, and remembers the answer. This sends file names (not contents) to the model service.</span></div></label>
+    </div>
+    <h3>How much Heron does on its own</h3>
+    <div class="choices" id="aw-pro">
+      <label><input type="radio" name="pro" value="off"><div><b>Only when I ask</b><span>Heron stays aware but waits for you.</span></div></label>
+      <label><input type="radio" name="pro" value="suggest"><div><b>Suggest work</b><span>Heron offers to take things off your hands, based on what it sees you doing. It does nothing until you say so.</span></div></label>
+      <label><input type="radio" name="pro" value="prepare"><div><b>Prepare ahead</b><span>Heron also does the groundwork in advance — reading, researching, drafting — without changing anything, so the result is waiting for you.</span></div></label>
+      <label><input type="radio" name="pro" value="takeover"><div><b>Take over</b><span>Heron carries the work out itself: it may create and edit files in your working folder. It cannot run commands, touch anything outside the folder, or do anything risky, and every change can be undone from its conversation.</span></div></label>
+    </div>
+    <p class="note" id="aw-pro-note">Suggesting, preparing and taking over send what Heron noticed (file names, your tasks and what it knows about you) to your AI model about every half hour while there is new activity, which uses tokens.</p>
+    <h3>Heron suggests</h3>
+    <div id="aw-offers"></div>
+    <h3>Right now</h3>
+    <ul class="list" id="aw-now"></ul>
+    <h3>What Heron has concluded</h3>
+    <ul class="list" id="aw-insights"></ul>
+    <h3>Recently noticed</h3>
+    <ul class="list" id="aw-journal"></ul>
+    <p style="margin-top:22px"><button class="btn quiet" id="aw-clear">Forget everything observed</button></p>
+  </div></section>
+
+  <section class="view page" id="v-tasks" hidden><div class="col">
+    <h2>Tasks</h2>
+    <p>Your to-do list. Heron can add to it and tick things off when you ask.</p>
+    <form class="inline" id="task-add"><input id="task-new" aria-label="New task" placeholder="Add a task"><button class="btn">Add task</button></form>
+    <ul class="list" id="task-list"></ul>
+  </div></section>
+
+  <section class="view page" id="v-reminders" hidden><div class="col">
+    <h2>Reminders</h2>
+    <p>Things Heron does on a schedule while the app is open. Scheduled runs can read and search but not change anything, unless you allow more in Settings.</p>
+    <form id="rem-add">
+      <label class="field"><span>What should Heron do?</span><input id="rem-what" placeholder="e.g. Summarize today's top technology news in five bullet points"></label>
+      <label class="field"><span>When?</span><input id="rem-when" placeholder="tomorrow 9:00"><small>Try “in 30m”, “tomorrow 9:00”, “daily 08:00”, “every 2h”, or “2026-12-01 14:00”.</small></label>
+      <label class="field"><span>While it runs, Heron may</span><select id="rem-may"><option value="read">Only read, search and look things up</option><option value="write">Also create and edit files in my folder</option><option value="commands">Also run commands in my folder</option></select><small>Nobody is there to approve things during a scheduled run, so it gets exactly this much and nothing more. Risky actions are always refused.</small></label>
+      <button class="btn">Schedule it</button> <button type="button" class="btn quiet" id="rem-brief">Fill in a daily briefing</button>
+      <div class="fail" id="rem-err" hidden></div>
+    </form>
+    <h3>Scheduled</h3>
+    <ul class="list" id="rem-list"></ul>
+    <h3>Delivered</h3>
+    <ul class="list" id="inbox-list"></ul>
+  </div></section>
+
+  <section class="view page" id="v-activity" hidden><div class="col" style="max-width:980px">
+    <h2>Activity log</h2>
+    <p>Every action Heron took or was refused, newest first. Passwords and keys are blanked out before anything is logged.</p>
+    <div id="audit"></div>
+  </div></section>
+
+  <section class="view page" id="v-settings" hidden><div class="col">
+    <h2>Settings</h2>
+    <p>Heron runs on this computer. The only thing that leaves it is what you send to the AI model you choose here.</p>
+    <form id="settings">
+      <h3>AI model</h3>
+      <label class="field"><span>Service address</span><input id="s-base" inputmode="url"></label>
+      <div class="presets" id="presets">
+        <button type="button" class="ghost" data-url="https://openrouter.ai/api/v1" data-model="anthropic/claude-sonnet-5.5">OpenRouter</button>
+        <button type="button" class="ghost" data-url="https://api.openai.com/v1" data-model="gpt-5.5">OpenAI</button>
+        <button type="button" class="ghost" data-url="http://localhost:11434/v1" data-model="llama3.3">Ollama on this computer</button>
+        <button type="button" class="ghost" data-url="demo" data-model="demo">Demo, no key needed</button>
+      </div>
+      <label class="field"><span>Model</span><input id="s-model"></label>
+      <label class="field"><span>API key</span><input id="s-key" type="password" autocomplete="off"><small id="s-keynote"></small></label>
+      <label class="field"><span>Backup models</span><input id="s-fallback" placeholder="none"><small>Used in order if the main model is unavailable. Separate with commas.</small></label>
+      <label class="field"><span>Model for background work</span><input id="s-fast" placeholder="same as main model"><small>A cheaper model for summaries and learning about you.</small></label>
+      <h3>What Heron may do without asking</h3>
+      <div class="choices" id="s-mode">
+        <label><input type="radio" name="mode" value="readonly"><div><b>Read only</b><span>Look, search and read. Never change anything.</span></div></label>
+        <label><input type="radio" name="mode" value="ask"><div><b>Ask first</b><span>Asks before changing files or running commands.</span></div></label>
+        <label><input type="radio" name="mode" value="auto"><div><b>Auto</b><span>Edits files and runs commands in your folder. Asks before anything risky.</span></div></label>
+        <label><input type="radio" name="mode" value="yolo"><div><b>Unrestricted</b><span>Never asks. Only catastrophic commands stay blocked.</span></div></label>
+      </div>
+      <label class="field"><span>During scheduled reminders</span><select id="s-daemon"><option value="readonly">Read only</option><option value="auto">Auto (risky actions are refused)</option></select><small>Nobody is there to approve things, so anything that would need your OK is refused.</small></label>
+      <h3>Connected apps</h3>
+      <div id="s-apps"></div>
+      <h3>Use Heron from your phone</h3>
+      <p class="note" id="tg-status"></p>
+      <div class="inline" id="tg-form"><input id="tg-token" type="password" autocomplete="off" aria-label="Telegram bot token" placeholder="Bot token from @BotFather"><button type="button" class="btn quiet" id="tg-save">Connect Telegram</button></div>
+      <button type="button" class="btn quiet" id="tg-remove" hidden>Disconnect phone</button>
+      <h3>Memory and files</h3>
+      <label class="field" style="display:flex;gap:10px;align-items:flex-start"><input id="s-auto" type="checkbox" style="width:18px;height:18px;margin-top:3px;accent-color:var(--slate)"><div><span style="margin:0">Learn about me from conversations</span><small>After each reply, Heron saves lasting facts it noticed. You can review them under Memory.</small></div></label>
+      <label class="field"><span>Working folder</span><input id="s-ws"><small>Where Heron reads and writes files by default. Changes apply after restarting Heron.</small></label>
+      <p class="note" id="s-home"></p>
+      <button class="btn">Save settings</button><span class="saved" id="s-saved" role="status"></span>
+      <div class="fail" id="s-err" hidden></div>
+    </form>
+  </div></section>
+
+  <div class="composer" id="composer">
+    <form id="send">
+      <label class="sr" for="input">Message Heron</label>
+      <textarea id="input" rows="1" placeholder="Ask Heron to do something"></textarea>
+      <button class="btn" id="go">Send</button>
+    </form>
+    <small id="hint">Enter to send, Shift+Enter for a new line</small>
+  </div>
+</main>
+
+<script>
+(() => {
+const $ = (s, r = document) => r.querySelector(s);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+// ----- auth token: taken from the launch link once, then kept out of the address bar -----
+const params = new URLSearchParams(location.search);
+let token = params.get('token');
+try { if (token) { sessionStorage.setItem('heron-token', token); history.replaceState(null, '', location.pathname); } else token = sessionStorage.getItem('heron-token'); } catch (e) {}
+
+async function api(path, opts = {}) {
+  const res = await fetch('/api' + path, { ...opts, headers: { 'x-heron-token': token || '', ...(opts.body ? { 'content-type': 'application/json' } : {}) }, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+// ----- safe markdown: escape everything first, then add a small set of tags -----
+const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function inline(s) {
+  const codes = [];
+  s = esc(s).replace(/`([^`\n]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>').replace(/(^|[\s(])\*([^*\s][^*\n]*)\*/g, '$1<em>$2</em>')
+       .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
+}
+function md(src) {
+  const out = []; const lines = src.replace(/\r/g, '').split('\n'); let i = 0, para = [];
+  const flush = () => { if (para.length) { out.push('<p>' + para.map(inline).join('<br>') + '</p>'); para = []; } };
+  while (i < lines.length) {
+    const l = lines[i];
+    if (/^\s*```/.test(l)) { flush(); const buf = []; i++; while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++]); i++; out.push('<pre><code>' + esc(buf.join('\n')) + '</code></pre>'); continue; }
+    const h = l.match(/^(#{1,4})\s+(.*)/); if (h) { flush(); out.push('<h3>' + inline(h[2]) + '</h3>'); i++; continue; }
+    if (/^\s*([-*•]|\d+[.)])\s+/.test(l)) { flush(); const ordered = /^\s*\d/.test(l); const items = [];
+      while (i < lines.length && /^\s*([-*•]|\d+[.)])\s+/.test(lines[i])) items.push('<li>' + inline(lines[i++].replace(/^\s*([-*•]|\d+[.)])\s+/, '')) + '</li>');
+      out.push(`<${ordered ? 'ol' : 'ul'}>` + items.join('') + `</${ordered ? 'ol' : 'ul'}>`); continue; }
+    if (/^>\s?/.test(l)) { flush(); const buf = []; while (i < lines.length && /^>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^>\s?/, '')); out.push('<blockquote>' + buf.map(inline).join('<br>') + '</blockquote>'); continue; }
+    if (!l.trim()) { flush(); i++; continue; }
+    para.push(l); i++;
+  }
+  flush(); return out.join('');
+}
+
+// ----- state -----
+let state = {}, current = null, busy = false, abortCtl = null, curTitle = 'New conversation';
+const setTitle = t => { curTitle = t; $('#title').textContent = t; };
+const thread = $('#thread'), input = $('#input');
+const fmtTime = ts => new Date(ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const toolLabel = { shell: 'Ran', read_file: 'Read', write_file: 'Wrote', edit_file: 'Edited', list_dir: 'Listed', search_files: 'Searched files for', find_files: 'Looked for files', web_fetch: 'Opened', web_search: 'Searched the web for', remember: 'Remembered', recall: 'Checked memory for', forget: 'Forgot memory', task_add: 'Added task', task_list: 'Checked tasks', task_update: 'Updated task', schedule_add: 'Scheduled', schedule_list: 'Checked reminders', schedule_remove: 'Cancelled reminder', use_skill: 'Loaded skill', delegate: 'Handed off' };
+const askTitle = t => ({ shell: 'Heron wants to run a command', write_file: 'Heron wants to write a file', edit_file: 'Heron wants to edit a file', read_file: 'Heron wants to read a sensitive file', list_dir: 'Heron wants to open a sensitive folder', search_files: 'Heron wants to search a sensitive folder' }[t] || `Heron wants to use ${t.replace(/^mcp__/, '').replace(/__/g, ' → ')}`);
+const label = n => toolLabel[n] || n.replace(/^mcp__/, '').replace(/__/g, ' → ');
+
+async function refreshState() {
+  state = await api('/state');
+  document.querySelectorAll('#modes button').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === state.mode));
+  const u = $('#unread'); u.hidden = !state.unread; u.textContent = state.unread || '';
+  const o = $('#offers-n'); o.hidden = !state.suggestions; o.textContent = state.suggestions || '';
+  const used = (state.usage.prompt_tokens || 0) + (state.usage.completion_tokens || 0);
+  $('#foot').textContent = `${state.demo ? 'Demo mode' : state.model}${used ? ` — ${used.toLocaleString()} tokens this session` : ''}`;
+}
+async function refreshSessions() {
+  const list = await api('/sessions'); const box = $('#sessions'); box.replaceChildren();
+  const shown = list.filter(s => s.messages > 0);
+  if (!shown.length) box.append(el('p', '', 'Conversations you start appear here.'));
+  for (const s of shown) { const b = el('button', '', s.title || 'Untitled'); b.title = fmtTime(s.updated_at); if (s.id === current) b.setAttribute('aria-current', 'true'); b.onclick = () => openSession(s.id); box.append(b); }
+}
+
+// ----- rendering a conversation -----
+function showEmpty() {
+  thread.replaceChildren();
+  const box = el('div', 'empty');
+  if (!state.has_key) {
+    const c = el('div', 'connect'); c.append(el('p', '', 'Heron needs an AI model before it can reply. Add an API key, or point it at a model running on this computer.'));
+    const b = el('button', 'btn', 'Connect a model'); b.onclick = () => show('settings');
+    const d = el('button', 'btn quiet', 'Try the demo first'); d.onclick = async () => { await api('/settings', { method: 'POST', body: { base_url: 'demo' } }); await refreshState(); showEmpty(); input.focus(); };
+    c.append(b, d); box.append(c);
+  } else if (state.demo) {
+    const c = el('div', 'connect'); c.append(el('p', '', 'Demo mode: replies are canned, but the actions are real, so you can try approvals, memory and reminders. Connect a model for real answers.'));
+    const b = el('button', 'btn quiet', 'Connect a model'); b.onclick = () => show('settings'); c.append(b); box.append(c);
+  }
+  const offers = el('div'); box.append(offers); renderOffers(offers, true);
+  box.append(el('h2', '', 'What should we get done?'));
+  box.append(el('p', '', `Heron works in ${state.workspace || 'your folder'}. It can read and write files there, run commands, search the web, remember what matters to you, and remind you of things.`));
+  const st = el('div', 'starters');
+  for (const s of ['Look through this folder and tell me what is in it', 'Remind me tomorrow at 9:00 to call the dentist', 'Research the best way to learn Rust in a month and save a plan as plan.md', 'What do you remember about me?']) { const b = el('button', '', s); b.onclick = () => { input.value = s; input.focus(); grow(); }; st.append(b); }
+  box.append(st); thread.append(box);
+}
+function addUser(text) { $('.empty', thread)?.remove(); const d = el('div', 'you', text); thread.append(d); return d; }
+function newTurn() {
+  const turn = el('div', 'turn'); thread.append(turn);
+  let prose = null, raw = '', steps = {};
+  const track = () => { const last = turn.lastElementChild; if (last?.classList.contains('track')) return last; const t = el('ol', 'track'); turn.append(t); prose = null; return t; };
+  const T = {
+    el: turn,
+    text(t) { if (!prose) { prose = el('div', 'prose'); raw = ''; turn.append(prose); } raw += t; prose.innerHTML = md(raw); },
+    step(id, name, what, cls) {
+      const li = el('li', 'step ' + cls); const b = el('button'); b.setAttribute('aria-expanded', 'false');
+      b.append(el('b', '', label(name) + ' ')); b.append(el('span', 'what', what || ''));
+      const res = el('div', 'res'); li.append(b, res); b.onclick = () => { if (res.textContent) b.setAttribute('aria-expanded', li.classList.toggle('open')); };
+      track().append(li); steps[id] = li; return li;
+    },
+    end(id, name, ok, preview) { const li = steps[id] || T.step(id, name, '', 'run'); li.className = 'step ' + (ok ? 'ok' : 'err'); $('.res', li).textContent = preview || ''; },
+    note(t) { turn.append(el('p', 'note', t)); prose = null; },
+    ask(ev) {
+      const box = el('div', 'ask' + (ev.risk === 'DANGEROUS' ? ' danger' : '')); box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-label', askTitle(ev.tool));
+      box.append(el('h3', '', askTitle(ev.tool)));
+      if (ev.risk === 'DANGEROUS') box.append(el('p', 'warn', 'This could delete data, reach outside your folder, or be hard to undo.'));
+      if (ev.tainted) box.append(el('p', 'warn', 'Heron has read content from outside (a web page, an email or a connected app) in this conversation. Check that this is something you asked for.'));
+      box.append(el('pre', '', ev.detail || ev.summary));
+      const row = el('div', 'row');
+      const answer = async (decision, said) => { row.querySelectorAll('button').forEach(b => b.disabled = true); try { await api('/approve', { method: 'POST', body: { id: ev.id, decision } }); } catch (e) { said = e.message; } box.replaceWith(el('p', 'note', said)); scroll(); };
+      const yes = el('button', 'btn', 'Allow once'); yes.onclick = () => answer('once', 'You allowed this.');
+      row.append(yes);
+      if (ev.can_always) { const al = el('button', 'btn quiet', ev.tool === 'shell' ? `Always allow “${ev.always_rule.replace(/^shell:/, '').replace(/ \*$/, '')}” commands` : 'Always allow this kind of action'); al.onclick = () => answer('always', 'You allowed this, and similar actions from now on.'); row.append(al); }
+      const no = el('button', 'btn quiet', "Don't allow"); no.onclick = () => answer('deny', "You didn't allow this.");
+      row.append(no); box.append(row); track().append(box); yes.focus();
+    },
+    fail(msg) { const f = el('div', 'fail'); f.append(el('b', '', 'Heron could not finish. '), document.createTextNode(msg)); if (/key|401|403/i.test(msg)) { const b = el('button', 'btn quiet', 'Open settings'); b.style.marginLeft = '10px'; b.onclick = () => show('settings'); f.append(b); } turn.append(f); },
+  };
+  return T;
+}
+const argSummary = a => { try { const o = JSON.parse(a); return String(o.command ?? o.path ?? o.url ?? o.query ?? o.pattern ?? o.glob ?? o.task ?? o.title ?? o.content ?? o.name ?? (o.when ? `${o.when} — ${o.prompt}` : null) ?? (o.id != null ? '#' + o.id : '')).slice(0, 160); } catch (e) { return ''; } };
+function renderHistory(messages) {
+  thread.replaceChildren(); let turn = null; const pending = {};
+  for (const m of messages) {
+    if (m.role === 'user') { if (m.content?.startsWith('[system notice]')) continue; addUser(m.content || ''); turn = null; }
+    else if (m.role === 'assistant') { turn = turn || newTurn(); if (m.content) turn.text(m.content); for (const c of m.tool_calls || []) { turn.step(c.id, c.function.name, argSummary(c.function.arguments), 'ok'); pending[c.id] = [turn, c.function.name]; } if (m.content && !(m.tool_calls || []).length) turn = null; }
+    else if (m.role === 'tool' && pending[m.tool_call_id]) { const [t, name] = pending[m.tool_call_id]; const txt = m.content || ''; t.end(m.tool_call_id, name, !/^(Error:|Permission denied)/.test(txt), txt.slice(0, 1500)); }
+  }
+  if (!messages.length) showEmpty();
+  scroll(true);
+}
+function scroll(force) { const v = $('#v-chat'); if (force || v.scrollHeight - v.scrollTop - v.clientHeight < 240) v.scrollTop = v.scrollHeight; }
+
+async function openSession(id) {
+  if (busy) return;
+  show('chat'); current = id;
+  try { const s = await api('/sessions/' + id); setTitle(s.title || 'Conversation'); renderHistory(s.messages); $('#undo').hidden = false; }
+  catch (e) { current = null; showEmpty(); }
+  refreshSessions(); document.body.classList.remove('nav-open'); input.focus();
+}
+function startNew() { if (busy) return; current = null; setTitle('New conversation'); $('#undo').hidden = true; show('chat'); showEmpty(); refreshSessions(); document.body.classList.remove('nav-open'); input.focus(); }
+
+// ----- sending -----
+function setBusy(b) { busy = b; const go = $('#go'); go.textContent = b ? 'Stop' : 'Send'; go.classList.toggle('stop', b); $('#hint').textContent = b ? 'Heron is working. You can stop it at any time.' : 'Enter to send, Shift+Enter for a new line'; }
+async function send(text) {
+  addUser(text); const turn = newTurn(); const waiting = el('p', 'note', 'Thinking…'); turn.el.append(waiting); scroll(true); setBusy(true);
+  abortCtl = new AbortController(); let finished = false;
+  try {
+    const res = await fetch('/api/chat', { method: 'POST', signal: abortCtl.signal, headers: { 'content-type': 'application/json', 'x-heron-token': token || '' }, body: JSON.stringify({ session_id: current, message: text }) });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `Request failed (${res.status})`); }
+    const reader = res.body.getReader(), dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true }); let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        const data = chunk.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join(''); if (!data) continue;
+        const ev = JSON.parse(data); waiting.remove();
+        if (ev.type === 'session') { current = ev.id; $('#undo').hidden = false; }
+        else if (ev.type === 'text') turn.text(ev.text);
+        else if (ev.type === 'tool_start') turn.step(ev.id, ev.name, ev.summary, 'run');
+        else if (ev.type === 'tool_end') turn.end(ev.id, ev.name, ev.ok, ev.preview);
+        else if (ev.type === 'approval') turn.ask(ev);
+        else if (ev.type === 'notice') turn.note(ev.text);
+        else if (ev.type === 'learned') turn.note('Saved to memory: ' + ev.items.join(' / '));
+        else if (ev.type === 'error') { turn.fail(ev.message); finished = true; setBusy(false); }
+        else if (ev.type === 'cancelled') { turn.note('Stopped.'); finished = true; setBusy(false); }
+        else if (ev.type === 'done') { finished = true; setBusy(false); if (ev.title) setTitle(ev.title); refreshSessions(); refreshState(); }
+        scroll();
+      }
+    }
+    if (!finished) turn.note('The connection to Heron closed before the reply finished.');
+  } catch (e) { waiting.remove(); if (e.name !== 'AbortError') turn.fail(e.message); }
+  setBusy(false); refreshState().catch(() => {}); input.focus();
+}
+async function stop() { if (current) await api('/cancel', { method: 'POST', body: { session_id: current } }).catch(() => {}); else abortCtl?.abort(); }
+function grow() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight + 2, innerHeight * .38) + 'px'; }
+$('#send').onsubmit = e => { e.preventDefault(); if (busy) return stop(); const t = input.value.trim(); if (!t) return; input.value = ''; grow(); send(t); };
+input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!busy) $('#send').requestSubmit(); } });
+input.addEventListener('input', grow);
+document.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); startNew(); } if (e.key === 'Escape') { if (document.body.classList.contains('nav-open')) document.body.classList.remove('nav-open'); else if (busy) stop(); } });
+$('#new').onclick = startNew;
+$('#menu').onclick = () => document.body.classList.toggle('nav-open');
+$('#undo').onclick = async () => { const r = await api('/undo', { method: 'POST', body: { session_id: current } }).catch(e => ({ undone: e.message })); const t = newTurn(); t.note(r.undone ? 'Undone: ' + r.undone : 'Nothing to undo in this conversation.'); scroll(true); };
+$('#modes').onclick = async e => { const m = e.target.dataset.mode; if (!m) return; if (m === 'yolo' && !confirm('Unrestricted means Heron changes files and runs commands without asking. Continue?')) return; await api('/mode', { method: 'POST', body: { mode: m } }); refreshState(); };
+
+// ----- views -----
+const loaders = { onboarding: loadOnboarding, awareness: loadAwareness, memory: loadMemory, tasks: loadTasks, reminders: loadReminders, activity: loadActivity, settings: loadSettings };
+function show(name) {
+  document.querySelectorAll('.view').forEach(v => v.hidden = v.id !== 'v-' + name);
+  document.querySelectorAll('nav button').forEach(b => b.dataset.view === name ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
+  $('#composer').hidden = name !== 'chat'; $('#modes').hidden = name !== 'chat'; $('#undo').hidden = name !== 'chat' || !current;
+  $('#title').textContent = name === 'chat' ? curTitle : '';
+  document.body.classList.remove('nav-open'); loaders[name]?.().catch(e => alert(e.message));
+}
+document.querySelector('nav').onclick = e => { const b = e.target.closest('button'); if (b) show(b.dataset.view); };
+const row = (body, meta, onDelete, delLabel) => { const li = el('li'); const b = el('div', 'body'); typeof body === 'string' ? b.append(body) : b.append(...body); if (meta) b.append(el('span', 'meta', meta)); li.append(b); if (onDelete) { const x = el('button', 'x', delLabel || 'Remove'); x.onclick = onDelete; li.append(x); } return li; };
+const blank = (list, text) => { const li = el('li', 'blank', text); list.append(li); };
+
+// ----- onboarding -----
+const SOURCES = {
+  computer: { title: 'This computer', off: 'Heron looks at your system, time zone, installed tools and the names of your folders. Nothing is opened.', action: 'Look around', fields: [] },
+  documents: { title: 'Notes and documents', off: 'A folder of notes or documents (Markdown and text files). Heron can then find things in them.', action: 'Add folder', fields: [['path', 'Folder', 'e.g. ~/Documents/Notes', 'text']] },
+  calendar: { title: 'Calendar', off: 'Paste the private ICS link of your calendar. Google Calendar: Settings → your calendar → “Secret address in iCal format”. iCloud and Outlook offer a similar link when you share or publish a calendar.', action: 'Connect calendar', fields: [['url', 'Private calendar link', 'https://… .ics', 'url']] },
+  email: { title: 'Email', off: 'Heron reads your recent inbox so it knows who you are talking to and what is pending. It can never send, delete or mark anything. Use an app password, not your normal password: Gmail, iCloud, Fastmail and Yahoo create one under their security settings. Outlook.com and Microsoft 365 no longer allow this kind of sign-in, so they cannot be connected yet.', action: 'Connect email', fields: [['host', 'Mail server', 'imap.gmail.com', 'text'], ['username', 'Email address', 'you@example.com', 'email'], ['password', 'App password', '', 'password']] },
+};
+const MAIL_HOSTS = { 'gmail.com': 'imap.gmail.com', 'googlemail.com': 'imap.gmail.com', 'icloud.com': 'imap.mail.me.com', 'me.com': 'imap.mail.me.com', 'fastmail.com': 'imap.fastmail.com', 'yahoo.com': 'imap.mail.yahoo.com' };
+const obMessages = {};
+function sourceCard(name, st, info) {
+  const def = SOURCES[name]; const on = st.connected; const c = el('div', 'src' + (on ? ' on' : '')); c.append(el('h4', '', def.title));
+  const status = el('p', 'st');
+  if (on) { status.append(el('b', '', 'Connected. ')); status.append(name === 'computer' ? 'Heron knows its way around this computer.' : `${st.indexed} ${name === 'email' ? 'recent messages' : name === 'calendar' ? 'events' : 'files'} indexed on this computer${st.address ? ' from ' + st.address : ''}${st.folders?.length ? ' from ' + st.folders.join(', ') : ''}${st.hosts?.length ? ' from ' + st.hosts.join(', ') : ''}.${st.learned ? ` Heron learned ${st.learned} thing${st.learned === 1 ? '' : 's'} from it.` : ''}`); }
+  else status.textContent = def.off;
+  c.append(status);
+  const form = el('form'); const inputs = {};
+  if (!on || name === 'documents' || name === 'calendar') {
+    for (const [key, labelText, ph, type] of def.fields) { const l = el('label', 'field'); l.append(el('span', '', labelText)); const i = el('input'); i.type = type; i.placeholder = ph; if (type === 'password') i.autocomplete = 'off'; inputs[key] = i; l.append(i); form.append(l); }
+    if (inputs.username) inputs.username.onchange = () => { const d = inputs.username.value.split('@')[1]?.toLowerCase(); if (d && MAIL_HOSTS[d] && !inputs.host.value) inputs.host.value = MAIL_HOSTS[d]; };
+  }
+  const row = el('div', 'row');
+  if (!on || def.fields.length && name !== 'email') { const go = el('button', 'btn' + (on ? ' quiet' : ''), on && name === 'documents' ? 'Add another folder' : on ? 'Add another calendar' : def.action); row.append(go); }
+  const busy = async (btn, text, fn) => { const old = btn.textContent; btn.disabled = true; btn.textContent = text; delete obMessages[name]; try { obMessages[name] = { ok: await fn() }; } catch (e) { obMessages[name] = { err: e.message }; } btn.textContent = old; btn.disabled = false; loadOnboarding(); refreshState(); };
+  form.onsubmit = e => { e.preventDefault(); const body = {}; for (const k in inputs) body[k] = inputs[k].value; busy(form.querySelector('button'), 'Connecting…', async () => { const r = await api('/sources/' + name, { method: 'POST', body }); return r.learned?.length ? r.learned : null; }); };
+  if (on && name !== 'computer') { const learn = el('button', 'btn', 'Learn from it'); learn.type = 'button'; learn.disabled = info.demo || !info.has_model && !info.demo; learn.title = learn.disabled ? 'Connect an AI model first' : ''; learn.onclick = () => busy(learn, 'Reading…', async () => { const r = await api(`/sources/${name}/learn`, { method: 'POST' }); return r.learned.length ? r.learned : ['Nothing new worth remembering.']; }); row.append(learn); }
+  if (on) { const off = el('button', 'btn quiet', 'Disconnect and forget'); off.type = 'button'; off.onclick = () => { if (confirm(`Disconnect ${def.title.toLowerCase()} and forget everything Heron indexed and learned from it?`)) busy(off, 'Removing…', async () => { await api('/sources/' + name, { method: 'DELETE' }); return null; }); }; row.append(off); }
+  form.append(row); c.append(form);
+  if (on && name !== 'computer') c.append(el('small', '', 'Learning sends excerpts to your AI model, which picks out lasting facts about people, projects and commitments. Until then everything stays on this computer.'));
+  const m = obMessages[name];
+  if (m?.err) c.append(el('div', 'fail', m.err));
+  if (m?.ok) { const ul = el('ul'); for (const item of m.ok) ul.append(el('li', '', item)); c.append(ul); }
+  return c;
+}
+async function loadOnboarding() {
+  const [info, aw] = await Promise.all([api('/sources'), api('/awareness')]);
+  const ready = info.has_model && !info.demo;
+  $('#ob-model').className = ready ? 'ok' : ''; const mrow = $('#ob-model-row'); mrow.replaceChildren();
+  $('#ob-model-st').textContent = ready ? `Connected to ${info.model}.` : info.demo ? 'You are in demo mode: Heron can act, but it cannot think or learn yet. Connect a model whenever you are ready.' : 'Heron needs an AI model to think with. Add an API key, use a model running on this computer, or look around in demo mode first.';
+  const set = el('button', 'btn' + (ready ? ' quiet' : ''), ready ? 'Change model' : 'Connect a model'); set.onclick = () => show('settings'); mrow.append(set);
+  if (!ready && !info.demo) { const d = el('button', 'btn quiet', 'Use the demo for now'); d.onclick = async () => { await api('/settings', { method: 'POST', body: { base_url: 'demo' } }); await refreshState(); loadOnboarding(); }; mrow.append(d); }
+  $('#ob-about').className = info.about.saved ? 'ok' : '';
+  if (info.about.saved && !$('#ab-saved').textContent) $('#ab-saved').textContent = `Heron remembers ${info.about.saved} thing${info.about.saved === 1 ? '' : 's'} you told it`;
+  const box = $('#ob-sources'); box.replaceChildren();
+  for (const name of ['computer', 'documents', 'calendar', 'email']) box.append(sourceCard(name, info[name], info));
+  const more = el('div', 'src'); more.append(el('h4', '', 'Other apps'), el('p', 'st', 'Heron can use any app that offers an MCP connector, such as Slack, Notion, GitHub or Google Drive. Add the connector to the settings file in your Heron folder and its tools appear here after a restart.')); box.append(more);
+  $('#ob-world').className = ['computer', 'documents', 'calendar', 'email'].some(n => info[n].connected) ? 'ok' : '';
+  document.querySelectorAll('#ob-level input').forEach(r => r.checked = r.value === aw.proactive);
+  $('#ob-pro').className = info.onboarded ? 'ok' : ''; $('#ob-finish').textContent = info.onboarded ? 'Back to the conversation' : 'Finish setup';
+}
+$('#ob-about-form').onsubmit = async e => { e.preventDefault(); const v = id => $('#ab-' + id).value; const out = $('#ab-saved'); out.textContent = '';
+  try { const r = await api('/sources/about', { method: 'POST', body: { name: v('name'), work: v('work'), goals: v('goals'), style: v('style'), people: v('people'), notes: v('notes') } });
+    out.textContent = r.saved.length || v('notes').trim() ? 'Saved to memory' : 'Fill in at least one field first'; await loadOnboarding(); refreshState(); }
+  catch (er) { out.textContent = er.message; } };
+$('#ob-level').onchange = async e => { const v = e.target.value; if (v === 'takeover' && !confirm('Take over lets Heron create and edit files in your working folder without asking first. Every change can be undone from its conversation. Turn it on?')) return loadOnboarding(); await api('/awareness', { method: 'POST', body: { proactive: v } }); };
+$('#ob-finish').onclick = async () => { await api('/onboarded', { method: 'POST' }); await refreshState(); startNew(); };
+
+async function renderOffers(box, compact) {
+  let items = []; try { items = await api('/suggestions'); } catch (e) {}
+  box.replaceChildren();
+  if (!items.length) { if (!compact) box.append(el('p', 'blank', 'No suggestions right now. When Heron sees something it could take off your hands, it appears here.')); return; }
+  if (compact) box.append(el('p', 'offers-h', 'Heron suggests'));
+  const answer = (id, action) => api('/suggestions/' + id, { method: 'POST', body: { action } });
+  for (const s of items.slice(0, compact ? 3 : 20)) {
+    const c = el('div', 'offer'); c.append(el('h3', '', (s.status === 'done' ? 'Done for you: ' : s.status === 'prepared' ? 'Prepared: ' : s.status === 'failed' ? 'Could not finish: ' : '') + s.title));
+    if (s.why) c.append(el('p', 'why', s.why));
+    if (s.result) { const r = el('div', 'prose'); r.innerHTML = md(s.result); c.append(r); }
+    const row = el('div', 'row');
+    if (s.status === 'new') { const go = el('button', 'btn', 'Do it'); go.onclick = async () => { const r = await answer(s.id, 'accept'); startNew(); send(r.prompt); }; row.append(go); }
+    if (s.session_id) { const open = el('button', 'btn' + (s.status === 'new' ? ' quiet' : ''), s.status === 'done' ? 'Review what changed' : 'Continue in a conversation'); open.onclick = async () => { await answer(s.id, 'accept'); refreshState(); openSession(s.session_id); }; row.append(open); }
+    const no = el('button', 'btn quiet', s.status === 'new' ? 'Not now' : s.status === 'done' ? 'Got it' : 'Dismiss'); no.onclick = async () => { await answer(s.id, s.status === 'done' ? 'accept' : 'dismiss'); renderOffers(box, compact); refreshState(); }; row.append(no);
+    c.append(row); box.append(c);
+  }
+}
+function renderAwareness(a) {
+  document.querySelectorAll('#aw-pro input').forEach(r => { r.checked = r.value === a.proactive; r.disabled = !a.enabled; });
+  $('#aw-pro-note').textContent = a.demo && a.proactive !== 'off' ? 'Demo mode cannot come up with suggestions. Connect a model in Settings.' : 'Suggesting, preparing and taking over send what Heron noticed (file names, your tasks and what it knows about you) to your AI model about every half hour while there is new activity, which uses tokens.';
+  if (a.budget_limit && a.proactive !== 'off') $('#aw-pro-note').textContent += ` Today Heron has used ${a.budget_used.toLocaleString()} of its ${a.budget_limit.toLocaleString()} token allowance for work it starts itself${a.budget_used >= a.budget_limit ? ', so it is paused until tomorrow' : ''}.`;
+  renderOffers($('#aw-offers'), false);
+  $('#aw-on').checked = a.enabled; $('#aw-reflect').checked = a.reflect; $('#aw-reflect').disabled = !a.enabled;
+  $('#aw-ws').textContent = `Watching ${a.workspace}`;
+  const now = $('#aw-now'); now.replaceChildren();
+  if (!a.enabled) blank(now, 'Background watching is off. Heron only knows what you tell it.');
+  else {
+    if (a.focus.length) now.append(row('Your focus this week', a.focus.map(([area, n]) => `${area} (${n} change${n === 1 ? '' : 's'})`).join(', ')));
+    if (a.branch) now.append(row('Git branch', a.branch));
+    now.append(row('Your usual hours', a.active_hours ? `Mostly active between ${a.active_hours[0]}:00 and ${a.active_hours[1]}:00` : 'Not enough history yet. Heron needs a few days before it says anything about your habits.'));
+    if (!a.focus.length) now.append(row('Your focus this week', 'Nothing has changed in the folder yet.'));
+  }
+  const ins = $('#aw-insights'); ins.replaceChildren();
+  if (!a.insights.length) blank(ins, a.reflect ? (a.demo ? 'Demo mode cannot reflect. Connect a model to get insights.' : 'Nothing yet. Heron reflects after it has seen enough activity, at most every six hours.') : 'Turn on “Think about what it notices” to let Heron draw conclusions.');
+  for (const m of a.insights) ins.append(row(m.content, 'Noticed ' + fmtTime(m.updated_at), async () => { await api('/memories/' + m.id, { method: 'DELETE' }); loadAwareness(); }, 'Forget'));
+  const j = $('#aw-journal'); j.replaceChildren();
+  if (!a.journal.length) blank(j, a.enabled ? 'Nothing noticed yet. Changes in your folder appear here within a minute.' : 'Nothing is being recorded.');
+  for (const o of a.journal.slice(0, 40)) j.append(row(o.path, 'Changed ' + fmtTime(o.ts)));
+}
+async function loadAwareness() { renderAwareness(await api('/awareness')); }
+$('#aw-on').onchange = async e => renderAwareness(await api('/awareness', { method: 'POST', body: { enabled: e.target.checked } }));
+$('#aw-reflect').onchange = async e => renderAwareness(await api('/awareness', { method: 'POST', body: { reflect: e.target.checked } }));
+$('#aw-pro').onchange = async e => { const v = e.target.value; if (v === 'takeover' && !confirm('Take over lets Heron create and edit files in your working folder without asking first. Every change can be undone from its conversation. Turn it on?')) return loadAwareness(); renderAwareness(await api('/awareness', { method: 'POST', body: { proactive: v } })); };
+$('#aw-clear').onclick = async () => { if (!confirm('Forget everything Heron has observed, including its conclusions? What you told it directly is kept.')) return; await api('/awareness', { method: 'DELETE' }); loadAwareness(); };
+
+async function loadMemory() {
+  const q = $('#mem-q').value.trim(); const items = await api('/memories' + (q ? '?q=' + encodeURIComponent(q) : '')); const list = $('#mem-list'); list.replaceChildren();
+  const names = { profile: 'About me', preference: 'Preference', workflow: 'How I like things done', project: 'Project', person: 'Person', fact: 'Fact' };
+  if (!items.length) blank(list, q ? `Nothing in memory matches “${q}”.` : 'Nothing remembered yet. Tell Heron about yourself, or add something above.');
+  const from = { email: 'your email', calendar: 'your calendar', documents: 'your documents', observed: 'watching your folder' };
+  for (const m of items) { const li = row([el('span', 'kind', names[m.kind] || m.kind), document.createTextNode(m.content)], m.confirmed ? 'Saved ' + fmtTime(m.updated_at) : `Picked up from ${from[m.source] || 'outside'}, not confirmed by you. Heron treats it as possibly wrong.`, async () => { await api('/memories/' + m.id, { method: 'DELETE' }); loadMemory(); refreshState(); }, 'Forget');
+    if (!m.confirmed) { const ok = el('button', 'x', 'Confirm'); ok.style.color = 'var(--ok)'; ok.onclick = async () => { await api(`/memories/${m.id}/confirm`, { method: 'POST' }); loadMemory(); }; li.insertBefore(ok, li.lastChild); }
+    list.append(li); }
+}
+$('#mem-add').onsubmit = async e => { e.preventDefault(); const v = $('#mem-new').value.trim(); if (!v) return $('#mem-new').focus(); await api('/memories', { method: 'POST', body: { content: v, kind: $('#mem-kind').value } }).catch(er => alert(er.message)); $('#mem-new').value = ''; loadMemory(); refreshState(); };
+let memTimer; $('#mem-q').oninput = () => { clearTimeout(memTimer); memTimer = setTimeout(loadMemory, 200); };
+
+async function loadTasks() {
+  const items = await api('/tasks'); const list = $('#task-list'); list.replaceChildren();
+  if (!items.length) blank(list, 'No tasks yet. Add one above, or ask Heron to.');
+  for (const t of items) { const li = row(t.title, [t.due && 'Due ' + t.due, t.notes].filter(Boolean).join(' — '), async () => { await api('/tasks/' + t.id, { method: 'DELETE' }); loadTasks(); });
+    const cb = el('input'); cb.type = 'checkbox'; cb.checked = t.status === 'done'; cb.setAttribute('aria-label', 'Done: ' + t.title); cb.onchange = async () => { await api('/tasks/' + t.id, { method: 'POST', body: { status: cb.checked ? 'done' : 'open' } }); loadTasks(); };
+    li.prepend(cb); if (cb.checked) li.classList.add('done'); list.append(li); }
+}
+$('#task-add').onsubmit = async e => { e.preventDefault(); const v = $('#task-new').value.trim(); if (!v) return $('#task-new').focus(); await api('/tasks', { method: 'POST', body: { title: v } }); $('#task-new').value = ''; loadTasks(); };
+
+async function loadReminders() {
+  const [items, inbox] = await Promise.all([api('/schedules'), api('/inbox')]); const list = $('#rem-list'); list.replaceChildren();
+  const live = items.filter(s => s.enabled);
+  if (!live.length) blank(list, 'Nothing scheduled.');
+  for (const s of live) list.append(row(s.prompt, `${s.cron ? 'Repeats (' + s.cron + '), next' : 'Once,'} ${fmtTime(s.next_run)} — ${mayText(s.allow)}`, async () => { await api('/schedules/' + s.id, { method: 'DELETE' }); loadReminders(); }, 'Cancel'));
+  const il = $('#inbox-list'); il.replaceChildren();
+  if (!inbox.length) blank(il, 'Results of scheduled runs appear here.');
+  for (const m of inbox) { const body = el('div', 'prose'); body.innerHTML = md(m.body); il.append(row([el('strong', '', m.title), body], fmtTime(m.ts))); }
+  if (inbox.some(m => !m.read)) { await api('/inbox/read', { method: 'POST' }); refreshState(); }
+}
+$('#rem-add').onsubmit = async e => { e.preventDefault(); const err = $('#rem-err'); err.hidden = true;
+  try { await api('/schedules', { method: 'POST', body: { prompt: $('#rem-what').value, when: $('#rem-when').value, may: $('#rem-may').value } }); $('#rem-what').value = ''; $('#rem-when').value = ''; $('#rem-may').value = 'read'; loadReminders(); }
+  catch (er) { err.textContent = er.message; err.hidden = false; } };
+
+$('#rem-brief').onclick = () => { $('#rem-what').value = 'Give me a short morning briefing: my open tasks by priority, anything due today, and what I was working on most recently in my folder.'; $('#rem-when').value = 'daily 08:00'; $('#rem-what').focus(); };
+const mayText = a => !a ? 'read only' : a.includes('shell') ? 'may edit files and run commands' : 'may edit files';
+
+async function loadActivity() {
+  const items = await api('/audit'); const box = $('#audit'); box.replaceChildren();
+  if (!items.length) return box.append(el('p', 'blank', 'Nothing yet. Actions appear here as Heron works.'));
+  const t = el('table'); t.innerHTML = '<thead><tr><th>When</th><th>Action</th><th>Details</th><th>Outcome</th></tr></thead>'; const tb = el('tbody');
+  for (const a of items) { const tr = el('tr'); tr.append(el('td', '', fmtTime(a.ts)), el('td', '', label(a.tool)), el('td', 'm', a.args));
+    const d = el('td', a.decision.startsWith('denied') ? 'd-denied' : '', { allowed: 'Done', approved: 'You allowed', 'approved-always': 'You allowed (always)', 'denied-by-user': "You didn't allow", 'denied-by-policy': 'Blocked' }[a.decision] || a.decision); tr.append(d); tb.append(tr); }
+  t.append(tb); box.append(t);
+}
+
+async function loadSettings() {
+  const s = await api('/settings');
+  $('#s-base').value = s.base_url; $('#s-model').value = s.model; $('#s-fallback').value = s.fallback_models; $('#s-fast').value = s.fast_model; $('#s-key').value = '';
+  $('#s-key').placeholder = s.key_source === 'none' ? 'Paste your key' : 'Leave empty to keep the current key';
+  const where = s.secret_storage;
+  $('#s-keynote').textContent = s.base_url === 'demo' ? 'Demo mode needs no key.' : { environment: 'A key is already set through an environment variable on this computer.', saved: `A key is saved in ${where}. It is never shown again or sent anywhere except to the service above.`, none: `Kept in ${where}. Not needed for models running locally, like Ollama.` }[s.key_source];
+  document.querySelectorAll('#s-mode input').forEach(r => r.checked = r.value === s.mode); $('#s-daemon').value = s.daemon_mode === 'readonly' ? 'readonly' : 'auto';
+  loadPhone().catch(() => {});
+  const apps = $('#s-apps'); apps.replaceChildren();
+  if (!s.mcp.length) apps.append(el('p', 'note', 'No apps connected through MCP.'));
+  for (const line of s.mcp) { const name = line.split(':')[0]; const p = el('p', 'note', line); if (s.mcp_changed.includes(name)) { p.style.color = 'var(--danger)'; const b = el('button', 'btn quiet', 'Accept the changed tools'); b.type = 'button'; b.style.marginLeft = '10px'; b.onclick = async () => { if (!confirm(`Only accept if you expected ${name} to change (for example after updating it). Accept?`)) return; const r = await api(`/mcp/${name}/accept`, { method: 'POST' }); p.textContent = `${name}: accepted. ${r.note}`; p.style.color = ''; }; p.append(b); } apps.append(p); }
+  $('#s-auto').checked = s.auto_memory; $('#s-ws').value = s.workspace; $('#s-home').textContent = `Conversations, memory and settings are stored in ${s.home}.`;
+}
+async function loadPhone(t) {
+  t = t || await api('/telegram');
+  $('#tg-form').hidden = t.configured; $('#tg-remove').hidden = !t.configured;
+  $('#tg-status').textContent = t.paired ? 'Paired with your phone. Only that chat is answered. Replies to permission questions can be given there, except for risky actions, which always need you here. Send /stop from your phone to halt Heron.'
+    : t.configured ? `Open your bot in Telegram and send it this code to pair your phone: ${t.code}. Until then it answers nobody.`
+    : 'Talk to Heron through Telegram while this computer is on. In Telegram, message @BotFather, create a bot, and paste its token here. Your messages pass through Telegram\'s servers.';
+}
+$('#tg-save').onclick = async () => { try { await loadPhone(await api('/telegram', { method: 'POST', body: { token: $('#tg-token').value } })); $('#tg-token').value = ''; } catch (e) { $('#tg-status').textContent = e.message; } };
+$('#tg-remove').onclick = async () => { if (!confirm('Disconnect your phone from Heron?')) return; const r = await api('/telegram', { method: 'DELETE' }); await loadPhone(r); $('#tg-status').textContent = r.note; };
+$('#presets').onclick = e => { const b = e.target.closest('button'); if (!b) return; $('#s-base').value = b.dataset.url; $('#s-model').value = b.dataset.model; };
+$('#settings').onsubmit = async e => { e.preventDefault(); const err = $('#s-err'); err.hidden = true; $('#s-saved').textContent = '';
+  try { await api('/settings', { method: 'POST', body: { base_url: $('#s-base').value, model: $('#s-model').value, fallback_models: $('#s-fallback').value, fast_model: $('#s-fast').value, api_key: $('#s-key').value, mode: $('#s-mode input:checked')?.value, daemon_mode: $('#s-daemon').value, auto_memory: $('#s-auto').checked, workspace: $('#s-ws').value } });
+    $('#s-saved').textContent = 'Settings saved'; await refreshState(); loadSettings(); }
+  catch (er) { err.textContent = er.message; err.hidden = false; } };
+
+// ----- start -----
+(async () => {
+  try { await refreshState(); } catch (e) { thread.replaceChildren(); const f = el('div', 'fail'); f.append(el('b', '', 'Heron is not connected. '), document.createTextNode('Open it again from the Heron app or the link it printed at startup.')); thread.append(f); $('#composer').hidden = true; return; }
+  showEmpty(); refreshSessions();
+  if (!state.onboarded) show('onboarding'); else input.focus();
+  setInterval(() => { if (!busy) refreshState().catch(() => {}); }, 30000);
+})();
+})();
+</script>
+</body>
+</html>
