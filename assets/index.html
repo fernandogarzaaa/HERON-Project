@@ -325,7 +325,7 @@ td.m{font:12.5px/1.5 var(--mono)}
 
   <section class="view page" id="v-reminders" hidden><div class="col">
     <h2>Reminders</h2>
-    <p>Things Heron does on a schedule while the app is open. Scheduled runs can read and search but not change anything, unless you allow more in Settings.</p>
+    <p>Things Heron does on a schedule, or when something happens, while the app is open. For a job with fixed steps, ask Heron in a conversation to “automate” it: it builds the steps, shows them to you, and from then on they run without the AI model unless a step needs it. Scheduled runs can read and search but not change anything, unless you allow more in Settings.</p>
     <form id="rem-add">
       <label class="field"><span>What should Heron do?</span><input id="rem-what" placeholder="e.g. Summarize today's top technology news in five bullet points"></label>
       <label class="field"><span>When?</span><input id="rem-when" placeholder="tomorrow 9:00"><small>A time: “in 30m”, “tomorrow 9:00”, “daily 08:00”, “every 2h”. Or an event: “when notes/*.md changes”, “when a file changes in Drafts”, “when an email arrives from Maria”.</small></label>
@@ -452,8 +452,8 @@ let state = {}, current = null, busy = false, abortCtl = null, curTitle = 'New c
 const setTitle = t => { curTitle = t; $('#title').textContent = t; };
 const thread = $('#thread'), input = $('#input');
 const fmtTime = ts => new Date(ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-const toolLabel = { shell: 'Ran', read_file: 'Read', write_file: 'Wrote', edit_file: 'Edited', list_dir: 'Listed', search_files: 'Searched files for', find_files: 'Looked for files', web_fetch: 'Opened', web_search: 'Searched the web for', remember: 'Remembered', recall: 'Checked memory for', forget: 'Forgot memory', task_add: 'Added task', task_list: 'Checked tasks', task_update: 'Updated task', schedule_add: 'Scheduled', schedule_list: 'Checked reminders', schedule_remove: 'Cancelled reminder', use_skill: 'Loaded skill', delegate: 'Handed off' };
-const askTitle = t => ({ shell: 'Heron wants to run a command', write_file: 'Heron wants to write a file', edit_file: 'Heron wants to edit a file', read_file: 'Heron wants to read a sensitive file', list_dir: 'Heron wants to open a sensitive folder', search_files: 'Heron wants to search a sensitive folder' }[t] || `Heron wants to use ${t.replace(/^mcp__/, '').replace(/__/g, ' → ')}`);
+const toolLabel = { shell: 'Ran', read_file: 'Read', write_file: 'Wrote', edit_file: 'Edited', list_dir: 'Listed', search_files: 'Searched files for', find_files: 'Looked for files', web_fetch: 'Opened', web_search: 'Searched the web for', remember: 'Remembered', recall: 'Checked memory for', forget: 'Forgot memory', task_add: 'Added task', task_list: 'Checked tasks', task_update: 'Updated task', schedule_add: 'Scheduled', schedule_list: 'Checked reminders', schedule_remove: 'Cancelled reminder', use_skill: 'Loaded skill', delegate: 'Handed off', save_automation: 'Set up automation', update_persona: 'Changed personality', save_skill: 'Saved skill', search_knowledge: 'Searched your email, calendar and documents for', if: 'Checked a condition', notify: 'Told you', ask: 'Asked the AI model', agent: 'Worked on it', for_each: 'Repeated for each item', set: 'Worked out a value', stop: 'Stopped' };
+const askTitle = t => ({ shell: 'Heron wants to run a command', write_file: 'Heron wants to write a file', edit_file: 'Heron wants to edit a file', read_file: 'Heron wants to read a sensitive file', list_dir: 'Heron wants to open a sensitive folder', search_files: 'Heron wants to search a sensitive folder', save_automation: 'Heron wants to set up an automation', update_persona: 'Heron wants to change its personality', save_skill: 'Heron wants to save a skill for next time' }[t] || `Heron wants to use ${t.replace(/^mcp__/, '').replace(/__/g, ' → ')}`);
 const label = n => toolLabel[n] || n.replace(/^mcp__/, '').replace(/__/g, ' → ');
 
 async function refreshState() {
@@ -512,9 +512,11 @@ function newTurn() {
     end(id, name, ok, preview) { const li = steps[id] || T.step(id, name, '', 'run'); li.className = 'step ' + (ok ? 'ok' : 'err'); $('.res', li).textContent = preview || ''; },
     note(t) { turn.append(el('p', 'note', t)); prose = null; },
     ask(ev) {
-      const box = el('div', 'ask' + (ev.risk === 'DANGEROUS' ? ' danger' : '')); box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-label', askTitle(ev.tool));
+      const box = el('div', 'ask' + (ev.risk === 'DANGEROUS' && !['save_automation', 'update_persona', 'save_skill'].includes(ev.tool) ? ' danger' : '')); box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-label', askTitle(ev.tool));
       box.append(el('h3', '', askTitle(ev.tool)));
-      if (ev.risk === 'DANGEROUS') box.append(el('p', 'warn', 'This could delete data, reach outside your folder, or be hard to undo.'));
+      const standing = ['save_automation', 'update_persona', 'save_skill'].includes(ev.tool);
+      if (standing) box.append(el('p', 'why', 'This changes what Heron does from now on, so it always needs your OK. Read it through before allowing.'));
+      else if (ev.risk === 'DANGEROUS') box.append(el('p', 'warn', 'This could delete data, reach outside your folder, or be hard to undo.'));
       if (ev.tainted) box.append(el('p', 'warn', 'Heron has read content from outside (a web page, an email or a connected app) in this conversation. Check that this is something you asked for.'));
       box.append(el('pre', '', ev.detail || ev.summary));
       const row = el('div', 'row');
@@ -769,7 +771,23 @@ async function loadReminders() {
   const [items, inbox] = await Promise.all([api('/schedules'), api('/inbox')]); const list = $('#rem-list'); list.replaceChildren();
   const live = items.filter(s => s.enabled);
   if (!live.length) blank(list, 'Nothing scheduled.');
-  for (const s of live) list.append(row(s.prompt, `${s.trigger ? s.trigger : (s.cron ? 'Repeats (' + s.cron + '), next ' : 'Once, ') + fmtTime(s.next_run)} — ${mayText(s.allow)}${s.quiet ? ', speaks up only when needed' : ''}${s.last_run ? `. Last ran ${fmtTime(s.last_run)}${s.last_tokens ? ', used ' + s.last_tokens.toLocaleString() + ' tokens' : ''}${s.quiet && s.last_result ? ': ' + s.last_result : ''}` : ''}`, async () => { await api('/schedules/' + s.id, { method: 'DELETE' }); loadReminders(); }, 'Cancel'));
+  for (const s of live) { const li = row(s.outline ? s.name : s.prompt, `${s.trigger ? s.trigger : (s.cron ? 'Repeats (' + s.cron + '), next ' : 'Once, ') + fmtTime(s.next_run)} — ${mayText(s.allow)}${s.quiet ? ', speaks up only when needed' : ''}${s.last_run ? `. Last ran ${fmtTime(s.last_run)}${s.last_tokens ? ', used ' + s.last_tokens.toLocaleString() + ' tokens' : ''}${s.quiet && s.last_result ? ': ' + s.last_result : ''}` : ''}`, async () => { await api('/schedules/' + s.id, { method: 'DELETE' }); loadReminders(); }, 'Cancel');
+    const body = $('.body', li);
+    if (s.outline) { body.insertBefore(el('span', 'kind', s.uses_model ? 'Automation, uses the AI model' : 'Automation, no AI model needed'), body.firstChild); const pre = el('pre', '', s.outline); pre.style.cssText = 'margin:8px 0 4px;padding:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font:12.5px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere'; body.append(pre); }
+    const tools = el('div', 'row'); tools.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px';
+    const run = el('button', 'btn quiet', 'Run now'); run.style.cssText = 'padding:3px 10px;font-size:13px'; const out = el('span', 'meta'); out.style.margin = '0';
+    run.onclick = async () => { run.disabled = true; out.textContent = 'Running…'; await api(`/schedules/${s.id}/run`, { method: 'POST' }); const before = s.last_run || 0;
+      for (let i = 0; i < 60; i++) { await new Promise(r => setTimeout(r, 1500)); const now = (await api('/schedules')).find(x => x.id === s.id); if (now && (now.last_run || 0) > before || !now) break; }
+      loadReminders(); refreshState(); };
+    const may = el('select'); may.setAttribute('aria-label', 'What this job may do'); may.style.cssText = 'padding:3px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font-size:13px';
+    for (const [v, t] of [['read', 'May only read and look things up'], ['write', 'May also edit files in my folder'], ['commands', 'May also run commands']]) { const o = el('option', '', t); o.value = v; o.selected = (!s.allow && v === 'read') || (s.allow && s.allow.includes('shell') ? v === 'commands' : s.allow && v === 'write'); may.append(o); }
+    may.onchange = async () => { await api('/schedules/' + s.id, { method: 'POST', body: { may: may.value } }); };
+    tools.append(run, may);
+    if (s.outline && s.last_run) { const hist = el('button', 'btn quiet', 'Show last run'); hist.style.cssText = 'padding:3px 10px;font-size:13px'; hist.onclick = async () => { const runs = await api(`/schedules/${s.id}/runs`); const r = runs[0]; if (!r) return; const ol = el('ol'); ol.style.cssText = 'margin:8px 0 0;padding-left:1.4em;font-size:13.5px';
+        for (const st of r.record.steps || []) { const item = el('li', '', `${label(st.what)} — ${({ ok: 'done', failed: 'failed', waiting: 'waiting for you' })[st.status] || st.status}${st.output ? ': ' + st.output.slice(0, 160) : ''}`); if (st.status !== 'ok') item.style.color = 'var(--danger)'; ol.append(item); }
+        if (r.record.error) { const e = el('li', '', r.record.error); e.style.color = 'var(--danger)'; ol.append(e); }
+        hist.replaceWith(ol); }; tools.append(hist); }
+    tools.append(out); body.append(tools); list.append(li); }
   const il = $('#inbox-list'); il.replaceChildren();
   if (!inbox.length) blank(il, 'Results of scheduled runs appear here.');
   for (const m of inbox) { const body = el('div', 'prose'); body.innerHTML = md(m.body); il.append(row([el('strong', '', m.title), body], fmtTime(m.ts))); }

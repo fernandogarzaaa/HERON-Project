@@ -490,6 +490,16 @@ impl Llm for DemoLlm {
                 _ if user.contains("durable facts") => "[]".to_string(),
                 _ => "- (demo mode) earlier conversation summarized".to_string(),
             })
+        } else if user.contains("automat") {
+            call(
+                "save_automation",
+                json!({"name": "Notes check", "when": "daily 08:00", "steps": [
+                    {"id": "files", "do": "tool", "tool": "find_files", "args": {"glob": "**/*.md"}},
+                    {"id": "any", "do": "if", "condition": "{{ steps.files.out | lines | len }} > 0",
+                     "then": [{"id": "tell", "do": "notify", "title": "Your notes", "text": "You have {{ steps.files.out | lines | len }} note files. Newest listed first: {{ steps.files.out | lines | limit(3) | join(\", \") }}"}],
+                     "else": [{"id": "none", "do": "notify", "text": "No notes in your folder yet."}]}
+                ]}),
+            )
         } else if user.contains("remind") {
             call("schedule_add", json!({"when": "tomorrow 9:00", "prompt": "Remind the user: call the dentist", "name": "Call the dentist"}))
         } else if user.contains("folder") || user.contains("list") {

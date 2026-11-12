@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest] # the bundled ONNX runtime needs glibc 2.38+ on Linux
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

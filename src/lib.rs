@@ -20,3 +20,4 @@ pub mod store;
 pub mod telegram;
 pub mod tools;
 pub mod util;
+pub mod workflow;

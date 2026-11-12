@@ -29,6 +29,7 @@ Heron reads and writes files, runs commands, searches and reads the web, keeps l
 | **Gets to know you first** | On first launch Heron walks you through onboarding: tell it about yourself, let it look around this computer, and connect your notes, calendar (any private ICS link) and email (read-only IMAP with an app password). Everything is indexed locally so the agent can look things up; a separate "Learn from it" step, which you trigger, sends excerpts to your model to extract lasting facts about people, projects and commitments. Any source can be disconnected, which also forgets everything indexed and learned from it. |
 | **A personality you own** | How Heron behaves and speaks lives in one plain file, written as behaviours ("lead with the answer", "no closing offers") rather than adjectives. Edit it in Settings, or just say "be more casual" in a conversation: Heron proposes the change and you approve it. One click puts it back. |
 | **Nothing is lost while you are away** | When unattended work (a reminder, a watch, a take-over) reaches a step that needs your approval, Heron does not do it and does not give up: the step waits in a "Waiting for you" list, the rest of the job carries on, and you can run exactly that step later with one click. |
+| **Automations that do not need the AI every time** | Ask Heron to "automate" a recurring job and it builds a list of fixed steps — fetch a page, check a condition, loop over files, tell you — shows you the outline, and saves it once you approve. From then on the steps run as plain code through the same permission checks as everything else; the AI model is called only by steps that need judgment. A job that would otherwise cost tokens every morning costs nothing, and does the same thing every time. Each run is recorded step by step, and you can run one on demand. |
 | **Reacts to events, not just the clock** | Besides times ("daily 08:00"), jobs can fire when something happens: "when notes/*.md changes", "when an email arrives from Maria". Mail that sets off a job is outside content, so such a job can prepare and report but cannot act without you. Watches can be told to speak up only when something needs you. |
 | **Today at a glance** | The home screen shows what needs you today — calendar, due and overdue tasks, new mail, things waiting for approval — assembled locally with no AI model involved, with a one-click "Prep my day". |
 | **Per-ability switches and a kill switch** | Each ability can be set to ask as usual, never ask, or never allow. One switch (or `/pause` from your phone) stops everything Heron does on its own. |
@@ -130,6 +131,31 @@ allow = ["shell:git *", "shell:cargo *"]
 deny  = ["shell:*curl*"]
 ```
 
+## Automations
+
+An automation is a job made of fixed steps. You normally get one by asking ("every morning, check this page and tell me if the tickets are back"), but the format is simple enough to read:
+
+```json
+[
+  {"id": "page",  "do": "tool", "tool": "web_fetch", "args": {"url": "https://example.com/tickets"}, "retry": 1},
+  {"id": "check", "do": "if", "condition": "{{ steps.page.out }} not contains \"sold out\"",
+   "then": [{"id": "tell", "do": "notify", "title": "Tickets", "text": "They are back: {{ steps.page.out | lines | first }}"}]}
+]
+```
+
+| Step | What it does |
+|---|---|
+| `tool` | Calls one of Heron's tools (files, commands, web, memory, tasks, connected apps), with optional `retry` |
+| `ask` | One answer from the AI model, no tools |
+| `agent` | A full agent run, for a step that needs both judgment and tools |
+| `if` | Chooses between `then` and `else` steps |
+| `for_each` | Repeats steps over a list (`{{ item }}`, `{{ index }}`), with a cap |
+| `set`, `notify`, `stop` | Work out a value, tell you something, end the run |
+
+Values pass between steps through templates such as `{{ steps.page.out | lines | limit(3) | join(", ") }}`, with `{{ trigger.event }}`, `{{ today }}`, `{{ now }}` and `{{ weekday }}` also available. Templates are deliberately not a programming language: dotted paths and a fixed list of filters (`lines`, `json`, `first`, `last`, `len`, `trim`, `lower`, `upper`, `join`, `limit`, `default`), with no code evaluation of any kind. A value that does not exist is an error, never a silent blank. Conditions support `contains`, `not contains`, `==`, `!=`, `>`, `<`, `>=`, `<=`, `is empty`, `is not empty`, joined with `and` / `or`.
+
+Safety is the same as everywhere else in Heron: each tool step goes through the permission checks, a step that needs approval while you are away waits in "Waiting for you", content from the web or email restricts what later steps may do, and an automation cannot change Heron's own skills, personality or automations. The design is informed by workflow tools such as n8n (steps, branching, loops, retries, run history) but shares no code with them; there is no visual editor and no code step, by choice.
+
 ## Configuration
 
 `~/.heron/config.toml` (create a commented starter with `heron init`; the desktop app edits it from Settings). Set `HERON_HOME` to move the data folder.
@@ -174,6 +200,7 @@ src/
   persona.rs      the editable character file
   store.rs        SQLite: sessions, memory (FTS5), tasks, schedules, inbox, audit, checkpoints
   schedule.rs     cron + natural time expressions
+  workflow.rs     automations: fixed steps, templates, conditions, run records
   sources.rs      onboarding and context sources: about-you, computer, documents, calendar, email, learning
   mail.rs         read-only IMAP client and message decoding
   telegram.rs     phone gateway with pairing, remote approvals and /stop
@@ -219,7 +246,7 @@ runs a built-in, deterministic test of the memory retrieval layer: 30 facts, 34 
 | After a fact changed, current version ranked first | 4 / 4 | 4 / 4 |
 | After a fact changed, retired version still recalled | 0 / 4 | 0 / 4 |
 
-The built-in method needs nothing and tolerates misspellings, but misses questions that share no words with the answer ("what is her job" → "landscape architect"). The neural model (all-MiniLM-L6-v2, run locally; the approach comes from the ADAM project) fixes those but is not typo-tolerant on its own, so Heron fuses both with keyword search. It is an optional build feature (`cargo build --features desktop,neural`) and a switch in Settings; the model (about 23 MB) is downloaded once, on first use. The test suite fails if the default numbers regress. This measures retrieval only — not a model's reasoning, and not Heron against other agents.
+The built-in method needs nothing and tolerates misspellings, but misses questions that share no words with the answer ("what is her job" → "landscape architect"). The neural model (all-MiniLM-L6-v2, run locally; the approach comes from the ADAM project) fixes those but is not typo-tolerant on its own, so Heron fuses both with keyword search. It is an optional build feature (`cargo build --features desktop,neural`; on Linux this needs glibc 2.38 or newer, for example Ubuntu 24.04) and a switch in Settings; the model (about 23 MB) is downloaded once, on first use. The test suite fails if the default numbers regress. This measures retrieval only — not a model's reasoning, and not Heron against other agents.
 
 Platform verification: every push runs the test suite and builds the desktop app on Linux, macOS and Windows machines (see the CI badge). Before that, the suite was run natively on Linux and as Windows executables under Wine.
 

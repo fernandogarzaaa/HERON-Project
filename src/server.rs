@@ -123,7 +123,9 @@ pub fn router(app: Arc<App>, token: String) -> Router {
         .route("/tasks", get(list_tasks).post(add_task))
         .route("/tasks/{id}", post(update_task).delete(delete_task))
         .route("/schedules", get(list_schedules).post(add_schedule))
-        .route("/schedules/{id}", delete(delete_schedule))
+        .route("/schedules/{id}", post(update_schedule).delete(delete_schedule))
+        .route("/schedules/{id}/run", post(run_schedule))
+        .route("/schedules/{id}/runs", get(schedule_runs))
         .route("/inbox", get(get_inbox))
         .route("/inbox/read", post(read_inbox))
         .route("/audit", get(get_audit))
@@ -489,8 +491,12 @@ async fn list_schedules(State(st): S) -> ApiResult {
         .into_iter()
         .map(|s| {
             let trigger = if s.cron.starts_with('@') { Some(crate::schedule::describe_trigger(&s.cron)) } else { None };
+            let workflow = if s.workflow.is_empty() { None } else { serde_json::from_str::<Value>(&s.workflow).ok().and_then(|w| crate::workflow::Workflow::parse(&w).ok()) };
             let mut v = json!(s);
             v["trigger"] = json!(trigger);
+            v["outline"] = json!(workflow.as_ref().map(|w| w.describe()));
+            v["uses_model"] = json!(workflow.as_ref().map(|w| w.uses_model()));
+            v.as_object_mut().map(|o| o.remove("workflow"));
             v
         })
         .collect();
@@ -504,12 +510,7 @@ async fn add_schedule(State(st): S, Json(b): Json<Value>) -> ApiResult {
     let name = s("name").map(|n| n.to_string()).unwrap_or_else(|| crate::util::preview(prompt, 40));
     let quiet = b.get("quiet").and_then(|q| q.as_bool()).unwrap_or(false);
     // What this job may do while nobody is watching. Granted here by the user, never by the agent.
-    let allow = match s("may").unwrap_or("read") {
-        "read" => "",
-        "write" => "write_file:*\nedit_file:*",
-        "commands" => "write_file:*\nedit_file:*\nshell:*",
-        _ => return Err(bad("Unknown permission level for this reminder.")),
-    };
+    let allow = grants_for(s("may").unwrap_or("read")).ok_or_else(|| bad("Unknown permission level for this reminder."))?;
     let id = match crate::schedule::parse_trigger(when_text) {
         Some(trigger) => {
             if trigger.starts_with("@email") && st.app.cfg().sources.email.is_none() {
@@ -524,6 +525,40 @@ async fn add_schedule(State(st): S, Json(b): Json<Value>) -> ApiResult {
     };
     st.app.store.set_schedule_quiet(id, quiet)?;
     Ok(Json(json!({"id": id})))
+}
+
+fn grants_for(may: &str) -> Option<&'static str> {
+    match may {
+        "read" => Some(""),
+        "write" => Some("write_file:*\nedit_file:*"),
+        "commands" => Some("write_file:*\nedit_file:*\nshell:*"),
+        _ => None,
+    }
+}
+
+/// Change what a job may do while unattended. Only the user can do this, here.
+async fn update_schedule(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>) -> ApiResult {
+    let may = b.get("may").and_then(|m| m.as_str()).and_then(grants_for).ok_or_else(|| bad("Unknown permission level."))?;
+    if !st.app.store.set_schedule_allow(id, may)? {
+        return Err(ApiError(StatusCode::NOT_FOUND, "That job no longer exists.".into()));
+    }
+    Ok(Json(json!({"ok": true})))
+}
+
+async fn run_schedule(State(st): S, Path(id): Path<i64>) -> ApiResult {
+    if st.app.store.get_schedule(id).is_none() {
+        return Err(ApiError(StatusCode::NOT_FOUND, "That job no longer exists.".into()));
+    }
+    let app = st.app.clone();
+    tokio::spawn(async move {
+        let _ = app.run_now(id).await;
+    });
+    Ok(Json(json!({"started": true})))
+}
+
+async fn schedule_runs(State(st): S, Path(id): Path<i64>) -> ApiResult {
+    let runs: Vec<Value> = st.app.store.list_runs(id, 10)?.into_iter().map(|(ts, status, tokens, record)| json!({"ts": ts, "status": status, "tokens": tokens, "record": serde_json::from_str::<Value>(&record).unwrap_or(Value::Null)})).collect();
+    Ok(Json(json!(runs)))
 }
 
 async fn delete_schedule(State(st): S, Path(id): Path<i64>) -> ApiResult {

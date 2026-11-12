@@ -147,6 +147,34 @@ async fn search_knowledge(args: &Value, ctx: &ToolCtx) -> Result<String> {
     crate::sources::search(&ctx.store, arg_str(args, "query")?, source, opt_i64(args, "limit").unwrap_or(6).clamp(1, 20) as usize)
 }
 
+fn automation_from(args: &Value) -> Result<(String, String, crate::workflow::Workflow)> {
+    let name = arg_str(args, "name")?.trim().to_string();
+    let when = arg_str(args, "when")?.trim().to_string();
+    if name.is_empty() {
+        bail!("give the automation a name");
+    }
+    let workflow = crate::workflow::Workflow::parse(args.get("steps").unwrap_or(&Value::Null))?;
+    workflow.validate(&crate::tools::ToolRegistry::builtin().names())?;
+    Ok((name, when, workflow))
+}
+
+async fn save_automation(args: &Value, ctx: &ToolCtx) -> Result<String> {
+    let (name, when_text, workflow) = automation_from(args)?;
+    // Like any job the agent creates, it starts with no extra permissions; the user grants those in the app.
+    let (id, runs) = match crate::schedule::parse_trigger(&when_text) {
+        Some(trigger) => (ctx.store.add_trigger(&name, &trigger, "automation", "")?, crate::schedule::describe_trigger(&trigger)),
+        None => {
+            let when = parse_when(&when_text, chrono::Local::now())?;
+            (ctx.store.add_schedule(&name, &when.cron, "automation", when.next_run, "")?, format!("next at {}", fmt_ts(when.next_run)))
+        }
+    };
+    ctx.store.set_schedule_workflow(id, &serde_json::to_string(&workflow.steps)?)?;
+    Ok(format!(
+        "saved automation #{id} '{name}' ({runs}). {} Steps that change files or run commands will wait for the user's approval unless they allow them for this automation under Reminders.",
+        if workflow.uses_model() { "It calls the AI model in some steps." } else { "It runs without the AI model." }
+    ))
+}
+
 async fn update_persona(args: &Value, ctx: &ToolCtx) -> Result<String> {
     crate::persona::save(&ctx.cfg, arg_str(args, "persona")?)?;
     Ok("updated. The new character applies from the next message on. The user can review or reset it under Settings.".into())
@@ -287,6 +315,19 @@ pub fn tools() -> Vec<FnTool> {
             detail: None,
             untrusted: true,
             run: |a, c| Box::pin(search_knowledge(a, c)),
+        },
+        FnTool {
+            name: "save_automation",
+            description: "Create an automation: a recurring job made of fixed steps that run as plain code, so it costs no model tokens unless a step asks for the model. Use for jobs like 'every morning check this page and tell me if X', 'when a file changes in notes, add a task', 'daily: fetch, summarize, save'. `when` accepts the same times and events as schedule_add. `steps` is a list; each step has an `id` (letters/digits/underscore) and a `do`:\n- {\"id\":\"page\",\"do\":\"tool\",\"tool\":\"web_fetch\",\"args\":{\"url\":\"https://...\"},\"retry\":1}  call any tool\n- {\"id\":\"sum\",\"do\":\"ask\",\"prompt\":\"Summarize: {{ steps.page.out }}\"}  one model answer, no tools\n- {\"id\":\"work\",\"do\":\"agent\",\"prompt\":\"...\"}  a full agent run (use sparingly)\n- {\"id\":\"c\",\"do\":\"if\",\"condition\":\"{{ steps.page.out }} contains \\\"sold out\\\"\",\"then\":[...],\"else\":[...]}\n- {\"id\":\"loop\",\"do\":\"for_each\",\"items\":\"{{ steps.files.out | lines }}\",\"max\":20,\"steps\":[...]}  inside, {{ item }} and {{ index }}\n- {\"id\":\"v\",\"do\":\"set\",\"value\":\"...\"}, {\"id\":\"n\",\"do\":\"notify\",\"title\":\"...\",\"text\":\"...\"}, {\"id\":\"s\",\"do\":\"stop\"}\nTemplates: {{ steps.ID.out }}, {{ trigger.event }}, {{ today }}, {{ now }}, {{ weekday }}; filters: lines, json, first, last, len, trim, lower, upper, join(\", \"), limit(5), default(\"x\"). Conditions: contains, not contains, ==, !=, >, <, >=, <=, is empty, is not empty, joined by and/or. A step may only refer to steps that ran before it. Prefer tool steps; add an `ask` step only where judgment is needed. The user sees the outline and must approve.",
+            parameters: schema(json!({"name": {"type": "string"}, "when": {"type": "string"}, "steps": {"type": "array", "items": {"type": "object"}}}), &["name", "when", "steps"]),
+            summary: |a| field("name")(a),
+            risk: |_, _| Risk::Danger,
+            detail: Some(|a, _| match automation_from(a) {
+                Ok((name, when, wf)) => format!("Save automation \"{name}\"\nRuns: {when}\n{}\n\n{}", if wf.uses_model() { "Some steps call the AI model, so each run uses tokens." } else { "Runs without the AI model: no tokens used." }, wf.describe()),
+                Err(e) => format!("This automation is not valid: {e}"),
+            }),
+            untrusted: false,
+            run: |a, c| Box::pin(save_automation(a, c)),
         },
         FnTool {
             name: "update_persona",

@@ -100,6 +100,8 @@ pub struct Schedule {
     pub quiet: bool,
     /// Tokens the most recent run used.
     pub last_tokens: i64,
+    /// The steps of an automation (JSON), or empty when the job is a plain request to the agent.
+    pub workflow: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -180,7 +182,11 @@ CREATE TABLE IF NOT EXISTS approvals(
 CREATE TABLE IF NOT EXISTS schedules(
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, cron TEXT NOT NULL DEFAULT '', prompt TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1, next_run INTEGER, last_run INTEGER, last_result TEXT, created_at INTEGER NOT NULL,
-  allow TEXT NOT NULL DEFAULT '', quiet INTEGER NOT NULL DEFAULT 0, last_tokens INTEGER NOT NULL DEFAULT 0);
+  allow TEXT NOT NULL DEFAULT '', quiet INTEGER NOT NULL DEFAULT 0, last_tokens INTEGER NOT NULL DEFAULT 0,
+  workflow TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS runs(
+  id INTEGER PRIMARY KEY, schedule_id INTEGER NOT NULL, ts INTEGER NOT NULL, status TEXT NOT NULL, tokens INTEGER NOT NULL DEFAULT 0, record TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_runs_schedule ON runs(schedule_id, id);
 CREATE TABLE IF NOT EXISTS inbox(
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS audit(
@@ -240,9 +246,10 @@ fn row_to_schedule(r: &rusqlite::Row) -> rusqlite::Result<Schedule> {
         allow: r.get(8)?,
         quiet: r.get::<_, i64>(9)? != 0,
         last_tokens: r.get(10)?,
+        workflow: r.get(11)?,
     })
 }
-const SCHED_COLS: &str = "id, name, cron, prompt, enabled, next_run, last_run, last_result, allow, quiet, last_tokens";
+const SCHED_COLS: &str = "id, name, cron, prompt, enabled, next_run, last_run, last_result, allow, quiet, last_tokens, workflow";
 
 impl Store {
     pub fn open(path: &Path) -> Result<Store> {
@@ -274,6 +281,9 @@ impl Store {
         )?;
         if conn.prepare("SELECT quiet FROM schedules LIMIT 0").is_err() {
             conn.execute_batch("ALTER TABLE schedules ADD COLUMN quiet INTEGER NOT NULL DEFAULT 0; ALTER TABLE schedules ADD COLUMN last_tokens INTEGER NOT NULL DEFAULT 0;")?;
+        }
+        if conn.prepare("SELECT workflow FROM schedules LIMIT 0").is_err() {
+            conn.execute_batch("ALTER TABLE schedules ADD COLUMN workflow TEXT NOT NULL DEFAULT '';")?;
         }
         if conn.prepare("SELECT owner FROM tasks LIMIT 0").is_err() {
             conn.execute_batch("ALTER TABLE tasks ADD COLUMN owner TEXT NOT NULL DEFAULT 'user';")?;
@@ -591,6 +601,35 @@ impl Store {
         Ok(v)
     }
 
+    pub fn set_schedule_workflow(&self, id: i64, workflow_json: &str) -> Result<()> {
+        self.db().execute("UPDATE schedules SET workflow=? WHERE id=?", params![workflow_json, id])?;
+        Ok(())
+    }
+
+    pub fn set_schedule_allow(&self, id: i64, allow: &str) -> Result<bool> {
+        Ok(self.db().execute("UPDATE schedules SET allow=? WHERE id=?", params![allow, id])? > 0)
+    }
+
+    pub fn get_schedule(&self, id: i64) -> Option<Schedule> {
+        self.db().query_row(&format!("SELECT {SCHED_COLS} FROM schedules WHERE id=?"), [id], row_to_schedule).ok()
+    }
+
+    /// Keep the record of an automation run (the last 30 per automation).
+    pub fn add_run(&self, schedule_id: i64, status: &str, tokens: u64, record_json: &str) -> Result<()> {
+        let db = self.db();
+        db.execute("INSERT INTO runs(schedule_id, ts, status, tokens, record) VALUES (?,?,?,?,?)", params![schedule_id, now_ts(), status, tokens as i64, record_json])?;
+        db.execute("DELETE FROM runs WHERE schedule_id=?1 AND id NOT IN (SELECT id FROM runs WHERE schedule_id=?1 ORDER BY id DESC LIMIT 30)", [schedule_id])?;
+        Ok(())
+    }
+
+    /// (when, status, tokens, record JSON), newest first.
+    pub fn list_runs(&self, schedule_id: i64, limit: usize) -> Result<Vec<(i64, String, i64, String)>> {
+        let db = self.db();
+        let mut st = db.prepare("SELECT ts, status, tokens, record FROM runs WHERE schedule_id=? ORDER BY id DESC LIMIT ?")?;
+        let v = st.query_map(params![schedule_id, limit as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<rusqlite::Result<_>>()?;
+        Ok(v)
+    }
+
     pub fn set_schedule_quiet(&self, id: i64, quiet: bool) -> Result<()> {
         self.db().execute("UPDATE schedules SET quiet=? WHERE id=?", params![quiet as i64, id])?;
         Ok(())
@@ -649,6 +688,7 @@ impl Store {
     }
 
     pub fn remove_schedule(&self, id: i64) -> Result<bool> {
+        let _ = self.db().execute("DELETE FROM runs WHERE schedule_id=?", [id]);
         Ok(self.db().execute("DELETE FROM schedules WHERE id=?", [id])? > 0)
     }
 

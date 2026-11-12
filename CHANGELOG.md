@@ -21,6 +21,7 @@ The first public beta of Heron, a personal AI agent that runs on your own comput
 - A Today summary and one-click day prep; per-ability permission switches; a pause-everything switch.
 - A tamper-evident, append-only activity log; picking up a reply that was cut short.
 - Commands run inside an operating-system sandbox on Linux (bubblewrap) and macOS (Seatbelt).
+- Automations: recurring jobs made of fixed steps (tool, ask, agent, if, for_each, set, notify, stop) that run without the AI model unless a step needs it, with templates, per-step retry, a step-by-step run record and "Run now". Heron builds them on request and you approve the outline.
 - Optional neural memory search (build feature `neural`): finds facts by meaning, fused with the typo-tolerant built-in method. In the built-in test the right fact is in the top three for 33 of 34 questions (30 of 34 without it), and ranked first for 31 (28 without it).
 - Memory takes a fixed share of the prompt however large it grows; sub-agents get a smaller step allowance; a provider's Retry-After is respected; model calls can be recorded and replayed for tests.
 
