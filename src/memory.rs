@@ -261,7 +261,8 @@ impl Memory {
                 out.push(m);
             }
         }
-        out.sort_by(|a, b| b.score.unwrap_or(0.0).total_cmp(&a.score.unwrap_or(0.0)));
+        // Equal scores are ordered by id, so the same question always gives the same ranking.
+        out.sort_by(|a, b| b.score.unwrap_or(0.0).total_cmp(&a.score.unwrap_or(0.0)).then(a.id.cmp(&b.id)));
         out.truncate(limit);
         self.store.touch_memories(&out.iter().map(|m| m.id).collect::<Vec<_>>())?;
         Ok(out)

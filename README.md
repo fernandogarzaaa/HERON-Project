@@ -212,8 +212,8 @@ runs a built-in, deterministic test of the memory retrieval layer: 30 facts, 34 
 
 | | Built-in (default) | With the neural model (`heron eval --neural`) |
 |---|---|---|
-| Right fact ranked first | 28 / 34 (82%) | 30 / 34 (88%) |
-| Right fact in the top three | 30 / 34 (88%) | 34 / 34 (100%) |
+| Right fact ranked first | 28 / 34 (82%) | 31 / 34 (91%) |
+| Right fact in the top three | 30 / 34 (88%) | 33 / 34 (97%) |
 | After a fact changed, current version ranked first | 4 / 4 | 4 / 4 |
 | After a fact changed, retired version still recalled | 0 / 4 | 0 / 4 |
 
