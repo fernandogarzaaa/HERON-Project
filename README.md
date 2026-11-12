@@ -17,6 +17,7 @@ Heron reads and writes files, runs commands, searches and reads the web, keeps l
 | **Memory that works offline** | Hybrid retrieval (SQLite FTS5 keyword search + vector similarity, fused and weighted by importance and recency). Embeddings are computed locally with no API call; a remote embedding model is optional. Near-duplicates are merged, and credentials are redacted before anything is stored. |
 | **Safety you can reason about** | Every tool call is classified (safe / network / write / exec / dangerous / forbidden) and checked against the permission mode and your allow/deny rules. Catastrophic commands are blocked in every mode. File writes are checkpointed and undoable. Fetches cannot reach localhost or your LAN. |
 | **Outside content restricts what happens next** | Telling a model to ignore instructions hidden in a web page or email is known not to be reliable, so Heron does not rely on it. Once such content has entered a conversation, anything that changes state — and any fetch that could carry data out in its address — needs your approval, whatever the mode or your allow rules say; unattended runs simply refuse. The restriction follows sub-agents and survives reopening the conversation. |
+| **Commands run in a sandbox** | On Linux (bubblewrap) and macOS (Seatbelt), every command the agent runs is confined by the operating system: it can change files only in your working folder and temporary folders, and cannot read Heron's own data or your `.ssh`, `.aws` and similar folders, whatever the command line says. Builds, tests, git and the network work as usual. |
 | **It cannot quietly reconfigure itself** | Writes to Heron's own folder (settings, permission rules, skills, memory, keys) always need your approval. Saving a skill always shows you the full text first. Tools from connected apps are fingerprinted when you first connect them; if an app later changes its tool descriptions, every use needs approval until you accept the change. |
 | **Memory you can inspect and trust** | Facts are never overwritten: a corrected fact retires the old version, which is kept as history and no longer recalled. Facts picked up from email, calendar, documents or observation are marked unconfirmed, never become part of your profile, cannot replace something you said, and wait for your confirmation under Memory. |
 | **Keys in the OS credential store** | API keys, the email app password, calendar links and the Telegram token go to the macOS Keychain or Windows Credential Manager (an owner-only file on Linux). Never the config file, database, logs, or the environment of commands it runs. |
@@ -169,6 +170,7 @@ src/
   llm.rs          OpenAI-compatible streaming client, retries, fallback
   memory.rs       hybrid retrieval, offline embeddings, dedupe, automatic learning
   permissions.rs  risk classification, modes, rules, path sandbox, SSRF guard, parked approvals
+  sandbox.rs      operating-system sandbox for commands (bubblewrap, Seatbelt)
   persona.rs      the editable character file
   store.rs        SQLite: sessions, memory (FTS5), tasks, schedules, inbox, audit, checkpoints
   schedule.rs     cron + natural time expressions
@@ -223,7 +225,7 @@ Platform verification: every push runs the test suite and builds the desktop app
 
 ## Known limits
 
-- There is no operating-system sandbox around commands. Risk classification of shell commands is pattern-based and should be treated as a convenience, not a boundary; the real protections are approvals, the outside-content rule, and running in `ask` or `readonly` mode. An OS sandbox (Seatbelt / bubblewrap / AppContainer) with an outbound allowlist is the most valuable missing hardening.
+- Commands run in an operating-system sandbox on Linux (when bubblewrap is installed) and macOS, but not on Windows. The sandbox limits where commands can write and hides Heron's data and your key folders; it does not restrict the network. Where there is no sandbox, risk classification of commands is pattern-based and should be treated as a convenience, not a boundary: the real protections there are approvals and the outside-content rule.
 - The outside-content rule is per conversation and coarse: it does not track which specific data came from where, and files you downloaded and then ask Heron to read are not treated as outside content.
 - The Telegram gateway was tested against a stand-in for Telegram's API, not the real service. Messages pass through Telegram's servers. It works only while Heron is running on your computer.
 - No browser automation, voice, mobile app, email sending, calendar writing, or one-click OAuth connectors.

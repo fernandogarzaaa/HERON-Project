@@ -374,6 +374,7 @@ td.m{font:12.5px/1.5 var(--mono)}
         <label><input type="radio" name="mode" value="yolo"><div><b>Unrestricted</b><span>Never asks. Only catastrophic commands stay blocked.</span></div></label>
       </div>
       <label class="field"><span>During scheduled reminders</span><select id="s-daemon"><option value="readonly">Read only</option><option value="auto">Auto (risky actions are refused)</option></select><small>Nobody is there to approve things, so anything that would need your OK is refused.</small></label>
+      <p class="note" id="s-sandbox"></p>
       <h3>Each ability, one by one</h3>
       <p class="note">“Ask as usual” follows the choice above. “Never ask” lets Heron use it freely, though risky uses still ask. “Never allow” switches it off.</p>
       <div id="s-tools"></div>
@@ -799,6 +800,7 @@ async function loadSettings() {
   const where = s.secret_storage;
   $('#s-keynote').textContent = s.base_url === 'demo' ? 'Demo mode needs no key.' : { environment: 'A key is already set through an environment variable on this computer.', saved: `A key is saved in ${where}. It is never shown again or sent anywhere except to the service above.`, none: `Kept in ${where}. Not needed for models running locally, like Ollama.` }[s.key_source];
   document.querySelectorAll('#s-mode input').forEach(r => r.checked = r.value === s.mode); $('#s-daemon').value = s.daemon_mode === 'readonly' ? 'readonly' : 'auto';
+  $('#s-sandbox').textContent = state.sandbox && state.sandbox !== 'none' ? 'Commands run inside a sandbox on this computer: they can change files only in your working folder, and cannot read Heron\'s own data or your key folders, whatever the command says.' : (state.os === 'windows' ? 'Commands are not sandboxed on Windows yet, so the approval settings above are the safeguard.' : 'No sandbox is available on this computer (on Linux, install bubblewrap), so the approval settings above are the safeguard.');
   loadPhone().catch(() => {});
   api('/persona').then(p => { $('#s-name').value = p.name; $('#s-persona').value = p.text; $('#s-persona-reset').hidden = p.is_default; }).catch(() => {});
   api('/tools').then(tools => { const box = $('#s-tools'); box.replaceChildren(); const t = el('table'); const tb = el('tbody');

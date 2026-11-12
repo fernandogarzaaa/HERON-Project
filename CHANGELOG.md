@@ -20,6 +20,7 @@ The first public beta of Heron, a personal AI agent that runs on your own comput
 - Jobs that react to events (a file changing, an email arriving) as well as times; watches that speak up only when needed.
 - A Today summary and one-click day prep; per-ability permission switches; a pause-everything switch.
 - A tamper-evident, append-only activity log; picking up a reply that was cut short.
+- Commands run inside an operating-system sandbox on Linux (bubblewrap) and macOS (Seatbelt).
 - Optional neural memory search (build feature `neural`): finds facts by meaning, fused with the typo-tolerant built-in method. In the built-in test the right fact is in the top three for 33 of 34 questions (30 of 34 without it), and ranked first for 31 (28 without it).
 - Memory takes a fixed share of the prompt however large it grows; sub-agents get a smaller step allowance; a provider's Retry-After is respected; model calls can be recorded and replayed for tests.
 
@@ -27,7 +28,7 @@ The first public beta of Heron, a personal AI agent that runs on your own comput
 
 - Not yet tested with real users. It has been exercised with automated tests and stand-ins for model, mail, calendar and Telegram services.
 - The apps are not code-signed, so macOS and Windows show a warning on first launch.
-- No operating-system sandbox around commands; no browser automation, voice, mobile app, email sending or calendar writing.
+- No command sandbox on Windows; no browser automation, voice, mobile app, email sending or calendar writing.
 - Outlook.com and Microsoft 365 mail cannot be connected.
 
 See the README for the full list.

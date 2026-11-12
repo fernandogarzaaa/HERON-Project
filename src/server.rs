@@ -183,7 +183,7 @@ async fn get_state(State(st): S) -> ApiResult {
         "name": cfg.agent.name, "version": env!("CARGO_PKG_VERSION"), "model": cfg.llm.model, "mode": st.app.policy.mode().name(),
         "workspace": st.app.workspace.display().to_string(), "has_key": cfg.api_key().is_some() || is_local(&cfg.llm.base_url) || crate::llm::is_demo(&cfg), "demo": crate::llm::is_demo(&cfg),
         "memories": st.app.store.memory_count(), "unread": unread, "paused": st.app.paused(), "waiting": st.app.store.pending_approvals()?.len(), "onboarded": st.app.store.kv_get("onboarded").is_some(), "suggestions": st.app.store.list_suggestions(true, 50)?.len(), "mcp": st.app.mcp_status, "usage": usage,
-        "tools": st.app.tools.names().len(), "os": std::env::consts::OS,
+        "tools": st.app.tools.names().len(), "os": std::env::consts::OS, "sandbox": crate::sandbox::active(&cfg).name(),
     })))
 }
 

@@ -31,10 +31,18 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
         _ => &["-c"],
     };
     let candidates: Vec<(&str, &[&str])> = if chosen.is_empty() { candidates.to_vec() } else { vec![(chosen.as_str(), chosen_flags)] };
+    let sandbox = crate::sandbox::wrap(&ctx.cfg, &ctx.workspace);
     let mut spawned = None;
     let mut last_err = None;
     for (shell, flags) in candidates {
-        let mut cmd = tokio::process::Command::new(shell);
+        let mut cmd = match &sandbox {
+            Some((program, prefix)) => {
+                let mut c = tokio::process::Command::new(program);
+                c.args(prefix).arg(shell);
+                c
+            }
+            None => tokio::process::Command::new(shell),
+        };
         cmd.args(flags).arg(command).current_dir(&ctx.workspace).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
         cmd.env_remove("HERON_API_KEY").env_remove(&ctx.cfg.llm.api_key_env);
         #[cfg(unix)]
@@ -80,6 +88,10 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
     let code = out.status.code().unwrap_or(-1);
     if code != 0 {
         text.push_str(&format!("\n[exit code {code}]"));
+        if sandbox.is_some() && crate::sandbox::looks_denied(&text) {
+            text.push('\n');
+            text.push_str(crate::sandbox::DENIED_HINT);
+        }
     } else if text.is_empty() {
         text.push_str("(no output, exit code 0)");
     }
@@ -97,4 +109,58 @@ pub fn tools() -> Vec<FnTool> {
         untrusted: false,
         run: |a, c| Box::pin(run(a, c)),
     }]
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::memory::Memory;
+    use crate::store::Store;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn sandboxed_commands_cannot_write_outside_the_folder_or_read_secrets() {
+        if crate::sandbox::available() == crate::sandbox::Kind::None {
+            eprintln!("no sandbox on this machine; skipping");
+            return;
+        }
+        let ws = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dunce::canonicalize(home.path()).unwrap();
+        std::fs::write(cfg.home.join("secrets.json"), "TOPSECRET-KEY").unwrap();
+        // A place outside the working folder that is not a temporary folder: the user's home.
+        let outside = dirs::home_dir().unwrap().join(format!(".heron-sandbox-test-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&outside).unwrap();
+        let store = Store::in_memory().unwrap();
+        let workspace = dunce::canonicalize(ws.path()).unwrap();
+        let ctx = ToolCtx { workspace: workspace.clone(), memory: Memory::new(store.clone(), None), store, session_id: "t".into(), cfg: Arc::new(cfg.clone()), tainted: Default::default() };
+        let sh = |command: String| {
+            let ctx = ctx.clone();
+            async move { run(&json!({"command": command}), &ctx).await.unwrap() }
+        };
+
+        // Normal work in the folder is unaffected, including temporary files and pipes.
+        let out = sh("echo built > result.txt && cat result.txt && echo scratch > \"${TMPDIR:-/tmp}/heron-t.txt\" && echo ok | tr a-z A-Z".into()).await;
+        assert!(out.contains("built") && out.contains("OK"), "{out}");
+        assert_eq!(std::fs::read_to_string(workspace.join("result.txt")).unwrap().trim(), "built");
+
+        // Writing elsewhere fails and leaves nothing behind; the model is told why.
+        let out = sh(format!("echo pwned > '{}/x.txt'", outside.display())).await;
+        assert!(!outside.join("x.txt").exists(), "a sandboxed command wrote outside the working folder: {out}");
+        assert!(out.contains("exit code") && out.contains("Heron's sandbox"), "{out}");
+
+        // Heron's own data (and with it the saved keys) cannot be read, whatever the command line looks like.
+        let out = sh(format!("cat '{}/secrets.json' || true; ls '{}' || true", cfg.home.display(), cfg.home.display())).await;
+        assert!(!out.contains("TOPSECRET"), "{out}");
+
+        // With the sandbox switched off the same write goes through (so the test really tested the sandbox).
+        let mut open = cfg.clone();
+        open.agent.sandbox = "off".into();
+        let ctx_off = ToolCtx { cfg: Arc::new(open), ..ctx.clone() };
+        run(&json!({"command": format!("echo fine > '{}/y.txt'", outside.display())}), &ctx_off).await.unwrap();
+        assert!(outside.join("y.txt").exists());
+        std::fs::remove_dir_all(&outside).unwrap();
+    }
 }

@@ -95,6 +95,9 @@ pub struct AgentConfig {
     /// Shell used for commands: "powershell", "pwsh", "cmd", "bash", "zsh", ... Empty = the system default
     /// (PowerShell on Windows, bash elsewhere). The HERON_SHELL environment variable overrides it.
     pub shell: String,
+    /// "auto" (default): run commands inside the operating system's sandbox where one is available
+    /// (bubblewrap on Linux, Seatbelt on macOS). "off": run them directly.
+    pub sandbox: String,
     /// Default working folder for the desktop app / web UI. Empty = ~/Heron.
     pub workspace: String,
     /// Understand meaning, not just shared words, when searching memory: runs a small model locally.
@@ -201,6 +204,7 @@ impl Default for AgentConfig {
             max_tool_output_chars: 30_000,
             notify_command: String::new(),
             shell: String::new(),
+            sandbox: "auto".into(),
             workspace: String::new(),
             neural_memory: false,
             ambient_context: true,
