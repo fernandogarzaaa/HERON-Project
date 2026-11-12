@@ -520,6 +520,11 @@ async fn real_main() -> Result<()> {
             Ok(())
         }
         Cmd::Audit => {
+            let (checked, altered) = app.store.verify_audit()?;
+            match altered {
+                None => println!("Activity log intact: {checked} entries verified.\n"),
+                Some(id) => println!("WARNING: the activity log was altered at or before entry {id} ({checked} entries verified before it).\n"),
+            }
             for a in app.store.audit_log(50)?.iter().rev() {
                 println!("{}  {:<16} {:<16} {}", fmt_ts(a.ts), a.decision, a.tool, a.args);
             }

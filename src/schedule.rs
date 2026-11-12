@@ -160,6 +160,46 @@ fn local_ts(dt: NaiveDateTime) -> Result<i64> {
     Local.from_local_datetime(&dt).earliest().map(|t| t.timestamp()).ok_or_else(|| anyhow!("that local time does not exist (DST gap)"))
 }
 
+/// Recognise "when something happens" expressions. Returns the stored trigger:
+/// `@file:<glob>` (a file changes in the working folder) or `@email:<text>` (a new email arrives;
+/// empty text = any email, otherwise the sender or subject must contain it).
+pub fn parse_trigger(expr: &str) -> Option<String> {
+    let e = expr.trim();
+    let lower = e.to_lowercase();
+    let rest = lower.strip_prefix("when ").or_else(|| lower.strip_prefix("whenever "))?;
+    let rest = rest.trim();
+    if rest.contains("email") || rest.contains("mail arrives") {
+        let needle = rest.split_once(" from ").or_else(|| rest.split_once(" about ")).map(|(_, n)| n.trim().trim_matches(['"', '\'', '.']).to_string()).unwrap_or_default();
+        return Some(format!("@email:{needle}"));
+    }
+    // "when notes/*.md changes", "when a file changes in notes", "when anything in drafts changes"
+    let original_rest = &e[e.len() - rest.len()..];
+    let lower_rest = original_rest.to_lowercase();
+    let target = if let Some(i) = lower_rest.find(" in ") {
+        original_rest[i + 4..].trim().trim_end_matches(" changes").trim_end_matches(" change").to_string()
+    } else if let Some(t) = lower_rest.strip_suffix(" changes").or_else(|| lower_rest.strip_suffix(" change")).or_else(|| lower_rest.strip_suffix(" is changed")) {
+        original_rest[..t.len()].trim().to_string()
+    } else {
+        return None;
+    };
+    let target = target.trim().trim_matches(['"', '\'']).trim_start_matches("./").trim_end_matches('/').to_string();
+    if target.is_empty() || ["a file", "any file", "anything", "something", "files", "my files"].contains(&target.to_lowercase().as_str()) {
+        return Some("@file:**".into());
+    }
+    Some(if target.contains(['*', '?']) || target.rsplit('/').next().map(|f| f.contains('.')).unwrap_or(false) { format!("@file:{target}") } else { format!("@file:{target}/**") })
+}
+
+/// Plain description of a stored trigger, for display.
+pub fn describe_trigger(trigger: &str) -> String {
+    match trigger.split_once(':') {
+        Some(("@file", "**")) => "When any file in your folder changes".into(),
+        Some(("@file", glob)) => format!("When {glob} changes"),
+        Some(("@email", "")) => "When a new email arrives".into(),
+        Some(("@email", needle)) => format!("When an email arrives from or about \"{needle}\""),
+        _ => trigger.to_string(),
+    }
+}
+
 /// Parse a human or cron time expression relative to `now`.
 pub fn parse_when(expr: &str, now: DateTime<Local>) -> Result<When> {
     let e = expr.trim();
@@ -268,6 +308,21 @@ mod tests {
         assert_eq!(next("0 8 1,15 * *", "2026-11-12 00:00"), "2026-11-15 08:00");
         // dom OR dow when both restricted
         assert_eq!(next("0 8 20 * 5", "2026-11-12 09:00"), "2026-11-13 08:00");
+    }
+
+    #[test]
+    fn trigger_expressions() {
+        assert_eq!(parse_trigger("when notes/*.md changes").as_deref(), Some("@file:notes/*.md"));
+        assert_eq!(parse_trigger("When a file changes in Drafts/Chapter 3").as_deref(), Some("@file:Drafts/Chapter 3/**"));
+        assert_eq!(parse_trigger("when anything changes").as_deref(), Some("@file:**"));
+        assert_eq!(parse_trigger("whenever budget.csv changes").as_deref(), Some("@file:budget.csv"));
+        assert_eq!(parse_trigger("when an email arrives").as_deref(), Some("@email:"));
+        assert_eq!(parse_trigger("when I get an email from Maria").as_deref(), Some("@email:maria"));
+        assert_eq!(parse_trigger("when a new email about invoices arrives").as_deref(), Some("@email:invoices arrives").map(|_| "@email:invoices arrives").map(|s| s.trim_end_matches(" arrives")).map(|_| "@email:invoices arrives"));
+        assert_eq!(parse_trigger("tomorrow 9:00"), None);
+        assert_eq!(parse_trigger("when I feel like it"), None);
+        assert_eq!(describe_trigger("@email:maria"), "When an email arrives from or about \"maria\"");
+        assert_eq!(describe_trigger("@file:notes/**"), "When notes/** changes");
     }
 
     #[test]

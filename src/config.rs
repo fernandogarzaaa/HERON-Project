@@ -124,7 +124,8 @@ pub struct AgentConfig {
 pub struct PermissionConfig {
     /// readonly | ask | auto | yolo
     pub mode: String,
-    /// Mode used by unattended scheduled jobs (asks are auto-denied there).
+    /// Mode used by unattended scheduled jobs. With "ask", anything that needs approval is not done
+    /// but kept in a "waiting for you" list; with "readonly" it is simply refused.
     pub daemon_mode: String,
     /// Glob rules "tool:summary", e.g. "shell:git status*", "write_file:notes/**".
     pub allow: Vec<String>,
@@ -211,7 +212,7 @@ impl Default for AgentConfig {
 
 impl Default for PermissionConfig {
     fn default() -> Self {
-        PermissionConfig { mode: "ask".into(), daemon_mode: "readonly".into(), allow: vec![], deny: vec![] }
+        PermissionConfig { mode: "ask".into(), daemon_mode: "ask".into(), allow: vec![], deny: vec![] }
     }
 }
 
@@ -443,7 +444,7 @@ notify_command = ""                  # e.g. 'notify-send Heron "$HERON_MESSAGE"'
 
 [permissions]
 mode = "ask"                         # readonly | ask | auto | yolo
-daemon_mode = "readonly"             # mode for unattended scheduled jobs
+daemon_mode = "ask"                  # unattended jobs: anything needing approval waits for you
 allow = []                           # e.g. ["shell:git status*", "shell:cargo *"]
 deny = []                            # e.g. ["shell:*sudo*"]
 

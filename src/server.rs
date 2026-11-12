@@ -129,6 +129,13 @@ pub fn router(app: Arc<App>, token: String) -> Router {
         .route("/audit", get(get_audit))
         .route("/awareness", get(get_awareness).post(set_awareness).delete(clear_awareness))
         .route("/mcp/{name}/accept", post(accept_mcp))
+        .route("/persona", get(get_persona).post(set_persona).delete(reset_persona))
+        .route("/pause", post(set_pause))
+        .route("/approvals", get(list_approvals))
+        .route("/approvals/{id}", post(answer_approval))
+        .route("/tools", get(list_tools))
+        .route("/tools/{name}", post(set_tool))
+        .route("/today", get(get_today))
         .route("/telegram", get(get_telegram).post(set_telegram).delete(remove_telegram))
         .route("/sources", get(get_sources))
         .route("/sources/{name}", post(connect_source).delete(disconnect_source))
@@ -175,7 +182,7 @@ async fn get_state(State(st): S) -> ApiResult {
     Ok(Json(json!({
         "name": cfg.agent.name, "version": env!("CARGO_PKG_VERSION"), "model": cfg.llm.model, "mode": st.app.policy.mode().name(),
         "workspace": st.app.workspace.display().to_string(), "has_key": cfg.api_key().is_some() || is_local(&cfg.llm.base_url) || crate::llm::is_demo(&cfg), "demo": crate::llm::is_demo(&cfg),
-        "memories": st.app.store.memory_count(), "unread": unread, "onboarded": st.app.store.kv_get("onboarded").is_some(), "suggestions": st.app.store.list_suggestions(true, 50)?.len(), "mcp": st.app.mcp_status, "usage": usage,
+        "memories": st.app.store.memory_count(), "unread": unread, "paused": st.app.paused(), "waiting": st.app.store.pending_approvals()?.len(), "onboarded": st.app.store.kv_get("onboarded").is_some(), "suggestions": st.app.store.list_suggestions(true, 50)?.len(), "mcp": st.app.mcp_status, "usage": usage,
         "tools": st.app.tools.names().len(), "os": std::env::consts::OS,
     })))
 }
@@ -271,7 +278,10 @@ async fn new_session(State(st): S) -> ApiResult {
 async fn get_session(State(st): S, Path(id): Path<String>) -> ApiResult {
     let id = st.app.store.resolve_session(&id).map_err(|e| ApiError(StatusCode::NOT_FOUND, e.to_string()))?;
     let busy = st.running.lock().unwrap().contains_key(&id);
-    Ok(Json(json!({"id": id, "title": st.app.store.session_title(&id), "messages": st.app.store.load_messages(&id)?, "busy": busy})))
+    let messages = st.app.store.load_messages(&id)?;
+    // Every step is saved as it happens, so a reply cut short (a crash, a closed window) can be picked up again.
+    let interrupted = !busy && messages.last().map(|m| m.role == "tool" || m.role == "user" || !m.tool_calls.is_empty()).unwrap_or(false);
+    Ok(Json(json!({"id": id, "title": st.app.store.session_title(&id), "messages": messages, "busy": busy, "interrupted": interrupted})))
 }
 
 async fn delete_session(State(st): S, Path(id): Path<String>) -> ApiResult {
@@ -448,11 +458,18 @@ async fn list_tasks(State(st): S) -> ApiResult {
 
 async fn add_task(State(st): S, Json(b): Json<Value>) -> ApiResult {
     let title = b.get("title").and_then(|c| c.as_str()).map(str::trim).filter(|c| !c.is_empty()).ok_or_else(|| bad("Give the task a title."))?;
-    Ok(Json(json!({"id": st.app.store.add_task(title, "", 2, b.get("due").and_then(|d| d.as_str()).filter(|d| !d.is_empty()))?})))
+    let id = st.app.store.add_task(title, "", 2, b.get("due").and_then(|d| d.as_str()).filter(|d| !d.is_empty()))?;
+    if b.get("owner").and_then(|o| o.as_str()) == Some("heron") {
+        st.app.store.set_task_owner(id, "heron")?;
+    }
+    Ok(Json(json!({"id": id})))
 }
 
 async fn update_task(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>) -> ApiResult {
     let s = |k: &str| b.get(k).and_then(|v| v.as_str());
+    if let Some(owner) = s("owner") {
+        st.app.store.set_task_owner(id, owner)?;
+    }
     Ok(Json(json!({"updated": st.app.store.update_task(id, s("title"), s("notes"), s("status"), b.get("priority").and_then(|p| p.as_i64()), s("due"))?})))
 }
 
@@ -461,14 +478,27 @@ async fn delete_task(State(st): S, Path(id): Path<i64>) -> ApiResult {
 }
 
 async fn list_schedules(State(st): S) -> ApiResult {
-    Ok(Json(json!(st.app.store.list_schedules()?)))
+    let items: Vec<Value> = st
+        .app
+        .store
+        .list_schedules()?
+        .into_iter()
+        .map(|s| {
+            let trigger = if s.cron.starts_with('@') { Some(crate::schedule::describe_trigger(&s.cron)) } else { None };
+            let mut v = json!(s);
+            v["trigger"] = json!(trigger);
+            v
+        })
+        .collect();
+    Ok(Json(json!(items)))
 }
 
 async fn add_schedule(State(st): S, Json(b): Json<Value>) -> ApiResult {
     let s = |k: &str| b.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|v| !v.is_empty());
     let prompt = s("prompt").ok_or_else(|| bad("Describe what Heron should do."))?;
-    let when = crate::schedule::parse_when(s("when").ok_or_else(|| bad("Say when it should run, e.g. \"tomorrow 9:00\" or \"daily 08:00\"."))?, chrono::Local::now())?;
+    let when_text = s("when").ok_or_else(|| bad("Say when it should run, e.g. \"tomorrow 9:00\", \"daily 08:00\" or \"when an email arrives from Maria\"."))?;
     let name = s("name").map(|n| n.to_string()).unwrap_or_else(|| crate::util::preview(prompt, 40));
+    let quiet = b.get("quiet").and_then(|q| q.as_bool()).unwrap_or(false);
     // What this job may do while nobody is watching. Granted here by the user, never by the agent.
     let allow = match s("may").unwrap_or("read") {
         "read" => "",
@@ -476,7 +506,20 @@ async fn add_schedule(State(st): S, Json(b): Json<Value>) -> ApiResult {
         "commands" => "write_file:*\nedit_file:*\nshell:*",
         _ => return Err(bad("Unknown permission level for this reminder.")),
     };
-    Ok(Json(json!({"id": st.app.store.add_schedule(&name, &when.cron, prompt, when.next_run, allow)?})))
+    let id = match crate::schedule::parse_trigger(when_text) {
+        Some(trigger) => {
+            if trigger.starts_with("@email") && st.app.cfg().sources.email.is_none() {
+                return Err(bad("Connect your email first (under Getting to know you), then Heron can react to new messages."));
+            }
+            st.app.store.add_trigger(&name, &trigger, prompt, allow)?
+        }
+        None => {
+            let when = crate::schedule::parse_when(when_text, chrono::Local::now())?;
+            st.app.store.add_schedule(&name, &when.cron, prompt, when.next_run, allow)?
+        }
+    };
+    st.app.store.set_schedule_quiet(id, quiet)?;
+    Ok(Json(json!({"id": id})))
 }
 
 async fn delete_schedule(State(st): S, Path(id): Path<i64>) -> ApiResult {
@@ -536,6 +579,113 @@ async fn accept_mcp(State(st): S, Path(name): Path<String>) -> ApiResult {
     let fingerprint = st.app.mcp_pending.get(&name).ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "Nothing to accept for that app.".into()))?;
     st.app.store.kv_set(&format!("mcp_pin:{name}"), fingerprint)?;
     Ok(Json(json!({"accepted": true, "note": "Restart Heron for the change to take effect."})))
+}
+
+// ---------- character, pause, waiting approvals, per-tool settings, today ----------
+
+async fn get_persona(State(st): S) -> ApiResult {
+    let cfg = st.app.cfg();
+    Ok(Json(json!({"text": crate::persona::load(&cfg), "is_default": crate::persona::is_default(&cfg), "name": cfg.agent.name, "max": crate::persona::MAX_CHARS})))
+}
+
+async fn set_persona(State(st): S, Json(b): Json<Value>) -> ApiResult {
+    let mut cfg = (*st.app.cfg()).clone();
+    if let Some(text) = b.get("text").and_then(|t| t.as_str()) {
+        crate::persona::save(&cfg, text)?;
+    }
+    if let Some(name) = b.get("name").and_then(|n| n.as_str()).map(str::trim).filter(|n| !n.is_empty() && n.chars().count() <= 40) {
+        if name != cfg.agent.name {
+            cfg.agent.name = name.to_string();
+            st.app.update_config(cfg)?;
+        }
+    }
+    get_persona(State(st)).await
+}
+
+async fn reset_persona(State(st): S) -> ApiResult {
+    crate::persona::reset(&st.app.cfg())?;
+    get_persona(State(st)).await
+}
+
+async fn set_pause(State(st): S, Json(b): Json<Value>) -> ApiResult {
+    st.app.set_paused(b.get("paused").and_then(|p| p.as_bool()).unwrap_or(true));
+    Ok(Json(json!({"paused": st.app.paused()})))
+}
+
+async fn list_approvals(State(st): S) -> ApiResult {
+    Ok(Json(json!(st.app.store.pending_approvals()?)))
+}
+
+async fn answer_approval(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>) -> ApiResult {
+    match b.get("action").and_then(|a| a.as_str()) {
+        Some("approve") => Ok(Json(json!({"result": st.app.run_parked(id).await?}))),
+        Some("dismiss") => {
+            st.app.store.resolve_approval(id, "dismissed", None)?;
+            Ok(Json(json!({"dismissed": true})))
+        }
+        _ => Err(bad("Unknown action.")),
+    }
+}
+
+async fn list_tools(State(st): S) -> ApiResult {
+    let agent = st.app.agent(Arc::new(crate::permissions::DenyAll));
+    let ctx = agent.tool_ctx("settings");
+    let tools: Vec<Value> = st
+        .app
+        .tools
+        .names()
+        .into_iter()
+        .filter_map(|name| st.app.tools.get(&name))
+        .map(|t| {
+            // Tools that never change anything need no setting.
+            let risk = t.risk(&json!({}), &ctx);
+            let first = t.description().split(". ").next().unwrap_or("").trim_end_matches('.').to_string();
+            json!({"name": t.name(), "about": first, "setting": st.app.policy.tool_setting(t.name()), "always_safe": risk == crate::permissions::Risk::Safe && !t.name().starts_with("mcp__") && !["read_file", "list_dir", "search_files", "find_files", "shell"].contains(&t.name())})
+        })
+        .collect();
+    Ok(Json(json!(tools)))
+}
+
+async fn set_tool(State(st): S, Path(name): Path<String>, Json(b): Json<Value>) -> ApiResult {
+    if st.app.tools.get(&name).is_none() {
+        return Err(ApiError(StatusCode::NOT_FOUND, "Unknown tool.".into()));
+    }
+    let setting = b.get("setting").and_then(|s| s.as_str()).unwrap_or("ask");
+    st.app.policy.set_tool_setting(&name, setting)?;
+    // Keep the choice across restarts: per-tool rules live in the settings file.
+    let mut cfg = (*st.app.cfg()).clone();
+    let rule = format!("{name}:*");
+    cfg.permissions.allow.retain(|r| *r != rule);
+    cfg.permissions.deny.retain(|r| *r != rule);
+    match setting {
+        "allow" => cfg.permissions.allow.push(rule),
+        "never" => cfg.permissions.deny.push(rule),
+        _ => {}
+    }
+    st.app.update_config(cfg)?;
+    st.app.persist_rules();
+    Ok(Json(json!({"name": name, "setting": st.app.policy.tool_setting(&name)})))
+}
+
+/// What deserves the user's attention today, assembled locally without a model.
+async fn get_today(State(st): S) -> ApiResult {
+    let store = &st.app.store;
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let tasks = store.list_tasks(Some("open"))?;
+    let due: Vec<&crate::store::Task> = tasks.iter().filter(|t| t.due.as_deref().map(|d| d[..d.len().min(10)] <= *today).unwrap_or(false)).collect();
+    let now = crate::util::now_ts();
+    let new_mail = store.knowledge_between("email", now - 86_400, now + 3600, 200)?.len();
+    Ok(Json(json!({
+        "events": crate::sources::upcoming(store, 24, 6),
+        "due_tasks": due.iter().take(6).map(|t| json!({"id": t.id, "title": t.title, "due": t.due, "overdue": t.due.as_deref().map(|d| d[..d.len().min(10)] < *today).unwrap_or(false)})).collect::<Vec<_>>(),
+        "open_tasks": tasks.iter().filter(|t| t.owner != "heron").count(),
+        "heron_tasks": tasks.iter().filter(|t| t.owner == "heron").count(),
+        "waiting": store.pending_approvals()?.len(),
+        "unconfirmed": store.unconfirmed_memory_count(),
+        "new_mail": new_mail,
+        "unread": store.inbox(true, 100)?.len(),
+        "paused": st.app.paused(),
+    })))
 }
 
 // ---------- phone (Telegram) ----------
@@ -698,5 +848,6 @@ async fn answer_suggestion(State(st): S, Path(id): Path<i64>, Json(b): Json<Valu
 }
 
 async fn get_audit(State(st): S) -> ApiResult {
-    Ok(Json(json!(st.app.store.audit_log(200)?)))
+    let (checked, altered) = st.app.store.verify_audit()?;
+    Ok(Json(json!({"entries": st.app.store.audit_log(200)?, "checked": checked, "intact": altered.is_none()})))
 }

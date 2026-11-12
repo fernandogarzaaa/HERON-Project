@@ -216,7 +216,36 @@ async fn http_api_chat_approval_and_settings() {
     let schedules: Value = get("/api/schedules", &token).await.unwrap().json().await.unwrap();
     assert_eq!(schedules[0]["cron"], "0 18 * * *");
     let audit: Value = get("/api/audit", &token).await.unwrap().json().await.unwrap();
-    assert_eq!(audit.as_array().unwrap().len(), 2);
+    assert_eq!(audit["entries"].as_array().unwrap().len(), 2);
+    assert_eq!((audit["intact"].as_bool(), audit["checked"].as_u64()), (Some(true), Some(2)));
+
+    // Personality: editable, validated, resettable.
+    let persona: Value = get("/api/persona", &token).await.unwrap().json().await.unwrap();
+    assert_eq!(persona["is_default"], true);
+    let changed: Value = post("/api/persona", json!({"text": "# Who you are\n- Dry and brief. Call me Dana.", "name": "Juno"})).await.unwrap().json().await.unwrap();
+    assert_eq!((changed["is_default"].as_bool(), changed["name"].as_str()), (Some(false), Some("Juno")));
+    assert_eq!(post("/api/persona", json!({"text": "x"})).await.unwrap().status(), 400);
+    let reset: Value = client.delete(format!("{base}/api/persona")).header("x-heron-token", &token).send().await.unwrap().json().await.unwrap();
+    assert_eq!(reset["is_default"], true);
+
+    // Per-tool settings: switching a tool off refuses it; the choice is saved in the settings file.
+    let tools: Value = get("/api/tools", &token).await.unwrap().json().await.unwrap();
+    assert!(tools.as_array().unwrap().iter().any(|t| t["name"] == "shell" && t["setting"] == "ask"));
+    assert!(post("/api/tools/shell", json!({"setting": "never"})).await.unwrap().status().is_success());
+    assert!(std::fs::read_to_string(dir.path().join("home/config.toml")).unwrap().contains("shell:*"));
+    assert_eq!(post("/api/tools/shell", json!({"setting": "sometimes"})).await.unwrap().status(), 400);
+    assert_eq!(post("/api/tools/nope", json!({"setting": "ask"})).await.unwrap().status(), 404);
+
+    // Event-style reminders, the pause switch, and the Today summary.
+    assert!(post("/api/schedules", json!({"prompt": "Note what changed", "when": "when notes/*.md changes", "quiet": true})).await.unwrap().status().is_success());
+    let needs_mail = post("/api/schedules", json!({"prompt": "x", "when": "when an email arrives"})).await.unwrap();
+    assert_eq!(needs_mail.status(), 400, "email triggers need a connected mailbox");
+    let schedules: Value = get("/api/schedules", &token).await.unwrap().json().await.unwrap();
+    assert!(schedules.as_array().unwrap().iter().any(|s| s["trigger"] == "When notes/*.md changes" && s["quiet"] == true));
+    let paused: Value = post("/api/pause", json!({"paused": true})).await.unwrap().json().await.unwrap();
+    assert_eq!(paused["paused"], true);
+    let today: Value = get("/api/today", &token).await.unwrap().json().await.unwrap();
+    assert_eq!((today["paused"].as_bool(), today["open_tasks"].as_u64(), today["waiting"].as_u64()), (Some(true), Some(1), Some(0)));
 }
 
 #[tokio::test]

@@ -9,6 +9,17 @@ use serde::Serialize;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+fn audit_hash(prev: &str, ts: i64, session: &str, tool: &str, args: &str, decision: &str, result: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    // Length-prefix each field so that no two different entries can produce the same input.
+    for field in [prev, &ts.to_string(), session, tool, args, decision, result] {
+        h.update((field.len() as u64).to_le_bytes());
+        h.update(field.as_bytes());
+    }
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
@@ -50,6 +61,26 @@ pub struct Task {
     pub priority: i64,
     pub due: Option<String>,
     pub created_at: i64,
+    /// Who is doing it: "user" or "heron".
+    pub owner: String,
+}
+
+/// Something Heron wanted to do while nobody was there to approve it, kept for the user to decide.
+#[derive(Debug, Clone, Serialize)]
+pub struct ParkedApproval {
+    pub id: i64,
+    pub ts: i64,
+    pub session_id: String,
+    pub tool: String,
+    pub args: String,
+    pub summary: String,
+    pub detail: String,
+    pub risk: String,
+    pub tainted: bool,
+    /// What Heron was doing at the time (the job or suggestion title).
+    pub origin: String,
+    pub status: String,
+    pub result: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,6 +96,10 @@ pub struct Schedule {
     pub last_result: Option<String>,
     /// Permission rules granted to this job by the user (one per line). Empty = default unattended mode.
     pub allow: String,
+    /// Only tell the user when something needs their attention.
+    pub quiet: bool,
+    /// Tokens the most recent run used.
+    pub last_tokens: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -136,16 +171,20 @@ CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE OF content, tags ON memori
   INSERT INTO memories_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags); END;
 CREATE TABLE IF NOT EXISTS tasks(
   id INTEGER PRIMARY KEY, title TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'open',
-  priority INTEGER NOT NULL DEFAULT 2, due TEXT, created_at INTEGER NOT NULL, done_at INTEGER);
+  priority INTEGER NOT NULL DEFAULT 2, due TEXT, created_at INTEGER NOT NULL, done_at INTEGER, owner TEXT NOT NULL DEFAULT 'user');
+CREATE TABLE IF NOT EXISTS approvals(
+  id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL,
+  summary TEXT NOT NULL, detail TEXT NOT NULL, risk TEXT NOT NULL, tainted INTEGER NOT NULL DEFAULT 0,
+  origin TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'new', result TEXT);
 CREATE TABLE IF NOT EXISTS schedules(
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, cron TEXT NOT NULL DEFAULT '', prompt TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1, next_run INTEGER, last_run INTEGER, last_result TEXT, created_at INTEGER NOT NULL,
-  allow TEXT NOT NULL DEFAULT '');
+  allow TEXT NOT NULL DEFAULT '', quiet INTEGER NOT NULL DEFAULT 0, last_tokens INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS inbox(
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS audit(
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, tool TEXT NOT NULL,
-  args TEXT NOT NULL, decision TEXT NOT NULL, result TEXT NOT NULL DEFAULT '');
+  args TEXT NOT NULL, decision TEXT NOT NULL, result TEXT NOT NULL DEFAULT '', hash TEXT);
 CREATE TABLE IF NOT EXISTS checkpoints(
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, path TEXT NOT NULL,
   existed INTEGER NOT NULL, prev BLOB);
@@ -198,9 +237,11 @@ fn row_to_schedule(r: &rusqlite::Row) -> rusqlite::Result<Schedule> {
         last_run: r.get(6)?,
         last_result: r.get(7)?,
         allow: r.get(8)?,
+        quiet: r.get::<_, i64>(9)? != 0,
+        last_tokens: r.get(10)?,
     })
 }
-const SCHED_COLS: &str = "id, name, cron, prompt, enabled, next_run, last_run, last_result, allow";
+const SCHED_COLS: &str = "id, name, cron, prompt, enabled, next_run, last_run, last_result, allow, quiet, last_tokens";
 
 impl Store {
     pub fn open(path: &Path) -> Result<Store> {
@@ -219,6 +260,20 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
         // Databases created by earlier versions.
+        if conn.prepare("SELECT hash FROM audit LIMIT 0").is_err() {
+            conn.execute_batch("ALTER TABLE audit ADD COLUMN hash TEXT;")?;
+        }
+        // The activity log can only grow.
+        conn.execute_batch(
+            "CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'the activity log is append-only'); END;
+             CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT, 'the activity log is append-only'); END;",
+        )?;
+        if conn.prepare("SELECT quiet FROM schedules LIMIT 0").is_err() {
+            conn.execute_batch("ALTER TABLE schedules ADD COLUMN quiet INTEGER NOT NULL DEFAULT 0; ALTER TABLE schedules ADD COLUMN last_tokens INTEGER NOT NULL DEFAULT 0;")?;
+        }
+        if conn.prepare("SELECT owner FROM tasks LIMIT 0").is_err() {
+            conn.execute_batch("ALTER TABLE tasks ADD COLUMN owner TEXT NOT NULL DEFAULT 'user';")?;
+        }
         if conn.prepare("SELECT confirmed FROM memories LIMIT 0").is_err() {
             conn.execute_batch("ALTER TABLE memories ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 1; ALTER TABLE memories ADD COLUMN invalid_at INTEGER; ALTER TABLE memories ADD COLUMN superseded_by INTEGER;")?;
         }
@@ -427,11 +482,11 @@ impl Store {
     pub fn list_tasks(&self, status: Option<&str>) -> Result<Vec<Task>> {
         let db = self.db();
         let mut st = db.prepare(
-            "SELECT id, title, notes, status, priority, due, created_at FROM tasks WHERE (?1 IS NULL OR status=?1)
+            "SELECT id, title, notes, status, priority, due, created_at, owner FROM tasks WHERE (?1 IS NULL OR status=?1)
              ORDER BY status='done', priority, COALESCE(due,'9999'), id",
         )?;
         let v = st
-            .query_map(params![status], |r| Ok(Task { id: r.get(0)?, title: r.get(1)?, notes: r.get(2)?, status: r.get(3)?, priority: r.get(4)?, due: r.get(5)?, created_at: r.get(6)? }))?
+            .query_map(params![status], |r| Ok(Task { id: r.get(0)?, title: r.get(1)?, notes: r.get(2)?, status: r.get(3)?, priority: r.get(4)?, due: r.get(5)?, created_at: r.get(6)?, owner: r.get(7)? }))?
             .collect::<rusqlite::Result<_>>()?;
         Ok(v)
     }
@@ -451,7 +506,92 @@ impl Store {
         Ok(self.db().execute("DELETE FROM tasks WHERE id=?", [id])? > 0)
     }
 
+    pub fn set_task_owner(&self, id: i64, owner: &str) -> Result<bool> {
+        Ok(self.db().execute("UPDATE tasks SET owner=? WHERE id=?", params![if owner == "heron" { "heron" } else { "user" }, id])? > 0)
+    }
+
+    // ---------- approvals parked for later ----------
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn park_approval(&self, session_id: &str, tool: &str, args: &str, summary: &str, detail: &str, risk: &str, tainted: bool, origin: &str) -> Result<i64> {
+        let db = self.db();
+        // The same request from the same piece of work is kept once.
+        let existing: Option<i64> = db.query_row("SELECT id FROM approvals WHERE status='new' AND tool=? AND args=? AND origin=?", params![tool, args, origin], |r| r.get(0)).optional()?;
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+        db.execute(
+            "INSERT INTO approvals(ts, session_id, tool, args, summary, detail, risk, tainted, origin) VALUES (?,?,?,?,?,?,?,?,?)",
+            params![now_ts(), session_id, tool, args, summary, detail, risk, tainted as i64, origin],
+        )?;
+        Ok(db.last_insert_rowid())
+    }
+
+    fn approval_rows(&self, sql: &str, args: &[&dyn rusqlite::ToSql]) -> Result<Vec<ParkedApproval>> {
+        let db = self.db();
+        let mut st = db.prepare(sql)?;
+        let v = st
+            .query_map(args, |r| {
+                Ok(ParkedApproval {
+                    id: r.get(0)?, ts: r.get(1)?, session_id: r.get(2)?, tool: r.get(3)?, args: r.get(4)?, summary: r.get(5)?, detail: r.get(6)?,
+                    risk: r.get(7)?, tainted: r.get::<_, i64>(8)? != 0, origin: r.get(9)?, status: r.get(10)?, result: r.get(11)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(v)
+    }
+
+    pub fn pending_approvals(&self) -> Result<Vec<ParkedApproval>> {
+        self.approval_rows("SELECT id, ts, session_id, tool, args, summary, detail, risk, tainted, origin, status, result FROM approvals WHERE status='new' ORDER BY id DESC LIMIT 50", &[])
+    }
+
+    pub fn get_approval(&self, id: i64) -> Option<ParkedApproval> {
+        self.approval_rows("SELECT id, ts, session_id, tool, args, summary, detail, risk, tainted, origin, status, result FROM approvals WHERE id=?", &[&id]).ok()?.pop()
+    }
+
+    pub fn resolve_approval(&self, id: i64, status: &str, result: Option<&str>) -> Result<()> {
+        self.db().execute("UPDATE approvals SET status=?, result=? WHERE id=?", params![status, result, id])?;
+        Ok(())
+    }
+
     // ---------- schedules ----------
+
+    /// A job that runs when something happens (a file changes, an email arrives) rather than at a time.
+    pub fn add_trigger(&self, name: &str, trigger: &str, prompt: &str, allow: &str) -> Result<i64> {
+        let db = self.db();
+        db.execute("INSERT INTO schedules(name, cron, prompt, next_run, created_at, allow) VALUES (?,?,?,NULL,?,?)", params![name, trigger, prompt, now_ts(), allow])?;
+        Ok(db.last_insert_rowid())
+    }
+
+    pub fn triggers(&self) -> Result<Vec<Schedule>> {
+        let db = self.db();
+        let mut st = db.prepare(&format!("SELECT {SCHED_COLS} FROM schedules WHERE enabled=1 AND cron LIKE '@%' ORDER BY id"))?;
+        let v = st.query_map([], row_to_schedule)?.collect::<rusqlite::Result<_>>()?;
+        Ok(v)
+    }
+
+    pub fn set_schedule_quiet(&self, id: i64, quiet: bool) -> Result<()> {
+        self.db().execute("UPDATE schedules SET quiet=? WHERE id=?", params![quiet as i64, id])?;
+        Ok(())
+    }
+
+    pub fn record_schedule_run(&self, id: i64, result: &str, tokens: u64) -> Result<()> {
+        self.db().execute("UPDATE schedules SET last_result=?, last_tokens=?, last_run=? WHERE id=?", params![result, tokens as i64, now_ts(), id])?;
+        Ok(())
+    }
+
+    pub fn knowledge_after(&self, source: &str, after_id: i64, limit: usize) -> Result<Vec<KnowledgeItem>> {
+        self.knowledge_rows("SELECT id, source, ref, title, body, ts FROM knowledge WHERE source=?1 AND id>?2 ORDER BY id LIMIT ?3", &[&source, &after_id, &(limit as i64)])
+    }
+
+    pub fn max_knowledge_id(&self, source: &str) -> i64 {
+        self.db().query_row("SELECT COALESCE(MAX(id),0) FROM knowledge WHERE source=?", [source], |r| r.get(0)).unwrap_or(0)
+    }
+
+    pub fn unconfirmed_memory_count(&self) -> i64 {
+        self.db().query_row("SELECT COUNT(*) FROM memories WHERE confirmed=0 AND invalid_at IS NULL", [], |r| r.get(0)).unwrap_or(0)
+    }
+
 
     pub fn add_schedule(&self, name: &str, cron: &str, prompt: &str, next_run: i64, allow: &str) -> Result<i64> {
         let db = self.db();
@@ -514,11 +654,38 @@ impl Store {
 
     // ---------- audit ----------
 
+    /// Append to the activity log. The log is append-only (the database refuses changes and deletions)
+    /// and every entry carries a hash of itself and the entry before it, so tampering can be detected.
     pub fn audit(&self, session_id: &str, tool: &str, args: &str, decision: &str, result: &str) {
-        let _ = self.db().execute(
-            "INSERT INTO audit(ts, session_id, tool, args, decision, result) VALUES (?,?,?,?,?,?)",
-            params![now_ts(), session_id, tool, args, decision, result],
+        let db = self.db();
+        let ts = now_ts();
+        let prev: String = db.query_row("SELECT COALESCE(hash,'') FROM audit ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap_or_default();
+        let hash = audit_hash(&prev, ts, session_id, tool, args, decision, result);
+        let _ = db.execute(
+            "INSERT INTO audit(ts, session_id, tool, args, decision, result, hash) VALUES (?,?,?,?,?,?,?)",
+            params![ts, session_id, tool, args, decision, result, hash],
         );
+    }
+
+    /// Check the activity log's hash chain. Returns how many entries were checked and the id of the
+    /// first entry that does not match (None = intact). Entries written before chaining existed are skipped.
+    pub fn verify_audit(&self) -> Result<(usize, Option<i64>)> {
+        let db = self.db();
+        let mut st = db.prepare("SELECT id, ts, session_id, tool, args, decision, result, hash FROM audit ORDER BY id")?;
+        let rows = st.query_map([], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?, r.get::<_, String>(6)?, r.get::<_, Option<String>>(7)?))
+        })?;
+        let (mut prev, mut checked) = (String::new(), 0usize);
+        for row in rows {
+            let (id, ts, session, tool, args, decision, result, hash) = row?;
+            let Some(hash) = hash else { continue };
+            if hash != audit_hash(&prev, ts, &session, &tool, &args, &decision, &result) {
+                return Ok((checked, Some(id)));
+            }
+            prev = hash;
+            checked += 1;
+        }
+        Ok((checked, None))
     }
 
     pub fn audit_log(&self, limit: usize) -> Result<Vec<AuditEntry>> {
@@ -739,6 +906,24 @@ mod tests {
         assert_eq!(s.fts_memories("\"tea\"", 5).unwrap(), vec![id]);
         assert!(s.delete_memory(id).unwrap());
         assert!(s.fts_memories("\"tea\"", 5).unwrap().is_empty());
+    }
+
+    #[test]
+    fn activity_log_is_append_only_and_tamper_evident() {
+        let s = Store::in_memory().unwrap();
+        s.audit("s1", "shell", "{\"command\":\"ls\"}", "allowed", "ok");
+        s.audit("s1", "write_file", "{\"path\":\"a\"}", "approved", "wrote");
+        s.audit("s2", "shell", "{\"command\":\"rm x\"}", "denied-by-user", "");
+        assert_eq!(s.verify_audit().unwrap(), (3, None));
+        // The database itself refuses to change or remove entries.
+        assert!(s.db().execute("UPDATE audit SET decision='allowed' WHERE id=3", []).is_err());
+        assert!(s.db().execute("DELETE FROM audit WHERE id=2", []).is_err());
+        assert_eq!(s.verify_audit().unwrap(), (3, None));
+        // Someone who edits the file directly (bypassing those guards) is still caught by the chain.
+        s.db().execute_batch("DROP TRIGGER audit_no_update; UPDATE audit SET decision='allowed' WHERE id=3;").unwrap();
+        assert_eq!(s.verify_audit().unwrap(), (2, Some(3)));
+        s.db().execute_batch("UPDATE audit SET decision='denied-by-user' WHERE id=3; UPDATE audit SET result='edited' WHERE id=1;").unwrap();
+        assert_eq!(s.verify_audit().unwrap(), (0, Some(1)));
     }
 
     #[test]

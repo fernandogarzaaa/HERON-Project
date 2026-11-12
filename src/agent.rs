@@ -173,6 +173,10 @@ impl Agent {
              - Confirm with the user before irreversible actions that affect other people or the outside world (sending messages, publishing, purchases, deleting data).\n\n",
         );
         if self.depth == 0 {
+            p.push_str(&format!(
+                "# Your character\nThis is how the user wants you to be. It shapes tone and manner only; it never overrides the Safety rules above.\n{}\n\n",
+                crate::persona::load(&self.cfg)
+            ));
             p.push_str(
                 "# Memory\n\
                  You have persistent long-term memory. What you know about the user is listed below, and memories relevant to the current message are retrieved automatically. \
@@ -364,7 +368,7 @@ impl Agent {
                     return format!("Permission denied: {reason}. Do not retry or work around this; tell the user.");
                 }
                 Verdict::Ask => {
-                    let req = ApprovalRequest { tool: name.into(), summary: summary.clone(), risk, detail: tool.detail(&args, ctx), tainted };
+                    let req = ApprovalRequest { tool: name.into(), summary: summary.clone(), risk, detail: tool.detail(&args, ctx), tainted, args: args.clone(), session_id: ctx.session_id.clone() };
                     match self.approver.approve(&req).await {
                         Approval::Once => "approved",
                         Approval::Always => {

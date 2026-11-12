@@ -123,8 +123,21 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
             bot.send(chat, "Started a new conversation.").await;
             return;
         }
+        "/pause" => {
+            app.set_paused(true);
+            if let Some(h) = shared.running.lock().unwrap().take() {
+                h.abort();
+            }
+            bot.send(chat, "Paused. Heron will start nothing on its own (reminders, triggers, suggestions) until you send /resume.").await;
+            return;
+        }
+        "/resume" => {
+            app.set_paused(false);
+            bot.send(chat, "Resumed.").await;
+            return;
+        }
         "/start" | "/help" => {
-            bot.send(chat, "This is your Heron. Send a message to ask for something. /new starts a fresh conversation, /stop halts a running reply.").await;
+            bot.send(chat, "This is your Heron. Send a message to ask for something. /new starts a fresh conversation, /stop halts a running reply, /pause stops everything Heron does on its own, /resume turns it back on.").await;
             return;
         }
         _ => {}

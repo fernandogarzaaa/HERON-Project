@@ -76,7 +76,7 @@ pub enum Verdict {
 pub struct Policy {
     mode: RwLock<Mode>,
     allow: RwLock<Vec<(String, GlobMatcher)>>,
-    deny: Vec<(String, GlobMatcher)>,
+    deny: RwLock<Vec<(String, GlobMatcher)>>,
 }
 
 fn compile(rules: &[String]) -> Vec<(String, GlobMatcher)> {
@@ -85,7 +85,7 @@ fn compile(rules: &[String]) -> Vec<(String, GlobMatcher)> {
 
 impl Policy {
     pub fn new(mode: Mode, allow: &[String], deny: &[String]) -> Self {
-        Policy { mode: RwLock::new(mode), allow: RwLock::new(compile(allow)), deny: compile(deny) }
+        Policy { mode: RwLock::new(mode), allow: RwLock::new(compile(allow)), deny: RwLock::new(compile(deny)) }
     }
 
     pub fn mode(&self) -> Mode {
@@ -100,6 +100,37 @@ impl Policy {
         if let Ok(g) = Glob::new(rule) {
             self.allow.write().unwrap().push((rule.to_string(), g.compile_matcher()));
         }
+    }
+
+    pub fn deny_rules(&self) -> Vec<String> {
+        self.deny.read().unwrap().iter().map(|(r, _)| r.clone()).collect()
+    }
+
+    /// The user's standing choice for one tool: "ask" (follow the mode), "allow" (never ask; risky actions
+    /// still ask) or "never" (always refuse).
+    pub fn tool_setting(&self, tool: &str) -> &'static str {
+        let rule = format!("{tool}:*");
+        if self.deny.read().unwrap().iter().any(|(r, _)| *r == rule) {
+            "never"
+        } else if self.allow.read().unwrap().iter().any(|(r, _)| *r == rule) {
+            "allow"
+        } else {
+            "ask"
+        }
+    }
+
+    pub fn set_tool_setting(&self, tool: &str, setting: &str) -> Result<()> {
+        let rule = format!("{tool}:*");
+        let matcher = Glob::new(&rule).map_err(|e| anyhow!("bad tool name: {e}"))?.compile_matcher();
+        self.allow.write().unwrap().retain(|(r, _)| *r != rule);
+        self.deny.write().unwrap().retain(|(r, _)| *r != rule);
+        match setting {
+            "allow" => self.allow.write().unwrap().push((rule, matcher)),
+            "never" => self.deny.write().unwrap().push((rule, matcher)),
+            "ask" => {}
+            other => bail!("unknown setting '{other}' (use ask, allow or never)"),
+        }
+        Ok(())
     }
 
     pub fn allow_rules(&self) -> Vec<String> {
@@ -120,8 +151,8 @@ impl Policy {
         if risk == Risk::Forbidden {
             return Verdict::Deny("this action is blocked in every mode because it is catastrophic or irreversible".into());
         }
-        if let Some((rule, _)) = self.deny.iter().find(|(_, g)| g.is_match(&key)) {
-            return Verdict::Deny(format!("blocked by deny rule '{rule}'"));
+        if let Some((rule, _)) = self.deny.read().unwrap().iter().find(|(_, g)| g.is_match(&key)) {
+            return Verdict::Deny(if *rule == format!("{tool}:*") { "the user has switched this ability off in Settings".to_string() } else { format!("blocked by deny rule '{rule}'") });
         }
         if risk == Risk::Safe {
             return Verdict::Allow;
@@ -156,6 +187,9 @@ pub struct ApprovalRequest {
     pub detail: String,
     /// Outside content is in the conversation and may have influenced this request.
     pub tainted: bool,
+    /// The exact arguments, so the action can be carried out later if the user approves it then.
+    pub args: serde_json::Value,
+    pub session_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -177,6 +211,25 @@ pub struct DenyAll;
 impl Approver for DenyAll {
     async fn approve(&self, _req: &ApprovalRequest) -> Approval {
         Approval::Deny(Some("no human is available to approve this (unattended run)".into()))
+    }
+}
+
+/// For work nobody is watching: nothing that needs approval is done, but the request is kept so the
+/// user can approve it later, and the agent is told to carry on with everything else.
+pub struct ParkingApprover {
+    pub store: crate::store::Store,
+    /// What Heron was doing (shown to the user with the request).
+    pub origin: String,
+}
+
+#[async_trait]
+impl Approver for ParkingApprover {
+    async fn approve(&self, req: &ApprovalRequest) -> Approval {
+        let parked = self.store.park_approval(&req.session_id, &req.tool, &req.args.to_string(), &req.summary, &req.detail, req.risk.label(), req.tainted, &self.origin);
+        Approval::Deny(Some(match parked {
+            Ok(_) => "nobody is here to approve this right now, so it was NOT done. It has been saved for the user to approve later. Carry on with everything else, and say in your report that this step is waiting for them".into(),
+            Err(_) => "no human is available to approve this (unattended run)".into(),
+        }))
     }
 }
 

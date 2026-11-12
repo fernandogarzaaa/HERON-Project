@@ -9,6 +9,7 @@ pub mod mail;
 pub mod mcp;
 pub mod memory;
 pub mod permissions;
+pub mod persona;
 pub mod schedule;
 pub mod server;
 pub mod skills;

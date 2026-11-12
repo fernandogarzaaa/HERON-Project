@@ -15,7 +15,7 @@ const LOCAL_DIM: usize = 384;
 /// Above this cosine similarity a new memory is treated as an update of an existing one.
 const DEDUPE_THRESHOLD: f32 = 0.88;
 /// Facts from these sources were written by other people or inferred, not stated by the user.
-pub const OUTSIDE_SOURCES: &[&str] = &["email", "calendar", "documents", "observed"];
+pub const OUTSIDE_SOURCES: &[&str] = &["email", "calendar", "documents", "observed", "computer"];
 
 #[derive(Clone)]
 pub struct Memory {

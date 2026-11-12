@@ -15,6 +15,11 @@ The first public beta of Heron, a personal AI agent that runs on your own comput
 - Use it from your phone through Telegram, paired to a single chat.
 - Safety: four permission modes, approval for anything that changes state once outside content is in a conversation, undo for file changes, an activity log, keys in the operating system's credential store, and a daily cap on self-started work.
 - Extensible through MCP connectors and skills, including skills Heron writes itself with your approval.
+- An editable personality, changed in Settings or just by asking.
+- "Waiting for you": steps that needed approval while you were away are kept, not lost, and can be run later with one click.
+- Jobs that react to events (a file changing, an email arriving) as well as times; watches that speak up only when needed.
+- A Today summary and one-click day prep; per-ability permission switches; a pause-everything switch.
+- A tamper-evident, append-only activity log; picking up a reply that was cut short.
 
 **Known limits of this beta**
 
