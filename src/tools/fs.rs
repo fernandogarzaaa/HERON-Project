@@ -126,7 +126,11 @@ async fn list_dir(args: &Value, ctx: &ToolCtx) -> Result<String> {
     }
     entries.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
     let total = entries.len();
-    let mut out = format!("{} ({} entries)\n", path.display(), total);
+    let name = match shown(&path, ctx) {
+        n if n.is_empty() => "the working folder".to_string(),
+        n => n,
+    };
+    let mut out = format!("{name} ({total} entries)\n");
     for (is_dir, name, size) in entries.into_iter().take(500) {
         if is_dir {
             out.push_str(&format!("  {name}/\n"));
