@@ -97,6 +97,9 @@ pub struct AgentConfig {
     pub shell: String,
     /// Default working folder for the desktop app / web UI. Empty = ~/Heron.
     pub workspace: String,
+    /// Understand meaning, not just shared words, when searching memory: runs a small model locally.
+    /// Needs a build with the `neural` feature; downloads the model (about 23 MB) once.
+    pub neural_memory: bool,
     /// Observe the working folder in the background (file names and times only) so the agent is aware of what you are doing.
     pub ambient_context: bool,
     /// Periodically let the model reflect on what was observed to form lasting insights.
@@ -199,6 +202,7 @@ impl Default for AgentConfig {
             notify_command: String::new(),
             shell: String::new(),
             workspace: String::new(),
+            neural_memory: false,
             ambient_context: true,
             reflect: false,
             proactive: "off".into(),

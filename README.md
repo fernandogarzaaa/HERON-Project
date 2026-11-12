@@ -176,6 +176,7 @@ src/
   mail.rs         read-only IMAP client and message decoding
   telegram.rs     phone gateway with pairing, remote approvals and /stop
   eval.rs         built-in memory retrieval evaluation
+  embed.rs        optional local neural embedder (feature `neural`)
   mcp.rs          MCP client and server (stdio)
   tools/          files, shell, web, memory/tasks/reminders/skills
   server.rs       local HTTP API + UI (loopback only, per-launch token)
@@ -207,16 +208,16 @@ The mock server is a tiny OpenAI-compatible endpoint that drives real tool calls
 heron eval
 ```
 
-runs a built-in, deterministic test of the memory retrieval layer: 30 facts, 34 questions worded differently from the facts (including misspellings), and 4 facts that later change. Current result with the default offline embeddings:
+runs a built-in, deterministic test of the memory retrieval layer: 30 facts, 34 questions worded differently from the facts (including misspellings), and 4 facts that later change.
 
-| | |
-|---|---|
-| Right fact ranked first | 28 / 34 (82%) |
-| Right fact in the top three | 30 / 34 (88%) |
-| After a fact changed, current version ranked first | 4 / 4 |
-| After a fact changed, retired version still recalled | 0 / 4 |
+| | Built-in (default) | With the neural model (`heron eval --neural`) |
+|---|---|---|
+| Right fact ranked first | 28 / 34 (82%) | 30 / 34 (88%) |
+| Right fact in the top three | 30 / 34 (88%) | 34 / 34 (100%) |
+| After a fact changed, current version ranked first | 4 / 4 | 4 / 4 |
+| After a fact changed, retired version still recalled | 0 / 4 | 0 / 4 |
 
-The four misses are purely semantic ("what is her job" → "landscape architect", "coffee" → "flat white", "bike" → "bicycle"), which keyword search and offline embeddings cannot bridge; configuring a remote `embedding_model` is the fix. The test suite fails if these numbers regress. This measures retrieval only — not a model's reasoning, and not Heron against other agents.
+The built-in method needs nothing and tolerates misspellings, but misses questions that share no words with the answer ("what is her job" → "landscape architect"). The neural model (all-MiniLM-L6-v2, run locally; the approach comes from the ADAM project) fixes those but is not typo-tolerant on its own, so Heron fuses both with keyword search. It is an optional build feature (`cargo build --features desktop,neural`) and a switch in Settings; the model (about 23 MB) is downloaded once, on first use. The test suite fails if the default numbers regress. This measures retrieval only — not a model's reasoning, and not Heron against other agents.
 
 Platform verification: every push runs the test suite and builds the desktop app on Linux, macOS and Windows machines (see the CI badge). Before that, the suite was run natively on Linux and as Windows executables under Wine.
 

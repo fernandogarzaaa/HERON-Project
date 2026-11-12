@@ -21,6 +21,8 @@ pub const OUTSIDE_SOURCES: &[&str] = &["email", "calendar", "documents", "observ
 pub struct Memory {
     store: Store,
     remote: Option<Arc<dyn Llm>>,
+    /// Where the local neural model is kept, when the user has switched it on.
+    neural_dir: Option<std::path::PathBuf>,
 }
 
 fn fnv1a(s: &[u8]) -> u64 {
@@ -107,18 +109,61 @@ impl SaveOutcome {
 
 impl Memory {
     pub fn new(store: Store, remote: Option<Arc<dyn Llm>>) -> Self {
-        Memory { store, remote }
+        Memory { store, remote, neural_dir: None }
     }
 
-    async fn embed(&self, text: &str) -> Vec<f32> {
-        if let Some(llm) = &self.remote {
+    /// Use the local neural model for embeddings (falls back to the built-in method if it cannot load).
+    pub fn with_neural(mut self, cache_dir: std::path::PathBuf) -> Self {
+        self.neural_dir = Some(cache_dir);
+        self
+    }
+
+    /// The embedder this memory prefers right now.
+    pub fn preferred_embedder(&self) -> &'static str {
+        if self.neural_dir.is_some() && crate::embed::neural_built_in() {
+            crate::embed::NEURAL_TAG
+        } else if self.remote.is_some() {
+            crate::embed::REMOTE_TAG
+        } else {
+            crate::embed::HASH_TAG
+        }
+    }
+
+    /// Embed text, returning the vector and which embedder actually produced it. Order of preference:
+    /// the local neural model, a remote embedding model, then the built-in offline method, which never fails.
+    async fn embed(&self, text: &str) -> (Vec<f32>, &'static str) {
+        if let Some(dir) = self.neural_dir.clone().filter(|_| crate::embed::neural_built_in()) {
+            let input = vec![text.to_string()];
+            // Model inference is CPU work: keep it off the async threads.
+            if let Ok(Ok(mut v)) = tokio::task::spawn_blocking(move || crate::embed::neural_embed(&dir, &input)).await {
+                if let Some(e) = v.pop().filter(|e| !e.is_empty()) {
+                    return (e, crate::embed::NEURAL_TAG);
+                }
+            }
+        } else if let Some(llm) = &self.remote {
             if let Ok(mut v) = llm.embed(&[text.to_string()]).await {
                 if let Some(e) = v.pop().filter(|e| !e.is_empty()) {
-                    return e;
+                    return (e, crate::embed::REMOTE_TAG);
                 }
             }
         }
-        local_embed(text)
+        (local_embed(text), crate::embed::HASH_TAG)
+    }
+
+    /// Bring older memories into the current embedder's space, a few at a time. Until a memory is
+    /// re-indexed it is still found by keyword. Returns how many were updated.
+    pub async fn reindex(&self, limit: usize) -> Result<usize> {
+        let want = self.preferred_embedder();
+        let mut done = 0;
+        for (id, content) in self.store.memories_to_reindex(want, limit)? {
+            let (emb, tag) = self.embed(&content).await;
+            if tag != want {
+                break; // the preferred embedder is unavailable right now; try again later
+            }
+            self.store.set_memory_embedding(id, &to_blob(&emb), tag)?;
+            done += 1;
+        }
+        Ok(done)
     }
 
     /// Save a memory. Secrets are redacted. A restatement of a known fact refreshes it in place; a changed
@@ -133,11 +178,13 @@ impl Memory {
         let content = redact_secrets(content.trim());
         let importance = importance.clamp(0.0, 1.0);
         let confirmed = !OUTSIDE_SOURCES.contains(&source);
-        let emb = self.embed(&content).await;
+        let (emb, embedder) = self.embed(&content).await;
+        // Meaning-based vectors put paraphrases close together, so "same fact" needs a stricter bar there.
+        let threshold = if embedder == crate::embed::HASH_TAG { DEDUPE_THRESHOLD } else { 0.93 };
         let mut best: Option<(i64, f32)> = None;
-        for (id, blob) in self.store.memory_embeddings()? {
+        for (id, blob) in self.store.memory_embeddings(embedder)? {
             let sim = cosine(&emb, &from_blob(&blob));
-            if sim >= DEDUPE_THRESHOLD && best.map(|b| sim > b.1).unwrap_or(true) {
+            if sim >= threshold && best.map(|b| sim > b.1).unwrap_or(true) {
                 best = Some((id, sim));
             }
         }
@@ -146,19 +193,19 @@ impl Memory {
             let merged_tags = merge_tags(&old.tags, tags);
             let same = |s: &str| s.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect::<String>();
             if same(&old.content) == same(&content) {
-                self.store.update_memory(old.id, &content, &merged_tags, old.importance.max(importance), Some(&to_blob(&emb)), old.confirmed || confirmed)?;
+                self.store.update_memory(old.id, &content, &merged_tags, old.importance.max(importance), Some(&to_blob(&emb)), old.confirmed || confirmed, embedder)?;
                 return Ok(SaveOutcome::Updated(old.id));
             }
             if old.confirmed && !confirmed {
                 // Outside material disagrees with something the user vouched for: keep both, retire nothing.
-                let id = self.store.insert_memory(kind, &content, tags, importance, source, Some(&to_blob(&emb)), false)?;
+                let id = self.store.insert_memory(kind, &content, tags, importance, source, Some(&to_blob(&emb)), false, embedder)?;
                 return Ok(SaveOutcome::Created(id));
             }
-            let id = self.store.insert_memory(kind, &content, &merged_tags, old.importance.max(importance), source, Some(&to_blob(&emb)), confirmed)?;
+            let id = self.store.insert_memory(kind, &content, &merged_tags, old.importance.max(importance), source, Some(&to_blob(&emb)), confirmed, embedder)?;
             self.store.supersede_memory(old.id, id)?;
             return Ok(SaveOutcome::Updated(id));
         }
-        let id = self.store.insert_memory(kind, &content, tags, importance, source, Some(&to_blob(&emb)), confirmed)?;
+        let id = self.store.insert_memory(kind, &content, tags, importance, source, Some(&to_blob(&emb)), confirmed, embedder)?;
         Ok(SaveOutcome::Created(id))
     }
 
@@ -177,17 +224,31 @@ impl Memory {
             }
         }
 
-        let q = self.embed(query).await;
+        let (q, embedder) = self.embed(query).await;
+        // Unrelated sentences score near zero with hashed vectors but around 0.1-0.2 with a neural model.
+        let floor = if embedder == crate::embed::HASH_TAG { 0.12 } else { 0.25 };
         let mut sims: Vec<(i64, f32)> = self
             .store
-            .memory_embeddings()?
+            .memory_embeddings(embedder)?
             .into_iter()
             .map(|(id, blob)| (id, cosine(&q, &from_blob(&blob))))
-            .filter(|(_, s)| *s > 0.12)
+            .filter(|(_, s)| *s > floor)
             .collect();
         sims.sort_by(|a, b| b.1.total_cmp(&a.1));
         for (rank, (id, _)) in sims.iter().take(40).enumerate() {
             *fused.entry(*id).or_default() += 1.0 / (K + rank as f64 + 1.0);
+        }
+
+        // A neural model understands meaning but not misspellings; the built-in character-based method is
+        // the opposite. When the neural (or a remote) model is in use, add the built-in ranking as a third
+        // voice so "acountant" still finds "accountant". Computed on the fly: it is cheap at personal scale.
+        if embedder != crate::embed::HASH_TAG {
+            let hq = local_embed(query);
+            let mut typo: Vec<(i64, f32)> = self.store.list_memories(None, 3000)?.iter().map(|m| (m.id, cosine(&hq, &local_embed(&m.content)))).filter(|(_, s)| *s > 0.12).collect();
+            typo.sort_by(|a, b| b.1.total_cmp(&a.1));
+            for (rank, (id, _)) in typo.iter().take(40).enumerate() {
+                *fused.entry(*id).or_default() += 1.0 / (K + rank as f64 + 1.0);
+            }
         }
 
         let now = now_ts();
@@ -355,6 +416,25 @@ mod tests {
         let id = m.store.list_memories(Some("profile"), 5).unwrap()[0].id;
         assert!(m.store.confirm_memory(id).unwrap());
         assert_eq!(m.core(10).unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn vectors_from_different_embedders_are_never_mixed() {
+        let m = mem();
+        let id = m.save("The user keeps bees on the allotment", "fact", "", 0.6, "user").await.unwrap().id();
+        assert_eq!(m.preferred_embedder(), crate::embed::HASH_TAG);
+        // Pretend this memory was embedded by another model whose vectors happen to have the same length.
+        let foreign: Vec<u8> = local_embed("completely different text about tax returns").iter().flat_map(|f| f.to_le_bytes()).collect();
+        m.store.set_memory_embedding(id, &foreign, "some-other-model").unwrap();
+        // It is ignored for similarity (no false neighbours)...
+        assert!(m.store.memory_embeddings(crate::embed::HASH_TAG).unwrap().is_empty());
+        assert!(m.search("tax returns", 3).await.unwrap().is_empty());
+        // ...still found by keyword...
+        assert_eq!(m.search("bees allotment", 3).await.unwrap()[0].id, id);
+        // ...and re-indexing brings it back into the current space without touching its text.
+        assert_eq!(m.reindex(10).await.unwrap(), 1);
+        assert_eq!(m.reindex(10).await.unwrap(), 0);
+        assert_eq!(m.search("beez alotment", 3).await.unwrap()[0].id, id, "typo-tolerant vector search works again");
     }
 
     #[tokio::test]

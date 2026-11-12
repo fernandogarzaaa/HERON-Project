@@ -143,10 +143,11 @@ impl HttpLlm {
         let resp = self.post("/chat/completions").json(&body).send().await.map_err(|e| CallError::retryable(format!("network error: {e}")))?;
         let status = resp.status();
         if !status.is_success() {
+            let retry_after = resp.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<f64>().ok()).filter(|s| *s >= 0.0).map(Duration::from_secs_f64);
             let text = resp.text().await.unwrap_or_default();
             let msg = format!("{} from {}: {}", status, self.base_url, crate::util::preview(&text, 400));
             return Err(if status.as_u16() == 429 || status.is_server_error() || status.as_u16() == 408 {
-                CallError::retryable(msg)
+                CallError { retry_after, ..CallError::retryable(msg) }
             } else {
                 CallError::fatal(msg, status.as_u16())
             });
@@ -183,14 +184,25 @@ struct CallError {
     msg: String,
     retryable: bool,
     status: u16,
+    /// How long the provider asked us to wait before trying again.
+    retry_after: Option<Duration>,
 }
 
 impl CallError {
     fn retryable(msg: String) -> Self {
-        CallError { msg, retryable: true, status: 0 }
+        CallError { msg, retryable: true, status: 0, retry_after: None }
     }
     fn fatal(msg: String, status: u16) -> Self {
-        CallError { msg, retryable: false, status }
+        CallError { msg, retryable: false, status, retry_after: None }
+    }
+}
+
+/// How long to wait before retry number `attempt` (0-based). A provider's own Retry-After wins over
+/// our backoff, within reason: hammering a rate-limited service only makes the limit last longer.
+fn retry_delay(attempt: u32, retry_after: Option<Duration>) -> Duration {
+    match retry_after {
+        Some(asked) => asked.clamp(Duration::from_millis(200), Duration::from_secs(60)),
+        None => Duration::from_millis(500 * 2u64.pow(attempt.min(6))),
     }
 }
 
@@ -309,7 +321,7 @@ impl Llm for HttpLlm {
                             break; // try the next fallback model
                         }
                         if attempt < self.max_retries {
-                            tokio::time::sleep(Duration::from_millis(500 * 2u64.pow(attempt))).await;
+                            tokio::time::sleep(retry_delay(attempt, e.retry_after)).await;
                         }
                     }
                 }
@@ -361,11 +373,90 @@ impl Llm for SwappableLlm {
 }
 
 /// Build the model client for a configuration. `base_url = "demo"` selects the built-in demo model.
+/// With HERON_CASSETTE set, model calls are recorded to (or replayed from) that file.
 pub fn build(cfg: &Config) -> Result<std::sync::Arc<dyn Llm>> {
-    if is_demo(cfg) {
-        Ok(std::sync::Arc::new(DemoLlm))
-    } else {
-        Ok(std::sync::Arc::new(HttpLlm::from_config(cfg)?))
+    let cassette = std::env::var("HERON_CASSETTE").ok().filter(|p| !p.is_empty()).map(std::path::PathBuf::from);
+    let replay = std::env::var("HERON_CASSETTE_MODE").map(|m| m.eq_ignore_ascii_case("replay")).unwrap_or(false);
+    if let (Some(path), true) = (&cassette, replay) {
+        return Ok(std::sync::Arc::new(Cassette::replay(path)?));
+    }
+    let inner: std::sync::Arc<dyn Llm> = if is_demo(cfg) { std::sync::Arc::new(DemoLlm) } else { std::sync::Arc::new(HttpLlm::from_config(cfg)?) };
+    Ok(match cassette {
+        Some(path) => std::sync::Arc::new(Cassette::record(inner, &path)),
+        None => inner,
+    })
+}
+
+/// Record-and-replay of model calls, so a run made once against a real model can be repeated exactly
+/// (and for free) in tests. Each call is keyed by a hash of the conversation so far and the tools on
+/// offer; the system prompt is left out because it contains the date and local paths.
+pub struct Cassette {
+    inner: Option<std::sync::Arc<dyn Llm>>,
+    path: std::path::PathBuf,
+    recorded: std::sync::Mutex<std::collections::HashMap<String, std::collections::VecDeque<(Message, Usage)>>>,
+}
+
+impl Cassette {
+    pub fn record(inner: std::sync::Arc<dyn Llm>, path: &std::path::Path) -> Self {
+        Cassette { inner: Some(inner), path: path.to_path_buf(), recorded: Default::default() }
+    }
+
+    pub fn replay(path: &std::path::Path) -> Result<Self> {
+        let text = std::fs::read_to_string(path).map_err(|e| anyhow!("cannot read the recording {}: {e}", path.display()))?;
+        let mut recorded: std::collections::HashMap<String, std::collections::VecDeque<(Message, Usage)>> = Default::default();
+        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+            let v: Value = serde_json::from_str(line)?;
+            let message: Message = serde_json::from_value(v["message"].clone())?;
+            let usage: Usage = serde_json::from_value(v["usage"].clone()).unwrap_or_default();
+            recorded.entry(v["key"].as_str().unwrap_or("").to_string()).or_default().push_back((message, usage));
+        }
+        Ok(Cassette { inner: None, path: path.to_path_buf(), recorded: std::sync::Mutex::new(recorded) })
+    }
+
+    fn key(req: &ChatRequest) -> String {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        for m in req.messages.iter().filter(|m| m.role != "system") {
+            h.update(m.role.as_bytes());
+            h.update([0]);
+            h.update(m.text().as_bytes());
+            for c in &m.tool_calls {
+                h.update(c.function.name.as_bytes());
+                h.update(c.function.arguments.as_bytes());
+            }
+            h.update([1]);
+        }
+        for t in &req.tools {
+            h.update(t["function"]["name"].as_str().unwrap_or("").as_bytes());
+            h.update([2]);
+        }
+        h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    }
+}
+
+#[async_trait]
+impl Llm for Cassette {
+    async fn chat(&self, req: ChatRequest, on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
+        let key = Self::key(&req);
+        match &self.inner {
+            Some(inner) => {
+                let resp = inner.chat(req, on_delta).await?;
+                let line = json!({"key": key, "message": resp.message, "usage": resp.usage, "model": resp.model}).to_string();
+                use std::io::Write;
+                let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&self.path)?;
+                writeln!(file, "{line}")?;
+                Ok(resp)
+            }
+            None => {
+                // Identical requests are replayed in the order they were recorded.
+                let next = self.recorded.lock().unwrap().get_mut(&key).and_then(|q| q.pop_front());
+                let (message, usage) = next.ok_or_else(|| anyhow!("the recording has no answer for this request: the conversation differs from the one that was recorded (re-record with HERON_CASSETTE_MODE=record)"))?;
+                if let Some(text) = &message.content {
+                    on_delta(text);
+                }
+                Ok(ChatResponse { message, usage, model: "replay".into() })
+            }
+        }
     }
 }
 
@@ -487,6 +578,42 @@ mod tests {
         assert_eq!(r.message.tool_calls[0].function.arguments, r#"{"path":"a"}"#);
         assert_eq!(r.message.tool_calls[1].function.arguments, "{}");
         assert_eq!(r.usage, Usage { prompt_tokens: 7, completion_tokens: 3 });
+    }
+
+    #[test]
+    fn a_providers_retry_after_is_respected_within_reason() {
+        assert_eq!(retry_delay(0, None), Duration::from_millis(500));
+        assert_eq!(retry_delay(3, None), Duration::from_secs(4));
+        assert_eq!(retry_delay(0, Some(Duration::from_secs(7))), Duration::from_secs(7));
+        assert_eq!(retry_delay(5, Some(Duration::from_secs(3600))), Duration::from_secs(60), "never sleeps for an hour");
+        assert_eq!(retry_delay(0, Some(Duration::ZERO)), Duration::from_millis(200));
+    }
+
+    #[tokio::test]
+    async fn recorded_runs_replay_exactly_and_refuse_a_different_conversation() {
+        let dir = tempfile::tempdir().unwrap();
+        let tape = dir.path().join("run.jsonl");
+        let real = std::sync::Arc::new(ScriptedLlm::new(vec![ScriptedLlm::tool_call("list_dir", json!({"path": "."})), Message::assistant("Two files.")]));
+        let ask = |text: &str, extra: Option<Message>| {
+            let mut messages = vec![Message::system("the date and paths here change every run"), Message::user(text)];
+            messages.extend(extra);
+            ChatRequest { messages, tools: vec![json!({"function": {"name": "list_dir"}})], ..Default::default() }
+        };
+        // Record two calls against the "real" model.
+        let rec = Cassette::record(real, &tape);
+        let first = rec.chat(ask("what is here?", None), &|_| {}).await.unwrap();
+        let second = rec.chat(ask("what is here?", Some(first.message.clone())), &|_| {}).await.unwrap();
+        assert_eq!(second.message.text(), "Two files.");
+        // Replay needs no model at all, and the changing system prompt does not matter.
+        let replay = Cassette::replay(&tape).unwrap();
+        let mut req = ask("what is here?", None);
+        req.messages[0] = Message::system("a different date and different paths");
+        let again = replay.chat(req, &|_| {}).await.unwrap();
+        assert_eq!(again.message.tool_calls[0].function.name, "list_dir");
+        assert_eq!(replay.chat(ask("what is here?", Some(again.message.clone())), &|_| {}).await.unwrap().message.text(), "Two files.");
+        // A conversation that was never recorded is an error, not a made-up answer.
+        let err = replay.chat(ask("something else entirely", None), &|_| {}).await.unwrap_err();
+        assert!(err.to_string().contains("no answer for this request"));
     }
 
     #[test]

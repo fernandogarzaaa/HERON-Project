@@ -50,6 +50,7 @@ base64 = "0.22"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 rustls-native-certs = "0.8"
 sha2 = "0.10"
+fastembed = { version = "7", default-features = false, features = ["ort-download-binaries-rustls-tls", "hf-hub-rustls-tls"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -62,6 +63,10 @@ strip = true
 [features]
 # Native desktop window (WebView2 on Windows, WKWebView on macOS, WebKitGTK on Linux).
 desktop = ["dep:wry", "dep:tao", "dep:muda"]
+# Neural memory search: a small sentence-embedding model (all-MiniLM-L6-v2) run locally.
+# Adds the ONNX runtime to the binary; the model itself (about 23 MB) is downloaded once, on first use,
+# and only if the user switches it on.
+neural = ["dep:fastembed"]
 
 [build-dependencies]
 winresource = "0.1.34"

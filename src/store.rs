@@ -160,7 +160,8 @@ CREATE TABLE IF NOT EXISTS memories(
   id INTEGER PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'fact', content TEXT NOT NULL,
   tags TEXT NOT NULL DEFAULT '', importance REAL NOT NULL DEFAULT 0.5, source TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_used INTEGER, uses INTEGER NOT NULL DEFAULT 0,
-  embedding BLOB, confirmed INTEGER NOT NULL DEFAULT 1, invalid_at INTEGER, superseded_by INTEGER);
+  embedding BLOB, confirmed INTEGER NOT NULL DEFAULT 1, invalid_at INTEGER, superseded_by INTEGER,
+  embedder TEXT NOT NULL DEFAULT 'hash-v1');
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(content, tags, content='memories', content_rowid='id', tokenize='porter unicode61');
 CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
   INSERT INTO memories_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags); END;
@@ -262,6 +263,9 @@ impl Store {
         // Databases created by earlier versions.
         if conn.prepare("SELECT hash FROM audit LIMIT 0").is_err() {
             conn.execute_batch("ALTER TABLE audit ADD COLUMN hash TEXT;")?;
+        }
+        if conn.prepare("SELECT embedder FROM memories LIMIT 0").is_err() {
+            conn.execute_batch("ALTER TABLE memories ADD COLUMN embedder TEXT NOT NULL DEFAULT 'hash-v1';")?;
         }
         // The activity log can only grow.
         conn.execute_batch(
@@ -379,21 +383,36 @@ impl Store {
     // at its replacement, so history is kept and only current facts are retrieved.
 
     #[allow(clippy::too_many_arguments)]
-    pub fn insert_memory(&self, kind: &str, content: &str, tags: &str, importance: f64, source: &str, embedding: Option<&[u8]>, confirmed: bool) -> Result<i64> {
+    pub fn insert_memory(&self, kind: &str, content: &str, tags: &str, importance: f64, source: &str, embedding: Option<&[u8]>, confirmed: bool, embedder: &str) -> Result<i64> {
         let now = now_ts();
         let db = self.db();
         db.execute(
-            "INSERT INTO memories(kind, content, tags, importance, source, created_at, updated_at, embedding, confirmed) VALUES (?,?,?,?,?,?,?,?,?)",
-            params![kind, content, tags, importance, source, now, now, embedding, confirmed as i64],
+            "INSERT INTO memories(kind, content, tags, importance, source, created_at, updated_at, embedding, confirmed, embedder) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            params![kind, content, tags, importance, source, now, now, embedding, confirmed as i64, embedder],
         )?;
         Ok(db.last_insert_rowid())
     }
 
-    pub fn update_memory(&self, id: i64, content: &str, tags: &str, importance: f64, embedding: Option<&[u8]>, confirmed: bool) -> Result<()> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_memory(&self, id: i64, content: &str, tags: &str, importance: f64, embedding: Option<&[u8]>, confirmed: bool, embedder: &str) -> Result<()> {
         self.db().execute(
-            "UPDATE memories SET content=?, tags=?, importance=?, embedding=?, confirmed=?, updated_at=? WHERE id=?",
-            params![content, tags, importance, embedding, confirmed as i64, now_ts(), id],
+            "UPDATE memories SET content=?, tags=?, importance=?, embedding=?, confirmed=?, embedder=?, updated_at=? WHERE id=?",
+            params![content, tags, importance, embedding, confirmed as i64, embedder, now_ts(), id],
         )?;
+        Ok(())
+    }
+
+    /// Current facts whose vector was made by a different embedder than `embedder` (or is missing).
+    pub fn memories_to_reindex(&self, embedder: &str, limit: usize) -> Result<Vec<(i64, String)>> {
+        let db = self.db();
+        let mut st = db.prepare("SELECT id, content FROM memories WHERE invalid_at IS NULL AND (embedding IS NULL OR embedder<>?) ORDER BY id LIMIT ?")?;
+        let v = st.query_map(params![embedder, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        Ok(v)
+    }
+
+    /// Replace only the vector of a memory (re-indexing leaves its text, date and standing untouched).
+    pub fn set_memory_embedding(&self, id: i64, embedding: &[u8], embedder: &str) -> Result<()> {
+        self.db().execute("UPDATE memories SET embedding=?, embedder=? WHERE id=?", params![embedding, embedder, id])?;
         Ok(())
     }
 
@@ -442,10 +461,12 @@ impl Store {
         Ok(v)
     }
 
-    pub fn memory_embeddings(&self) -> Result<Vec<(i64, Vec<u8>)>> {
+    /// Vectors of current facts made by one embedder. Vectors from different embedders live in
+    /// different spaces and must never be compared with each other.
+    pub fn memory_embeddings(&self, embedder: &str) -> Result<Vec<(i64, Vec<u8>)>> {
         let db = self.db();
-        let mut st = db.prepare("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL AND invalid_at IS NULL")?;
-        let v = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        let mut st = db.prepare("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL AND invalid_at IS NULL AND embedder=?")?;
+        let v = st.query_map([embedder], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
         Ok(v)
     }
 
@@ -899,9 +920,9 @@ mod tests {
     #[test]
     fn fts_stays_in_sync_on_update_and_delete() {
         let s = Store::in_memory().unwrap();
-        let id = s.insert_memory("fact", "user loves espresso", "coffee", 0.5, "", None, true).unwrap();
+        let id = s.insert_memory("fact", "user loves espresso", "coffee", 0.5, "", None, true, "hash-v1").unwrap();
         assert_eq!(s.fts_memories("\"espresso\"", 5).unwrap(), vec![id]);
-        s.update_memory(id, "user loves green tea", "tea", 0.5, None, true).unwrap();
+        s.update_memory(id, "user loves green tea", "tea", 0.5, None, true, "hash-v1").unwrap();
         assert!(s.fts_memories("\"espresso\"", 5).unwrap().is_empty());
         assert_eq!(s.fts_memories("\"tea\"", 5).unwrap(), vec![id]);
         assert!(s.delete_memory(id).unwrap());

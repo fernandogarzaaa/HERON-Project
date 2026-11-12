@@ -44,7 +44,10 @@ impl App {
         let workspace = dunce::canonicalize(&workspace)?;
         let llm = Arc::new(SwappableLlm::new(llm));
         let remote: Option<Arc<dyn Llm>> = if cfg.llm.embedding_model.is_empty() { None } else { Some(llm.clone()) };
-        let memory = Memory::new(store.clone(), remote);
+        let mut memory = Memory::new(store.clone(), remote);
+        if cfg.agent.neural_memory {
+            memory = memory.with_neural(cfg.home.join("models"));
+        }
 
         let mut registry = ToolRegistry::builtin();
         let mut mcp_status = vec![];
@@ -282,6 +285,7 @@ impl App {
                 let (store, ws) = (self.store.clone(), self.workspace.clone());
                 let _ = tokio::task::spawn_blocking(move || crate::ambient::observe(&store, &ws)).await;
                 crate::sources::sync_due(&self).await;
+                let _ = self.memory.reindex(25).await; // catch up after the embedder changed
                 let _ = self.reflect_if_due().await;
                 self.run_triggers().await;
                 let _ = self.proactive_tick().await;

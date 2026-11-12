@@ -87,6 +87,7 @@ const UPDATES: &[(usize, &str, &str, &str, &str)] = &[
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Report {
+    pub embedder: String,
     pub questions: usize,
     pub top1: usize,
     pub top3: usize,
@@ -102,7 +103,8 @@ impl Report {
     pub fn summary(&self) -> String {
         let pct = |a: usize, b: usize| if b == 0 { 0.0 } else { 100.0 * a as f64 / b as f64 };
         format!(
-            "Memory retrieval (offline embeddings, {} facts, {} questions worded differently from the facts)\n  right fact ranked first:      {}/{} ({:.0}%)\n  right fact in the top three:  {}/{} ({:.0}%)\nAfter {} facts changed\n  current version ranked first: {}/{}\n  retired version still shown:  {}/{}{}",
+            "Memory retrieval ({}, {} facts, {} questions worded differently from the facts)\n  right fact ranked first:      {}/{} ({:.0}%)\n  right fact in the top three:  {}/{} ({:.0}%)\nAfter {} facts changed\n  current version ranked first: {}/{}\n  retired version still shown:  {}/{}{}",
+            if self.embedder == crate::embed::NEURAL_TAG { "local neural model" } else { "built-in offline method" },
             FACTS.len(),
             self.questions,
             self.top1,
@@ -122,13 +124,22 @@ impl Report {
 }
 
 pub async fn run_memory_eval() -> Result<Report> {
+    run_memory_eval_with(None).await
+}
+
+/// `neural_dir`: where the local neural model lives, to measure with it instead of the offline method.
+pub async fn run_memory_eval_with(neural_dir: Option<std::path::PathBuf>) -> Result<Report> {
     let store = Store::in_memory()?;
-    let memory = Memory::new(store.clone(), None);
+    let mut memory = Memory::new(store.clone(), None);
+    if let Some(dir) = neural_dir {
+        memory = memory.with_neural(dir);
+    }
+    let embedder = memory.preferred_embedder();
     let mut ids = vec![];
     for (kind, content) in FACTS {
         ids.push(memory.save(content, kind, "", 0.6, "user").await?.id());
     }
-    let mut report = Report { questions: QUESTIONS.len(), top1: 0, top3: 0, updates: UPDATES.len(), current_first: 0, stale_leaks: 0, misses: vec![] };
+    let mut report = Report { embedder: embedder.to_string(), questions: QUESTIONS.len(), top1: 0, top3: 0, updates: UPDATES.len(), current_first: 0, stale_leaks: 0, misses: vec![] };
     for (question, expected) in QUESTIONS {
         let hits = memory.search(question, 3).await?;
         let rank = hits.iter().position(|h| h.id == ids[*expected]);
@@ -157,6 +168,21 @@ pub async fn run_memory_eval() -> Result<Report> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Needs the neural build and, the first time, a download of the model: run with
+    /// `cargo test --features neural -- --ignored neural`.
+    #[cfg(feature = "neural")]
+    #[tokio::test]
+    #[ignore = "downloads the embedding model on first run"]
+    async fn neural_memory_finds_every_fact_including_misspelled_questions() {
+        let dir = std::env::var("HERON_MODEL_DIR").map(std::path::PathBuf::from).unwrap_or_else(|_| std::env::temp_dir().join("heron-models"));
+        let r = run_memory_eval_with(Some(dir)).await.unwrap();
+        println!("{}", r.summary());
+        assert_eq!(r.embedder, crate::embed::NEURAL_TAG, "the neural model must actually have loaded");
+        assert_eq!(r.top3, r.questions, "{}", r.summary());
+        assert!(r.top1 * 100 >= r.questions * 85);
+        assert_eq!((r.stale_leaks, r.current_first), (0, r.updates));
+    }
 
     #[tokio::test]
     async fn memory_retrieval_quality_does_not_regress() {

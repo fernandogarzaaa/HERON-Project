@@ -385,6 +385,7 @@ td.m{font:12.5px/1.5 var(--mono)}
       <button type="button" class="btn quiet" id="tg-remove" hidden>Disconnect phone</button>
       <h3>Memory and files</h3>
       <label class="field" style="display:flex;gap:10px;align-items:flex-start"><input id="s-auto" type="checkbox" style="width:18px;height:18px;margin-top:3px;accent-color:var(--slate)"><div><span style="margin:0">Learn about me from conversations</span><small>After each reply, Heron saves lasting facts it noticed. You can review them under Memory.</small></div></label>
+      <label class="field" id="s-neural-row" style="display:flex;gap:10px;align-items:flex-start"><input id="s-neural" type="checkbox" style="width:18px;height:18px;margin-top:3px;accent-color:var(--slate)"><div><span style="margin:0">Understand meaning when searching memory</span><small>Finds “what is her job” even when the memory says “landscape architect”. Runs a small model on this computer; it is downloaded once (about 23 MB) the first time. Applies after restarting Heron.</small></div></label>
       <label class="field"><span>Working folder</span><input id="s-ws"><small>Where Heron reads and writes files by default. Changes apply after restarting Heron.</small></label>
       <p class="note" id="s-home"></p>
       <button class="btn">Save settings</button><span class="saved" id="s-saved" role="status"></span>
@@ -809,7 +810,7 @@ async function loadSettings() {
   const apps = $('#s-apps'); apps.replaceChildren();
   if (!s.mcp.length) apps.append(el('p', 'note', 'No apps connected through MCP.'));
   for (const line of s.mcp) { const name = line.split(':')[0]; const p = el('p', 'note', line); if (s.mcp_changed.includes(name)) { p.style.color = 'var(--danger)'; const b = el('button', 'btn quiet', 'Accept the changed tools'); b.type = 'button'; b.style.marginLeft = '10px'; b.onclick = async () => { if (!confirm(`Only accept if you expected ${name} to change (for example after updating it). Accept?`)) return; const r = await api(`/mcp/${name}/accept`, { method: 'POST' }); p.textContent = `${name}: accepted. ${r.note}`; p.style.color = ''; }; p.append(b); } apps.append(p); }
-  $('#s-auto').checked = s.auto_memory; $('#s-ws').value = s.workspace; $('#s-home').textContent = `Conversations, memory and settings are stored in ${s.home}.`;
+  $('#s-auto').checked = s.auto_memory; $('#s-neural').checked = s.neural_memory; $('#s-neural-row').hidden = !s.neural_available; $('#s-ws').value = s.workspace; $('#s-home').textContent = `Conversations, memory and settings are stored in ${s.home}.`;
 }
 async function loadPhone(t) {
   t = t || await api('/telegram');
@@ -825,7 +826,7 @@ $('#s-persona-save').onclick = async () => { const out = $('#s-persona-saved'); 
 $('#s-persona-reset').onclick = async () => { if (!confirm('Put Heron back to its original personality?')) return; const p = await api('/persona', { method: 'DELETE' }); $('#s-persona').value = p.text; $('#s-persona-reset').hidden = true; $('#s-persona-saved').textContent = 'Back to the original'; };
 $('#presets').onclick = e => { const b = e.target.closest('button'); if (!b) return; $('#s-base').value = b.dataset.url; $('#s-model').value = b.dataset.model; };
 $('#settings').onsubmit = async e => { e.preventDefault(); const err = $('#s-err'); err.hidden = true; $('#s-saved').textContent = '';
-  try { await api('/settings', { method: 'POST', body: { base_url: $('#s-base').value, model: $('#s-model').value, fallback_models: $('#s-fallback').value, fast_model: $('#s-fast').value, api_key: $('#s-key').value, mode: $('#s-mode input:checked')?.value, daemon_mode: $('#s-daemon').value, auto_memory: $('#s-auto').checked, workspace: $('#s-ws').value } });
+  try { await api('/settings', { method: 'POST', body: { base_url: $('#s-base').value, model: $('#s-model').value, fallback_models: $('#s-fallback').value, fast_model: $('#s-fast').value, api_key: $('#s-key').value, mode: $('#s-mode input:checked')?.value, daemon_mode: $('#s-daemon').value, auto_memory: $('#s-auto').checked, neural_memory: $('#s-neural').checked, workspace: $('#s-ws').value } });
     $('#s-saved').textContent = 'Settings saved'; await refreshState(); loadSettings(); }
   catch (er) { err.textContent = er.message; err.hidden = false; } };
 

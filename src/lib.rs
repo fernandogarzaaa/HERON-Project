@@ -3,6 +3,7 @@ pub mod agent;
 pub mod ambient;
 pub mod app;
 pub mod config;
+pub mod embed;
 pub mod eval;
 pub mod llm;
 pub mod mail;

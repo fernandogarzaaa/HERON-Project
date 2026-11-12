@@ -61,8 +61,12 @@ enum Cmd {
     Init,
     /// Check configuration and connectivity
     Doctor,
-    /// Measure memory retrieval quality with the built-in test set (offline, no model needed)
-    Eval,
+    /// Measure memory retrieval quality with the built-in test set
+    Eval {
+        /// Use the local neural model (needs a build with the `neural` feature; downloads it on first use)
+        #[arg(long)]
+        neural: bool,
+    },
     /// List recent conversations
     Sessions,
     /// Manage long-term memory
@@ -432,8 +436,12 @@ async fn real_main() -> Result<()> {
             return Ok(());
         }
         Cmd::Doctor => return doctor(&cfg).await,
-        Cmd::Eval => {
-            println!("{}", heron::eval::run_memory_eval().await?.summary());
+        Cmd::Eval { neural } => {
+            if *neural && !heron::embed::neural_built_in() {
+                bail!("this build does not include the neural memory model; build with `cargo build --features neural`");
+            }
+            let dir = if *neural { Some(cfg.home.join("models")) } else { None };
+            println!("{}", heron::eval::run_memory_eval_with(dir).await?.summary());
             return Ok(());
         }
         _ => {}
@@ -535,6 +543,6 @@ async fn real_main() -> Result<()> {
             let ctx = agent.tool_ctx("mcp");
             heron::mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app.tools, &ctx).await
         }
-        Cmd::Init | Cmd::Doctor | Cmd::Eval => unreachable!(),
+        Cmd::Init | Cmd::Doctor | Cmd::Eval { .. } => unreachable!(),
     }
 }

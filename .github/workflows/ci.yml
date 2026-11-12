@@ -27,3 +27,19 @@ jobs:
         run: cargo test
       - name: Build the desktop app
         run: cargo build --features desktop --bins
+  neural:
+    # The optional neural memory model. Informational for now: it tells us on which systems the
+    # ONNX runtime builds and the model loads, without holding up everything else.
+    name: Neural memory (${{ matrix.os }})
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup update stable && rustup default stable
+      - name: Memory evaluation with the neural model
+        run: cargo test --features neural --lib -- --ignored neural --nocapture
