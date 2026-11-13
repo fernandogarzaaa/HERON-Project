@@ -78,6 +78,11 @@ pub enum PromptInput {
     Arg,
     /// Prompt as the value of `-p` / `--prompt` (`copilot -p "<prompt>"`).
     Flag,
+    /// Prompt as the value of a `-p` flag that takes a string: the prompt
+    /// must sit directly after the flag (`gemini -p "<prompt>" --model …`).
+    /// Appending it at the end lets `-p` swallow the next option
+    /// (`--model`) as its value instead.
+    FlagValue,
 }
 
 /// How the CLI's answer is shaped.
@@ -283,11 +288,11 @@ pub fn providers() -> Vec<CliSpec> {
         CliSpec { id: "cursor-cli", display_name: "Cursor (subscription)", binary: "cursor-agent", login_command: "agent login", install_hint: "curl https://cursor.com/install -fsS | bash", auth_kind: "Cursor subscription", cost_note: "Draws on the Cursor plan's usage pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
         CliSpec { id: "grok-cli", display_name: "Grok Build (subscription)", binary: "grok", login_command: "grok login", install_hint: "brew install --cask grok-build (macOS) or the Grok Build installer", auth_kind: "Grok Build subscription", cost_note: "Draws on the Grok plan.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
         CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
-        CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::FlagValue, output: OutputKind::JsonSingle },
         CliSpec { id: "cline-cli", display_name: "Cline (router, free models)", binary: "cline", login_command: "cline auth <provider>", install_hint: "npm install -g cline", auth_kind: "Whatever Cline is configured with: cline / openai-codex / oca OAuth, API keys, Ollama", cost_note: "Free when routed to a free or local model. One-shot defaults to yolo, so this provider needs cli_allow_agent_tools = true.", experimental: false, needs_allow_agent_tools: true, config_dir_env: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
-        CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonLines },
-        CliSpec { id: "qwen-cli", display_name: "Qwen Code (paid key or local)", binary: "qwen", login_command: "qwen (then /auth)", install_hint: "npm install -g @qwen-code/qwen-code", auth_kind: "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.", cost_note: "Free with a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonAuto },
-        CliSpec { id: "gemini-cli", display_name: "Gemini CLI (API key)", binary: "gemini", login_command: "gemini (then pick Gemini API Key)", install_hint: "npm install -g @google/gemini-cli", auth_kind: "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.", cost_note: "Free tier on the API key; otherwise Google's pricing.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonAuto },
+        CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::FlagValue, output: OutputKind::JsonLines },
+        CliSpec { id: "qwen-cli", display_name: "Qwen Code (paid key or local)", binary: "qwen", login_command: "qwen (then /auth)", install_hint: "npm install -g @qwen-code/qwen-code", auth_kind: "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.", cost_note: "Free with a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
+        CliSpec { id: "gemini-cli", display_name: "Gemini CLI (API key)", binary: "gemini", login_command: "gemini (then pick Gemini API Key)", install_hint: "npm install -g @google/gemini-cli", auth_kind: "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.", cost_note: "Free tier on the API key; otherwise Google's pricing.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
         CliSpec { id: "pi-cli", display_name: "Pi (ACP agent)", binary: "pi", login_command: "pi (then sign in)", install_hint: "Install Pi from https://github.com/badlogic/pi", auth_kind: "Pi's own providers", cost_note: "Whatever Pi is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
         CliSpec { id: "fx-cli", display_name: "fx (ACP agent)", binary: "fx", login_command: "fx login", install_hint: "Install fx from its releases", auth_kind: "fx's own providers", cost_note: "Whatever fx is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
         CliSpec { id: "kiro-cli", display_name: "Kiro (ACP agent)", binary: "kiro-cli", login_command: "kiro-cli (then sign in)", install_hint: "Install Kiro CLI", auth_kind: "Kiro's own providers", cost_note: "Whatever Kiro is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
@@ -443,6 +448,14 @@ fn parse_login_output(spec_id: &str, out: &str) -> (Option<bool>, Option<String>
     let lower = out.to_lowercase();
     match spec_id {
         "claude-cli" => {
+            // `claude auth status` prints JSON by default; the probe asks
+            // for --text, but a version that ignores the flag still has to
+            // report the login correctly, so parse the JSON first.
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(out) {
+                if let Some(logged) = v.get("loggedIn").and_then(|l| l.as_bool()) {
+                    return (Some(logged), None);
+                }
+            }
             // "Not logged in" contains "logged in", so the negation check
             // must come first.
             let logged = (lower.contains("logged in")
@@ -529,7 +542,14 @@ pub async fn probe_status(
         .filter(|s| !s.is_empty());
     let (logged_in, plan) = match spec.id {
         "claude-cli" => {
-            match run_capture(&path, &["auth", "status"], 20, config_env.as_ref()).await {
+            match run_capture(
+                &path,
+                &["auth", "status", "--text"],
+                20,
+                config_env.as_ref(),
+            )
+            .await
+            {
                 Ok(out) => parse_login_output("claude-cli", &out),
                 Err(_) => (None, None),
             }
@@ -1100,7 +1120,10 @@ impl CliLlm {
     fn argv(&self, prompt: &str, model: &str) -> Result<(PathBuf, Vec<String>)> {
         // The size cap needs no binary: check it first, so a prompt over
         // the cap is refused even when the CLI is not installed.
-        if matches!(self.spec.input, PromptInput::Arg | PromptInput::Flag) {
+        if matches!(
+            self.spec.input,
+            PromptInput::Arg | PromptInput::Flag | PromptInput::FlagValue
+        ) {
             let limit = if cfg!(windows) { 30_000 } else { 120_000 };
             if prompt.len() > limit {
                 bail!(
@@ -1140,6 +1163,16 @@ impl CliLlm {
         match self.spec.input {
             PromptInput::Arg | PromptInput::Flag if !template_has_prompt => {
                 args.push(prompt.to_string())
+            }
+            PromptInput::FlagValue if !template_has_prompt => {
+                // Gemini-lineage CLIs (and Copilot) take the prompt as the
+                // value of -p / --prompt: it must sit directly after the
+                // flag, or the flag swallows the next option (--model) as
+                // its value and the invocation fails before reaching it.
+                match args.iter().position(|a| a == "-p") {
+                    Some(i) => args.insert(i + 1, prompt.to_string()),
+                    None => args.push(prompt.to_string()),
+                }
             }
             _ => {}
         }
@@ -2485,6 +2518,72 @@ mod tests {
         assert_eq!(probed.plan.as_deref(), Some("Claude pro"));
         let unprobed = probe_status(&spec, &bin.to_string_lossy(), "").await;
         assert_eq!(unprobed.logged_in, Some(false));
+    }
+
+    #[test]
+    fn claude_login_output_parses_json_status() {
+        let (logged, plan) = parse_login_output(
+            "claude-cli",
+            r#"{"loggedIn": true, "authMethod": "claude.ai"}"#,
+        );
+        assert_eq!(logged, Some(true));
+        assert_eq!(plan, None);
+        let (logged, _) =
+            parse_login_output("claude-cli", r#"{"loggedIn": false, "authMethod": "none"}"#);
+        assert_eq!(logged, Some(false));
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn claude_probe_passes_text_and_still_reads_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let record = dir.path().join("argv.txt");
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"1.2.3\"\n  exit 0\nfi\necho \"$@\" > \"{}\"\nprintf '%s\\n' '{{\"loggedIn\": true, \"authMethod\": \"claude.ai\"}}'\n",
+            record.display()
+        );
+        let bin = fake_bin(dir.path(), "claude", &script);
+        let spec = spec_for("claude-cli").unwrap();
+        let probed = probe_status(&spec, &bin.to_string_lossy(), "").await;
+        let argv = std::fs::read_to_string(&record).unwrap();
+        assert!(
+            argv.contains("--text"),
+            "the probe must ask for human-readable output: {argv}"
+        );
+        assert_eq!(probed.logged_in, Some(true));
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn prompt_follows_the_value_flag_for_string_prompt_providers() {
+        let dir = tempfile::tempdir().unwrap();
+        for (spec_id, binary) in [
+            ("gemini-cli", "gemini"),
+            ("qwen-cli", "qwen"),
+            ("antigravity-cli", "agy"),
+            ("copilot-cli", "copilot"),
+        ] {
+            let bin = fake_bin(dir.path(), binary, "#!/bin/sh\nexit 0\n");
+            let mut cfg = test_cfg(dir.path(), spec_id);
+            cfg.llm.cli_command = bin.to_string_lossy().to_string();
+            let llm = CliLlm::from_config(&cfg).unwrap();
+            let (_, args) = llm.argv("hello", "m").unwrap();
+            assert_eq!(args[0], "-p", "{spec_id}: {args:?}");
+            assert_eq!(args[1], "hello", "{spec_id}: {args:?}");
+            assert_eq!(
+                args[2], "--model",
+                "{spec_id}: -p must not swallow the model flag: {args:?}"
+            );
+        }
+        // Control: cursor's -p is a boolean print flag and its prompt is
+        // positional, so the prompt stays at the end there.
+        let bin = fake_bin(dir.path(), "cursor-agent", "#!/bin/sh\nexit 0\n");
+        let mut cfg = test_cfg(dir.path(), "cursor-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let (_, args) = llm.argv("hello", "m").unwrap();
+        assert_eq!(args[0], "-p");
+        assert_eq!(args.last().unwrap(), "hello");
     }
 
     #[tokio::test]
