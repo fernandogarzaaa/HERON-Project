@@ -18,10 +18,9 @@ code against. The backend and the server API are unchanged.
   scripts all build the Slint window through this flag.
 - `arboard` **3.7.0** and `rfd` **0.18.0** are declared as optional deps behind
   the `desktop` feature (latest stable, verified against the crates.io API,
-  2026-11-13). They are declared, not wired: the `copy-requested` Rust handler
-  and the folder picker are still open items below. The plan's section 5 lists
-  them as Phase 0 Cargo.toml changes; that half is done, the wiring half is
-  not.
+  2026-11-13). Both are wired now: the `copy-requested` handler in `main.rs`
+  copies through arboard, and the documents folder picker in
+  `setup_glue.rs` opens `rfd::AsyncFileDialog` inside `slint::spawn_local`.
 - **The build is NOT verified in this sandbox.** `cargo build --features desktop
   --bins` failed during dependency resolution: crates.io egress through the
   proxy is degraded (index fetches stall, static downloads run at about 1 KB/s).
@@ -35,11 +34,12 @@ code against. The backend and the server API are unchanged.
 All Slint code lives in the desktop binary crate, never the lib:
 
 - `src/bin/desktop/main.rs` — entry point. Starts the backend, creates the window,
-  installs the message model, wires the four callbacks, runs the event loop.
+  installs the message model, wires the Chat, Views, and Setup callbacks, runs
+  the event loop.
   It is `main.rs` inside `src/bin/desktop/`, not `src/bin/desktop.rs`: for a
   file crate root, a bare `mod bridge;` resolves to a sibling
   (`src/bin/bridge.rs`), never to `src/bin/desktop/bridge.rs`. The directory
-  form is what makes the four modules below resolve. The plan's layout had
+  form is what makes the modules below resolve. The plan's layout had
   this wrong (file root plus `desktop/` modules), and the compiler failed
   all four with E0583. Moving the four modules out to `src/bin/` instead
   was tested and rejected: Cargo auto-discovers every `src/bin/*.rs` file
@@ -52,10 +52,22 @@ All Slint code lives in the desktop binary crate, never the lib:
 - `src/bin/desktop/models.rs` — the window's message model and
   `apply_chat_event`.
 - `src/bin/desktop/ui_state.rs` — the live server-state poll (every 30s).
+- `src/bin/desktop/views_bridge.rs` — `HeronViewsBridge`, the real
+  `ViewsBridge` implementation for the Views lane.
+- `src/bin/desktop/views_slint.rs` — `ViewsController` and `bind_window`,
+  the glue that drives the sidebar and the six views.
+- `src/bin/desktop/setup.rs` — the Setup lane's pure view state plus the
+  JSON mapping (the `SetupBridge` trait, `OnboardingState`,
+  `SettingsState`).
+- `src/bin/desktop/setup_bridge.rs` — `HeronSetupBridge`, the real
+  `SetupBridge` implementation.
+- `src/bin/desktop/setup_glue.rs` — `SetupDriver` and `bind_window`, the
+  glue that drives onboarding and settings.
 - `ui/main.slint` — the shell window (`MainWindow`), per the plan. The file is
   named `main.slint`, not `heron.slint`: a generated `mod heron` would shadow
   the `heron` lib crate in the binary, so the plan's name is the only one that
-  works. It holds the MenuBar, the rail, the view switcher, and the chat view.
+  works. It holds the MenuBar, the sidebar, the view switcher, and all nine
+  views.
 - `ui/components/theme.slint` — the `Theme` global (dark palette, serif
   headings). A copy of the Setup lane's file with one word added: `export`,
   which Slint requires for a global another file imports. The integration
@@ -90,17 +102,28 @@ through the bridge):
 | Property | Type | Meaning |
 | --- | --- | --- |
 | `backend-status` | string | One-line server state, e.g. `Heron · model · mode`. Polled every 30s. |
-| `error-message` | string | Startup failure text. Empty when the backend started. While non-empty the composer (LineEdit and Send) is disabled, so a failed start never eats the user's text. |
-| `session-id` | string | Current conversation id, owned by Rust. Empty means "no session yet"; the server creates one lazily on the first message. |
+| `error-message` | string | Startup failure text. Empty when the backend started. While non-empty the ChatView is hidden and the error shows instead, so a failed start never eats the user's text. |
+| `session-id` | string | Current conversation id, owned by Rust. Empty means "no session yet"; the server creates one lazily on the first message sent. |
 | `session-title` | string | Title of the current conversation. |
-| `messages` | `[ChatMsg]` | Current conversation, in order. `ChatMsg` is `{role, text, body}` where `role` is `user`, `assistant`, or `tool`, `text` is the plain source text, and `body` is the rendered `styled-text`. |
+| `messages` | `[ChatMsg]` | Current conversation, in order. `ChatMsg` is `{role, text, body, steps, approvals, notes, failure, complete, live}` where `role` is `user`, `assistant`, or `tool`, `text` is the plain source text, and `body` is the rendered `styled-text`. |
 | `busy` | bool | A reply is streaming in the current conversation. |
-| `reply-row` | int | Index of this turn's reply row in `messages`. -1 means no live reply. Streamed text and Done target this row by identity, never "the last assistant row" (Notice and Approval rows also use that role). Set when a reply starts, cleared when the turn ends or the conversation is cleared. |
-| `current-view` | string | Active view id (`chat`, `onboarding`, `awareness`, `memory`, `tasks`, `reminders`, `usage`, `activity`, `settings`). Set by the rail. |
-| `waiting-badge` | string | Waiting-approvals count for the Conversation rail item. Empty means no badge. Set by the state poll. |
-| `unread-badge` | string | Unread-inbox count for the Reminders rail item. Empty means no badge. Set by the state poll. |
-| `suggestions-badge` | string | Unanswered-suggestions count for the Awareness rail item. Empty means no badge. Set by the state poll. |
+| `chat-mode` | string | Server mode (`readonly`, `ask`, `auto`, `yolo`), kept in sync by the state poll. |
+| `has-key` | bool | An API key (or a local/demo model) is configured. |
+| `demo` | bool | Demo mode is on. |
+| `paused` | bool | Heron is paused. |
+| `workspace-short` | string | Short workspace path for the chat header. |
+| `workspace-full` | string | Full workspace path. |
+| `starters` | `[string]` | Suggestion prompts for the empty state. |
+| `thread-version` | int | Bumps on every thread mutation so the view can follow the scroll to the bottom. |
+| `current-view` | string | Active view id (`chat`, `onboarding`, `awareness`, `memory`, `tasks`, `reminders`, `usage`, `activity`, `settings`). Set by the Sidebar navigation, the Shell, and the Setup driver (onboarding at startup). |
 | `reduce-motion` | bool | Animations run at 0ms while this is on. Default off. Wiring to the OS setting is still open. |
+
+The Views lane's forwarded properties and callbacks (`sidebar-*`,
+`memory-*`, `tasks-*`, `reminders-*`, `awareness-*`, `activity-*`,
+`usage-*`) live in `docs/slint-views-bridge.md`. The Setup lane's
+(`onboarding-*`, `settings-*`) are declared in `ui/main.slint` and
+driven by `src/bin/desktop/setup_glue.rs`; the per-view contract is in
+`ui/setup-bridge.md` and `ui/setup-map.md`.
 
 Callbacks the bridge handles:
 
@@ -110,8 +133,17 @@ Callbacks the bridge handles:
 | `new-session()` | | Stop the running reply on the server, forget the server session id, and clear the view. The server creates the next session lazily on the first message. Also invalidates the old turn, so its forwarder drops any event still in flight. |
 | `cancel-reply()` | | Stop the running reply (`POST /api/cancel`). |
 | `approve(string, string)` | approval id, decision | Answer a waiting approval. Decision is `once`, `always`, `session`, or anything else to deny. |
+| `set-mode(string)` | mode | Switch the server mode (`readonly`, `ask`, `auto`, `yolo`) through `POST /api/mode`. |
+| `undo()` | | Undo the last change in the current conversation (`POST /api/undo`). A conflict surfaces as a note; force restore has no UI yet. |
+| `toggle-step(string)` | step id | Expand or collapse a tool step in the thread. |
+| `open-link(string)` | URL | Open a link from a message through the `open` crate. |
+| `use-starter(string)` | prompt | Send one of the empty-state starter prompts. |
+| `try-demo()` | | Switch to demo mode (`POST /api/settings` with `base_url: demo`). |
+| `resume()` | | Unpause Heron (`POST /api/pause` with `paused: false`). |
+| `continue-turn()` | | Send "Continue from where you left off." in the current conversation. |
+| `open-settings()` | | Switch to the settings view. |
 | `show-about()` | | Open the About dialog (a separate native window, shown from Rust). |
-| `copy-requested(string)` | text to copy | Programmatic copy. There is no Slint copy API, so Rust copies through the `arboard` crate (new dependency, not yet added). |
+| `copy-requested(string)` | text to copy | Programmatic copy. There is no Slint copy API, so Rust copies through the `arboard` crate. |
 
 The window has a real macOS menu bar via Slint's `MenuBar`: File has "New
 conversation", Edit has "Copy" (`role: MenuItemRole.copy`). MenuItem roles
@@ -131,7 +163,10 @@ are spike-verified; do not guess other `MenuItemRole` variant names.
   bridge's own shape mirroring the server's `SessionInfo`, which only derives
   `Serialize`), `new_session()`, `get_session(id)`,
   `delete_session(id)`, `approve(id, decision)`, `cancel(session_id)`,
-  `set_mode(mode)`, `undo(session_id)`.
+  `set_mode(mode)`, `undo(session_id)` (returns `UndoOutcome`: undone,
+  nothing, stale, or conflict), `undo_force(session_id, checkpoint)`,
+  `try_demo()`, `resume()`, `starters()` (live suggestions, falling back
+  to the four built-in prompts).
 - `client.stream_chat(session_id, message, tx)` posts to `/api/chat` and pushes
   `ChatEvent` values into the channel in stream order. The stream ends when the
   server closes it (after `done`, `error`, or `cancelled`). Keep-alive comment
@@ -146,6 +181,8 @@ are spike-verified; do not guess other `MenuItemRole` variant names.
   after 15 minutes if nobody answers.
 - `Bridge::new(client)` owns a background tokio runtime (2 workers).
   `bridge.spawn(future)` runs work on it. `bridge.client()` returns the client.
+  `bridge.handle()` returns the runtime handle for controllers that spawn
+  their own tasks.
 - Headless tests live in `bridge.rs` as a `#[cfg(test)]` module, against a real
   demo-mode server on a random loopback port (no provider, no network). Run
   them with `cargo test --features desktop --bin heron-desktop`. They cover the
@@ -164,16 +201,19 @@ session id lives in the window (`session-id` property) precisely so it can
 cross that boundary; do not keep a second copy in Rust state.
 
 One deviation from the plan, recorded honestly: the plan prefers UI-to-backend
-calls to go through a tokio `mpsc` channel with one owner. The shell's four
+calls to go through a tokio `mpsc` channel with one owner. The window's
 callbacks call `HeronClient` directly from `bridge.spawn` tasks instead (the
-plan's own alternative shape). Four callbacks do not need a dispatcher. If the
-callback count grows in the Chat lane, introduce the channel then; do not
-retrofit it for its own sake.
+plan's own alternative shape). The callback count grew with the Chat, Views,
+and Setup lanes and the direct shape still holds: each callback owns one
+call and posts its result to the UI thread. If a callback ever needs
+ordering against another, introduce the channel then; do not retrofit it
+for its own sake.
 
 Keyboard shortcuts (`Cmd/Ctrl+N` new conversation, `Esc` stop) and the
-`TextEdit` composer (Enter sends, Shift+Enter newline) belong to the Chat
-lane's Phase 1 work, not the shell. The shell's composer is a single-line
-`LineEdit` placeholder.
+composer (Enter sends, Shift+Enter newline) belong to the Chat lane's
+`ChatView` and `ComposerView`, not the shell. The shell only forwards the
+callbacks; the spellings are the lane's unverified guesses and the buttons
+cover both actions if they are wrong.
 
 ## Streaming and markdown
 
@@ -181,10 +221,12 @@ Each `ChatMsg` carries both the plain source text and the rendered body.
 While a reply streams, the body stays plain text
 (`StyledText::from_plain_text` on the accumulated text). The markdown parse
 happens once, at `done` (`StyledText::from_markdown` on the full text).
-Re-parsing the whole reply on every delta would be O(n) per chunk. The shell's
-`apply_chat_event` ignores tool, usage, and model events; the Chat lane owns
-that rendering. Fenced code blocks, headings, lists, and tables in `StyledText`
-are unverified upstream behaviour; treat them as a risk, not a promise.
+Re-parsing the whole reply on every delta would be O(n) per chunk.
+`apply_chat_event` in `models.rs` converts every `ChatEvent` variant into
+the `ChatView` state machine: tool steps, approvals, notices, usage, and
+model changes all render. Fenced code blocks, headings, lists, and tables
+in `StyledText` are unverified upstream behaviour; treat them as a risk,
+not a promise.
 
 ## License (settled)
 
@@ -220,37 +262,36 @@ How the shell carries it, concretely (anti-slop guidance from the
   talon #C98F00 are the light-mode values, and in dark mode they lighten to
   #7DB3D8 and #EDB92B for contrast on dark surfaces. The shell uses the dark
   values. Native widgets (Button, LineEdit, ListView, MenuBar, Dialog) keep
-  the widget style's own look; custom pieces (rail items, the New button, the
+  the widget style's own look; custom pieces (sidebar items, the New button, the
   message bubbles) use Theme colors.
-- **Motion budget.** Rail feedback animates over 150ms, view fades over
+- **Motion budget.** Sidebar feedback animates over 150ms, view fades over
   180ms, easing `ease-in-out`. Nothing animates longer than ~400ms. The
   `reduce-motion` window property runs every animation at 0ms while it is on.
   Wiring it to the OS setting (or a Settings toggle) is still open; the
   property and the mechanism are done.
-- **Feedback on every interactive element.** Rail items fade their background
+- **Feedback on every interactive element.** Sidebar items fade their background
   on hover and press, draw a talon ring on focus, and activate on Enter or
   Space as well as on click. The New button is slate with a talon ring on
   hover and focus, and inverts on press. The current view is unmistakable:
   slate-soft fill, semibold label, and a slate bar on the left edge. View
   switching fades the content (opacity, 180ms) instead of swapping it
-  instantly. Input is gated at the control level, not the layout level:
+  instantly. Input is gated at the branch level, not the control level:
   layouts have no `enabled` property in Slint, and opacity alone does not
   block input (only `visible: false` does that, per the Slint docs on common
-  properties). So the chat branch's four interactive controls (LineEdit,
-  Send, Stop, New) each carry `enabled: root.current-view == "chat"` in
-  their own binding, on top of their busy conditions. The placeholder
-  branches have no interactive elements, so nothing else needs gating.
-- **Rail rules.** New conversation is the first and loudest thing in the
-  rail: full-width slate button, above the views. Badges read at a glance
+  properties). So every view branch carries `visible: root.current-view ==
+  "<id>"` alongside its opacity fade; a hidden view never swallows clicks
+  meant for the view underneath it.
+- **Sidebar rules.** New conversation is the first and loudest thing in the
+  sidebar: full-width slate button, above the views. Badges read at a glance
   (talon pill, dark text): waiting approvals onto Conversation, unread inbox
   onto Reminders, unanswered suggestions onto Awareness. Totals that are not
   actions (the memory count) get no badge. The session list goes below the
-  nav; the Views lane fills it in Phase 1.
-- **Scaffolding, labeled.** The eight non-chat view branches are one-line
-  notes naming the owning lane and phase. They are the frame the lanes fill,
-  not finished views. The Chat lane's chat content moved one level deeper
-  (inside the `current-view == "chat"` branch); its properties and callbacks
-  are unchanged.
+  nav; the Views lane fills it, and a 30-second tick keeps the highlight on
+  the conversation the chat is actually in.
+- **No scaffolding left.** All nine view branches are real views now: chat,
+  awareness, memory, tasks, reminders, usage, activity, onboarding, and
+  settings. Each branch is the owning lane's view with the forwarded
+  properties and callbacks from its contract doc.
 - **Riskiest unverified syntax.** The `animate` durations are ternary
   expressions (`reduce-motion ? 0ms : 150ms`). If the Slint compiler rejects
   an expression there, the fallback is hardcoded durations and the
@@ -264,12 +305,13 @@ settled (see above).
 
 ## Packaging notes (for the Packaging lane)
 
-- The Linux system libraries for the winit build are unverified: the plan
-  lists `libx11-xcb-dev`, `xinput`, `libxcursor-dev`, `libxkbcommon-x11-dev`,
-  `libx11-dev` as a guess. CI currently installs `libwebkit2gtk-4.1-dev` and
-  `libgtk-3-dev` for the old WebView; swap the list when the Slint build is
-  proven in CI. Nothing about the Slint build was verified in this sandbox,
-  so the first CI run with the `desktop` feature is the real toolchain check.
+- The Linux system libraries for the winit build are installed in CI
+  (`.github/workflows/ci.yml`): `libfontconfig-dev`, `libxkbcommon-dev`,
+  `libxkbcommon-x11-dev`, `libxcb-shape0-dev`, `libxcb-xfixes0-dev`,
+  `libx11-dev`, `libx11-xcb-dev`, `libxcursor-dev`, `libxi-dev`,
+  `libssl-dev`. The old WebView libraries are gone from the install list.
+  Nothing about the Slint build was verified in this sandbox, so the first
+  CI run with the `desktop` feature is the real toolchain check.
 - Phase 4 lands last. Only then delete the wry/tao/muda direct deps,
   `assets/index.html` as the app UI, `build_menu()`, the webview handlers,
   and the HTML error page. Keep the server `/` route as fallback until then.
@@ -358,22 +400,24 @@ Errors are `{"error": "..."}` with a non-2xx status.
   `.show()`). Nested inside `MainWindow` it stays embedded in the parent
   window instead of opening a separate native window. The About dialog is
   `export component AboutDialog inherits Dialog` in `ui/main.slint`; the
-  Help menu invokes the `show-about()` callback, Rust creates the dialog,
-  sets its version, and shows it. Its OK button has no explicit handler, so
-  the Dialog adds the `ok_clicked` callback and Rust hides the dialog from
-  it.
+  Help menu invokes the `show-about()` callback, Rust creates the dialog
+  once at startup and keeps the handle alive, sets its version, and shows
+  it. The OK button generates the `ok_clicked` callback only when the
+  `StandardButton` is a direct child of the `Dialog`, not nested inside
+  its layout; Rust hides the dialog from that callback.
 - **Chat text color is explicit.** The chat bubble's `StyledText` sets
   `default-color: Theme.ink`. Without it the color comes from the widget
   palette, and under a light OS scheme that foreground is nearly black
   against the dark message backgrounds.
 - **New stops the old turn two ways.** `new-session` cancels the running
-  reply on the server (`POST /api/cancel`) and increments a turn counter.
-  The forwarder for an old turn breaks out of its receive loop on a stale
-  turn and checks the turn again inside the event-loop closure before
-  applying, so no event from the cleared conversation can land in the new
-  one (including the race between receiving and applying). The send handler
-  never increments the turn: a second send while a reply runs is rejected
-  by the server (409), and the live reply's forwarder must keep applying.
+  reply on the server (`POST /api/cancel`) and starts a new `ChatView`
+  turn. The turn id is captured on the UI thread when the send starts and
+  every SSE event carries it; `apply_event_for_turn` ignores events whose
+  turn is not current, so no event from the cleared conversation can land
+  in the new one (including the race between receiving and applying). The
+  send handler never starts a second turn while one runs: a second send
+  while a reply runs is rejected by the server (409), and the live reply's
+  forwarder must keep applying.
 - **Layouts have no `enabled`.** `VerticalLayout` and the other layouts take
   no `enabled` property. Input gating lives on the controls themselves
   (`Button`, `LineEdit`), which do have it. See the design-bar section.
@@ -381,7 +425,7 @@ Errors are `{"error": "..."}` with a non-2xx status.
   layout elements (`VerticalLayout`, `HorizontalLayout`). On a `Text` or a
   `Rectangle` the compiler warns and the padding is ignored. Three such
   paddings were replaced with layout wrappers that keep the same geometry:
-  the brand wordmark and the rail status line each sit in a `HorizontalLayout`
+  the brand wordmark and the sidebar status line each sit in a `HorizontalLayout`
   carrying the padding, and the chat bubble's `Rectangle` holds an inner
   `VerticalLayout` with `padding: 10px` around the `StyledText`. The
   warnings themselves are only warnings: the build reaches `rustc`, which
@@ -395,24 +439,55 @@ Errors are `{"error": "..."}` with a non-2xx status.
   `{learned: [string]}`, not `{learned: n}`: `learn()` in `src/sources.rs`
   returns `Result<Vec<String>>` and the route wraps it as an array.
 
+## Backend enforcement (audited Nov 14, issue #18)
+
+Readonly mode and approval enforcement live in the server, not in the
+client, so the Slint UI cannot bypass them. The client only sends chat
+text, approval decisions, and mode changes; every tool execution is
+decided server-side per call.
+
+- One decision point: `Policy::decide_in` in `src/permissions.rs` decides
+  every tool call the model makes (`src/agent.rs`, the agent loop), every
+  parked-approval run (`src/app.rs`, which re-decides against the current
+  policy before running, so an approval granted earlier cannot execute
+  under a stricter mode since), and every MCP tool call from another app
+  (`src/mcp.rs`, where anything that would need approval is refused
+  outright). Denials are audited (`denied-by-policy`).
+- Hard rules no mode, allow rule, or setting can switch off, in order:
+  catastrophic effects are denied in every mode; the user's own deny
+  rules beat everything that allows; read-only denies every mutation;
+  secrets always ask (Auto and Yolo included); once outside content is
+  present, nothing is changed and nothing the model composed is sent out
+  without approval, in every mode including Unrestricted.
+- Mode changes (`POST /api/mode`) set the shared server policy; the
+  client's `set_mode` and the Settings form both funnel through it.
+- Coverage: `promises_that_hold_whatever_the_settings` in
+  `src/permissions.rs` checks the hard rules across modes, effects,
+  tainted and untainted content, and allow/deny rule sets (600+
+  combinations). The approval wait declines after 900 seconds
+  (`src/server.rs`).
+
 ## Open items (Shell lane)
 
 - The window cannot run in the sandbox (no display). Verification here is
   `cargo check` without features plus the headless bridge tests in
   `src/bin/desktop/bridge.rs` (`cargo test --features desktop --bin
   heron-desktop`). Both still need a run that reaches crates.io; the desktop
-  build was never verified in this sandbox.
-- The shell's approval display is a placeholder line in the chat. The Views
-  lane owns the real approvals UI and answers through `approve()`.
-- Tool call rendering in the chat stream is a placeholder (tool events are
-  ignored by the shell's `apply_chat_event`). The Chat lane owns that rendering.
-- `copy-requested(string)` has no Rust handler yet: the `arboard` dependency
-  is declared (3.7.0) and the copy wiring is still open. Same for link
-  activation (callback to Rust plus the `open` crate) and file dialogs
-  (`rfd::AsyncFileDialog` plus `slint::spawn_local`; the `rfd` dependency is
-  declared at 0.18.0).
-- Rail keyboard navigation is pointer-plus-Enter/Space only in Phase 0.
-  Arrow-key movement between rail items is still open.
+  build was never verified in this sandbox. CI is the compile gate.
+- Parked approvals have no UI surface: the `ViewsBridge` trait methods
+  exist and the bridge implements them, but no view displays them and the
+  glue never calls them.
+- Undo force restore has no UI: the client exposes `undo_force` and the
+  server supports it, but a conflict surfaces only as a note in the chat.
+- The onboarding view has no error line on steps 1, 3, and 4, so a failed
+  proactivity or finish call leaves no visible trace (the error stays in
+  `state.error`). A successful Learn shows only the updated count in the
+  card status, not the learned-item list the web UI shows.
+- Sidebar keyboard navigation is pointer-plus-Enter/Space only.
+  Arrow-key movement between sidebar items is still open.
 - Wiring `reduce-motion` to the OS setting (or a Settings toggle) is still
   open. The property and the 0ms mechanism are done; nothing reads the
   platform setting yet.
+- Manual launch-and-exercise of the native app on each platform, and
+  release-artifact validation, are still owed before any release. CI green
+  is not a substitute for running the app.

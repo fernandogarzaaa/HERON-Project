@@ -10,17 +10,25 @@
 
 mod bridge;
 mod models;
+mod setup;
+mod setup_bridge;
+mod setup_glue;
 mod sse;
 mod ui_state;
+mod views_bridge;
+mod views_slint;
 
-use bridge::{Bridge, ChatEvent, HeronClient};
+use bridge::{Bridge, ChatEvent, HeronClient, UndoOutcome};
 use heron::app::App;
 use heron::config::Config;
-use models::{apply_chat_event, begin_reply, push_message};
+use heron::ui::chat::ChatView;
+use models::begin_send;
+use setup_glue::{bind_window as bind_setup_window, SetupDriver};
 use slint::{ModelRc, SharedString, VecModel};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
+use views_bridge::HeronViewsBridge;
+use views_slint::{bind_window, ViewsController};
 
 slint::include_modules!();
 
@@ -58,6 +66,125 @@ fn start_backend() -> Result<String, String> {
         .unwrap_or_else(|_| Err("the background service stopped unexpectedly".into()))
 }
 
+/// The current session id from the window, or `None` for a new conversation.
+fn current_session_id(window: &MainWindow) -> Option<String> {
+    let id = window.get_session_id();
+    if id.is_empty() {
+        None
+    } else {
+        Some(id.to_string())
+    }
+}
+
+/// Send a message in the current session: start the turn on the UI thread,
+/// then stream its events onto the UI thread as they arrive. The send
+/// callback, the starter cards, the continue action, and (from the Views
+/// lane) an accepted suggestion all send through here, so a turn is always
+/// one `ChatView::start_send` and one forwarder.
+///
+/// The forwarder tracks terminal events. When the channel closes without
+/// one, the turn is closed with the connection note instead of staying
+/// live and busy forever.
+fn send_message(
+    window: &MainWindow,
+    chat: &Arc<Mutex<ChatView>>,
+    bridge: &Bridge,
+    text: &str,
+    session_id: Option<String>,
+) {
+    let text = text.to_string();
+    if text.trim().is_empty() {
+        return;
+    }
+    let turn_id = {
+        let mut chat = chat.lock().unwrap();
+        // Guard all send entry points under the same mutex before adding a
+        // turn: a concurrent 409 must not clear the original reply's busy state.
+        if chat.busy {
+            return;
+        }
+        begin_send(window, &mut chat, &text)
+    };
+    let (tx, mut rx) = mpsc::unbounded_channel::<ChatEvent>();
+    let weak_events = window.as_weak();
+    let chat_events = chat.clone();
+    bridge.spawn(async move {
+        let mut saw_terminal = false;
+        while let Some(event) = rx.recv().await {
+            if matches!(
+                event,
+                ChatEvent::Done { .. } | ChatEvent::Error { .. } | ChatEvent::Cancelled
+            ) {
+                saw_terminal = true;
+            }
+            let weak = weak_events.clone();
+            let chat = chat_events.clone();
+            let _ = weak.upgrade_in_event_loop(move |window| {
+                let mut chat = chat.lock().unwrap();
+                models::apply_chat_event(&window, &mut chat, turn_id, event);
+            });
+        }
+        if !saw_terminal {
+            let weak = weak_events.clone();
+            let chat = chat_events.clone();
+            let _ = weak.upgrade_in_event_loop(move |window| {
+                let mut chat = chat.lock().unwrap();
+                models::stream_closed_early(&window, &mut chat, turn_id);
+            });
+        }
+    });
+    // stream_chat takes the sender, so hold a clone for the error path:
+    // if the turn fails before any event arrives (409 while a reply runs,
+    // connection failure, broken stream), map the error into a
+    // ChatEvent::Error instead of dropping it.
+    let client = bridge.client().clone();
+    let tx_err = tx.clone();
+    bridge.spawn(async move {
+        if let Err(e) = client.stream_chat(session_id.as_deref(), &text, tx).await {
+            let _ = tx_err.send(ChatEvent::Error {
+                message: format!("{e:#}"),
+            });
+        }
+    });
+}
+
+/// Start a new conversation: stop the running reply, clear the thread and
+/// the session id, and reload the starters for the empty state. The server
+/// creates the next session lazily, on the first message sent. A forwarder
+/// from the old turn drops its events: its turn id no longer exists in the
+/// cleared thread.
+fn start_new_conversation(window: &MainWindow, chat: &Arc<Mutex<ChatView>>, bridge: &Bridge) {
+    let session_id = window.get_session_id().to_string();
+    if !session_id.is_empty() {
+        let client = bridge.client().clone();
+        bridge.spawn(async move {
+            let _ = client.cancel(&session_id).await;
+        });
+    }
+    {
+        let mut chat = chat.lock().unwrap();
+        models::start_new(window, &mut chat);
+    }
+    load_starters(window, bridge);
+}
+
+/// Fetch the starter prompts and post them to the window. Used at startup
+/// and on new conversation.
+fn load_starters(window: &MainWindow, bridge: &Bridge) {
+    let client = bridge.client().clone();
+    let weak = window.as_weak();
+    bridge.spawn(async move {
+        let starters = client.starters().await;
+        let _ = weak.upgrade_in_event_loop(move |window| {
+            let rows: Vec<SharedString> = starters
+                .iter()
+                .map(|s| SharedString::from(s.as_str()))
+                .collect();
+            window.set_starters(ModelRc::new(VecModel::from_slice(&rows)));
+        });
+    });
+}
+
 fn main() {
     // Apps opened from Finder get a bare PATH; add the usual places developer tools live so that
     // commands such as git work the same as in a terminal.
@@ -76,6 +203,11 @@ fn main() {
 
     let window = MainWindow::new().expect("could not create the Heron window");
     window.set_messages(ModelRc::new(VecModel::<ChatMsg>::default()));
+
+    // The live chat state machine. One Arc, shared by the UI-thread
+    // callbacks and the forwarder closures. Every access is on the UI
+    // thread and brief; no guard is ever held across an await.
+    let chat = Arc::new(Mutex::new(ChatView::new()));
 
     // Keep the separate About window alive in the Help callback. Creating it
     // inside the callback and immediately dropping its last strong handle after
@@ -128,104 +260,33 @@ fn main() {
     };
 
     if let Some(bridge) = bridge {
-        // A conversation turn: incremented when New clears the conversation,
-        // so a forwarder from an old turn drops its events instead of landing
-        // them in the new conversation. The send handler never increments it:
-        // a second send while a reply runs is rejected by the server (409),
-        // and the live reply's forwarder must keep applying its events.
-        let turn = Arc::new(AtomicU64::new(0));
+        // Refresh the status line and the chat properties from the live
+        // server state, every 30 seconds.
+        ui_state::poll_state(&bridge, window.as_weak(), chat.clone());
 
-        // Refresh the status line from the live server state, every 30 seconds.
-        ui_state::poll_state(&bridge, window.as_weak());
+        // Starter prompts for the empty state.
+        load_starters(&window, &bridge);
 
-        // Send a message: echo it, open an empty assistant reply, and stream the
-        // turn's events onto the UI thread as they arrive.
+        // Send a message: one start_send and one forwarder per turn.
         {
             let bridge = bridge.clone();
+            let chat = chat.clone();
             let weak = window.as_weak();
-            let turn = turn.clone();
             window.on_send_message(move |text| {
-                let text = text.to_string();
-                if text.trim().is_empty() {
-                    return;
-                }
                 let Some(window) = weak.upgrade() else { return };
-                push_message(&window, "user", &text);
-                begin_reply(&window);
-                window.set_busy(true);
-                let session_id = window.get_session_id();
-                let sid = if session_id.is_empty() {
-                    None
-                } else {
-                    Some(session_id.to_string())
-                };
-                // Snapshot the generation on the UI thread before spawning the
-                // forwarder. A delayed spawn must not capture the generation
-                // AFTER New conversation has invalidated this turn.
-                let my_turn = turn.load(Ordering::SeqCst);
-                let (tx, mut rx) = mpsc::unbounded_channel::<ChatEvent>();
-                let weak_events = weak.clone();
-                let turn = turn.clone();
-                bridge.spawn(async move {
-                    while let Some(event) = rx.recv().await {
-                        if turn.load(Ordering::SeqCst) != my_turn {
-                            break;
-                        }
-                        let weak = weak_events.clone();
-                        let turn = turn.clone();
-                        let _ = weak.upgrade_in_event_loop(move |window| {
-                            if turn.load(Ordering::SeqCst) == my_turn {
-                                apply_chat_event(&window, event);
-                            }
-                        });
-                    }
-                });
-                let client = bridge.client().clone();
-                // stream_chat takes the sender, so hold a clone for the error
-                // path: if the turn fails before any event arrives (409 while
-                // a reply runs, connection failure, broken stream), map the
-                // error into a ChatEvent::Error instead of dropping it. The
-                // forwarder turns it into an error line and clears busy;
-                // without it the empty assistant row stays live and busy
-                // stays true forever.
-                let tx_err = tx.clone();
-                bridge.spawn(async move {
-                    if let Err(e) = client.stream_chat(sid.as_deref(), &text, tx).await {
-                        let _ = tx_err.send(ChatEvent::Error {
-                            message: format!("{e:#}"),
-                        });
-                    }
-                });
+                let sid = current_session_id(&window);
+                send_message(&window, &chat, &bridge, &text, sid);
             });
         }
 
-        // New conversation: stop the running reply, forget the server session
-        // id, and clear the view. The server creates the next session lazily,
-        // on the first message sent.
+        // New conversation.
         {
             let bridge = bridge.clone();
-            let turn = turn.clone();
+            let chat = chat.clone();
             let weak = window.as_weak();
             window.on_new_session(move || {
                 if let Some(window) = weak.upgrade() {
-                    // Stop the running reply on the server first, so the
-                    // backend stops work and the session is free.
-                    let session_id = window.get_session_id().to_string();
-                    if !session_id.is_empty() {
-                        let client = bridge.client().clone();
-                        bridge.spawn(async move {
-                            let _ = client.cancel(&session_id).await;
-                        });
-                    }
-                    // Invalidate the old turn: its forwarder drops any event
-                    // still in flight instead of landing it in the new
-                    // conversation.
-                    turn.fetch_add(1, Ordering::SeqCst);
-                    window.set_session_id(SharedString::from(""));
-                    window.set_messages(ModelRc::new(VecModel::<ChatMsg>::default()));
-                    window.set_session_title(SharedString::from(""));
-                    window.set_reply_row(-1);
-                    window.set_busy(false);
+                    start_new_conversation(&window, &chat, &bridge);
                 }
             });
         }
@@ -249,16 +310,435 @@ fn main() {
         }
 
         // Answer a waiting approval: once, always, session, or anything else denies.
+        // A failed server decision must leave the approval card actionable.
         {
             let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
             window.on_approve(move |id, decision| {
                 let client = bridge.client().clone();
+                let weak = weak.clone();
+                let chat = chat.clone();
                 let id = id.to_string();
                 let decision = decision.to_string();
                 bridge.spawn(async move {
-                    let _ = client.approve(&id, &decision).await;
+                    let result = client.approve(&id, &decision).await;
+                    let _ = weak.upgrade_in_event_loop(move |window| {
+                        let mut chat = chat.lock().unwrap();
+                        match result {
+                            Ok(()) => {
+                                models::answer_approval(&window, &mut chat, &id, &decision, None)
+                            }
+                            Err(e) => {
+                                models::push_note(
+                                    &window,
+                                    &mut chat,
+                                    &format!("Approval request failed: {e:#}. Please retry or deny."),
+                                );
+                            }
+                        }
+                    });
                 });
             });
+        }
+
+        // Switch permission mode. The Unrestricted switch is gated by the
+        // inline confirm row in the view, so Rust sends only after confirm.
+        {
+            let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            window.on_set_mode(move |mode| {
+                let client = bridge.client().clone();
+                let weak = weak.clone();
+                let chat = chat.clone();
+                let mode = mode.to_string();
+                bridge.spawn(async move {
+                    match client.set_mode(&mode).await {
+                        Ok(returned) => {
+                            let _ = weak.upgrade_in_event_loop(move |window| {
+                                if let Some(parsed) = heron::ui::chat::Mode::parse(&returned) {
+                                    chat.lock().unwrap().mode = parsed;
+                                }
+                                window.set_chat_mode(SharedString::from(returned));
+                            });
+                        }
+                        Err(e) => eprintln!("could not switch mode: {e:#}"),
+                    }
+                });
+            });
+        }
+
+        // Undo the last file change. The outcome becomes a note row: the
+        // undone description, or the reason it could not be undone. A
+        // conflict needs a force restore behind a confirmation that is not
+        // built yet; it reports the reason and stops there.
+        {
+            let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            window.on_undo(move || {
+                let Some(window) = weak.upgrade() else { return };
+                let session_id = window.get_session_id().to_string();
+                if session_id.is_empty() {
+                    return;
+                }
+                let client = bridge.client().clone();
+                let weak = weak.clone();
+                let chat = chat.clone();
+                bridge.spawn(async move {
+                    let outcome = client.undo(&session_id).await;
+                    let _ = weak.upgrade_in_event_loop(move |window| {
+                        let mut chat = chat.lock().unwrap();
+                        match outcome {
+                            Ok(UndoOutcome::Undone(text)) => {
+                                models::push_note(&window, &mut chat, &format!("Undone: {text}"));
+                            }
+                            Ok(UndoOutcome::Nothing) => {
+                                models::push_note(&window, &mut chat, "Nothing to undo.");
+                            }
+                            Ok(UndoOutcome::Stale(why)) => {
+                                models::push_note(
+                                    &window,
+                                    &mut chat,
+                                    &format!("Heron could not undo: {why}"),
+                                );
+                            }
+                            Ok(UndoOutcome::Conflict { reason, .. }) => {
+                                models::push_note(
+                                    &window,
+                                    &mut chat,
+                                    &format!("Heron cannot undo: {reason}"),
+                                );
+                            }
+                            Err(e) => {
+                                models::push_note(
+                                    &window,
+                                    &mut chat,
+                                    &format!("Heron could not undo: {e:#}"),
+                                );
+                            }
+                        }
+                    });
+                });
+            });
+        }
+
+        // Flip a tool result row open or closed. View state only.
+        {
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            window.on_toggle_step(move |id| {
+                let Some(window) = weak.upgrade() else { return };
+                let mut chat = chat.lock().unwrap();
+                models::toggle_step(&window, &mut chat, &id);
+            });
+        }
+
+        // Retain the platform clipboard object for the window's lifetime.
+        // Some clipboard backends transfer ownership on drop, so creating
+        // and immediately dropping it can make copied text disappear.
+        let clipboard = std::cell::RefCell::new(None::<arboard::Clipboard>);
+        window.on_copy_requested(move |text| {
+            let mut slot = clipboard.borrow_mut();
+            if slot.is_none() {
+                match arboard::Clipboard::new() {
+                    Ok(cb) => *slot = Some(cb),
+                    Err(e) => {
+                        eprintln!("could not open the clipboard: {e}");
+                        return;
+                    }
+                }
+            }
+            if let Some(cb) = slot.as_mut() {
+                if let Err(e) = cb.set_text(text.to_string()) {
+                    eprintln!("could not copy to the clipboard: {e}");
+                }
+            }
+        });
+
+        // Open a link from a message in the default browser.
+        window.on_open_link(move |url| {
+            if let Err(e) = open::that(url.as_str()) {
+                eprintln!("could not open the link: {e}");
+            }
+        });
+
+        // Send a starter prompt exactly like a typed message.
+        {
+            let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            window.on_use_starter(move |prompt| {
+                let Some(window) = weak.upgrade() else { return };
+                let sid = current_session_id(&window);
+                send_message(&window, &chat, &bridge, &prompt, sid);
+            });
+        }
+
+        // Continue an interrupted turn, exactly like the web UI does.
+        {
+            let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            window.on_continue_turn(move || {
+                let Some(window) = weak.upgrade() else { return };
+                let sid = current_session_id(&window);
+                send_message(
+                    &window,
+                    &chat,
+                    &bridge,
+                    "Continue from where you left off.",
+                    sid,
+                );
+            });
+        }
+
+        // Try the demo model, then refresh state at once.
+        {
+            let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            window.on_try_demo(move || {
+                let client = bridge.client().clone();
+                let bridge_task = bridge.clone();
+                let weak = weak.clone();
+                let chat = chat.clone();
+                bridge.spawn(async move {
+                    if let Err(e) = client.try_demo().await {
+                        eprintln!("could not switch to the demo model: {e:#}");
+                        return;
+                    }
+                    ui_state::refresh_state_now(&bridge_task, weak, chat);
+                });
+            });
+        }
+
+        // Resume a paused Heron, then refresh state at once.
+        {
+            let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            window.on_resume(move || {
+                let client = bridge.client().clone();
+                let bridge_task = bridge.clone();
+                let weak = weak.clone();
+                let chat = chat.clone();
+                bridge.spawn(async move {
+                    if let Err(e) = client.resume().await {
+                        eprintln!("could not resume Heron: {e:#}");
+                        return;
+                    }
+                    ui_state::refresh_state_now(&bridge_task, weak, chat);
+                });
+            });
+        }
+
+        // Open Settings.
+        {
+            let weak = window.as_weak();
+            window.on_open_settings(move || {
+                if let Some(window) = weak.upgrade() {
+                    window.set_current_view(SharedString::from("settings"));
+                }
+            });
+        }
+
+        // Views: sidebar, Memory, Tasks, Reminders, Awareness, Usage,
+        // Activity. The controller owns the Views lane's glue
+        // (src/bin/desktop/views_slint.rs) and the HTTP bridge behind it.
+        // The four Shell closures run on tokio tasks, never on the UI
+        // thread, so each one posts back through upgrade_in_event_loop.
+        // The controller slot breaks the circle: the closures need the
+        // controller (to mark the current session), and the controller is
+        // built from the closures.
+        let ctrl_slot: Arc<Mutex<Option<Arc<ViewsController>>>> = Arc::new(Mutex::new(None));
+        let on_accept_suggestion = {
+            let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            let slot = ctrl_slot.clone();
+            Arc::new(move |prompt: String, session_id: Option<String>| {
+                let nav_generation = chat.lock().unwrap().begin_navigation();
+                let client = bridge.client().clone();
+                let bridge_task = bridge.clone();
+                let chat_task = chat.clone();
+                let weak_task = weak.clone();
+                let slot_task = slot.clone();
+                bridge.spawn(async move {
+                    // Existing sessions must actually load before their
+                    // suggestions can run; otherwise a separate server
+                    // session would be appended to the old UI transcript.
+                    let detail = match &session_id {
+                        Some(id) => Some(client.get_session(id).await),
+                        None => None,
+                    };
+                    let _ = weak_task.upgrade_in_event_loop(move |window| {
+                        {
+                            let mut state = chat_task.lock().unwrap();
+                            if state.navigation_generation != nav_generation {
+                                return;
+                            }
+                            if state.busy {
+                                models::push_note(&window, &mut state,
+                                    "Stop the current reply before opening a suggestion.");
+                                return;
+                            }
+                            match detail {
+                                Some(Ok(detail)) => {
+                                    models::open_history(&window, &mut state, &detail);
+                                }
+                                Some(Err(e)) => {
+                                    models::push_note(&window, &mut state,
+                                        &format!("Could not open suggestion conversation: {e:#}"));
+                                    return;
+                                }
+                                None => {}
+                            }
+                        }
+                        if session_id.is_none() {
+                            start_new_conversation(&window, &chat_task, &bridge_task);
+                        }
+                        window.set_current_view(SharedString::from("chat"));
+                        if let Some(ctrl) = slot_task.lock().unwrap().as_ref() {
+                            ctrl.set_current_session(session_id.clone());
+                        }
+                        send_message(&window, &chat_task, &bridge_task, &prompt, session_id);
+                    });
+                });
+            }) as Arc<dyn Fn(String, Option<String>) + Send + Sync>
+        };
+        let on_open_session = {
+            let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            let slot = ctrl_slot.clone();
+            Arc::new(move |id: String| {
+                // Each selection invalidates earlier pending fetches. New
+                // conversation and history replay invalidate these too.
+                let nav_generation = {
+                    let mut state = chat.lock().unwrap();
+                    if state.busy {
+                        return;
+                    }
+                    state.begin_navigation()
+                };
+                let client = bridge.client().clone();
+                let chat_task = chat.clone();
+                let weak_task = weak.clone();
+                let slot_task = slot.clone();
+                bridge.spawn(async move {
+                    let detail = client.get_session(&id).await.ok();
+                    let _ = weak_task.upgrade_in_event_loop(move |window| {
+                        // Do not switch away while a reply is running:
+                        // the web UI refuses the same way.
+                        let mut state = chat_task.lock().unwrap();
+                        if state.busy || state.navigation_generation != nav_generation {
+                            return;
+                        }
+                        let Some(detail) = detail else {
+                            models::push_note(&window, &mut state,
+                                "Could not open the selected conversation.");
+                            return;
+                        };
+                        models::open_history(&window, &mut state, &detail);
+                        drop(state);
+                        window.set_current_view(SharedString::from("chat"));
+                        if let Some(ctrl) = slot_task.lock().unwrap().as_ref() {
+                            ctrl.set_current_session(Some(id));
+                        }
+                    });
+                });
+            }) as Arc<dyn Fn(String) + Send + Sync>
+        };
+        let on_navigate = {
+            let weak = window.as_weak();
+            let chat = chat.clone();
+            Arc::new(move |view: String| {
+                // A newer sidebar destination invalidates pending session
+                // fetches even when it is not another conversation.
+                chat.lock().unwrap().begin_navigation();
+                let weak = weak.clone();
+                let _ = weak.upgrade_in_event_loop(move |window| {
+                    window.set_current_view(SharedString::from(view));
+                });
+            }) as Arc<dyn Fn(String) + Send + Sync>
+        };
+        let on_new_conversation = {
+            let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            let slot = ctrl_slot.clone();
+            Arc::new(move || {
+                let bridge = bridge.clone();
+                let chat = chat.clone();
+                let slot = slot.clone();
+                let weak = weak.clone();
+                let _ = weak.upgrade_in_event_loop(move |window| {
+                    start_new_conversation(&window, &chat, &bridge);
+                    window.set_current_view(SharedString::from("chat"));
+                    if let Some(ctrl) = slot.lock().unwrap().as_ref() {
+                        ctrl.set_current_session(None);
+                    }
+                });
+            }) as Arc<dyn Fn() + Send + Sync>
+        };
+        let views_bridge: Arc<dyn heron::ui::views::ViewsBridge> =
+            Arc::new(HeronViewsBridge::new(bridge.client().clone()));
+        let ctrl = ViewsController::new(
+            views_bridge,
+            bridge.handle(),
+            on_accept_suggestion,
+            on_open_session,
+            on_navigate,
+            on_new_conversation,
+        );
+        *ctrl_slot.lock().unwrap() = Some(ctrl.clone());
+        bind_window(&window, &ctrl);
+
+        // Sidebar refresh every 30 seconds: the tick syncs the window's
+        // current session into the controller, so the sidebar highlights
+        // the conversation the chat is actually in (including one the
+        // Chat lane just created), and the controller reloads the badges,
+        // footer, and session list with it.
+        {
+            let weak = window.as_weak();
+            let ctrl_tick = ctrl.clone();
+            let bridge_tick = bridge.clone();
+            bridge_tick.spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+                loop {
+                    interval.tick().await;
+                    let ctrl = ctrl_tick.clone();
+                    let weak = weak.clone();
+                    let posted = weak.upgrade_in_event_loop(move |window| {
+                        let id = current_session_id(&window);
+                        ctrl.set_current_session(id);
+                    });
+                    if posted.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+
+        // Setup: onboarding and settings. The driver owns the two
+        // state machines and installs every setup callback; the
+        // finish hook starts a new conversation and switches to the
+        // chat view, the way the web UI does after onboarding.
+        {
+            let setup_driver = SetupDriver::new(bridge.client().clone());
+            let weak_finish = window.as_weak();
+            let chat_finish = chat.clone();
+            let bridge_finish = bridge.clone();
+            let on_finish: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+                let Some(window) = weak_finish.upgrade() else {
+                    return;
+                };
+                start_new_conversation(&window, &chat_finish, &bridge_finish);
+                window.set_current_view("chat".into());
+            });
+            bind_setup_window(&window, &bridge, &setup_driver, on_finish);
         }
     }
 

@@ -370,19 +370,128 @@ impl HeronClient {
             .to_string())
     }
 
-    /// `POST /api/undo` with `{session_id}`. Returns the undone description, if any.
-    pub async fn undo(&self, session_id: &str) -> Result<Option<String>> {
-        let value = self
-            .api(
-                Method::POST,
-                "/api/undo",
-                Some(serde_json::json!({"session_id": session_id})),
-            )
-            .await?;
-        Ok(value
-            .get("undone")
-            .and_then(|u| u.as_str())
-            .map(str::to_string))
+    /// `POST /api/undo` with `{session_id}`. The server answers with the
+    /// undone description, or with `stale` / `conflict` when the change
+    /// cannot be undone cleanly. The old shape returned only the undone
+    /// string and discarded the other two, so the UI could not tell a
+    /// stale undo from a conflicting one.
+    pub async fn undo(&self, session_id: &str) -> Result<UndoOutcome> {
+        self.undo_with(session_id, false, None).await
+    }
+
+    /// `POST /api/undo` with `{session_id, force: true, checkpoint}`.
+    /// Restores the change named by `checkpoint` even though the file has
+    /// changed since. The current version is kept beside it by the server.
+    pub async fn undo_force(&self, session_id: &str, checkpoint: &str) -> Result<UndoOutcome> {
+        self.undo_with(session_id, true, Some(checkpoint)).await
+    }
+
+    async fn undo_with(
+        &self,
+        session_id: &str,
+        force: bool,
+        checkpoint: Option<&str>,
+    ) -> Result<UndoOutcome> {
+        let mut body = serde_json::json!({"session_id": session_id, "force": force});
+        if let Some(checkpoint) = checkpoint {
+            body["checkpoint"] = serde_json::Value::String(checkpoint.to_string());
+        }
+        let value = self.api(Method::POST, "/api/undo", Some(body)).await?;
+        Ok(UndoOutcome::from_value(&value))
+    }
+
+    /// `POST /api/settings` with `{base_url: "demo"}`, then a state refresh.
+    /// The demo model answers without a key. The caller refreshes state
+    /// after this returns.
+    pub async fn try_demo(&self) -> Result<()> {
+        self.api(
+            Method::POST,
+            "/api/settings",
+            Some(serde_json::json!({"base_url": "demo"})),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// `POST /api/pause` with `{paused: false}`. The caller refreshes
+    /// state after this returns.
+    pub async fn resume(&self) -> Result<()> {
+        self.api(
+            Method::POST,
+            "/api/pause",
+            Some(serde_json::json!({"paused": false})),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Starter prompts for the empty state: the prompts of the unanswered
+    /// suggestions from `GET /api/suggestions`, at most four. When the call
+    /// fails or nothing is unanswered, the four prompts from the Chat
+    /// lane's map (ui/CHAT_MAP.md) fill in, so the empty state is never
+    /// bare.
+    pub async fn starters(&self) -> Vec<String> {
+        const FALLBACK: [&str; 4] = [
+            "Look through this folder and tell me what is in it",
+            "Remind me tomorrow at 9:00 to call the dentist",
+            "Research the best way to learn Rust in a month and save a plan as plan.md",
+            "What do you remember about me?",
+        ];
+        let Ok(value) = self.api(Method::GET, "/api/suggestions", None).await else {
+            return FALLBACK.iter().map(|s| s.to_string()).collect();
+        };
+        let prompts: Vec<String> = value
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter(|item| item.get("status").and_then(|s| s.as_str()) == Some("new"))
+                    .filter_map(|item| {
+                        item.get("prompt")
+                            .and_then(|p| p.as_str())
+                            .map(str::to_string)
+                    })
+                    .take(4)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if prompts.is_empty() {
+            FALLBACK.iter().map(|s| s.to_string()).collect()
+        } else {
+            prompts
+        }
+    }
+}
+
+/// What `POST /api/undo` answered. The server shapes are
+/// `{undone}`, `{undone: null}`, `{undone: null, stale}`,
+/// `{undone: null, conflict, checkpoint}`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UndoOutcome {
+    Undone(String),
+    Nothing,
+    Stale(String),
+    Conflict { reason: String, checkpoint: String },
+}
+
+impl UndoOutcome {
+    fn from_value(value: &Value) -> Self {
+        if let Some(undone) = value.get("undone").and_then(|u| u.as_str()) {
+            return UndoOutcome::Undone(undone.to_string());
+        }
+        if let Some(stale) = value.get("stale").and_then(|s| s.as_str()) {
+            return UndoOutcome::Stale(stale.to_string());
+        }
+        match (
+            value.get("conflict").and_then(|c| c.as_str()),
+            value.get("checkpoint").and_then(|c| c.as_str()),
+        ) {
+            (Some(reason), Some(checkpoint)) => UndoOutcome::Conflict {
+                reason: reason.to_string(),
+                checkpoint: checkpoint.to_string(),
+            },
+            _ => UndoOutcome::Nothing,
+        }
     }
 }
 
@@ -412,6 +521,12 @@ impl Bridge {
 
     pub fn client(&self) -> &HeronClient {
         &self.client
+    }
+
+    /// The runtime handle, for work the Shell hands to the Views lane's
+    /// controller. The controller spawns its own bridge calls on it.
+    pub fn handle(&self) -> tokio::runtime::Handle {
+        self.runtime.handle().clone()
     }
 
     pub fn spawn<F>(&self, fut: F)
@@ -477,14 +592,18 @@ mod tests {
         // event. That must be a stream failure, not a successful reply.
         let app = axum::Router::new().route(
             "/api/chat",
-            axum::routing::post(|| async { concat!(r#"data: {"type":"text","text":"partial"}"#, "\n\n") }),
+            axum::routing::post(|| async {
+                concat!(r#"data: {"type":"text","text":"partial"}"#, "\n\n")
+            }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind test listener");
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.expect("test server stopped");
+            axum::serve(listener, app)
+                .await
+                .expect("test server stopped");
         });
 
         let client = HeronClient::new(&origin, "test-token");

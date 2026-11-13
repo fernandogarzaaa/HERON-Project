@@ -17,7 +17,7 @@ import { Theme } from "../components/theme.slint";
 import { SectionTitle, LabeledInput, ChoiceCard, StepIndicator } from "../components/atoms.slint";
 import { SourceCard, SourceItem } from "../components/source_card.slint";
 
-component OnboardingView inherits VerticalBox {
+export component OnboardingView inherits VerticalBox {
     // Flow state, owned by the Rust side.
     in property <int> current_step: 0;
     in property <float> progress: 0.0;
@@ -46,6 +46,10 @@ component OnboardingView inherits VerticalBox {
     in property <string> source_message;
     // Step 4: proactivity.
     in property <string> proactivity; // off, suggest, prepare, takeover
+    // Inline confirm for the Take over choice. The web UI confirms
+    // before takeover; this row is that confirm. The choice posts only
+    // after the user confirms here.
+    in-out property <bool> confirm-takeover: false;
     in property <bool> onboarded;
     in property <bool> busy;
 
@@ -84,7 +88,7 @@ component OnboardingView inherits VerticalBox {
         spacing: 8px;
         opacity: current_step == 0 ? 1 : 0;
         animate opacity { duration: reduce-motion ? 0ms : 180ms; }
-        visible: opacity > 0.01;
+        visible: self.opacity > 0.01;
         SectionTitle { label: "Connect an AI model"; }
         Text { text: model_status; color: Theme.ink; wrap: word-wrap; }
         HorizontalBox {
@@ -108,7 +112,7 @@ component OnboardingView inherits VerticalBox {
         spacing: 8px;
         opacity: current_step == 1 ? 1 : 0;
         animate opacity { duration: reduce-motion ? 0ms : 180ms; }
-        visible: opacity > 0.01;
+        visible: self.opacity > 0.01;
         SectionTitle { label: "Tell Heron about yourself"; }
         Text { text: "A few sentences are enough. You can change or remove any of it later under Memory."; color: Theme.muted; wrap: word-wrap; }
         LabeledInput { label: "Your name"; value <=> about_name; }
@@ -123,6 +127,7 @@ component OnboardingView inherits VerticalBox {
             spacing: 10px;
             Button { text: "Back"; clicked => { root.goto_step(0); } }
             Button { text: "Save and continue"; enabled: !busy; clicked => { root.save_about(); } }
+            Button { text: "Skip for now"; enabled: !busy; clicked => { root.goto_step(2); } }
             Text {
                 visible: about_message != "";
                 text: about_message;
@@ -137,7 +142,7 @@ component OnboardingView inherits VerticalBox {
         spacing: 8px;
         opacity: current_step == 2 ? 1 : 0;
         animate opacity { duration: reduce-motion ? 0ms : 180ms; }
-        visible: opacity > 0.01;
+        visible: self.opacity > 0.01;
         SectionTitle { label: "Connect your world"; }
         Text { text: "Each connection lets Heron look things up for you. Connect as many or as few as you like. You can skip this and come back later."; color: Theme.muted; wrap: word-wrap; }
         for item[idx] in sources: SourceCard {
@@ -171,7 +176,7 @@ component OnboardingView inherits VerticalBox {
         spacing: 8px;
         opacity: current_step == 3 ? 1 : 0;
         animate opacity { duration: reduce-motion ? 0ms : 180ms; }
-        visible: opacity > 0.01;
+        visible: self.opacity > 0.01;
         SectionTitle { label: "Decide how much Heron does on its own"; }
         Text { text: "You can change this at any time under Awareness."; color: Theme.muted; wrap: word-wrap; }
         ChoiceCard {
@@ -200,7 +205,17 @@ component OnboardingView inherits VerticalBox {
             detail: "Heron does the work itself: it may create and edit files in your working folder, and nothing beyond that.";
             selected: proactivity == "takeover";
             reduce-motion: reduce-motion;
-            clicked => { root.set_proactivity("takeover"); }
+            clicked => { if (root.proactivity != "takeover") { root.confirm-takeover = true; } }
+        }
+        if confirm-takeover: Rectangle {
+            background: Theme.danger-soft; border-color: Theme.danger; border-width: 1px; border-radius: 10px;
+            VerticalBox {
+                Text { text: "Take over means Heron does the work itself in your working folder. Continue?"; wrap: word-wrap; }
+                HorizontalBox {
+                    Button { text: "Confirm take over"; clicked => { confirm-takeover = false; root.set_proactivity("takeover"); } }
+                    Button { text: "Cancel"; clicked => { confirm-takeover = false; } }
+                }
+            }
         }
         HorizontalBox {
             spacing: 10px;

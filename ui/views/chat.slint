@@ -182,7 +182,7 @@ export component ChatView inherits FocusScope {
     in-out property <bool> follow: true;
     property <bool> show-latest: !follow;
     changed thread-version => {
-        if (root.follow) { thread-scroll.viewport-y = thread-scroll.height - thread-box.height; }
+        if (root.follow) { thread-scroll.content-y = thread-scroll.height - thread-box.height; }
     }
 
     // Cmd/Ctrl+N starts a new conversation. Esc stops a running reply.
@@ -193,7 +193,7 @@ export component ChatView inherits FocusScope {
         if (event.text == "n" && (event.modifiers.control || event.modifiers.meta)) {
             root.new-session();
             accept
-        } else if (event.key == Key.Escape && busy) {
+        } else if (event.text == Key.Escape && busy) {
             root.cancel-reply();
             accept
         } else {
@@ -250,7 +250,7 @@ export component ChatView inherits FocusScope {
             // This fires for user scrolling, not a layout-height change.
             // That preserves follow-mode across large streaming deltas.
             scrolled() => {
-                root.follow = thread-scroll.viewport-y <= thread-scroll.height - thread-box.height + 240;
+                root.follow = thread-scroll.content-y <= thread-scroll.height - thread-box.height + 240px;
             }
             thread-box := VerticalBox {
                 if show-empty: EmptyStateView {
@@ -275,7 +275,7 @@ export component ChatView inherits FocusScope {
         }
         if show-latest: HorizontalBox {
             alignment: center;
-            ActionButton { label: "↓ Newest message"; kind: "primary"; pill: true; reduce-motion: reduce-motion; clicked => { thread-scroll.viewport-y = thread-scroll.height - thread-box.height; } }
+            ActionButton { label: "↓ Newest message"; kind: "primary"; pill: true; reduce-motion: reduce-motion; clicked => { thread-scroll.content-y = thread-scroll.height - thread-box.height; } }
         }
 
         // Composer.

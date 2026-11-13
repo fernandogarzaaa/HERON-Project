@@ -114,13 +114,13 @@ export component MessageView inherits VerticalBox {
     think-timer := Timer {
         interval: 320ms;
         running: msg.live && !reduce-motion;
-        triggered() => { think-phase = (think-phase + 1) % 3; }
+        triggered() => { think-phase = Math.mod(think-phase + 1, 3); }
     }
 
     if msg.role == "user": Rectangle {
         background: Theme.slate-soft;
         border-radius: 12px; border-bottom-right-radius: 3px;
-        StyledText { text: msg.body; }
+        StyledText { text: msg.body; default-color: Theme.ink; }
     }
     if msg.role == "note": Text { text: msg.text; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
     if msg.role == "assistant": VerticalBox {
@@ -130,7 +130,7 @@ export component MessageView inherits VerticalBox {
         // Phase 0 spike's open question. Fallback, if it does not: the
         // message delegate splits the reply into segments, text as
         // StyledText and code as monospace Text in a bordered box.
-        StyledText { text: msg.body; }
+        StyledText { text: msg.body; default-color: Theme.ink; }
         if msg.steps.length > 0: VerticalBox {
             for step in msg.steps: StepRowView { step: step; reduce-motion: reduce-motion; toggled(id) => { root.toggled-step(id); } }
         }

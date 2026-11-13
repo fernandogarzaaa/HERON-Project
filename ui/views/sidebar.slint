@@ -1,9 +1,10 @@
-// Heron sidebar view. One file per view: the Slint compiler generates
-// Rust code only for the last exported component of a file, so the
-// five views cannot share one file and still be driven from Rust.
+// Heron sidebar view. One file per view: the Shell's MainWindow drives
+// the views only through its own forwarded properties and callbacks, so
+// each view keeps its own file and its own component.
 
 import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { Theme, SessionRow, Spacer } from "common.slint";
+import { SessionRow, Spacer } from "common.slint";
+import { Theme } from "../components/theme.slint";
 
 export component Sidebar inherits Rectangle {
     background: Theme.paper;
@@ -13,6 +14,11 @@ export component Sidebar inherits Rectangle {
     in property <int> suggestions-count: 0;
     in property <int> waiting-count: 0;
     in property <string> footer-text: "";
+    // The Shell's backend status line ("Heron · model · mode", or the
+    // "Connected, but the server state could not be read" error). The
+    // footer above carries the model and token count; this line carries
+    // the connection state. The Shell posts it from its state poll.
+    in property <string> status-text: "";
     in property <[SessionRow]> sessions;
     callback navigate(string);
     callback open-session(string);
@@ -66,6 +72,13 @@ export component Sidebar inherits Rectangle {
         Spacer { height: 10px; }
         Text {
             text: root.footer-text;
+            font-size: 12px;
+            color: Theme.muted;
+            wrap: TextWrap.word-wrap;
+        }
+        Text {
+            visible: root.status-text != "";
+            text: root.status-text;
             font-size: 12px;
             color: Theme.muted;
             wrap: TextWrap.word-wrap;

@@ -1,38 +1,41 @@
 //! Slint glue for the Views lane: sidebar, Memory, Tasks, Reminders, Awareness.
 //!
 //! This file drives the MainWindow's forwarded API. It never touches the
-//! view components directly. The Slint compiler generates Rust code only
-//! for the last exported component of a file, so the five view components
-//! have no Rust types of their own. The Shell's `ui/main.slint` instantiates
-//! them and forwards every property and callback. The forwarded API is
-//! specified in `docs/slint-views-bridge.md`. The harness test Window is
-//! the executable form of that spec.
+//! view components directly. The Slint compiler generates Rust types for
+//! every exported component and struct in the compiled root, but nested
+//! component instances are not reachable from Rust: only the root
+//! component's forwarded properties and callbacks are. That is why the
+//! Shell's `ui/main.slint` instantiates the views and forwards every
+//! property and callback the glue needs. The forwarded API is specified
+//! in `docs/slint-views-bridge.md`. The harness test Window is the
+//! executable form of that spec.
 //!
-//! Placement: this file belongs in the desktop binary crate
+//! Placement: this file lives in the desktop binary crate
 //! (`src/bin/desktop/`). It refers to the Window as `crate::MainWindow`.
 //! `slint::include_modules!()` includes the generated code at the call
 //! site, so the Window and row structs land directly at the crate root.
 //! The binary crate's root must call it once. This file must NOT call it
 //! itself: a second call would define the same types a second time in a
 //! different module, and the two `MainWindow` types would not match.
-//! The logic it drives lives in `super::views` (`src/ui/views.rs`). If
-//! the Shell keeps that file in the library instead of the binary crate,
-//! the one import line below changes to the library path. Nothing else
-//! changes.
+//! The logic it drives lives in the library (`heron::ui::views`).
 //!
 //! Threading: the Slint event loop owns the main thread. Bridge calls run
 //! on the backend tokio runtime via the `Handle` the Shell passes in. UI
 //! updates come back through `slint::invoke_from_event_loop`. Nothing here
 //! ever blocks the UI thread.
 //!
-//! Id casts: API ids are i64. Slint `int` is i32. The glue casts with `as`.
-//! Heron ids fit in i32 in practice. A cast that overflows would corrupt
-//! the row identity. This is an open item, not a silent assumption.
+//! Id casts: API ids are i64. Slint `int` is i32. A row whose id does not
+//! fit is dropped from the model (see `row_id`): the UI cannot address it
+//! by `int` anyway, and a truncated id could silently act on the wrong
+//! row. Badge and message counts saturate instead of dropping. SQLite
+//! rowids grow from 1, so neither guard triggers in practice; they exist
+//! so a corrupt id can never corrupt another row.
 //!
-//! Missing confirms: the web UI confirms before "take over" and before
-//! "Forget everything observed". Slint has no native confirm dialog, so
-//! this glue posts directly for now. The Shell must add a confirm step
-//! before those two calls reach the bridge. See `docs/slint-views-bridge.md`.
+//! Confirms: the web UI confirms before "take over" and before
+//! "Forget everything observed". The Awareness view gates both behind
+//! inline confirms (`confirm-takeover`, `confirm-clear`), so this glue
+//! posts only after the user confirms in the view. The same pattern
+//! gates Take over in onboarding and Unrestricted in settings.
 
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -42,11 +45,11 @@ use std::time::Duration;
 
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
 
-use super::views as logic;
 use crate::{
     AuditRow, InboxRow, MainWindow, MemoryRow, ModelRow, RunStepRow, ScheduleRow, SessionRow,
     SimpleRow, SuggestionRow, TaskRow, UsageDayRow,
 };
+use heron::ui::views as logic;
 
 /// How long the Memory search waits after the last keystroke before
 /// reloading. The web UI reloads on every keystroke. The debounce keeps
@@ -57,6 +60,24 @@ const SEARCH_DEBOUNCE: Duration = Duration::from_millis(300);
 /// web UI uses before it gives up and reloads anyway.
 const RUN_POLL_COUNT: usize = 60;
 const RUN_POLL_INTERVAL: Duration = Duration::from_millis(1500);
+
+/// A database row id that must fit in Slint's `int` (i32). `None` when it
+/// does not fit: the caller drops the row from the model. The UI cannot
+/// address a row by an `int` that does not fit, and a truncated id could
+/// silently act on the wrong row.
+fn row_id(id: i64) -> Option<i32> {
+    i32::try_from(id).ok()
+}
+
+/// A count shown as a badge or a message count. Saturates at `i32::MAX`
+/// instead of dropping: a count that does not fit still displays, capped.
+fn saturating_i32(n: i64) -> i32 {
+    i32::try_from(n).unwrap_or(i32::MAX)
+}
+
+fn saturating_u32(n: u64) -> i32 {
+    i32::try_from(n).unwrap_or(i32::MAX)
+}
 
 /// Everything the five views need to talk to the bridge and to the Shell.
 /// Held as `Arc` so spawned tokio tasks and Slint callbacks share it.
@@ -141,9 +162,9 @@ impl ViewsController {
                 .collect();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(window) = weak.upgrade() {
-                    window.set_sidebar_unread_count(unread as i32);
-                    window.set_sidebar_suggestions_count(suggestions as i32);
-                    window.set_sidebar_waiting_count(waiting as i32);
+                    window.set_sidebar_unread_count(saturating_u32(unread));
+                    window.set_sidebar_suggestions_count(saturating_u32(suggestions));
+                    window.set_sidebar_waiting_count(saturating_u32(waiting));
                     window.set_sidebar_footer_text(footer.into());
                     window.set_sidebar_sessions(model_of(rows));
                 }
@@ -159,28 +180,28 @@ fn session_row(s: &logic::SessionInfo, current: Option<&str>) -> SessionRow {
         id: s.id.clone().into(),
         title: s.title.clone().into(),
         updated: logic::fmt_time(s.updated_at).into(),
-        messages: s.messages as i32,
+        messages: saturating_i32(s.messages),
         current: Some(s.id.as_str()) == current,
     }
 }
 
-fn memory_row(m: &logic::MemoryItem, now_ts: i64) -> MemoryRow {
-    MemoryRow {
-        id: m.id as i32,
+fn memory_row(m: &logic::MemoryItem, now_ts: i64) -> Option<MemoryRow> {
+    Some(MemoryRow {
+        id: row_id(m.id)?,
         kind_label: logic::kind_label(&m.kind).into(),
         content: m.content.clone().into(),
         meta: logic::memory_meta(m, now_ts).into(),
         confirmed: m.confirmed,
-    }
+    })
 }
 
-fn task_row(t: &logic::TaskItem) -> TaskRow {
-    TaskRow {
-        id: t.id as i32,
+fn task_row(t: &logic::TaskItem) -> Option<TaskRow> {
+    Some(TaskRow {
+        id: row_id(t.id)?,
         title: t.title.clone().into(),
         meta: logic::task_meta(t).into(),
         done: t.status == "done",
-    }
+    })
 }
 
 /// The `may` value the row dropdown shows: "read", "write", or "commands".
@@ -195,9 +216,9 @@ fn may_value(allow: &str) -> &'static str {
     }
 }
 
-fn schedule_row(s: &logic::ScheduleItem) -> ScheduleRow {
-    ScheduleRow {
-        id: s.id as i32,
+fn schedule_row(s: &logic::ScheduleItem) -> Option<ScheduleRow> {
+    Some(ScheduleRow {
+        id: row_id(s.id)?,
         title: logic::schedule_title(s).into(),
         meta: logic::schedule_meta(s).into(),
         outline: s.outline.clone().unwrap_or_default().into(),
@@ -205,26 +226,27 @@ fn schedule_row(s: &logic::ScheduleItem) -> ScheduleRow {
         has_last_run: s.last_run.is_some(),
         uses_model: s.uses_model.unwrap_or(false),
         may: may_value(&s.allow).into(),
-    }
+    })
 }
 
 fn inbox_row(m: &logic::InboxItem) -> InboxRow {
     InboxRow {
         title: m.title.clone().into(),
-        body: slint::StyledText::from_markdown(&m.body).unwrap_or_default(),
+        body: slint::StyledText::from_markdown(&m.body)
+            .unwrap_or_else(|_| slint::StyledText::from_plain_text(&m.body)),
         meta: logic::fmt_time(m.ts).into(),
     }
 }
 
-fn suggestion_row(s: &logic::Suggestion) -> SuggestionRow {
-    SuggestionRow {
-        id: s.id as i32,
+fn suggestion_row(s: &logic::Suggestion) -> Option<SuggestionRow> {
+    Some(SuggestionRow {
+        id: row_id(s.id)?,
         title: logic::suggestion_title(s).into(),
         why: s.why.clone().into(),
         result: s.result.clone().unwrap_or_default().into(),
         status: s.status.clone().into(),
         has_session: s.session_id.is_some(),
-    }
+    })
 }
 
 /// A run step's label. The web UI maps tool names through its label table
@@ -331,46 +353,6 @@ fn now_ts() -> i64 {
     chrono::Local::now().timestamp()
 }
 
-fn window_weak(ctrl: &Arc<ViewsController>) -> Option<Weak<MainWindow>> {
-    ctrl.window.lock().unwrap().clone()
-}
-
-// ---------- sidebar ----------
-
-/// Reload the sidebar badges, footer, and session list through the Window.
-pub fn refresh_sidebar(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
-    let ctrl = ctrl.clone();
-    let rt = ctrl.rt.clone();
-    rt.spawn(async move {
-        let (state_res, sessions_res) =
-            tokio::join!(ctrl.bridge.get_state(), ctrl.bridge.list_sessions());
-        let Ok(state) = state_res else { return };
-        let Ok(sessions) = sessions_res else { return };
-        let (unread, suggestions, waiting) = {
-            let mut st = ctrl.state.lock().unwrap();
-            st.state = Some(state.clone());
-            st.sessions = sessions.clone();
-            st.badges()
-        };
-        let footer = logic::sidebar_footer(&state);
-        let current = ctrl.state.lock().unwrap().current_session.clone();
-        let rows: Vec<SessionRow> = sessions
-            .iter()
-            .filter(|s| s.messages > 0)
-            .map(|s| session_row(s, current.as_deref()))
-            .collect();
-        let _ = slint::invoke_from_event_loop(move || {
-            if let Some(window) = ui.upgrade() {
-                window.set_sidebar_unread_count(unread as i32);
-                window.set_sidebar_suggestions_count(suggestions as i32);
-                window.set_sidebar_waiting_count(waiting as i32);
-                window.set_sidebar_footer_text(footer.into());
-                window.set_sidebar_sessions(model_of(rows));
-            }
-        });
-    });
-}
-
 // ---------- memory ----------
 
 /// Reload the Memory list from the bridge and post it to the Window.
@@ -393,7 +375,7 @@ pub fn refresh_memory(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
             return;
         };
         let now = now_ts();
-        let rows: Vec<MemoryRow> = items.iter().map(|m| memory_row(m, now)).collect();
+        let rows: Vec<MemoryRow> = items.iter().filter_map(|m| memory_row(m, now)).collect();
         let empty: SharedString = if items.is_empty() {
             if query.trim().is_empty() {
                 "Nothing remembered yet. Tell Heron about yourself, or add something above.".into()
@@ -425,7 +407,7 @@ pub fn refresh_tasks(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
         let Ok(items) = ctrl.bridge.list_tasks().await else {
             return;
         };
-        let rows: Vec<TaskRow> = items.iter().map(task_row).collect();
+        let rows: Vec<TaskRow> = items.iter().filter_map(task_row).collect();
         let empty: SharedString = if items.is_empty() {
             "No tasks yet. Add one above, or ask Heron to.".into()
         } else {
@@ -458,7 +440,7 @@ pub fn refresh_reminders(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
         let Ok(all) = schedules_res else { return };
         let Ok(inbox) = inbox_res else { return };
         let schedules: Vec<logic::ScheduleItem> = all.into_iter().filter(|s| s.enabled).collect();
-        let rows: Vec<ScheduleRow> = schedules.iter().map(schedule_row).collect();
+        let rows: Vec<ScheduleRow> = schedules.iter().filter_map(schedule_row).collect();
         let delivered: Vec<InboxRow> = inbox.iter().map(inbox_row).collect();
         let schedules_empty: SharedString = if schedules.is_empty() {
             "Nothing scheduled yet. Describe what Heron should do above, and when.".into()
@@ -585,7 +567,7 @@ pub fn refresh_awareness(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
         let Ok(awareness) = awareness_res else { return };
         let Ok(suggestions) = suggestions_res else { return };
         let suggestion_rows: Vec<SuggestionRow> =
-            suggestions.iter().map(suggestion_row).collect();
+            suggestions.iter().filter_map(suggestion_row).collect();
         let suggestions_empty: SharedString = if suggestions.is_empty() {
             "No suggestions right now. When Heron sees something it could take off your hands, it appears here.".into()
         } else {
@@ -668,7 +650,11 @@ fn awareness_rows(
             })
             .collect()
     };
-    let insights: Vec<MemoryRow> = a.insights.iter().map(|m| memory_row(m, now)).collect();
+    let insights: Vec<MemoryRow> = a
+        .insights
+        .iter()
+        .filter_map(|m| memory_row(m, now))
+        .collect();
     let insights_empty: SharedString = if insights.is_empty() {
         if !a.reflect {
             "Turn on 'Think about what it notices' to let Heron draw conclusions.".into()
@@ -904,9 +890,17 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
     window.on_sidebar_navigate(move |view| {
         let name = view.to_string();
         (c.on_navigate)(name.clone());
-        // Loading at app startup is not a visit. Entering Reminders is.
-        if name == "reminders" {
-            refresh_reminders(weak.clone(), &c);
+        // Reload visible data after agent-side changes, not only local form
+        // submissions. Startup fetching is independent and does not mark
+        // reminders read until their view actually becomes visible.
+        match name.as_str() {
+            "memory" => refresh_memory(weak.clone(), &c),
+            "tasks" => refresh_tasks(weak.clone(), &c),
+            "reminders" => refresh_reminders(weak.clone(), &c),
+            "awareness" => refresh_awareness(weak.clone(), &c),
+            "usage" => refresh_usage(weak.clone(), &c),
+            "activity" => refresh_activity(weak.clone(), &c),
+            _ => {}
         }
     });
     let c = ctrl.clone();
@@ -1184,9 +1178,9 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
     let c = ctrl.clone();
     window.on_awareness_set_proactive(move |level| {
         let level = level.to_string();
-        // OPEN: the web UI confirms before "take over". There is no
-        // confirm dialog in Slint yet, so this posts directly. The Shell
-        // must gate it until a confirm step exists.
+        // The Awareness view gates "Take over" behind an inline confirm
+        // (confirm-takeover), so this callback only fires after the user
+        // confirms in the view. No second gate is needed here.
         let ctrl = c.clone();
         let rt = ctrl.rt.clone();
         let weak = weak.clone();
@@ -1200,8 +1194,9 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
     let weak = window.as_weak();
     let c = ctrl.clone();
     window.on_awareness_clear_observations(move || {
-        // OPEN: the web UI confirms before this delete. Same missing
-        // confirm dialog as "take over". Posts directly for now.
+        // The Awareness view gates this delete behind an inline confirm
+        // (confirm-clear), so this callback only fires after the user
+        // confirms in the view. No second gate is needed here.
         let ctrl = c.clone();
         let rt = ctrl.rt.clone();
         let weak = weak.clone();
@@ -1244,9 +1239,12 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
                     .map(|s| s.status.clone())
                     .unwrap_or_default()
             };
-            let (server_action, should_execute) =
-                logic::suggestion_action(&action, &status);
-            match ctrl.bridge.answer_suggestion(id as i64, server_action).await {
+            let (server_action, should_execute) = logic::suggestion_action(&action, &status);
+            match ctrl
+                .bridge
+                .answer_suggestion(id as i64, server_action)
+                .await
+            {
                 Ok((prompt, session_id)) => {
                     if should_execute {
                         (ctrl.on_accept_suggestion)(prompt, session_id);

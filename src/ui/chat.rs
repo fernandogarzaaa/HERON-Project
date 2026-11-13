@@ -519,6 +519,8 @@ pub struct ChatView {
     pub busy: bool,
     pub thread: Vec<ThreadItem>,
     next_turn_id: u64,
+    /// Invalidate stale session fetches after new/session selection actions.
+    pub navigation_generation: u64,
     /// True unless the reader scrolled more than 240px from the bottom.
     pub following: bool,
     /// Expanded tool result rows, by step id.
@@ -541,8 +543,16 @@ impl ChatView {
         }
     }
 
+    /// New navigation requests invalidate older in-flight session loads.
+    pub fn begin_navigation(&mut self) -> u64 {
+        self.navigation_generation = self.navigation_generation.checked_add(1)
+            .expect("navigation generation overflow");
+        self.navigation_generation
+    }
+
     /// Start a new conversation. Clears the thread and the session id.
     pub fn start_new(&mut self) {
+        self.begin_navigation();
         self.session_id = None;
         self.title = "New conversation".to_string();
         self.thread.clear();
@@ -773,10 +783,12 @@ impl ChatView {
         self.thinking = None;
     }
 
-    /// Record an approval answer. The card is replaced by its decision
-    /// note. Returns the note text. A failed approve call is reported
-    /// by passing the error message as `err`.
+    /// Replace the card only when the backend confirmed a decision.
+    /// A failed request leaves approval controls available for retry.
     pub fn answer_approval(&mut self, id: &str, decision: ApprovalDecision, err: Option<&str>) -> Option<String> {
+        if let Some(error) = err {
+            return Some(error.to_string());
+        }
         for item in self.thread.iter_mut() {
             if let ThreadItem::Turn(turn) = item {
                 if let Some(card) = turn.approvals.iter_mut().find(|c| c.id == id) {
@@ -808,6 +820,7 @@ impl ChatView {
     /// `renderHistory`. User messages starting with `[system notice]`
     /// are skipped. `interrupted` adds the cut short note.
     pub fn open_history(&mut self, messages: Vec<HistoryMessage>, interrupted: bool) {
+        self.begin_navigation();
         self.thread.clear();
         let mut pending: HashMap<String, (usize, String)> = HashMap::new();
         let mut turn_open = false;
@@ -882,15 +895,22 @@ impl ChatView {
     /// Short workspace path, as the empty state shows it. Two segments
     /// with a "…/" prefix when longer.
     pub fn workspace_short(&self) -> String {
-        let full = self.workspace.trim_end_matches(['/', '\\']);
-        let parts: Vec<&str> = full.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
-        if parts.len() > 2 {
-            format!("…/{}", parts[parts.len() - 2..].join("/"))
-        } else if full.is_empty() {
-            "your folder".to_string()
-        } else {
-            full.to_string()
-        }
+        workspace_short(&self.workspace)
+    }
+}
+
+/// Short form of a workspace path: two segments with a "…/" prefix when
+/// longer, the full path when short, "your folder" when empty. The Shell
+/// poll needs it without a ChatView, so it lives here as a free function.
+pub fn workspace_short(path: &str) -> String {
+    let full = path.trim_end_matches(['/', '\\']);
+    let parts: Vec<&str> = full.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
+    if parts.len() > 2 {
+        format!("…/{}", parts[parts.len() - 2..].join("/"))
+    } else if full.is_empty() {
+        "your folder".to_string()
+    } else {
+        full.to_string()
     }
 }
 
@@ -1054,6 +1074,38 @@ mod tests {
         assert_eq!(turn.approvals[0].title, "Heron wants to run a command");
         let note = view.answer_approval("a1", ApprovalDecision::Once, None).unwrap();
         assert_eq!(note, "You allowed this.");
+    }
+
+    #[test]
+    fn navigation_invalidates_outstanding_history_requests() {
+        let mut view = ChatView::new();
+        let first = view.begin_navigation();
+        assert_eq!(first, view.navigation_generation);
+        view.start_new();
+        assert_ne!(view.navigation_generation, first);
+        let second = view.navigation_generation;
+        view.open_history(Vec::new(), false);
+        assert!(view.navigation_generation > second);
+    }
+
+    #[test]
+    fn failed_approval_does_not_remove_the_retry_card() {
+        let mut view = ChatView::new();
+        view.start_send("please run the command");
+        view.apply_event(ChatEvent::Approval {
+            id: "a".into(),
+            tool: "shell".into(),
+            summary: "test".into(),
+            risk: "normal".into(),
+            detail: "test".into(),
+            always_rule: None,
+            can_always: false,
+            can_session: false,
+            tainted: false,
+        });
+        assert_eq!(view.answer_approval("a", ApprovalDecision::Once, Some("network down")), Some("network down".into()));
+        let ThreadItem::Turn(turn) = view.thread.last().unwrap() else { panic!("expected assistant turn") };
+        assert!(turn.approvals[0].decision_note.is_none(), "failed approvals stay retryable");
     }
 
     #[test]

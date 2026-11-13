@@ -1,6 +1,6 @@
-// Heron usage view. One file per view: the Slint compiler generates
-// Rust code only for the last exported component of a file, so the views
-// cannot share one file and still be driven from Rust.
+// Heron usage view. One file per view: the Shell's MainWindow drives
+// the views only through its own forwarded properties and callbacks, so
+// each view keeps its own file and its own component.
 //
 // The 30-day chart is custom-drawn rectangles, not a chart library, per
 // the plan. Slint bars have no hover text, so the figures live in the
@@ -10,7 +10,8 @@
 // share, mirroring the web UI's classes.
 
 import { Button, CheckBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { Theme, UsageDayRow, ModelRow, SimpleRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
+import { UsageDayRow, ModelRow, SimpleRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
+import { Theme } from "../components/theme.slint";
 
 export component UsageTile inherits Rectangle {
     in property <string> title;

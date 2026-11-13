@@ -28,12 +28,11 @@ states what the views need, so the Shell can check its contract against it.
 | Reminders | `list_schedules`, `add_schedule`, `set_schedule_may`, `run_schedule_now`, `schedule_runs`, `delete_schedule`, `get_inbox`, `read_inbox` | schedule rows, last-run steps, delivered inbox rows (Markdown body) |
 | Awareness | `get_awareness`, `set_awareness_enabled`, `set_awareness_reflect`, `set_awareness_proactive`, `clear_awareness`, `set_paused`, `list_suggestions`, `answer_suggestion` | awareness flags, proactive note, suggestion rows, right-now / insights / journal rows |
 
-The glue in `src/ui/views_slint.rs` drives the MainWindow's forwarded API
+The glue in `src/bin/desktop/views_slint.rs` drives the MainWindow's forwarded API
 through one `bind_window(window, ctrl)` call. It never touches the view
-components directly. The Slint compiler generates Rust code only for the
-last exported component of a file, so the seven view components have no Rust
-types of their own. The Shell's `ui/main.slint` instantiates them and
-forwards every property and callback. The glue registers the Window's
+components directly. Nested component instances are not reachable from Rust:
+only the root component's forwarded properties and callbacks are. The Shell's
+`ui/main.slint` instantiates the views and forwards every property and callback. The glue registers the Window's
 callbacks, triggers the refreshes, and posts results back through the
 Window's setters. It also needs four Shell-provided closures:
 `on_navigate`, `on_open_session`, `on_new_conversation`, and
@@ -46,7 +45,7 @@ Window property names are `<view>-<child-prop>`. `in` child props bind
 one-way (`:`). `in-out` child props bind two-way (`<=>`), so Rust clearing
 a form field clears the child's input. Forwarded sets: sidebar
 (reduce-motion, current-view, unread-count, suggestions-count, waiting-count, footer-text,
-sessions; callbacks navigate, open-session, new-conversation); memory (reduce-motion, rows,
+status-text, sessions; callbacks navigate, open-session, new-conversation); memory (reduce-motion, rows,
 search-text, new-content, new-kind, empty-text; add-memory, delete-memory,
 confirm-memory, search-changed); tasks (reduce-motion, rows, new-title, empty-text;
 add-task, set-task-done, delete-task); reminders (reduce-motion, schedules, delivered,
@@ -70,18 +69,19 @@ save-error, saved-visible; save-usage). NOT forwarded: `kinds` and
 `may-options` (constants with defaults inside the children; the glue never
 touches them).
 
-The Shell's `HeronClient` (bridge.rs, checked Nov 13) has no usage or
-audit methods yet: it covers state, sessions, and chat only. The trait
-methods the views need are `get_usage`, `save_usage`, and `get_audit`
-(`src/ui/views.rs`). The Shell implements them when it grows the client,
-or the glue takes a second bridge that does. Nothing in the views guesses
-the client shape.
+The Shell's `HeronClient` exposes the generic `api(method, path, body)`
+call, and `HeronViewsBridge` in `src/bin/desktop/views_bridge.rs`
+implements all 32 trait methods through it (one call per method, shapes
+verified against `src/server.rs`). Nothing in the views guesses the client
+shape.
 
-The executable form of this spec is the harness test Window at
-`~/workspace/slint-views-harness/ui/main.slint`. It imports the real view
-files and forwards the full API. The Shell can copy it as the starting
-point for `main.slint`. The harness also proves the glue against it with a
-fake bridge (see `~/workspace/slint-views-harness/tests/views_glue.rs`).
+The executable form of this spec was the harness test Window at
+`~/workspace/slint-views-harness/ui/main.slint`. It is stale now: its paths
+point at the old Views worktree and its Cargo.toml has no heron
+dependency, so it does not build against the current layout. The live
+form of the spec is `ui/main.slint` itself, verified against the glue by
+the binding cross-check in the wiring branch. Updating the harness is
+optional end-of-task verification, not a gate.
 
 One generation rule: `slint::include_modules!()` includes the generated
 code at the call site, so the Window and row structs land directly at the
@@ -100,9 +100,10 @@ different module, and the two `MainWindow` types would not match.
 - The proactive note is computed in `views.rs` (`ViewsState::proactive_note`).
   The Shell must not compute it a second time. It carries the demo-mode
   line and the budget line.
-- Id casts: API ids are i64. Slint `int` is i32. The glue casts with `as`.
-  Heron ids fit in i32 in practice. A cast that overflows would corrupt row
-  identity. This is an open item, not a silent assumption.
+- Id casts: API ids are i64. Slint `int` is i32. The glue casts checked:
+  a row whose id does not fit in i32 is dropped (a truncated id could act
+  on the wrong row), and badge counts saturate at i32::MAX. Documented in
+  the glue header.
 - Errors: only the add-schedule form shows an error (the red box under the
   form). Every other bridge failure leaves the old rows in place. There is
   no error surface in the other four views.
@@ -122,37 +123,39 @@ different module, and the two `MainWindow` types would not match.
   change can be undone from its conversation. Turn it on?") and before
   "Forget everything observed" ("Forget everything Heron has observed,
   including its conclusions? What you told it directly is kept."). Slint has
-  no native confirm dialog. The glue posts directly for now. The Shell must
-  add a confirm step before those two calls reach the bridge.
-- Parked approvals: the list renders in the Chat lane's empty state, not in
-  any Views component. The bridge has `list_approvals` and
-  `answer_approval` for it. Two approval paths exist and they are not the
-  same call. Parked approvals answer through `POST /api/approvals/{id}`
-  with `{action: "approve" | "dismiss"}`. Live approvals arriving in a
-  chat stream answer through the Shell's `approve(id, decision)` which
-  posts `POST /api/approve` with `{id, decision}` where decision is
-  `once`, `always`, `session`, or a deny. The Shell bridge doc's line
-  that the Views lane "answers through approve()" conflates the two.
-  The parked path needs the generic `api()` call or a new typed helper;
-  no glue callback invokes `answer_approval` yet because the rendering
-  surface belongs to the Chat lane. The tool title map for approval dialogs belongs
-  to the Chat lane. The run-step label in the glue ports only the fallback
-  (strip `mcp__`, turn `__` into ` → `). One shared label table would serve
-  both. That is a Shell or Chat decision.
+  no native confirm dialog, so both confirms are inline rows in the views:
+  the onboarding view holds `confirm-takeover` and posts only after the
+  user confirms there, and the awareness view holds `confirm-clear` the
+  same way. The settings view holds `confirm-yolo` for Unrestricted.
+- Parked approvals: no view displays them. The bridge implements
+  `list_approvals` and `answer_approval`, but the glue never calls them
+  and no view has a surface for them. Two approval paths exist and they
+  are not the same call. Parked approvals answer through
+  `POST /api/approvals/{id}` with `{action: "approve" | "dismiss"}`.
+  Live approvals arriving in a chat stream answer through the Shell's
+  `approve(id, decision)` which posts `POST /api/approve` with
+  `{id, decision}` where decision is `once`, `always`, `session`, or a
+  deny. The tool title map for approval dialogs belongs to the Chat lane.
+  The run-step label in the glue ports only the fallback (strip `mcp__`,
+  turn `__` into ` → `). One shared label table would serve both. That is
+  a Shell or Chat decision.
 - Palette: the `.slint` Theme carries Heron's dark palette, measured
   from the web UI's dark media query (assets/index.html lines 22-25)
   and identical to the Shell's `ui/components/theme.slint`. The
   integration keeps one copy of the Theme; until then this lane carries
   the same values so the views render dark on their own.
-- Layout (CORRECTED Nov 13, measured): the brief's single `ui/views.slint`
-  cannot work. The Slint 1.18 compiler generates Rust code only for the
-  last exported component of a file, so six of the seven views had no Rust
-  types and the glue failed with 54 errors. The per-view layout
+- Layout (CORRECTED Nov 14, measured): the brief's single `ui/views.slint`
+  cannot work. The glue drives the views only through the MainWindow's
+  forwarded properties and callbacks, and one file per view keeps that
+  forwarding readable. The per-view layout
   `ui/views/*.slint` (common, sidebar, memory, tasks, reminders,
-  awareness, activity, usage) is REQUIRED by the compiler, not a
-  preference. The old
-  single file was deleted Nov 13 after the split verified in the harness
-  (15/15 logic tests plus the behavioral glue test green). The logic in `views.rs` has no Slint dependency, so it can
+  awareness, activity, usage) is REQUIRED by that design, not a
+  preference. The old single file was deleted Nov 13 after the split
+  verified in the harness (15/15 logic tests plus the behavioral glue
+  test green). (The earlier claim that Slint generates Rust code only
+  for the last exported component was wrong: AboutDialog is not last
+  in `ui/main.slint`, yet its struct was generated and CI run #85
+  named it.) The logic in `views.rs` has no Slint dependency, so it can
   live in the library without dragging Slint in. The glue cannot. It
   belongs in the desktop binary crate next to the generated `main` module.
 - Scope: the plan's Phase 2 assigns the Activity log and Usage views to
@@ -174,5 +177,5 @@ different module, and the two `MainWindow` types would not match.
   OS setting and sets the flag on the Window. Enter animations are
   deliberately absent: refreshes rebuild the row models, so a fade-in
   would replay on every load. Row clicks do nothing; the buttons inside
-  each row are the actions. The Shell's rail uses the same 150ms budget
+  each row are the actions. The Shell's sidebar uses the same 150ms budget
   and the same reduce-motion flag.

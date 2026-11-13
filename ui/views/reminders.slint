@@ -1,9 +1,10 @@
-// Heron reminders view. One file per view: the Slint compiler generates
-// Rust code only for the last exported component of a file, so the
-// five views cannot share one file and still be driven from Rust.
+// Heron reminders view. One file per view: the Shell's MainWindow drives
+// the views only through its own forwarded properties and callbacks, so
+// each view keeps its own file and its own component.
 
 import { Button, CheckBox, ComboBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { Theme, ScheduleRow, RunStepRow, InboxRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
+import { ScheduleRow, RunStepRow, InboxRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
+import { Theme } from "../components/theme.slint";
 
 export component RemindersView inherits Rectangle {
     background: Theme.paper;

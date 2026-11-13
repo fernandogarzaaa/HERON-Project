@@ -6,7 +6,7 @@ import { Button, TextEdit, ComboBox, CheckBox, VerticalBox, HorizontalBox } from
 import { Theme } from "../components/theme.slint";
 import { SectionTitle, LabeledInput, ChoiceCard } from "../components/atoms.slint";
 
-struct ToolItem {
+export struct ToolItem {
     name: string,
     about: string,
     setting: int, // 0 ask, 1 allow, 2 never
@@ -15,7 +15,7 @@ struct ToolItem {
 // One connected app line. The Rust side splits the name from the line,
 // because Slint has no string split. changed is true when the app is in
 // the server's mcp_changed list.
-struct McpLine {
+export struct McpLine {
     text: string,
     name: string,
     changed: bool,
@@ -60,7 +60,7 @@ component PersonaEditor inherits VerticalBox {
     }
 }
 
-component SettingsView inherits VerticalBox {
+export component SettingsView inherits VerticalBox {
     // AI model.
     in-out property <string> base_url;
     in-out property <string> model;
@@ -80,6 +80,10 @@ component SettingsView inherits VerticalBox {
     in property <string> persona_message;
     // Permissions.
     in-out property <string> mode; // readonly, ask, auto, yolo
+    // Inline confirm for the Unrestricted switch. The web UI confirms
+    // before yolo; this row is that confirm. Setting mode only changes
+    // the form: the main settings save posts it.
+    in-out property <bool> confirm-yolo: false;
     in-out property <string> daemon_mode; // readonly, auto
     in property <string> sandbox_note;
     in-out property <bool> browser_visible;
@@ -198,7 +202,17 @@ component SettingsView inherits VerticalBox {
             title: "Unrestricted";
             detail: "Never asks. Only catastrophic commands stay blocked.";
             selected: mode == "yolo";
-            clicked => { root.mode = "yolo"; }
+            clicked => { if (root.mode != "yolo") { root.confirm-yolo = true; } }
+        }
+        if confirm-yolo: Rectangle {
+            background: Theme.danger-soft; border-color: Theme.danger; border-width: 1px; border-radius: 10px;
+            VerticalBox {
+                Text { text: "Unrestricted means Heron changes files and runs commands without asking. Continue?"; wrap: word-wrap; }
+                HorizontalBox {
+                    Button { text: "Continue"; clicked => { confirm-yolo = false; root.mode = "yolo"; } }
+                    Button { text: "Cancel"; clicked => { confirm-yolo = false; } }
+                }
+            }
         }
         Text { text: "During scheduled reminders"; font-size: 14px; font-weight: 600; color: Theme.ink; }
         ComboBox {
@@ -232,7 +246,7 @@ component SettingsView inherits VerticalBox {
             ComboBox {
                 model: tool_settings;
                 current-index: tool.setting;
-                selected(index) => { root.set_tool(tool.name, index); }
+                selected => { root.set_tool(tool.name, self.current-index); }
             }
         }
     }
