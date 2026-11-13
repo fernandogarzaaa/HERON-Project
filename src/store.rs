@@ -248,26 +248,28 @@ fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
 
 /// Physical damage: broken pages or indexes. A database with any is not upgraded, copied or restored from.
 fn damage(conn: &Connection) -> Result<Vec<String>> {
-    let mut problems = Vec::new();
-    let mut st = conn.prepare("PRAGMA quick_check")?;
-    for line in st.query_map([], |r| r.get::<_, String>(0))? {
-        let line = line?;
-        if line != "ok" {
-            problems.push(line);
-        }
-    }
-    Ok(problems)
+    // A database can be too damaged for the check itself to run. That is a finding, not a failure to report.
+    let run = || -> rusqlite::Result<Vec<String>> {
+        let mut st = conn.prepare("PRAGMA quick_check")?;
+        let lines = st.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(lines.into_iter().filter(|line| line != "ok").collect())
+    };
+    Ok(run().unwrap_or_else(|e| vec![e.to_string()]))
 }
 
 /// Damage, plus rows that point at rows which no longer exist. The second kind does not stop an
 /// upgrade (the data is all there and the steps do not depend on it) but is worth reporting.
 fn integrity_problems(conn: &Connection) -> Result<Vec<String>> {
     let mut problems = damage(conn)?;
-    let mut st = conn.prepare("PRAGMA foreign_key_check")?;
-    for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, String>(2)?)))? {
-        let (table, rowid, parent) = row?;
-        problems.push(format!("{table} row {} refers to a missing row in {parent}", rowid.map(|r| r.to_string()).unwrap_or_else(|| "?".into())));
+    if !problems.is_empty() {
+        return Ok(problems); // the second check cannot be trusted on a damaged file
     }
+    let orphans = || -> rusqlite::Result<Vec<String>> {
+        let mut st = conn.prepare("PRAGMA foreign_key_check")?;
+        let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, String>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows.into_iter().map(|(table, rowid, parent)| format!("{table} row {} refers to a missing row in {parent}", rowid.map(|r| r.to_string()).unwrap_or_else(|| "?".into()))).collect())
+    };
+    problems.extend(orphans().unwrap_or_else(|e| vec![e.to_string()]));
     Ok(problems)
 }
 
@@ -329,7 +331,42 @@ fn snapshot_to(conn: &Connection, to: &Path) -> Result<()> {
     made.with_context(|| format!("cannot save a copy of the database to {}", to.display()))
 }
 
-/// Keep the newest `keep` copies whose name starts with `heron-{prefix}` and remove the older ones.
+/// Move a database that SQLite cannot read out of the way, exactly as it is, together with its log
+/// files, into the `backups` folder. Nothing in it is changed, so whatever a repair tool could still
+/// recover remains recoverable. Returns where the main file went.
+fn set_aside_damaged(db: &Path) -> Result<PathBuf> {
+    let dir = backup_dir(db);
+    std::fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let with = |base: &Path, suffix: &str| PathBuf::from(format!("{}{suffix}", base.display()));
+    for n in 1..=1000 {
+        let to = dir.join(if n == 1 { format!("heron-damaged-{stamp}.db") } else { format!("heron-damaged-{stamp}-{n}.db") });
+        // Claim the name first, so two restores cannot pick the same one and nothing is ever replaced.
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&to) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e).with_context(|| format!("cannot create {}", to.display())),
+        }
+        std::fs::rename(db, &to).with_context(|| format!("cannot move the damaged database to {}", to.display()))?;
+        // The log files belong to it; keep them beside it under matching names.
+        for suffix in ["-wal", "-shm"] {
+            let part = with(db, suffix);
+            if part.exists() {
+                let _ = std::fs::rename(&part, with(&to, suffix));
+            }
+        }
+        return Ok(to);
+    }
+    bail!("cannot name the damaged database's copy in {}", dir.display())
+}
+
+/// Keep the newest `keep` copies whose name starts with `heron-{prefix}` and remove the older ones
+/// (but only ones that have been there a while).
 fn prune_snapshots(db: &Path, prefix: &str, keep: usize) {
     let Ok(entries) = std::fs::read_dir(backup_dir(db)) else { return };
     let wanted = format!("heron-{prefix}");
@@ -343,8 +380,13 @@ fn prune_snapshots(db: &Path, prefix: &str, keep: usize) {
         .collect();
     copies.sort();
     let extra = copies.len().saturating_sub(keep);
-    for (_, path) in copies.into_iter().take(extra) {
-        let _ = std::fs::remove_file(path);
+    // Never one made in the last few minutes: another program starting at the same moment may still
+    // be writing or checking it.
+    let settled = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+    for (made, path) in copies.into_iter().take(extra) {
+        if made < settled {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
 
@@ -456,6 +498,18 @@ impl Store {
     /// the `backups` folder beside it. The upgrade runs as one transaction: it either finishes or leaves
     /// the file exactly as it was. A database written by a newer Heron is refused and not touched.
     pub fn open(path: &Path) -> Result<Store> {
+        Self::open_checked(path).map_err(|e| {
+            // SQLite saying the file itself is broken: say what can be done about it.
+            let broken = e.chain().filter_map(|c| c.downcast_ref::<rusqlite::Error>()).any(|c| matches!(c.sqlite_error_code(), Some(rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase)));
+            if broken {
+                e.context(format!("{} is damaged and cannot be read. Restore a copy from {} with `heron restore <file>`; the damaged file is kept when you do.", path.display(), backup_dir(path).display()))
+            } else {
+                e
+            }
+        })
+    }
+
+    fn open_checked(path: &Path) -> Result<Store> {
         if let Some(p) = path.parent() {
             std::fs::create_dir_all(p)?;
         }
@@ -528,8 +582,9 @@ impl Store {
     ///
     /// The copy is checked first (it must be an undamaged Heron database, no newer than this build
     /// understands), then the current database is itself saved to the `backups` folder, so a restore
-    /// can be undone by restoring that. The content is replaced through SQLite, in one transaction, and
-    /// then upgraded if it is from an older version. Returns where the previous database was saved
+    /// can be undone by restoring that. If the current database is damaged it cannot be copied through
+    /// SQLite, so its files are moved to the `backups` folder exactly as they are instead. The content
+    /// is replaced through SQLite, in one transaction, and then upgraded if it is from an older version. Returns where the previous database was saved
     /// (`None` if there was nothing there to save).
     pub fn restore(path: &Path, from: &Path) -> Result<Option<PathBuf>> {
         let source = Connection::open_with_flags(from, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).with_context(|| format!("cannot open {}", from.display()))?;
@@ -547,9 +602,25 @@ impl Store {
         if let Some(p) = path.parent() {
             std::fs::create_dir_all(p)?;
         }
+        // Save what is there now. A sound database is copied through SQLite. A damaged one cannot be
+        // read that way (that is what damaged means), and it is exactly the case a restore is for: its
+        // files are moved aside as they are, untouched, and the restore goes into a new file.
+        let previous = match Connection::open(path) {
+            Ok(live) => {
+                let sound = damage(&live).map(|d| d.is_empty()).unwrap_or(false);
+                match (sound, has_data(&live)) {
+                    (true, Ok(true)) => Some(snapshot(&live, path, "before-restore")?),
+                    (true, Ok(false)) => None,
+                    _ => {
+                        drop(live);
+                        Some(set_aside_damaged(path)?)
+                    }
+                }
+            }
+            Err(_) => Some(set_aside_damaged(path)?),
+        };
         let mut live = Connection::open(path)?;
         live.busy_timeout(std::time::Duration::from_secs(5))?;
-        let previous = if has_data(&live)? { Some(snapshot(&live, path, "before-restore")?) } else { None };
         {
             let copy = rusqlite::backup::Backup::new(&source, &mut live)?;
             copy.run_to_completion(256, std::time::Duration::from_millis(0), None).with_context(|| match &previous {
@@ -1690,7 +1761,7 @@ mod upgrade_tests {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("heron.db");
         released_database(&db);
-        let threads: Vec<_> = (0..6)
+        let threads: Vec<_> = (0..12)
             .map(|_| {
                 let db = db.clone();
                 std::thread::spawn(move || Store::open(&db).map(|s| (s.schema_version().unwrap(), s.list_schedules().unwrap().len())).map_err(|e| format!("{e:#}")))
@@ -1771,6 +1842,57 @@ mod upgrade_tests {
         let fresh = dir.path().join("new-computer").join("heron.db");
         assert_eq!(Store::restore(&fresh, &elsewhere).unwrap(), None);
         assert_eq!(Store::open(&fresh).unwrap().list_tasks(None).unwrap()[0].title, "Keep me");
+    }
+
+    #[test]
+    fn a_good_backup_can_be_restored_over_a_damaged_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("heron.db");
+        let s = Store::open(&db).unwrap();
+        s.add_task("Keep me", "", 2, None).unwrap();
+        for i in 0..400 {
+            s.insert_memory("fact", &format!("{i} {}", "padding ".repeat(60)), "", 0.5, "user", None, true, "hash-v1").unwrap();
+        }
+        let saved = s.backup(None).unwrap();
+        s.maintain().unwrap();
+        drop(s);
+
+        // The database is damaged after the backup was made: Heron will not open it...
+        let mut bytes = std::fs::read(&db).unwrap();
+        let (from, to) = (bytes.len() / 3, bytes.len() / 3 * 2);
+        for b in &mut bytes[from..to] {
+            *b = 0xA5;
+        }
+        std::fs::write(&db, &bytes).unwrap();
+        let broken = file_hash(&db);
+        match Store::open(&db) {
+            // Depending on which pages were hit, Heron either cannot open it at all (and says what to do)...
+            Err(e) => assert!(format!("{e:#}").contains("heron restore"), "{e:#}"),
+            // ...or opens it and the check reports the damage.
+            Ok(s) => assert!(!s.integrity().unwrap().is_empty(), "the damage is real"),
+        }
+
+        // ...and this is the moment a restore is for. It works, and the damaged file is kept exactly
+        // as it was, in case something can still be recovered from it.
+        let aside = Store::restore(&db, &saved).unwrap().expect("the damaged database is kept");
+        assert!(aside.file_name().unwrap().to_string_lossy().starts_with("heron-damaged-"), "{aside:?}");
+        assert_eq!(file_hash(&aside), broken);
+        let s = Store::open(&db).unwrap();
+        assert!(s.integrity().unwrap().is_empty());
+        assert_eq!(s.list_tasks(None).unwrap()[0].title, "Keep me");
+        assert_eq!(s.list_memories(None, 1000).unwrap().len(), 400);
+        drop(s);
+
+        // A file that is not a database at all, sitting where the database should be, is handled the same way.
+        std::fs::write(&db, "not a database, just some text that happens to be where the database belongs").unwrap();
+        for part in ["heron.db-wal", "heron.db-shm"] {
+            let _ = std::fs::remove_file(dir.path().join(part));
+        }
+        let said = format!("{:#}", Store::open(&db).err().expect("text is not a database"));
+        assert!(said.contains("damaged and cannot be read") && said.contains("heron restore"), "{said}");
+        let aside = Store::restore(&db, &saved).unwrap().unwrap();
+        assert!(std::fs::read_to_string(&aside).unwrap().starts_with("not a database"));
+        assert_eq!(Store::open(&db).unwrap().list_tasks(None).unwrap().len(), 1);
     }
 
     #[test]

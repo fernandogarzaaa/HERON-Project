@@ -8,7 +8,7 @@ Environment used for the figures in this folder: Linux 6.18 (x86_64), rustc 1.97
 for the browser test.
 
 ```bash
-cargo test                                   # 119 unit + 8 integration (browser test skipped)
+cargo test                                   # 120 unit + 8 integration (browser test skipped)
 ```
 ```bash
 HERON_TEST_BROWSER=1 cargo test              # also drives the installed browser
@@ -86,6 +86,10 @@ Not a hosted check; one run on Linux x86_64.
 6. A text file and a missing file were refused as restore sources.
 7. The published 0.1.0 binary opened the upgraded data and listed the task. It has no format check;
    this works only because format 2 adds tables and a column and changes nothing that existed.
+
+8. Overwrote the middle third of the database file, removed its log files, and ran `heron doctor`
+   (reports the damage) and then `heron restore <backup>`: restored and sound; the damaged file
+   kept as `heron-damaged-…`.
 
 Not done: macOS or Windows by hand; a database with thousands of conversations; an upgrade
 interrupted by killing the process (the transaction is what protects it; only the in-process
