@@ -2506,7 +2506,22 @@ mod tests {
             use std::os::unix::process::CommandExt;
             cmd.process_group(0);
         }
-        let mut child = cmd.spawn().unwrap();
+        // The fake binary was just written: on overlayfs the spawn can hit
+        // ETXTBSY ("Text file busy") even after the writer closed it, the
+        // same race the production spawn retries around. Retry a few times.
+        let mut child = {
+            let mut attempt = 0;
+            loop {
+                match cmd.spawn() {
+                    Ok(child) => break child,
+                    Err(e) if e.raw_os_error() == Some(26) && attempt < 5 => {
+                        attempt += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(20 * attempt)).await;
+                    }
+                    Err(e) => panic!("spawn failed: {e}"),
+                }
+            }
+        };
         let grandchild: u32 = {
             let mut pid = None;
             for _ in 0..50 {
