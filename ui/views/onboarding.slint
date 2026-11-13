@@ -88,7 +88,7 @@ export component OnboardingView inherits VerticalBox {
         spacing: 8px;
         opacity: current_step == 0 ? 1 : 0;
         animate opacity { duration: reduce-motion ? 0ms : 180ms; }
-        visible: opacity > 0.01;
+        visible: self.opacity > 0.01;
         SectionTitle { label: "Connect an AI model"; }
         Text { text: model_status; color: Theme.ink; wrap: word-wrap; }
         HorizontalBox {
@@ -112,7 +112,7 @@ export component OnboardingView inherits VerticalBox {
         spacing: 8px;
         opacity: current_step == 1 ? 1 : 0;
         animate opacity { duration: reduce-motion ? 0ms : 180ms; }
-        visible: opacity > 0.01;
+        visible: self.opacity > 0.01;
         SectionTitle { label: "Tell Heron about yourself"; }
         Text { text: "A few sentences are enough. You can change or remove any of it later under Memory."; color: Theme.muted; wrap: word-wrap; }
         LabeledInput { label: "Your name"; value <=> about_name; }
@@ -142,7 +142,7 @@ export component OnboardingView inherits VerticalBox {
         spacing: 8px;
         opacity: current_step == 2 ? 1 : 0;
         animate opacity { duration: reduce-motion ? 0ms : 180ms; }
-        visible: opacity > 0.01;
+        visible: self.opacity > 0.01;
         SectionTitle { label: "Connect your world"; }
         Text { text: "Each connection lets Heron look things up for you. Connect as many or as few as you like. You can skip this and come back later."; color: Theme.muted; wrap: word-wrap; }
         for item[idx] in sources: SourceCard {
@@ -176,7 +176,7 @@ export component OnboardingView inherits VerticalBox {
         spacing: 8px;
         opacity: current_step == 3 ? 1 : 0;
         animate opacity { duration: reduce-motion ? 0ms : 180ms; }
-        visible: opacity > 0.01;
+        visible: self.opacity > 0.01;
         SectionTitle { label: "Decide how much Heron does on its own"; }
         Text { text: "You can change this at any time under Awareness."; color: Theme.muted; wrap: word-wrap; }
         ChoiceCard {
