@@ -159,6 +159,9 @@ pub fn router(app: Arc<App>, token: String) -> Router {
 }
 
 pub async fn serve(app: Arc<App>, listener: tokio::net::TcpListener, token: String) -> Result<()> {
+    // Before anything can be started from the app: if this Heron is to own background work, it takes
+    // ownership (and reports what the previous one left unfinished) now, never in the middle of its own work.
+    app.own_background_work();
     tokio::spawn(app.clone().scheduler_loop());
     tokio::spawn(app.clone().observer_loop());
     crate::telegram::spawn_if_configured(&app);

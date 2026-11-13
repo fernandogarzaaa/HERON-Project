@@ -28,7 +28,13 @@ pub struct App {
     pub usage: Arc<Mutex<Usage>>,
     /// The phone gateway, while it is running.
     pub telegram_task: Mutex<Option<tokio::task::AbortHandle>>,
+    /// Held while this is the one Heron on the computer that runs things in the background
+    /// (see [`App::own_background_work`]). Released when the program ends, however it ends.
+    background: Mutex<Option<std::fs::File>>,
 }
+
+/// What the inbox says about a job that was running when Heron stopped.
+const INTERRUPTED_JOB_NOTICE: &str = "Heron stopped while this job was running, so it is not known whether it finished. It was not run again. Check what it was meant to do, and use \"Run now\" under Reminders if it should be repeated.";
 
 const RULES_KEY: &str = "allow_rules";
 
@@ -86,10 +92,7 @@ impl App {
                 policy.add_allow(&r);
             }
         }
-        // Anything that was mid-way when Heron last stopped has an unknown outcome; say so.
-        let _ = store.recover_interrupted_approvals();
-        let _ = store.recover_interrupted_jobs("Heron stopped while this job was running, so it is not known whether it finished. It was not run again. Check what it was meant to do, and use \"Run now\" under Reminders if it should be repeated.");
-        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy: Arc::new(policy), workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default() })
+        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy: Arc::new(policy), workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default() })
     }
 
     pub fn cfg(&self) -> Arc<Config> {
@@ -594,11 +597,42 @@ impl App {
     }
 
     /// Check for due jobs every 20 seconds, forever.
+    /// Become the one Heron on this computer that runs reminders and scheduled jobs, if no other is.
+    ///
+    /// Ownership is a lock on a file in Heron's home, held for as long as this program runs and let
+    /// go by the operating system when it ends, even if it crashes. Getting the lock therefore means
+    /// no other Heron is doing background work, so anything the database still shows as "running"
+    /// was cut short: only then is it marked as "outcome unknown" and reported. A second Heron, or a
+    /// terminal command such as `heron inbox` run while the app is open, does not get the lock and
+    /// must leave those records alone: the work they describe may be going on right now.
+    ///
+    /// Returns whether this program owns background work. Safe to call repeatedly.
+    pub fn own_background_work(&self) -> bool {
+        let mut held = self.background.lock().unwrap_or_else(|e| e.into_inner());
+        if held.is_some() {
+            return true;
+        }
+        let cfg = self.cfg();
+        if cfg.ensure_home().is_err() {
+            return false;
+        }
+        let Ok(file) = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(cfg.home.join("background.lock")) else { return false };
+        if file.try_lock().is_err() {
+            return false;
+        }
+        // Anything that was mid-way when the previous owner stopped has an unknown outcome; say so.
+        let _ = self.store.recover_interrupted_approvals();
+        let _ = self.store.recover_interrupted_jobs(INTERRUPTED_JOB_NOTICE);
+        *held = Some(file);
+        true
+    }
+
     pub async fn scheduler_loop(self: Arc<Self>) {
         // Fold the write-ahead log into the database now and every six hours: a process that runs for
         // weeks must not let it grow without limit.
         const HOUSEKEEPING_EVERY: u64 = 6 * 60 * 60 / 20;
         let mut ticks: u64 = 0;
+        let mut said = false;
         loop {
             if ticks % HOUSEKEEPING_EVERY == 0 {
                 if let Err(e) = self.store.maintain() {
@@ -606,7 +640,14 @@ impl App {
                 }
             }
             ticks += 1;
-            self.run_due_schedules().await;
+            // Only one Heron runs reminders and jobs. If another already does, wait: this one takes
+            // over within a few seconds of the other stopping.
+            if self.own_background_work() {
+                self.run_due_schedules().await;
+            } else if !said {
+                said = true;
+                eprintln!("heron: another Heron on this computer is already running reminders and scheduled jobs; this one will take over if it stops.");
+            }
             tokio::time::sleep(std::time::Duration::from_secs(20)).await;
         }
     }
@@ -703,6 +744,7 @@ mod tests {
         let llm = Arc::new(ScriptedLlm::new(vec![Message::assistant("Done: stretched.")]));
         let store = Store::in_memory().unwrap();
         let app = App::assemble(cfg.clone(), dir.path().join("ws"), store.clone(), llm.clone()).await.unwrap();
+        assert!(app.own_background_work(), "the first Heron runs the background work");
         let daily = app.store.add_schedule("stretch", "0 9 * * *", "remind me to stretch", 1, "").unwrap();
 
         // Two schedulers see the same due job at the same moment. Only one of them gets it.
@@ -714,8 +756,22 @@ mod tests {
         // The schedule has moved on, so it is not due again and cannot fire in a loop.
         assert!(app.store.due_schedules(crate::util::now_ts()).unwrap().is_empty());
 
+        // While that run is going on, someone looks at Heron from the terminal (`heron inbox`, say).
+        // That builds a second app on the same data. It must not disturb the run: it is not known
+        // to have been interrupted, because the Heron running it is still there.
+        let looking = App::assemble(cfg.clone(), dir.path().join("ws"), store.clone(), llm.clone()).await.unwrap();
+        assert!(!looking.own_background_work(), "a second one does not take it over while the first is alive");
+        let runs = looking.store.job_runs(10).unwrap();
+        assert_eq!((runs.len(), runs[0].4.as_str()), (1, "running"), "the live run is left alone");
+        assert!(looking.store.inbox(true, 10).unwrap().is_empty(), "and nobody is told it was interrupted");
+        drop(looking);
+
         // That run never finishes (Heron stops). On the next start it is reported, not repeated.
+        drop(app);
         let restarted = App::assemble(cfg, dir.path().join("ws"), store.clone(), llm.clone()).await.unwrap();
+        assert_eq!(restarted.store.job_runs(10).unwrap()[0].4, "running", "building the app alone changes nothing");
+        assert!(restarted.own_background_work(), "with the first Heron gone, the next one takes over");
+        assert!(restarted.own_background_work(), "and asking again is harmless");
         let runs = restarted.store.job_runs(10).unwrap();
         assert_eq!((runs.len(), runs[0].4.as_str()), (1, "unknown"));
         let inbox = restarted.store.inbox(true, 10).unwrap();

@@ -580,6 +580,7 @@ async fn real_main() -> Result<()> {
             }
         }
         Cmd::Daemon => {
+            app.own_background_work(); // before anything runs; the loop says so if another Heron already does
             println!("Heron scheduler running (jobs use '{}' mode). Ctrl-C to stop.", app.cfg().permissions.daemon_mode);
             tokio::spawn(app.clone().observer_loop());
             if heron::telegram::spawn_if_configured(&app) {
