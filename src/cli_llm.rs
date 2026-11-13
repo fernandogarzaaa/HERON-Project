@@ -478,7 +478,11 @@ fn parse_login_output(spec_id: &str, out: &str) -> (Option<bool>, Option<String>
     }
 }
 
-pub async fn probe_status(spec: &CliSpec, command_override: &str) -> ProviderStatus {
+pub async fn probe_status(
+    spec: &CliSpec,
+    command_override: &str,
+    config_dir: &str,
+) -> ProviderStatus {
     let hint = if spec.experimental {
         format!(
             "Experimental: verify the flags with `{}` --help before relying on it. {}",
@@ -509,20 +513,33 @@ pub async fn probe_status(spec: &CliSpec, command_override: &str) -> ProviderSta
             hint,
         };
     };
-    let version = run_capture(&path, &["--version"], 10)
+    // The same account-directory override the request path applies in
+    // child_env: without it the probe inspects the default account
+    // while requests use the configured one.
+    let config_env: Option<(String, String)> = if !config_dir.is_empty() {
+        spec.config_dir_env
+            .map(|var| (var.to_string(), config_dir.to_string()))
+    } else {
+        None
+    };
+    let version = run_capture(&path, &["--version"], 10, config_env.as_ref())
         .await
         .ok()
         .map(|o| o.trim().to_string())
         .filter(|s| !s.is_empty());
     let (logged_in, plan) = match spec.id {
-        "claude-cli" => match run_capture(&path, &["auth", "status"], 20).await {
-            Ok(out) => parse_login_output("claude-cli", &out),
-            Err(_) => (None, None),
-        },
-        "codex-cli" => match run_capture(&path, &["login", "status"], 20).await {
-            Ok(out) => parse_login_output("codex-cli", &out),
-            Err(_) => (None, None),
-        },
+        "claude-cli" => {
+            match run_capture(&path, &["auth", "status"], 20, config_env.as_ref()).await {
+                Ok(out) => parse_login_output("claude-cli", &out),
+                Err(_) => (None, None),
+            }
+        }
+        "codex-cli" => {
+            match run_capture(&path, &["login", "status"], 20, config_env.as_ref()).await {
+                Ok(out) => parse_login_output("codex-cli", &out),
+                Err(_) => (None, None),
+            }
+        }
         _ => (None, None),
     };
     ProviderStatus {
@@ -540,13 +557,21 @@ pub async fn probe_status(spec: &CliSpec, command_override: &str) -> ProviderSta
     }
 }
 
-async fn run_capture(path: &PathBuf, args: &[&str], timeout_secs: u64) -> Result<String> {
-    let out = tokio::time::timeout(
-        Duration::from_secs(timeout_secs),
-        Command::new(path).args(args).output(),
-    )
-    .await
-    .map_err(|_| anyhow!("timed out"))??;
+async fn run_capture(
+    path: &PathBuf,
+    args: &[&str],
+    timeout_secs: u64,
+    config_env: Option<&(String, String)>,
+) -> Result<String> {
+    let mut cmd = Command::new(path);
+    cmd.args(args);
+    if let Some((k, v)) = config_env {
+        cmd.env_remove(k);
+        cmd.env(k, v);
+    }
+    let out = tokio::time::timeout(Duration::from_secs(timeout_secs), cmd.output())
+        .await
+        .map_err(|_| anyhow!("timed out"))??;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     } else {
@@ -2438,6 +2463,20 @@ mod tests {
             override_for_provider("codex-cli", "http", "/usr/local/bin/claude"),
             ""
         );
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn probe_applies_the_configured_account_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"1.2.3\"\n  exit 0\nfi\nif [ \"$CLAUDE_CONFIG_DIR\" = \"/tmp/acct\" ]; then\n  echo \"Logged in as test@example.com (Pro)\"\nelse\n  echo \"Not logged in\"\nfi\n";
+        let bin = fake_bin(dir.path(), "claude", script);
+        let spec = spec_for("claude-cli").unwrap();
+        let probed = probe_status(&spec, &bin.to_string_lossy(), "/tmp/acct").await;
+        assert_eq!(probed.logged_in, Some(true));
+        assert_eq!(probed.plan.as_deref(), Some("Claude pro"));
+        let unprobed = probe_status(&spec, &bin.to_string_lossy(), "").await;
+        assert_eq!(unprobed.logged_in, Some(false));
     }
 
     #[tokio::test]
