@@ -1224,6 +1224,11 @@ impl Store {
         Ok(row.map(|(id, path, existed, prev, after)| (id, path, if existed != 0 { Some(prev.unwrap_or_default()) } else { None }, after)))
     }
 
+    /// When a checkpoint was made (seconds), or None if it is gone.
+    pub fn checkpoint_made_at(&self, id: i64) -> Result<Option<i64>> {
+        Ok(self.db().query_row("SELECT ts FROM checkpoints WHERE id=?", [id], |r| r.get(0)).optional()?)
+    }
+
     /// Pop the most recent checkpoint for a session: (path, previous content or None if the file did not exist).
     pub fn pop_checkpoint(&self, session_id: &str) -> Result<Option<(String, Option<Vec<u8>>)>> {
         let db = self.db();

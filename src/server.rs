@@ -449,16 +449,16 @@ struct UndoBody {
     /// Restore even though the file has changed since (the current version is kept beside it).
     #[serde(default)]
     force: bool,
-    /// With `force`: the checkpoint the person was asked about, as named in the refusal. Restoring
+    /// With `force`: the change the person was asked about, as named in the refusal. Restoring
     /// anyway applies to that one only.
     #[serde(default)]
-    checkpoint: Option<i64>,
+    checkpoint: Option<String>,
 }
 
 async fn undo(State(st): S, Json(b): Json<UndoBody>) -> ApiResult {
     use crate::tools::fs::Undo;
     let agent = st.app.agent(Arc::new(crate::permissions::DenyAll));
-    let restore_anyway = match (b.force, b.checkpoint) {
+    let restore_anyway = match (b.force, b.checkpoint.as_deref()) {
         (false, _) => None,
         (true, Some(id)) => Some(id),
         (true, None) => return Err(ApiError(StatusCode::BAD_REQUEST, "restoring anyway needs the checkpoint that was asked about".into())),
