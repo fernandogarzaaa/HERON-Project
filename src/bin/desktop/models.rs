@@ -9,20 +9,31 @@
 
 use super::bridge::ChatEvent;
 use crate::{ChatMsg, MainWindow};
-use slint::{Model, SharedString, StyledText, VecModel};
+use slint::{Model, ModelRc, SharedString, StyledText, VecModel};
 
-/// The window's message list, as a mutable model. The model is installed from
-/// Rust at startup (see `main`), so this downcast always succeeds.
-pub fn message_model(window: &MainWindow) -> &VecModel<ChatMsg> {
-    window
-        .get_messages()
+/// The window's message list. The model is installed from Rust at startup
+/// (see `main`), so the downcast in `vec_model` always succeeds.
+///
+/// Returned by value on purpose: the caller holds the `ModelRc`, and the
+/// downcast borrows from that local. The old shape returned a reference
+/// borrowed from the temporary `ModelRc`, which the compiler rejected
+/// (E0515: cannot return a value referencing a temporary).
+pub fn message_model(window: &MainWindow) -> ModelRc<ChatMsg> {
+    window.get_messages()
+}
+
+/// The message list as its concrete `VecModel`. The caller must hold the
+/// `ModelRc` from `message_model` for as long as this reference is used.
+fn vec_model(messages: &ModelRc<ChatMsg>) -> &VecModel<ChatMsg> {
+    messages
         .as_any()
         .downcast_ref::<VecModel<ChatMsg>>()
         .expect("the messages model is a VecModel")
 }
 
 pub fn push_message(window: &MainWindow, role: &str, text: &str) {
-    message_model(window).push(ChatMsg {
+    let messages = message_model(window);
+    vec_model(&messages).push(ChatMsg {
         role: SharedString::from(role),
         text: SharedString::from(text),
         body: StyledText::from_plain_text(text),
@@ -32,7 +43,8 @@ pub fn push_message(window: &MainWindow, role: &str, text: &str) {
 /// Append streamed text to the current assistant reply (the last row), creating
 /// one when the last row is not an assistant message.
 pub fn append_reply_text(window: &MainWindow, delta: &str) {
-    let model = message_model(window);
+    let messages = message_model(window);
+    let model = vec_model(&messages);
     let count = model.row_count();
     if count > 0 {
         let mut last = model.row_data(count - 1).expect("last row exists");
@@ -40,7 +52,7 @@ pub fn append_reply_text(window: &MainWindow, delta: &str) {
             let text = format!("{}{delta}", last.text);
             last.body = StyledText::from_plain_text(&text);
             last.text = SharedString::from(text);
-            model.set_row(count - 1, last);
+            model.set_row_data(count - 1, last);
             return;
         }
     }
@@ -67,14 +79,16 @@ pub fn apply_chat_event(window: &MainWindow, event: ChatEvent) {
             );
         }
         ChatEvent::Done { text, title } => {
-            let model = message_model(window);
+            let messages = message_model(window);
+            let model = vec_model(&messages);
             let count = model.row_count();
             if count > 0 {
                 let mut last = model.row_data(count - 1).expect("last row exists");
                 if last.role.as_str() == "assistant" {
-                    last.body = StyledText::from_markdown(&text);
+                    last.body = StyledText::from_markdown(&text)
+                        .unwrap_or_else(|_| StyledText::from_plain_text(&text));
                     last.text = SharedString::from(&text);
-                    model.set_row(count - 1, last);
+                    model.set_row_data(count - 1, last);
                 }
             }
             window.set_session_title(SharedString::from(title));

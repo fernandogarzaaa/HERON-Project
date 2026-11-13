@@ -136,7 +136,7 @@ fn main() {
                     while let Some(event) = rx.recv().await {
                         let weak = weak_events.clone();
                         let _ = weak.upgrade_in_event_loop(move |window| {
-                            apply_chat_event(window, event);
+                            apply_chat_event(&window, event);
                         });
                     }
                 });
