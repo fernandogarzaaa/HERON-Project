@@ -24,14 +24,14 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libfontconfig-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb-shape0-dev libxcb-xfixes0-dev libx11-dev libx11-xcb-dev libxcursor-dev libxi-dev libssl-dev pkg-config
       - name: Tests
-        run: cargo test
+        run: cargo test --locked
         env:
           # Also drive the machine's real browser (Chrome or Edge) against a local test site.
           HERON_TEST_BROWSER: "1"
       - name: Build the desktop app
-        run: cargo build --features desktop --bins
+        run: cargo build --locked --features desktop --bins
       - name: Desktop bridge and SSE tests
-        run: cargo test --features desktop --bin heron-desktop
+        run: cargo test --locked --features desktop --bin heron-desktop
       - name: Linux installer smoke test
         if: runner.os == 'Linux'
         run: bash tests/linux-install-smoke.sh
@@ -50,4 +50,4 @@ jobs:
       - name: Rust toolchain
         run: rustup update stable && rustup default stable
       - name: Memory evaluation with the neural model
-        run: cargo test --features neural --lib -- --ignored neural --nocapture
+        run: cargo test --locked --features neural --lib -- --ignored neural --nocapture
