@@ -708,7 +708,44 @@ fn envelope_text_prefix(text: &str) -> Option<(String, bool)> {
                                 }
                                 let hex = std::str::from_utf8(&bytes[k + 2..k + 6]).ok()?;
                                 let code = u32::from_str_radix(hex, 16).ok()?;
-                                out.push(char::from_u32(code).unwrap_or('\u{fffd}'));
+                                if (0xD800..0xDC00).contains(&code) {
+                                    // High surrogate: combine it with the
+                                    // following low surrogate into one
+                                    // character. If the pair is split
+                                    // across fragments, wait for the rest
+                                    // instead of emitting a replacement
+                                    // character for half a pair.
+                                    if k + 12 > bytes.len() {
+                                        return Some((out, false));
+                                    }
+                                    let mut paired = false;
+                                    if bytes[k + 6] == b'\\' && bytes[k + 7] == b'u' {
+                                        if let Ok(hex2) = std::str::from_utf8(&bytes[k + 8..k + 12])
+                                        {
+                                            if let Ok(low) = u32::from_str_radix(hex2, 16) {
+                                                if (0xDC00..0xE000).contains(&low) {
+                                                    let c = 0x10000
+                                                        + ((code - 0xD800) << 10)
+                                                        + (low - 0xDC00);
+                                                    out.push(
+                                                        char::from_u32(c).unwrap_or('\u{fffd}'),
+                                                    );
+                                                    paired = true;
+                                                    k += 6;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if !paired {
+                                        // Lone high surrogate.
+                                        out.push('\u{fffd}');
+                                    }
+                                } else if (0xDC00..0xE000).contains(&code) {
+                                    // Lone low surrogate.
+                                    out.push('\u{fffd}');
+                                } else {
+                                    out.push(char::from_u32(code).unwrap_or('\u{fffd}'));
+                                }
                                 k += 4;
                             }
                             other => out.push(other as char),
@@ -969,6 +1006,22 @@ impl CliLlm {
             }
             _ => {}
         }
+        // One argv entry has a hard size cap (131,072 bytes on Linux,
+        // 32,767 characters for the whole command line on Windows). A
+        // long conversation would fail at spawn with `Argument list too
+        // long`, so refuse early with a clear error instead. Stdin
+        // providers (claude-cli, codex-cli) have no such cap.
+        if matches!(self.spec.input, PromptInput::Arg | PromptInput::Flag) {
+            let limit = if cfg!(windows) { 30_000 } else { 120_000 };
+            if prompt.len() > limit {
+                bail!(
+                    "the prompt for {} is {} bytes, over the {} byte limit for providers that take the prompt as one command-line argument. Shorten the conversation, or switch to a provider that takes the prompt on stdin (for example claude-cli or codex-cli).",
+                    self.spec.display_name,
+                    prompt.len(),
+                    limit
+                );
+            }
+        }
         Ok((path, args))
     }
 }
@@ -1020,12 +1073,22 @@ impl Accumulator {
         self.text.push_str(frag);
         match self.stream_mode {
             StreamMode::Unknown => {
-                if self.text.trim_start().starts_with('{') {
+                let rest = self.text.trim_start();
+                if rest.is_empty() {
+                    // Only whitespace so far; wait for real content
+                    // before deciding whether this is an envelope or
+                    // plain text. Deciding on whitespace would
+                    // misclassify an envelope that starts with a
+                    // newline or a space.
+                } else if rest.starts_with('{') {
                     self.stream_mode = StreamMode::Envelope;
                     self.emit_envelope_prefix(on_delta);
                 } else {
                     self.stream_mode = StreamMode::Plain;
-                    on_delta(frag);
+                    // Everything so far, including any leading
+                    // whitespace, is the start of the reply.
+                    let all = self.text.clone();
+                    on_delta(&all);
                     self.streamed = true;
                 }
             }
@@ -1052,6 +1115,15 @@ impl Accumulator {
 
     /// One line of the CLI's stdout. Returns text to stream to the caller.
     fn line(&mut self, line: &str, spec: &CliSpec, on_delta: DeltaFn<'_>) -> Option<String> {
+        if spec.output == OutputKind::Text {
+            // Plain-text replies keep their lines intact: no trimming,
+            // and the newline is part of the streamed output. Trimming
+            // here would strip indentation and blank lines and glue
+            // lines together in the stream, corrupting code blocks.
+            let with_nl = format!("{line}\n");
+            self.push_text(&with_nl, on_delta);
+            return Some(with_nl);
+        }
         let line = line.trim();
         if line.is_empty() {
             return None;
@@ -1060,11 +1132,7 @@ impl Accumulator {
             OutputKind::ClaudeStreamJson => self.claude_line(line, on_delta),
             OutputKind::JsonLines => self.jsonl_line(line, on_delta),
             OutputKind::JsonSingle | OutputKind::JsonAuto => self.json_auto_line(line, on_delta),
-            OutputKind::Text => {
-                self.push_text(line, on_delta);
-                self.text.push('\n');
-                Some(line.to_string())
-            }
+            OutputKind::Text => unreachable!("handled above"),
         }
     }
 
@@ -1864,6 +1932,21 @@ mod tests {
             Some(("a\"b\n c".to_string(), true))
         );
         assert_eq!(envelope_text_prefix("{\"tool_calls\": []}"), None);
+        // A surrogate pair decodes to one character, not two
+        // replacement characters; a pair split across fragments waits
+        // for its second half instead of emitting half a pair.
+        assert_eq!(
+            envelope_text_prefix("{\"text\": \"a\\ud83d\\ude00b\"}"),
+            Some(("a\u{1F600}b".to_string(), true))
+        );
+        assert_eq!(
+            envelope_text_prefix("{\"text\": \"a\\ud83d"),
+            Some(("a".to_string(), false))
+        );
+        assert_eq!(
+            envelope_text_prefix("{\"text\": \"a\\udc00b\"}"),
+            Some(("a\u{fffd}b".to_string(), true))
+        );
     }
 
     #[tokio::test]
@@ -1961,5 +2044,48 @@ mod tests {
             "partial output plus a failed exit must not read as success: {err}"
         );
         assert!(err.to_string().contains("exit 2"), "{err}");
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn arg_prompt_over_the_size_cap_is_refused_early() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = test_cfg(dir.path(), "opencode-cli");
+        cfg.llm.cli_command = "/bin/true".to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let err = llm.argv(&"x".repeat(200_000)).unwrap_err();
+        assert!(
+            err.to_string().contains("over the"),
+            "a prompt over the argv cap must fail early, not at spawn: {err}"
+        );
+        assert!(llm.argv("short").is_ok());
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn custom_cli_plain_text_keeps_lines_and_indentation() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\nprintf '%s\\n' 'first' '  indented' '' 'second'\n";
+        let bin = fake_bin(dir.path(), "mycmd", script);
+        let mut cfg = test_cfg(dir.path(), "custom-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let seen = std::sync::Mutex::new(String::new());
+        let r = llm
+            .chat(
+                ChatRequest {
+                    messages: vec![Message::user("hi")],
+                    ..Default::default()
+                },
+                &|t| seen.lock().unwrap().push_str(t),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.message.text(), "first\n  indented\n\nsecond");
+        assert_eq!(
+            seen.lock().unwrap().as_str(),
+            "first\n  indented\n\nsecond\n",
+            "streamed plain text must keep its newlines, indentation, and blank lines"
+        );
     }
 }
