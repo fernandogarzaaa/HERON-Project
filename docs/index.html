@@ -35,25 +35,25 @@
 
   <h2>Download</h2>
   <div class="downloads">
-    <a class="dl" href="https://github.com/fernandogarzaaa/HERON-Project/releases/latest/download/Heron-macos-universal.dmg">
+    <a class="dl" href="https://github.com/fernandogarzaaa/HERON-Project/releases/download/v0.2.0/Heron-macos-universal.dmg">
       <strong>macOS</strong>
       <span>Universal app, Apple silicon and Intel (.dmg)</span>
     </a>
-    <a class="dl" href="https://github.com/fernandogarzaaa/HERON-Project/releases/latest/download/Heron-Setup-windows-x64.exe">
+    <a class="dl" href="https://github.com/fernandogarzaaa/HERON-Project/releases/download/v0.2.0/Heron-Setup-windows-x64.exe">
       <strong>Windows</strong>
       <span>Installer (.exe)</span>
     </a>
-    <a class="dl" href="https://github.com/fernandogarzaaa/HERON-Project/releases/latest/download/Heron-linux-x64.tar.gz">
+    <a class="dl" href="https://github.com/fernandogarzaaa/HERON-Project/releases/download/v0.2.0/Heron-linux-x64.tar.gz">
       <strong>Linux</strong>
       <span>Tarball with an install script (.tar.gz)</span>
     </a>
   </div>
-  <p>These links always point at the latest release. Checksums are in <code>SHA256SUMS.txt</code> on the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases/latest">release page</a>.</p>
+  <p>These links point at the v0.2.0 release. Checksums are in <code>SHA256SUMS.txt</code> on the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases/tag/v0.2.0">release page</a>.</p>
 
   <h2>Install</h2>
   <ul>
     <li><strong>macOS:</strong> open the .dmg and drag Heron into Applications. The app is not code-signed yet, so macOS shows a warning on first launch.</li>
-    <li><strong>Windows:</strong> run the installer, or unzip the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases/latest/download/Heron-windows-x64.zip">portable build</a> and run <code>Heron.exe</code>.</li>
+    <li><strong>Windows:</strong> run the installer, or unzip the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases/download/v0.2.0/Heron-windows-x64.zip">portable build</a> and run <code>Heron.exe</code>.</li>
     <li><strong>Linux:</strong> extract the tarball and run <code>./install.sh</code> inside it.</li>
   </ul>
 
@@ -63,7 +63,7 @@
   <h2>From source</h2>
   <pre><code>git clone https://github.com/fernandogarzaaa/HERON-Project.git
 cd HERON-Project
-cargo run --release</code></pre>
+cargo run --release --bin heron</code></pre>
 
   <footer>
     <p>Heron is in beta. See the <a href="https://github.com/fernandogarzaaa/HERON-Project">GitHub repo</a> for the README, the changelog and the source, and the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases">releases page</a> for every version.</p>
