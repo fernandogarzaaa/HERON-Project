@@ -126,7 +126,16 @@ different module, and the two `MainWindow` types would not match.
   add a confirm step before those two calls reach the bridge.
 - Parked approvals: the list renders in the Chat lane's empty state, not in
   any Views component. The bridge has `list_approvals` and
-  `answer_approval` for it. The tool title map for approval dialogs belongs
+  `answer_approval` for it. Two approval paths exist and they are not the
+  same call. Parked approvals answer through `POST /api/approvals/{id}`
+  with `{action: "approve" | "dismiss"}`. Live approvals arriving in a
+  chat stream answer through the Shell's `approve(id, decision)` which
+  posts `POST /api/approve` with `{id, decision}` where decision is
+  `once`, `always`, `session`, or a deny. The Shell bridge doc's line
+  that the Views lane "answers through approve()" conflates the two.
+  The parked path needs the generic `api()` call or a new typed helper;
+  no glue callback invokes `answer_approval` yet because the rendering
+  surface belongs to the Chat lane. The tool title map for approval dialogs belongs
   to the Chat lane. The run-step label in the glue ports only the fallback
   (strip `mcp__`, turn `__` into ` → `). One shared label table would serve
   both. That is a Shell or Chat decision.
