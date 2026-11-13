@@ -41,7 +41,11 @@ if [ "$(uname -s)" = "Darwin" ]; then
   cp -R "$MOUNT/Heron.app" "$DEST/"
   hdiutil detach "$MOUNT" -quiet
   mkdir -p "$HOME/.local/bin"
-  ln -sf "$DEST/Heron.app/Contents/MacOS/heron" "$HOME/.local/bin/heron"
+  # The CLI inside the bundle is heron-cli: Heron and heron are the same path
+  # on the default case-insensitive macOS filesystem, so linking to
+  # Contents/MacOS/heron would resolve to the desktop executable and
+  # invoking heron would launch the GUI instead of the CLI.
+  ln -sf "$DEST/Heron.app/Contents/MacOS/heron-cli" "$HOME/.local/bin/heron"
   echo "Heron is installed in $DEST. Open it from Launchpad or Spotlight."
   echo "The 'heron' command is at ~/.local/bin/heron."
 else
