@@ -569,9 +569,10 @@ fn bind_onboarding(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
             let Some(w) = weak.upgrade() else { return };
             w.set_onboarding_busy(true);
             let weak_task = weak.clone();
+            let onb_task = onb.clone();
             bridge.spawn(async move {
                 let snap = {
-                    let mut st = onb.lock().await;
+                    let mut st = onb_task.lock().await;
                     let _ = st.use_demo().await;
                     OnboardingSync::from(&st)
                 };
@@ -601,9 +602,10 @@ fn bind_onboarding(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
             };
             w.set_onboarding_busy(true);
             let weak_task = weak.clone();
+            let onb_task = onb.clone();
             bridge.spawn(async move {
                 let snap = {
-                    let mut st = onb.lock().await;
+                    let mut st = onb_task.lock().await;
                     st.about = about;
                     let _ = st.save_about().await;
                     OnboardingSync::from(&st)
@@ -718,9 +720,10 @@ fn bind_onboarding(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
             let Some(w) = weak.upgrade() else { return };
             w.set_onboarding_busy(true);
             let weak_task = weak.clone();
+            let onb_task = onb.clone();
             bridge.spawn(async move {
                 let snap = {
-                    let mut st = onb.lock().await;
+                    let mut st = onb_task.lock().await;
                     let _ = st.set_proactivity(level).await;
                     OnboardingSync::from(&st)
                 };
@@ -747,9 +750,10 @@ fn bind_onboarding(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
             let Some(w) = weak.upgrade() else { return };
             w.set_onboarding_busy(true);
             let weak_task = weak.clone();
+            let onb_task = onb.clone();
             bridge.spawn(async move {
                 let snap = {
-                    let mut st = onb.lock().await;
+                    let mut st = onb_task.lock().await;
                     let _ = st.goto_step(step);
                     OnboardingSync::from(&st)
                 };
@@ -759,6 +763,16 @@ fn bind_onboarding(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                 });
             });
         });
+    }
+}
+
+/// The API key field is write-only: every settings sync clears it.
+/// A callback that posts a sync without saving the key must hand the
+/// typed-but-unsaved key back to the window, or it silently vanishes:
+/// the next save reads the cleared field and keeps the stored key.
+fn restore_api_key(window: &MainWindow, key: &str) {
+    if !key.is_empty() {
+        window.set_settings_api_key(key.into());
     }
 }
 
@@ -778,16 +792,25 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                 _ => return,
             };
             let Some(w) = weak.upgrade() else { return };
+            // Read the form first: the preset fills only the service
+            // address and model, and a full sync built from the stale
+            // backing state would silently discard the user's unsaved
+            // edits everywhere else. The key is write-only, so hand the
+            // typed-but-unsaved key back after the sync clears it.
+            let input = SettingsFormInput::read(&w);
             w.set_settings_busy(true);
             let weak_task = weak.clone();
+            let set_task = set.clone();
             bridge.spawn(async move {
                 let snap = {
-                    let mut st = set.lock().await;
+                    let mut st = set_task.lock().await;
+                    input.apply_to(&mut st);
                     st.apply_preset(preset);
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
                     snap.apply(&window);
+                    restore_api_key(&window, &input.api_key);
                     window.set_settings_busy(false);
                 });
             });
@@ -798,6 +821,7 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
     // an empty API key keeps the stored key.
     {
         let set = driver.settings.clone();
+        let onb = driver.onboarding.clone();
         let bridge = bridge.clone();
         let weak = window.as_weak();
         window.on_settings_save_settings(move || {
@@ -805,15 +829,32 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
             let input = SettingsFormInput::read(&w);
             w.set_settings_busy(true);
             let weak_task = weak.clone();
+            let set_task = set.clone();
+            let onb_task = onb.clone();
             bridge.spawn(async move {
-                let snap = {
-                    let mut st = set.lock().await;
+                // A first-time user saves a key here and returns to
+                // onboarding: step 1 must see the new model, so the
+                // onboarding state refreshes too, but only when the
+                // save itself succeeded.
+                let (snap, onb_snap) = {
+                    let mut st = set_task.lock().await;
                     input.apply_to(&mut st);
-                    let _ = st.save().await;
-                    SettingsSync::from(&st)
+                    let saved = st.save().await.is_ok();
+                    let snap = SettingsSync::from(&st);
+                    let onb_snap = if saved {
+                        let mut onb = onb_task.lock().await;
+                        let _ = onb.refresh().await;
+                        Some(OnboardingSync::from(&onb))
+                    } else {
+                        None
+                    };
+                    (snap, onb_snap)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
                     snap.apply(&window);
+                    if let Some(onb_snap) = onb_snap {
+                        onb_snap.apply(&window);
+                    }
                     window.set_settings_busy(false);
                 });
             });
@@ -831,11 +872,13 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
             let Some(w) = weak.upgrade() else { return };
             let name = w.get_settings_agent_name().to_string();
             let text = w.get_settings_persona_text().to_string();
+            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
+            let set_task = set.clone();
             bridge.spawn(async move {
                 let snap = {
-                    let mut st = set.lock().await;
+                    let mut st = set_task.lock().await;
                     st.persona_name = name;
                     st.persona_text = text;
                     let _ = st.save_persona().await;
@@ -843,6 +886,7 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
                     snap.apply(&window);
+                    restore_api_key(&window, &api_key);
                     window.set_settings_busy(false);
                 });
             });
@@ -854,16 +898,19 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
         let weak = window.as_weak();
         window.on_settings_reset_persona(move || {
             let Some(w) = weak.upgrade() else { return };
+            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
+            let set_task = set.clone();
             bridge.spawn(async move {
                 let snap = {
-                    let mut st = set.lock().await;
+                    let mut st = set_task.lock().await;
                     let _ = st.reset_persona().await;
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
                     snap.apply(&window);
+                    restore_api_key(&window, &api_key);
                     window.set_settings_busy(false);
                 });
             });
@@ -885,16 +932,19 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                 _ => return,
             };
             let Some(w) = weak.upgrade() else { return };
+            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
+            let set_task = set.clone();
             bridge.spawn(async move {
                 let snap = {
-                    let mut st = set.lock().await;
+                    let mut st = set_task.lock().await;
                     let _ = st.set_tool(&name, setting).await;
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
                     snap.apply(&window);
+                    restore_api_key(&window, &api_key);
                     window.set_settings_busy(false);
                 });
             });
@@ -909,16 +959,19 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
         let weak = window.as_weak();
         window.on_settings_accept_mcp(move |name| {
             let Some(w) = weak.upgrade() else { return };
+            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
+            let set_task = set.clone();
             bridge.spawn(async move {
                 let snap = {
-                    let mut st = set.lock().await;
+                    let mut st = set_task.lock().await;
                     let _ = st.accept_mcp(&name).await;
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
                     snap.apply(&window);
+                    restore_api_key(&window, &api_key);
                     window.set_settings_busy(false);
                 });
             });
@@ -935,17 +988,20 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
         window.on_settings_connect_telegram(move || {
             let Some(w) = weak.upgrade() else { return };
             let token = w.get_settings_telegram_token().to_string();
+            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
+            let set_task = set.clone();
             bridge.spawn(async move {
                 let snap = {
-                    let mut st = set.lock().await;
+                    let mut st = set_task.lock().await;
                     st.telegram_token = token;
                     let _ = st.connect_telegram().await;
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
                     snap.apply(&window);
+                    restore_api_key(&window, &api_key);
                     window.set_settings_busy(false);
                 });
             });
@@ -957,16 +1013,19 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
         let weak = window.as_weak();
         window.on_settings_disconnect_telegram(move || {
             let Some(w) = weak.upgrade() else { return };
+            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
+            let set_task = set.clone();
             bridge.spawn(async move {
                 let snap = {
-                    let mut st = set.lock().await;
+                    let mut st = set_task.lock().await;
                     let _ = st.disconnect_telegram().await;
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
                     snap.apply(&window);
+                    restore_api_key(&window, &api_key);
                     window.set_settings_busy(false);
                 });
             });
@@ -981,16 +1040,19 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
         let weak = window.as_weak();
         window.on_settings_make_backup(move || {
             let Some(w) = weak.upgrade() else { return };
+            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
+            let set_task = set.clone();
             bridge.spawn(async move {
                 let snap = {
-                    let mut st = set.lock().await;
+                    let mut st = set_task.lock().await;
                     let _ = st.backup().await;
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
                     snap.apply(&window);
+                    restore_api_key(&window, &api_key);
                     window.set_settings_busy(false);
                 });
             });
@@ -1014,10 +1076,11 @@ fn bind_finish(
         let Some(w) = weak.upgrade() else { return };
         w.set_onboarding_busy(true);
         let weak_task = weak.clone();
+        let onb_task = onb.clone();
         let on_finish_task = on_finish.clone();
         bridge.spawn(async move {
             let (snap, finished_ok) = {
-                let mut st = onb.lock().await;
+                let mut st = onb_task.lock().await;
                 let finished_ok = st.finish().await.is_ok();
                 (OnboardingSync::from(&st), finished_ok)
             };

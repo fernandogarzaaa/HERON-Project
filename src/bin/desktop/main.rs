@@ -555,16 +555,28 @@ fn main() {
                         None => None,
                     };
                     let _ = weak_task.upgrade_in_event_loop(move |window| {
-                        {
+                        let start_fresh = {
                             let mut chat = chat_task.lock().unwrap();
                             match detail {
-                                Some(detail) => models::open_history(&window, &mut chat, &detail),
-                                None => {
-                                    if let Some(id) = &session_id {
-                                        chat.session_id = Some(id.clone());
-                                    }
+                                Some(detail) => {
+                                    models::open_history(&window, &mut chat, &detail);
+                                    false
                                 }
+                                None => match &session_id {
+                                    Some(id) => {
+                                        chat.session_id = Some(id.clone());
+                                        false
+                                    }
+                                    // A suggestion with no session is a
+                                    // fresh conversation: the web UI starts
+                                    // one before sending, so the new turn
+                                    // never appends to the open thread.
+                                    None => true,
+                                },
                             }
+                        };
+                        if start_fresh {
+                            start_new_conversation(&window, &chat_task, &bridge_task);
                         }
                         window.set_current_view(SharedString::from("chat"));
                         if let Some(ctrl) = slot_task.lock().unwrap().as_ref() {
