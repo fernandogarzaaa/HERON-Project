@@ -181,9 +181,6 @@ export component ChatView inherits FocusScope {
     // thread-version handler can move the viewport to the new bottom.
     in-out property <bool> follow: true;
     property <bool> show-latest: !follow;
-    changed thread-scroll.viewport-y => {
-        root.follow = thread-scroll.viewport-y <= thread-scroll.height - thread-box.height + 240;
-    }
     changed thread-version => {
         if (root.follow) { thread-scroll.viewport-y = thread-scroll.height - thread-box.height; }
     }
@@ -250,6 +247,11 @@ export component ChatView inherits FocusScope {
 
         // Thread.
         thread-scroll := ScrollView {
+            // This fires for user scrolling, not a layout-height change.
+            // That preserves follow-mode across large streaming deltas.
+            scrolled() => {
+                root.follow = thread-scroll.viewport-y <= thread-scroll.height - thread-box.height + 240;
+            }
             thread-box := VerticalBox {
                 if show-empty: EmptyStateView {
                     has-key: has-key; demo: demo; paused: paused;
