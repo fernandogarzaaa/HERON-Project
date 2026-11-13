@@ -783,10 +783,12 @@ impl ChatView {
         self.thinking = None;
     }
 
-    /// Record an approval answer. The card is replaced by its decision
-    /// note. Returns the note text. A failed approve call is reported
-    /// by passing the error message as `err`.
+    /// Replace the card only when the backend confirmed a decision.
+    /// A failed request leaves approval controls available for retry.
     pub fn answer_approval(&mut self, id: &str, decision: ApprovalDecision, err: Option<&str>) -> Option<String> {
+        if let Some(error) = err {
+            return Some(error.to_string());
+        }
         for item in self.thread.iter_mut() {
             if let ThreadItem::Turn(turn) = item {
                 if let Some(card) = turn.approvals.iter_mut().find(|c| c.id == id) {
@@ -1072,6 +1074,38 @@ mod tests {
         assert_eq!(turn.approvals[0].title, "Heron wants to run a command");
         let note = view.answer_approval("a1", ApprovalDecision::Once, None).unwrap();
         assert_eq!(note, "You allowed this.");
+    }
+
+    #[test]
+    fn navigation_invalidates_outstanding_history_requests() {
+        let mut view = ChatView::new();
+        let first = view.begin_navigation();
+        assert_eq!(first, view.navigation_generation);
+        view.start_new();
+        assert_ne!(view.navigation_generation, first);
+        let second = view.navigation_generation;
+        view.open_history(Vec::new(), false);
+        assert!(view.navigation_generation > second);
+    }
+
+    #[test]
+    fn failed_approval_does_not_remove_the_retry_card() {
+        let mut view = ChatView::new();
+        view.start_send("please run the command");
+        view.apply_event(ChatEvent::Approval {
+            id: "a".into(),
+            tool: "shell".into(),
+            summary: "test".into(),
+            risk: "normal".into(),
+            detail: "test".into(),
+            always_rule: None,
+            can_always: false,
+            can_session: false,
+            tainted: false,
+        });
+        assert_eq!(view.answer_approval("a", ApprovalDecision::Once, Some("network down")), Some("network down".into()));
+        let ThreadItem::Turn(turn) = view.thread.last().unwrap() else { panic!("expected assistant turn") };
+        assert!(turn.approvals[0].decision_note.is_none(), "failed approvals stay retryable");
     }
 
     #[test]

@@ -653,7 +653,11 @@ fn main() {
         };
         let on_navigate = {
             let weak = window.as_weak();
+            let chat = chat.clone();
             Arc::new(move |view: String| {
+                // A newer sidebar destination invalidates pending session
+                // fetches even when it is not another conversation.
+                chat.lock().unwrap().begin_navigation();
                 let weak = weak.clone();
                 let _ = weak.upgrade_in_event_loop(move |window| {
                     window.set_current_view(SharedString::from(view));
