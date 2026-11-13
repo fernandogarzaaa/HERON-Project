@@ -544,14 +544,30 @@ async fn doctor(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+/// True when a panic is std reporting a print that failed because the reader closed the pipe.
+/// std reports it as `failed printing to std{out,err}: <io error>`; the io error is "Broken pipe"
+/// on Unix and "The pipe has been ended" / "The pipe is being closed" on Windows. Any other
+/// print failure (a full disk, a bad device) is not a broken pipe and must still fail loudly.
+fn is_broken_pipe_print(said: &str) -> bool {
+    let rest = said
+        .strip_prefix("failed printing to stdout: ")
+        .or_else(|| said.strip_prefix("failed printing to stderr: "));
+    let Some(rest) = rest else { return false };
+    rest.starts_with("Broken pipe")
+        || rest.starts_with("The pipe has been ended")
+        || rest.starts_with("The pipe is being closed")
+}
+
 #[tokio::main]
 async fn main() {
     // `heron audit | head` closes our output early. That is the reader being done, not a crash: leave
-    // quietly instead of printing a panic and a backtrace.
+    // quietly instead of printing a panic and a backtrace. Only a broken pipe is the reader being
+    // done: any other output failure (a full disk, a bad device) must still report the error, so
+    // an export is not mistaken for a success.
     let usual = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let said = info.payload().downcast_ref::<String>().map(String::as_str).or_else(|| info.payload().downcast_ref::<&str>().copied()).unwrap_or("");
-        if said.starts_with("failed printing to std") {
+        if is_broken_pipe_print(said) {
             heron::browser::kill_now();
             std::process::exit(0);
         }
@@ -737,5 +753,40 @@ async fn real_main() -> Result<()> {
             heron::mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app.tools, &ctx, &app.policy).await
         }
         Cmd::Init | Cmd::Doctor | Cmd::Providers | Cmd::Eval { .. } | Cmd::Backup { .. } | Cmd::Restore { .. } => unreachable!(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_broken_pipe_exits_quietly() {
+        // A reader closing early (`heron audit | head`) leaves quietly.
+        assert!(is_broken_pipe_print(
+            "failed printing to stdout: Broken pipe (os error 32)"
+        ));
+        assert!(is_broken_pipe_print(
+            "failed printing to stderr: Broken pipe (os error 32)"
+        ));
+        // Windows broken-pipe errors are worded differently.
+        assert!(is_broken_pipe_print(
+            "failed printing to stdout: The pipe has been ended. (os error 109)"
+        ));
+        assert!(is_broken_pipe_print(
+            "failed printing to stdout: The pipe is being closed. (os error 232)"
+        ));
+        // Any other output failure must still fail loudly: a full disk must not
+        // be mistaken for a successful export.
+        assert!(!is_broken_pipe_print(
+            "failed printing to stdout: No space left on device (os error 28)"
+        ));
+        assert!(!is_broken_pipe_print(
+            "failed printing to stderr: No space left on device (os error 28)"
+        ));
+        assert!(!is_broken_pipe_print(
+            "failed printing to stdout: Input/output error (os error 5)"
+        ));
+        assert!(!is_broken_pipe_print("something else entirely"));
     }
 }
