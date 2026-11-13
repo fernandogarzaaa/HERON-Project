@@ -190,9 +190,9 @@ async fn http_api_chat_approval_and_settings() {
     let undo_with = |body: Value| client.post(format!("{base}/api/undo")).header("x-heron-token", &token).json(&body).send();
     let refused: Value = undo_with(json!({"session_id": sid})).await.unwrap().json().await.unwrap();
     assert!(refused["undone"].is_null() && refused["conflict"].as_str().unwrap().contains("changed since"), "{refused}");
-    let asked_about = refused["checkpoint"].as_i64().expect("the refusal names the change");
+    let asked_about = refused["checkpoint"].as_str().expect("the refusal names the change").to_string();
     assert_eq!(undo_with(json!({"session_id": sid, "force": true})).await.unwrap().status(), 400, "restoring anyway must say which change");
-    let other: Value = undo_with(json!({"session_id": sid, "force": true, "checkpoint": asked_about + 1000})).await.unwrap().json().await.unwrap();
+    let other: Value = undo_with(json!({"session_id": sid, "force": true, "checkpoint": "some-other-change"})).await.unwrap().json().await.unwrap();
     assert!(other["undone"].is_null() && other["stale"].is_string(), "{other}");
     assert_eq!(std::fs::read_to_string(ws.join("a.txt")).unwrap(), "edited by hand afterwards");
     // Confirmed for the right change: the file Heron created is removed, and the hand edit is kept beside it.

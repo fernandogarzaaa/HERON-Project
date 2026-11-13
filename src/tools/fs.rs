@@ -152,11 +152,27 @@ pub enum Undo {
     Nothing,
     Done(String),
     /// The file is no longer as Heron left it. Nothing was touched; the checkpoint is kept.
-    /// `id` names the checkpoint, so a later "restore anyway" can be tied to exactly this one.
-    Conflict { id: i64, why: String },
+    /// `id` names the change that was asked about, so a later "restore anyway" can be tied to exactly
+    /// this one. It is derived from the change itself (see [`confirmation`]), not a row number.
+    Conflict { id: String, why: String },
     /// "Restore anyway" was asked for a checkpoint that is no longer the latest (Heron has changed
     /// something else since the question was put). Nothing was touched.
     Stale(String),
+}
+
+/// The name a "restore anyway" has to quote back. It is made from what the change is (which file,
+/// what was there before, what Heron left, when), not only from the checkpoint's row number: the
+/// database hands a deleted row's number to the next row, so a number alone could come to mean a
+/// different change while an old question is still on someone's screen.
+fn confirmation(id: i64, made_at: i64, path: &str, prev: &Option<Vec<u8>>, after: &Option<String>) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    let before = prev.as_ref().map(|bytes| content_hash(bytes)).unwrap_or_else(|| "absent".into());
+    for field in [id.to_string(), made_at.to_string(), path.to_string(), before, after.clone().unwrap_or_else(|| "none".into())] {
+        h.update((field.len() as u64).to_le_bytes());
+        h.update(field.as_bytes());
+    }
+    h.finalize().iter().take(16).map(|b| format!("{b:02x}")).collect()
 }
 
 fn read_if_there(file: &Path) -> Result<Option<Vec<u8>>> {
@@ -171,19 +187,21 @@ fn read_if_there(file: &Path) -> Result<Option<Vec<u8>>> {
 ///
 /// It first checks that the file is still exactly as Heron left it. If someone has edited, replaced or
 /// removed it since, restoring the old version would destroy their work, so nothing is touched and the
-/// checkpoint stays. The answer names the checkpoint. Passing that name back as `restore_anyway` means
+/// checkpoint stays. The answer names the change. Passing that name back as `restore_anyway` means
 /// "I have seen that, restore it regardless": the current content is first saved beside the file and
 /// then the old version is restored. If the latest checkpoint is by then a different one, nothing is
 /// done, because that is not what was agreed to. The checkpoint is removed only after the restore has
 /// succeeded.
-pub fn undo(ctx: &ToolCtx, restore_anyway: Option<i64>) -> Result<Undo> {
+pub fn undo(ctx: &ToolCtx, restore_anyway: Option<&str>) -> Result<Undo> {
     let Some((id, path, prev, after)) = ctx.store.last_checkpoint(&ctx.session_id)? else {
         return Ok(match restore_anyway {
             Some(_) => Undo::Stale("That change has already been undone. Nothing was restored.".into()),
             None => Undo::Nothing,
         });
     };
-    if restore_anyway.is_some_and(|confirmed| confirmed != id) {
+    let made_at = ctx.store.checkpoint_made_at(id)?.unwrap_or(0);
+    let name = confirmation(id, made_at, &path, &prev, &after);
+    if restore_anyway.is_some_and(|confirmed| confirmed != name) {
         return Ok(Undo::Stale("Heron has changed another file since you were asked, so this is no longer the change you agreed to restore. Nothing was restored; choose Undo again to see what would be undone now.".into()));
     }
     let force = restore_anyway.is_some();
@@ -209,7 +227,7 @@ pub fn undo(ctx: &ToolCtx, restore_anyway: Option<i64>) -> Result<Undo> {
         match (&current, force) {
             (_, false) => {
                 return Ok(Undo::Conflict {
-                    id,
+                    id: name,
                     why: match current {
                         Some(_) => format!("{path} has been changed since Heron edited it, so undoing would overwrite those changes. Nothing was restored."),
                         None => format!("{path} has been removed or moved since Heron edited it. Nothing was restored."),
@@ -226,7 +244,7 @@ pub fn undo(ctx: &ToolCtx, restore_anyway: Option<i64>) -> Result<Undo> {
     // Asked again at the last moment: is the file still what was just looked at (and, if a copy was
     // saved, still what was saved)? If it changed in between, stop and say so.
     let still_as_seen = || read_if_there(file).map(|now| now == current).unwrap_or(false);
-    let changed_meanwhile = || Undo::Conflict { id, why: format!("{path} changed while it was being restored. Nothing was restored.{kept}") };
+    let changed_meanwhile = || Undo::Conflict { id: name.clone(), why: format!("{path} changed while it was being restored. Nothing was restored.{kept}") };
     let said = match prev {
         Some(bytes) => {
             if !write_atomic_if(file, &bytes, &still_as_seen)? {
@@ -554,13 +572,13 @@ mod undo_tests {
         assert!(c.store.last_checkpoint("s").unwrap().is_some(), "and the checkpoint is still there to use");
 
         // If they insist, their version is kept beside the file before the old one comes back.
-        let Undo::Done(said) = undo(&c, Some(asked_about)).unwrap() else { panic!("expected a restore") };
+        let Undo::Done(said) = undo(&c, Some(&asked_about)).unwrap() else { panic!("expected a restore") };
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "the user's original");
         let kept: Vec<_> = std::fs::read_dir(&c.workspace).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().starts_with("notes.md.before-undo-")).collect();
         assert_eq!(kept.len(), 1, "{said}");
         assert_eq!(std::fs::read_to_string(kept[0].path()).unwrap(), "the user's later edit");
         assert_eq!(undo(&c, None).unwrap(), Undo::Nothing);
-        assert!(matches!(undo(&c, Some(asked_about)).unwrap(), Undo::Stale(_)), "saying yes twice does nothing the second time");
+        assert!(matches!(undo(&c, Some(&asked_about)).unwrap(), Undo::Stale(_)), "saying yes twice does nothing the second time");
 
         // A file Heron created and the user then filled in is not deleted by undo.
         write_file(&json!({"path": "new.md", "content": "draft"}), &c).await.unwrap();
@@ -599,7 +617,7 @@ mod undo_tests {
         std::fs::write(&file, "the user's second edit").unwrap();
         let restore_anyway = |c: &ToolCtx| {
             let Undo::Conflict { id, .. } = undo(c, None).unwrap() else { panic!("expected to be asked first") };
-            undo(c, Some(id)).unwrap()
+            undo(c, Some(&id)).unwrap()
         };
         assert!(matches!(restore_anyway(&c), Undo::Done(_)));
         // Restoring put "the user's first edit" back, which is what the earlier checkpoint expects to
@@ -649,7 +667,7 @@ mod undo_tests {
         // Before the answer arrives Heron changes b.md. "Yes, restore anyway" was said about a.md:
         // it must not undo b.md, which nobody was asked about.
         write_file(&json!({"path": "b.md", "content": "b: Heron"}), &c).await.unwrap();
-        assert!(matches!(undo(&c, Some(about_a)).unwrap(), Undo::Stale(why) if why.contains("no longer the change")));
+        assert!(matches!(undo(&c, Some(&about_a)).unwrap(), Undo::Stale(why) if why.contains("no longer the change")));
         assert_eq!(std::fs::read_to_string(&b).unwrap(), "b: Heron");
         assert_eq!(std::fs::read_to_string(&a).unwrap(), "a: the user's edit");
 
@@ -658,8 +676,40 @@ mod undo_tests {
         assert_eq!(std::fs::read_to_string(&b).unwrap(), "b: original");
         let Undo::Conflict { id: again, .. } = undo(&c, None).unwrap() else { panic!("expected to be asked") };
         assert_eq!(again, about_a);
-        assert!(matches!(undo(&c, Some(again)).unwrap(), Undo::Done(_)));
+        assert!(matches!(undo(&c, Some(&again)).unwrap(), Undo::Done(_)));
         assert_eq!(std::fs::read_to_string(&a).unwrap(), "a: original");
+    }
+
+    #[tokio::test]
+    async fn an_old_question_cannot_authorise_a_later_change_that_got_the_same_row_number() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = ctx(dir.path());
+        let (a, b) = (c.workspace.join("a.md"), c.workspace.join("b.md"));
+        std::fs::write(&a, "a: original").unwrap();
+        std::fs::write(&b, "b: original").unwrap();
+
+        // A question about a.md is left open on one screen...
+        write_file(&json!({"path": "a.md", "content": "a: Heron"}), &c).await.unwrap();
+        std::fs::write(&a, "a: the user's edit").unwrap();
+        let Undo::Conflict { id: old_question, .. } = undo(&c, None).unwrap() else { panic!("expected to be asked") };
+        let row_then = c.store.last_checkpoint("s").unwrap().unwrap().0;
+
+        // ...while it is answered from somewhere else (another window, the terminal).
+        let Undo::Conflict { id, .. } = undo(&c, None).unwrap() else { panic!() };
+        assert!(matches!(undo(&c, Some(&id)).unwrap(), Undo::Done(_)));
+
+        // Heron then changes a different file. The database gives that change the row number the
+        // old one had, and the user edits the file afterwards.
+        write_file(&json!({"path": "b.md", "content": "b: Heron"}), &c).await.unwrap();
+        assert_eq!(c.store.last_checkpoint("s").unwrap().unwrap().0, row_then, "the row number really is handed out again");
+        std::fs::write(&b, "b: the user's edit").unwrap();
+
+        // Pressing the old "Restore anyway" must not touch b.md: nobody was asked about it.
+        assert!(matches!(undo(&c, Some(&old_question)).unwrap(), Undo::Stale(_)));
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "b: the user's edit");
+        // Asked properly, it gets its own question with its own name.
+        let Undo::Conflict { id: new_question, .. } = undo(&c, None).unwrap() else { panic!("expected to be asked") };
+        assert_ne!(new_question, old_question);
     }
 
     #[tokio::test]
