@@ -248,7 +248,7 @@ runs a built-in, deterministic test of the memory retrieval layer: 30 facts, 34 
 | After a fact changed, current version ranked first | 4 / 4 | 4 / 4 |
 | After a fact changed, retired version still recalled | 0 / 4 | 0 / 4 |
 
-The built-in column is the same on every system. The neural column was measured on Linux; on other processors the first-place count has differed by one or two questions (29 to 31 of 34 on macOS runs), because the model's arithmetic is not bit-identical everywhere.
+The built-in column is the same on every system. The neural column was also the same (31 and 33 of 34) on the Linux, macOS and Windows build machines in the latest run; the model's arithmetic is not guaranteed to be bit-identical on every processor, so a question either way is possible elsewhere.
 
 The built-in method needs nothing and tolerates misspellings, but misses questions that share no words with the answer ("what is her job" → "landscape architect"). The neural model (all-MiniLM-L6-v2, run locally; the approach comes from the ADAM project) fixes those but is not typo-tolerant on its own, so Heron fuses both with keyword search. It is an optional build feature (`cargo build --features desktop,neural`; on Linux this needs glibc 2.38 or newer, for example Ubuntu 24.04) and a switch in Settings; the model (about 23 MB) is downloaded once, on first use. The test suite fails if the default numbers regress. This measures retrieval only — not a model's reasoning, and not Heron against other agents.
 

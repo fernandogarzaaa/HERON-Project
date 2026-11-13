@@ -184,8 +184,8 @@ mod tests {
         println!("{}", r.summary());
         assert_eq!(r.embedder, crate::embed::NEURAL_TAG, "the neural model must actually have loaded");
         // The claim is "better than the built-in method", so that is what is checked, on the same
-        // questions in the same run. (The exact count differs by a question or two between processors,
-        // because the model's arithmetic is not bit-identical everywhere.)
+        // questions in the same run. (The exact count is not pinned: the model's arithmetic is not
+        // guaranteed to be bit-identical on every processor.)
         let plain = run_memory_eval().await.unwrap();
         assert!(r.top3 > plain.top3, "top-three recall is no better than the built-in method ({} vs {}):\n{}", r.top3, plain.top3, r.summary());
         assert!(r.top1 >= plain.top1, "top-one recall is worse than the built-in method ({} vs {}):\n{}", r.top1, plain.top1, r.summary());
