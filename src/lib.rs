@@ -1,0 +1,24 @@
+//! Heron — a local-first personal AI agent.
+pub mod agent;
+pub mod ambient;
+pub mod app;
+pub mod browser;
+pub mod config;
+pub mod embed;
+pub mod eval;
+pub mod llm;
+pub mod mail;
+pub mod mcp;
+pub mod memory;
+pub mod permissions;
+pub mod persona;
+pub mod sandbox;
+pub mod schedule;
+pub mod server;
+pub mod skills;
+pub mod sources;
+pub mod store;
+pub mod telegram;
+pub mod tools;
+pub mod util;
+pub mod workflow;
