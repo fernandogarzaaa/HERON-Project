@@ -37,7 +37,7 @@ No item is "done" on the strength of a document.
 | B2 Windows containment | **Not started** | No sandbox on Windows; autonomous shell is still allowed there. This is an accepted, documented risk for the beta, not a pass. |
 | B3 MCP trust tiers, per-tool grants, budgets | **Partial** | Trusted servers are now `NetworkEgress`, unknown ones `ExternalWrite`; schema changes force approval. No per-tool grants, budgets or environment containment. |
 | B4 API hardening review | **Not started** | Existing: loopback, token, Host/Origin checks, CSP. Not re-reviewed; channels are unbounded. |
-| B5 Atomic settings writes, migrations, backup/restore, key rotation | **Partial** | Secrets file is atomic and serialised (`a_damaged_secrets_file_is_never_overwritten`). Database migrations, backup and restore are done under C5. `config.toml` write is not atomic; backups are not encrypted and do not include settings or saved keys; no key rotation. |
+| B5 Atomic settings writes, migrations, backup/restore, key rotation | **Partial** | Secrets file is atomic and serialised (`a_damaged_secrets_file_is_never_overwritten`). `config.toml` is written beside the old file, flushed and renamed over it, is checked to read back before anything is written, and the previous version is kept as `config.toml.previous` (`saving_settings_replaces_the_file_whole_and_keeps_the_previous_one`). Database migrations, backup and restore are done under C5. **Missing:** backups are not encrypted and do not include settings or saved keys; no key rotation; two programs saving settings at the same moment are not serialised (the last one wins, whole). |
 
 ## C. Durability
 

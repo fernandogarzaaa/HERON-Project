@@ -27,6 +27,7 @@ Your data across upgrades:
 - **Heron saves a copy of your data before it upgrades it.** The data now carries a format number. When a newer Heron opens older data it first checks it for damage, saves a complete copy in the `backups` folder in Heron's home, and then upgrades in one step that either finishes or changes nothing. The three most recent of these copies are kept.
 - **A newer version's data is never opened by an older Heron.** From this version on, Heron refuses data in a format it does not understand and leaves it untouched, instead of guessing.
 - **Backup and restore.** `heron backup` (or "Save a copy of my data" in Settings) saves everything in the database while Heron keeps running. `heron restore <file>` puts a copy back; what was there is saved first, so a restore can itself be undone. Settings and saved keys are separate files and are not part of a copy. Copies are not encrypted.
+- Saving settings can no longer leave a cut-off settings file: the new file replaces the old one in a single step, and the settings from before the last save are kept as `config.toml.previous`.
 - `heron doctor` now reports the data format and whether the database passes its integrity check.
 - Piping a command into `head` (for example `heron audit | head`) no longer prints a crash report.
 
