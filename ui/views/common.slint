@@ -179,3 +179,18 @@ export component KindTag inherits Rectangle {
     }
 }
 
+export component RowCard inherits Rectangle {
+    // One list row: hover and press highlight, animated, instant when
+    // reduced motion is on. The row itself is not clickable; the buttons
+    // inside it are. The highlight marks the row as the unit of action.
+    // Enter animations are deliberately absent: refreshes rebuild the
+    // row models, so a fade-in would replay on every load.
+    in property <bool> reduce-motion: false;
+    background: touch.pressed || touch.has-hover ? Theme.slate-soft : Theme.surface;
+    border-color: Theme.line;
+    border-width: 1px;
+    border-radius: 8px;
+    animate background { duration: root.reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+    touch := TouchArea { }
+    @children
+}

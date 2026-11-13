@@ -45,21 +45,21 @@ id to the Chat lane, which starts the conversation).
 Window property names are `<view>-<child-prop>`. `in` child props bind
 one-way (`:`). `in-out` child props bind two-way (`<=>`), so Rust clearing
 a form field clears the child's input. Forwarded sets: sidebar
-(current-view, unread-count, suggestions-count, waiting-count, footer-text,
-sessions; callbacks navigate, open-session, new-conversation); memory (rows,
+(reduce-motion, current-view, unread-count, suggestions-count, waiting-count, footer-text,
+sessions; callbacks navigate, open-session, new-conversation); memory (reduce-motion, rows,
 search-text, new-content, new-kind, empty-text; add-memory, delete-memory,
-confirm-memory, search-changed); tasks (rows, new-title, empty-text;
-add-task, set-task-done, delete-task); reminders (schedules, delivered,
+confirm-memory, search-changed); tasks (reduce-motion, rows, new-title, empty-text;
+add-task, set-task-done, delete-task); reminders (reduce-motion, schedules, delivered,
 schedules-empty-text, delivered-empty-text, form-error, new-what, new-when,
 new-may, new-may-index, new-quiet, last-run-steps, last-run-title;
 add-schedule, cancel-schedule, run-schedule-now, set-schedule-may,
-show-last-run, fill-daily-briefing, fill-inbox-watch); awareness (paused,
+show-last-run, fill-daily-briefing, fill-inbox-watch); awareness (reduce-motion, paused,
 watching, reflecting, workspace, proactive, proactive-note, suggestions,
 suggestions-empty-text, right-now, right-now-empty-text, insights,
 insights-empty-text, journal, journal-empty-text; set-paused, set-watching,
 set-reflecting, set-proactive, clear-observations, forget-insight,
-answer-suggestion, open-suggestion-session); activity (rows, seal-text,
-seal-danger, empty-text; no callbacks, read-only); usage (level-note,
+answer-suggestion, open-suggestion-session); activity (reduce-motion, rows, seal-text,
+seal-danger, empty-text; no callbacks, read-only); usage (reduce-motion, level-note,
 today-big, today-small, today-frac, today-state, month-big, month-small,
 month-frac, month-state, heading-big, heading-small, provider-visible,
 provider-title, provider-big, provider-small, provider-frac,
@@ -158,3 +158,12 @@ different module, and the two `MainWindow` types would not match.
   The `.slint` Theme carries those dark values. Headings use Georgia,
   the last family in the heading stack: Slint takes one family string,
   so the full comma list cannot be used here.
+- Motion: every view takes `in property <bool> reduce-motion`, forwarded
+  by the Window. Row hover and press highlights animate over 150ms,
+  and the task title color animates when a task is toggled done. When
+  reduce-motion is on, every animation runs at 0ms. The Shell owns the
+  OS setting and sets the flag on the Window. Enter animations are
+  deliberately absent: refreshes rebuild the row models, so a fade-in
+  would replay on every load. Row clicks do nothing; the buttons inside
+  each row are the actions. The Shell's rail uses the same 150ms budget
+  and the same reduce-motion flag.

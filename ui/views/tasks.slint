@@ -3,13 +3,14 @@
 // five views cannot share one file and still be driven from Rust.
 
 import { Button, CheckBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { Theme, TaskRow, SectionTitle, SectionIntro, RowMeta, EmptyNote } from "common.slint";
+import { Theme, TaskRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, RowCard } from "common.slint";
 
 export component TasksView inherits Rectangle {
     background: Theme.paper;
     in property <[TaskRow]> rows;
     in-out property <string> new-title: "";
     in property <string> empty-text: "";
+    in property <bool> reduce-motion: false;
     callback add-task(string);
     callback set-task-done(int, bool);
     callback delete-task(int);
@@ -37,11 +38,8 @@ export component TasksView inherits Rectangle {
                 }
             }
             EmptyNote { body: root.empty-text; visible: root.empty-text != ""; }
-            for row in root.rows: Rectangle {
-                background: Theme.surface;
-                border-color: Theme.line;
-                border-width: 1px;
-                border-radius: 8px;
+            for row in root.rows: RowCard {
+                reduce-motion: root.reduce-motion;
                 HorizontalBox {
                     width: parent.width;
                     padding: 10px;
@@ -58,6 +56,7 @@ export component TasksView inherits Rectangle {
                             font-size: 15px;
                             color: row.done ? Theme.muted : Theme.ink;
                             wrap: TextWrap.word-wrap;
+                            animate color { duration: root.reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
                         }
                         RowMeta { body: row.meta; visible: row.meta != ""; }
                     }

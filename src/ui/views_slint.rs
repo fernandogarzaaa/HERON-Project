@@ -460,12 +460,12 @@ pub fn refresh_reminders(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
         let rows: Vec<ScheduleRow> = schedules.iter().map(schedule_row).collect();
         let delivered: Vec<InboxRow> = inbox.iter().map(inbox_row).collect();
         let schedules_empty: SharedString = if schedules.is_empty() {
-            "Nothing scheduled.".into()
+            "Nothing scheduled yet. Describe what Heron should do above, and when.".into()
         } else {
             SharedString::default()
         };
         let delivered_empty: SharedString = if inbox.is_empty() {
-            "Results of scheduled runs appear here.".into()
+            "Nothing delivered yet. When a reminder runs, its result appears here.".into()
         } else {
             SharedString::default()
         };
@@ -761,7 +761,7 @@ pub fn refresh_usage(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
         let pace: SharedString = logic::pace_note(b.daily_average).into();
         let models: Vec<ModelRow> = u.models.iter().map(model_row).collect();
         let models_empty: SharedString = if models.is_empty() {
-            "No model calls this month.".into()
+            "No model calls this month. Calls appear here after Heron answers you.".into()
         } else {
             SharedString::default()
         };

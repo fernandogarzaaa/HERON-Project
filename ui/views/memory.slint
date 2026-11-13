@@ -3,7 +3,7 @@
 // five views cannot share one file and still be driven from Rust.
 
 import { Button, ComboBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { Theme, MemoryRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, KindTag } from "common.slint";
+import { Theme, MemoryRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, KindTag, RowCard } from "common.slint";
 
 export component MemoryView inherits Rectangle {
     background: Theme.paper;
@@ -13,6 +13,7 @@ export component MemoryView inherits Rectangle {
     in-out property <string> new-kind: "fact";
     in property <[string]> kinds: ["About me", "Preference", "How I like things done", "Project", "Person", "Fact"];
     in property <string> empty-text: "";
+    in property <bool> reduce-motion: false;
     callback add-memory(string, string);
     callback delete-memory(int);
     callback confirm-memory(int);
@@ -53,11 +54,8 @@ export component MemoryView inherits Rectangle {
                 edited(text) => { root.search-changed(text); }
             }
             EmptyNote { body: root.empty-text; visible: root.empty-text != ""; }
-            for row in root.rows: Rectangle {
-                background: Theme.surface;
-                border-color: Theme.line;
-                border-width: 1px;
-                border-radius: 8px;
+            for row in root.rows: RowCard {
+                reduce-motion: root.reduce-motion;
                 VerticalBox {
                     width: parent.width;
                     padding: 10px;

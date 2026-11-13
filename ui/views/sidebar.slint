@@ -8,6 +8,7 @@ import { Theme, SessionRow, Spacer } from "common.slint";
 export component Sidebar inherits Rectangle {
     background: Theme.paper;
     in property <string> current-view: "chat";
+    in property <bool> reduce-motion: false;
     in property <int> unread-count: 0;
     in property <int> suggestions-count: 0;
     in property <int> waiting-count: 0;

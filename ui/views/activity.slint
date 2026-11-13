@@ -3,7 +3,7 @@
 // cannot share one file and still be driven from Rust.
 
 import { ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { Theme, AuditRow, SectionTitle, SectionIntro, EmptyNote } from "common.slint";
+import { Theme, AuditRow, SectionTitle, SectionIntro, EmptyNote, RowCard } from "common.slint";
 
 export component ActivityView inherits Rectangle {
     background: Theme.paper;
@@ -11,6 +11,7 @@ export component ActivityView inherits Rectangle {
     in property <string> seal-text: "";
     in property <bool> seal-danger: false;
     in property <string> empty-text: "";
+    in property <bool> reduce-motion: false;
 
     ScrollView {
         width: parent.width;
@@ -37,11 +38,8 @@ export component ActivityView inherits Rectangle {
                 Text { text: "Details"; font-size: 13px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; }
                 Text { text: "Outcome"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 130px; }
             }
-            for row in root.rows: Rectangle {
-                background: Theme.surface;
-                border-color: Theme.line;
-                border-width: 1px;
-                border-radius: 8px;
+            for row in root.rows: RowCard {
+                reduce-motion: root.reduce-motion;
                 HorizontalBox {
                     width: parent.width;
                     padding: 10px;

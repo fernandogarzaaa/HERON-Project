@@ -3,11 +3,12 @@
 // five views cannot share one file and still be driven from Rust.
 
 import { Button, CheckBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { Theme, SuggestionRow, SimpleRow, MemoryRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer } from "common.slint";
+import { Theme, SuggestionRow, SimpleRow, MemoryRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
 
 export component AwarenessView inherits Rectangle {
     background: Theme.paper;
     in property <bool> paused: false;
+    in property <bool> reduce-motion: false;
     in property <bool> watching: false;
     in property <bool> reflecting: false;
     in property <string> workspace: "";
@@ -97,11 +98,8 @@ export component AwarenessView inherits Rectangle {
                 color: Theme.ink;
             }
             EmptyNote { body: root.suggestions-empty-text; visible: root.suggestions-empty-text != ""; }
-            for s in root.suggestions: Rectangle {
-                background: Theme.surface;
-                border-color: Theme.line;
-                border-width: 1px;
-                border-radius: 8px;
+            for s in root.suggestions: RowCard {
+                reduce-motion: root.reduce-motion;
                 VerticalBox {
                     width: parent.width;
                     padding: 12px;
@@ -167,11 +165,8 @@ export component AwarenessView inherits Rectangle {
                 color: Theme.ink;
             }
             EmptyNote { body: root.insights-empty-text; visible: root.insights-empty-text != ""; }
-            for row in root.insights: Rectangle {
-                background: Theme.surface;
-                border-color: Theme.line;
-                border-width: 1px;
-                border-radius: 8px;
+            for row in root.insights: RowCard {
+                reduce-motion: root.reduce-motion;
                 HorizontalBox {
                     width: parent.width;
                     padding: 10px;

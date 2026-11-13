@@ -10,7 +10,7 @@
 // share, mirroring the web UI's classes.
 
 import { Button, CheckBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { Theme, UsageDayRow, ModelRow, SimpleRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer } from "common.slint";
+import { Theme, UsageDayRow, ModelRow, SimpleRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
 
 export component UsageTile inherits Rectangle {
     in property <string> title;
@@ -46,6 +46,7 @@ export component UsageTile inherits Rectangle {
 export component UsageView inherits Rectangle {
     background: Theme.paper;
     in property <string> level-note: "";
+    in property <bool> reduce-motion: false;
     in property <string> today-big: "";
     in property <string> today-small: "";
     in property <float> today-frac: -1;
@@ -149,11 +150,8 @@ export component UsageView inherits Rectangle {
                 Text { text: "Written by it"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 110px; }
                 Text { text: "Calls"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 70px; }
             }
-            for row in root.models: Rectangle {
-                background: Theme.surface;
-                border-color: Theme.line;
-                border-width: 1px;
-                border-radius: 8px;
+            for row in root.models: RowCard {
+                reduce-motion: root.reduce-motion;
                 HorizontalBox {
                     width: parent.width;
                     padding: 10px;

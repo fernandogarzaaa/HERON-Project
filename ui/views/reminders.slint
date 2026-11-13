@@ -3,7 +3,7 @@
 // five views cannot share one file and still be driven from Rust.
 
 import { Button, CheckBox, ComboBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { Theme, ScheduleRow, RunStepRow, InboxRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer } from "common.slint";
+import { Theme, ScheduleRow, RunStepRow, InboxRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
 
 export component RemindersView inherits Rectangle {
     background: Theme.paper;
@@ -12,6 +12,7 @@ export component RemindersView inherits Rectangle {
     in property <string> schedules-empty-text: "";
     in property <string> delivered-empty-text: "";
     in property <string> form-error: "";
+    in property <bool> reduce-motion: false;
     in-out property <string> new-what: "";
     in-out property <string> new-when: "";
     in-out property <string> new-may: "read";
@@ -111,11 +112,8 @@ export component RemindersView inherits Rectangle {
                 color: Theme.ink;
             }
             EmptyNote { body: root.schedules-empty-text; visible: root.schedules-empty-text != ""; }
-            for row in root.schedules: Rectangle {
-                background: Theme.surface;
-                border-color: Theme.line;
-                border-width: 1px;
-                border-radius: 8px;
+            for row in root.schedules: RowCard {
+                reduce-motion: root.reduce-motion;
                 VerticalBox {
                     width: parent.width;
                     padding: 10px;
@@ -183,11 +181,8 @@ export component RemindersView inherits Rectangle {
                 color: Theme.ink;
             }
             EmptyNote { body: root.delivered-empty-text; visible: root.delivered-empty-text != ""; }
-            for item in root.delivered: Rectangle {
-                background: Theme.surface;
-                border-color: Theme.line;
-                border-width: 1px;
-                border-radius: 8px;
+            for item in root.delivered: RowCard {
+                reduce-motion: root.reduce-motion;
                 VerticalBox {
                     width: parent.width;
                     padding: 10px;
