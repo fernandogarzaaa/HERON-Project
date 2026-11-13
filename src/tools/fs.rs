@@ -39,14 +39,17 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let tmp = dir.join(format!(".{name}.heron-{}-{}", std::process::id(), uuid::Uuid::new_v4().simple()));
+    // The file being replaced decides who may read the new one, from the first byte: a private file's
+    // new content must never sit beside it readable by others, even for a moment.
+    let like = std::fs::metadata(path).ok().map(|m| m.permissions());
     let done = (|| -> Result<()> {
-        let mut f = std::fs::File::create(&tmp)?;
+        let mut f = create_new_like(&tmp, like.as_ref())?;
         f.write_all(bytes)?;
         f.sync_all()?;
         drop(f);
-        // Keep the file's permissions (an executable script stays executable).
-        if let Ok(meta) = std::fs::metadata(path) {
-            let _ = std::fs::set_permissions(&tmp, meta.permissions());
+        // Keep the file's permissions exactly (an executable script stays executable).
+        if let Some(perms) = like.clone() {
+            let _ = std::fs::set_permissions(&tmp, perms);
         }
         std::fs::rename(&tmp, path)?;
         Ok(())
@@ -55,6 +58,48 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         let _ = std::fs::remove_file(&tmp);
     }
     done.with_context(|| format!("cannot write {}", path.display()))
+}
+
+/// Create a file that must not exist yet, readable by no more people than `like` allows. Without
+/// `like` the system's usual default applies. Fails if something is already there.
+fn create_new_like(path: &Path, like: Option<&std::fs::Permissions>) -> std::io::Result<std::fs::File> {
+    let mut open = std::fs::OpenOptions::new();
+    open.write(true).create_new(true);
+    #[cfg(unix)]
+    if let Some(perms) = like {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        open.mode(perms.mode() & 0o777);
+    }
+    #[cfg(not(unix))]
+    let _ = like;
+    open.open(path)
+}
+
+/// Save `bytes` beside `original` under a name nothing else has, with the original's permissions, and
+/// return that name. An earlier saved copy is never replaced: if the name is taken, the next is tried.
+fn save_copy_beside(original: &Path, bytes: &[u8]) -> Result<String> {
+    use std::io::Write;
+    let like = std::fs::metadata(original).ok().map(|m| m.permissions());
+    let stem = format!("{}.before-undo-{}", original.display(), crate::util::now_ts());
+    for n in 1..=1000 {
+        let name = if n == 1 { stem.clone() } else { format!("{stem}-{n}") };
+        let mut f = match create_new_like(Path::new(&name), like.as_ref()) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e).with_context(|| format!("cannot keep a copy as {name}")),
+        };
+        let written = f.write_all(bytes).and_then(|_| f.sync_all());
+        drop(f);
+        if let Err(e) = written {
+            let _ = std::fs::remove_file(&name);
+            return Err(e).with_context(|| format!("cannot keep a copy as {name}"));
+        }
+        if let Some(perms) = like {
+            let _ = std::fs::set_permissions(&name, perms);
+        }
+        return Ok(name);
+    }
+    bail!("cannot keep a copy of {}: too many saved copies with the same name", original.display())
 }
 
 /// Change a file so that the change can be undone: keep what was there, write the new content in one
@@ -109,8 +154,7 @@ pub fn undo(ctx: &ToolCtx, force: bool) -> Result<Undo> {
                 }));
             }
             (Some(bytes), _, true) => {
-                let copy = format!("{path}.before-undo-{}", crate::util::now_ts());
-                write_atomic(Path::new(&copy), bytes)?;
+                let copy = save_copy_beside(file, bytes)?;
                 kept = format!(" The version that was there is kept as {copy}.");
             }
             (None, Some(_), true) => {}
@@ -456,6 +500,56 @@ mod undo_tests {
         std::fs::remove_file(&file).unwrap();
         assert!(matches!(undo(&c, false).unwrap(), Undo::Conflict(why) if why.contains("removed or moved")));
         assert!(!file.exists());
+    }
+
+    #[tokio::test]
+    async fn forced_undo_never_replaces_an_earlier_saved_copy_or_loosens_who_can_read_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = ctx(dir.path());
+        let file = c.workspace.join("plan.md");
+        std::fs::write(&file, "original").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+
+        // Two of Heron's edits, each followed by one of the user's, then two forced restores straight
+        // after each other (well inside one second, so both copies would want the same name).
+        write_file(&json!({"path": "plan.md", "content": "Heron 1"}), &c).await.unwrap();
+        std::fs::write(&file, "the user's first edit").unwrap();
+        write_file(&json!({"path": "plan.md", "content": "Heron 2"}), &c).await.unwrap();
+        std::fs::write(&file, "the user's second edit").unwrap();
+        assert!(matches!(undo(&c, true).unwrap(), Undo::Done(_)));
+        // Restoring put "the user's first edit" back, which is what the earlier checkpoint expects to
+        // find changed: Heron left "Heron 1" there.
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "the user's first edit");
+        assert!(matches!(undo(&c, true).unwrap(), Undo::Done(_)));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "original");
+
+        let mut kept: Vec<String> = std::fs::read_dir(&c.workspace)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with("plan.md.before-undo-"))
+            .map(|e| std::fs::read_to_string(e.path()).unwrap())
+            .collect();
+        kept.sort();
+        assert_eq!(kept, ["the user's first edit", "the user's second edit"], "both versions survive");
+
+        // A private file stays private, and so do the copies saved from it.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for entry in std::fs::read_dir(&c.workspace).unwrap().filter_map(|e| e.ok()) {
+                let mode = entry.metadata().unwrap().permissions().mode() & 0o777;
+                assert_eq!(mode, 0o600, "{} is readable by others", entry.path().display());
+            }
+        }
+
+        // The helper itself refuses to write over anything.
+        std::fs::write(c.workspace.join("taken"), "do not replace").unwrap();
+        assert!(create_new_like(&c.workspace.join("taken"), None).is_err());
+        assert_eq!(std::fs::read_to_string(c.workspace.join("taken")).unwrap(), "do not replace");
     }
 
     #[tokio::test]

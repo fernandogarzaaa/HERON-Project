@@ -11,11 +11,11 @@ exactly what is.
 | Audited `main` | `8ecd2fa3e78f36a734eadda913ed68244002b242` |
 | PR #1 (v0.1.0 beta) | Merged into `main` |
 | PR #2 `heron-v0.1-beta` | Merged into `main` by the owner on 13 November 2026 (merge commit `5b1bdf2`), at head `9293554` with CI green and the review findings addressed |
-| PR #4 `security/effect-model` | Open, draft, now targeting `main`. Holds the permission redesign and the owner's approval of D-2 and D-3. See the pull request for the head and its CI status |
-| PR #5 `durability/undo-jobs-env` | Open, draft, stacked on PR #4. Undo conflict detection, atomic job claims, environment allowlist for commands |
+| PR #4 `security/effect-model` | Merged into `main` by the owner on 13 November 2026. Holds the permission redesign and the owner's approval of D-2 and D-3 |
+| PR #5 `durability/undo-jobs-env` | Open, marked ready for review by the owner. Undo conflict detection, atomic job claims, environment allowlist for commands, and the three findings from its automated review. Its base is still the already-merged `security/effect-model` branch and needs changing to `main` |
 | PR #3 `feat/cli-providers` | Open, not a draft, opened by the repository owner outside this session, targets `main`. Head `f189aaa`. Its CI fails on the Windows and macOS test jobs. It changes `config.rs`, `llm.rs`, `main.rs`, `server.rs`, `assets/index.html` and the README, all of which PR #2 and PR #4 also change, so it will need reconciling with them. Not touched by this session |
 
-Nothing in this session was merged, force-pushed or released.
+PR #1 was merged by this session at the owner's request; PR #2 and PR #4 were merged by the owner. Nothing was force-pushed, and no release was created by this session (the owner published v0.1.0).
 
 ## 2. Remediation matrix
 
@@ -54,7 +54,7 @@ The full matrix is REMEDIATION_MATRIX.md. Summary by status:
 
 ## 4. Correctness and performance evidence
 
-- Tests: 105 unit and 8 integration pass locally (Linux 6.18 x86_64, rustc 1.97.0), including
+- Tests: 106 unit and 8 integration pass locally (Linux 6.18 x86_64, rustc 1.97.0), including
   the real-browser test against Chromium. Windows type-check passes from Linux.
 - Hosted CI: green on PR #2's head. For the permission branch see its pull request; a local
   pass is not a hosted pass.

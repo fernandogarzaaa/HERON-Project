@@ -50,7 +50,7 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
         // read (or send away) every token and key that happens to be in the user's environment.
         cmd.env_clear();
         for (name, value) in std::env::vars_os() {
-            if env_allowed(&name.to_string_lossy(), &value.to_string_lossy(), &ctx.cfg.agent.shell_env) {
+            if env_allowed(&name.to_string_lossy(), &value.to_string_lossy(), &ctx.cfg.agent.shell_env, &ctx.cfg.llm.api_key_env) {
                 cmd.env(name, value);
             }
         }
@@ -138,10 +138,11 @@ const ENV_ALLOWED: &[&str] = &[
 const ENV_PROXY: &[&str] = &["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"];
 
 /// May a command see this variable? Names are compared without regard to case (Windows does not
-/// distinguish it). The model's own key is never passed, whatever the user's list says.
-fn env_allowed(name: &str, value: &str, extra: &[String]) -> bool {
+/// distinguish it). The model's own key is never passed, whatever the user's list says: neither
+/// Heron's own variables nor the variable the settings name as holding the key (`model_key`).
+fn env_allowed(name: &str, value: &str, extra: &[String], model_key: &str) -> bool {
     let upper = name.to_uppercase();
-    if upper == "HERON_API_KEY" || upper.starts_with("HERON_") {
+    if upper.starts_with("HERON_") || (!model_key.is_empty() && name.eq_ignore_ascii_case(model_key)) {
         return false;
     }
     if ENV_ALLOWED.contains(&upper.as_str()) || upper.starts_with("LC_") {
@@ -201,10 +202,10 @@ mod tests {
         let ws = tempfile::tempdir().unwrap();
         let mut cfg = Config::default();
         cfg.agent.sandbox = "off".into();
-        cfg.llm.api_key_env = "HERON_TEST_MODEL_KEY".into();
+        cfg.llm.api_key_env = "TEST_MODEL_KEY_OF_HERON".into();
         // What a real environment looks like: the model's key, a cloud key, a token, a proxy with a password.
         for (k, v) in [
-            ("HERON_TEST_MODEL_KEY", "sk-model-secret"), ("AWS_SECRET_ACCESS_KEY", "aws-secret"), ("GITHUB_TOKEN", "ghp_secret"), ("HERON_TEST_WANTED", "needed-by-the-build"),
+            ("TEST_MODEL_KEY_OF_HERON", "sk-model-secret"), ("AWS_SECRET_ACCESS_KEY", "aws-secret"), ("GITHUB_TOKEN", "ghp_secret"), ("HERON_TEST_WANTED", "needed-by-the-build"),
             ("HERON_TEST_PROXY_PROBE", "x"),
         ] {
             std::env::set_var(k, v);
@@ -219,19 +220,23 @@ mod tests {
         assert!(run(&json!({"command": "ls / > /dev/null && echo fine"}), &ctx).await.unwrap().contains("fine"));
 
         // The user can hand over a variable by name; the model's own key stays out regardless.
-        cfg.agent.shell_env = vec!["GITHUB_TOKEN".into(), "HERON_API_KEY".into()];
+        cfg.agent.shell_env = vec!["GITHUB_TOKEN".into(), "HERON_API_KEY".into(), "test_model_key_of_heron".into()];
         std::env::set_var("HERON_API_KEY", "sk-heron-secret");
         let seen = run(&json!({"command": "env"}), &ToolCtx { cfg: Arc::new(cfg), ..ctx.clone() }).await.unwrap();
         std::env::remove_var("HERON_API_KEY");
         assert!(seen.contains("ghp_secret"), "{seen}");
         assert!(!seen.contains("sk-heron-secret") && !seen.contains("aws-secret"));
+        assert!(!seen.contains("sk-model-secret"), "listing the variable that holds the model's key does not hand it over");
 
         // The rule itself, including a proxy address that carries a password.
-        assert!(env_allowed("Path", "x", &[]) && env_allowed("LC_ALL", "C", &[]) && env_allowed("SSL_CERT_FILE", "/x", &[]));
-        assert!(env_allowed("HTTPS_PROXY", "http://proxy.example:8080", &[]));
-        assert!(!env_allowed("HTTPS_PROXY", "http://user:pw@proxy.example:8080", &[]));
+        assert!(env_allowed("Path", "x", &[], "") && env_allowed("LC_ALL", "C", &[], "") && env_allowed("SSL_CERT_FILE", "/x", &[], ""));
+        assert!(env_allowed("HTTPS_PROXY", "http://proxy.example:8080", &[], ""));
+        assert!(!env_allowed("HTTPS_PROXY", "http://user:pw@proxy.example:8080", &[], ""));
+        let listed = ["OPENROUTER_API_KEY".to_string()];
+        assert!(env_allowed("OPENROUTER_API_KEY", "x", &listed, "SOME_OTHER_KEY"), "a listed variable that is not the model's key is passed");
+        assert!(!env_allowed("OPENROUTER_API_KEY", "x", &listed, "OPENROUTER_API_KEY"), "the model's key is not, even when listed");
         for hidden in ["OPENAI_API_KEY", "OPENROUTER_API_KEY", "AWS_SESSION_TOKEN", "SSH_AUTH_SOCK", "NPM_TOKEN", "DATABASE_URL", "HERON_HOME"] {
-            assert!(!env_allowed(hidden, "x", &[]), "{hidden}");
+            assert!(!env_allowed(hidden, "x", &[], ""), "{hidden}");
         }
     }
 
