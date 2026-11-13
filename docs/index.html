@@ -163,9 +163,11 @@
   .rise-5 { animation-delay: 0.45s; }
   @keyframes rise { to { opacity: 1; transform: translateY(0); } }
 
-  /* Scroll reveal, only where it means something (the install steps, in order) */
-  .reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
-  .reveal.in { opacity: 1; transform: translateY(0); }
+  /* Scroll reveal, only where it means something (the install steps, in order).
+     The hidden state only applies once JavaScript has initialized (the script adds
+     a `js` class to the root), so the steps stay visible with JavaScript off. */
+  .js .reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+  .js .reveal.in { opacity: 1; transform: translateY(0); }
 
   @media (max-width: 720px) {
     .hero { padding: 64px 0 56px; }
@@ -178,7 +180,7 @@
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     .rise { opacity: 1; transform: none; animation: none; }
-    .reveal { opacity: 1; transform: none; transition: none; }
+    .js .reveal { opacity: 1; transform: none; transition: none; }
     .status .pulse { animation: none; }
     .btn, .dl, .dl .go, .btn-primary .arrow { transition: none; }
   }
@@ -304,6 +306,10 @@ cargo run --release --bin heron</code></pre>
 
 <script>
 (function () {
+  // Mark the page as scripted, so the scroll-reveal hidden state applies.
+  // Without this, the install steps stay visible by default (see the .js .reveal rule).
+  document.documentElement.classList.add("js");
+
   var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Mark the download card for this computer, so the choice is made for you.
