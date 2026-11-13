@@ -13,11 +13,12 @@ when no outside content is present. Reason: with nothing but the user's own word
 conversation there is no injected instruction to obey, and asking before every search would make
 the product unusable. After outside content, every model-composed transmission asks, in every
 mode. This is narrower than "approve all egress" and is recorded as a risk acceptance (see T2 in
-the threat model, which weakens the "clean" assumption).
+the threat model, which weakens the "clean" assumption). Approved by the owner, 2026-11-13.
 
 **D-3. The app's own buttons are not subject to the permission mode.** Adding a memory or a
 reminder from the app is the user acting directly. The mode governs what the agent may do, and
-what other programs may do through MCP. The cost is T9 in the threat model.
+what other programs may do through MCP. The cost is T9 in the threat model. Approved by the
+owner, 2026-11-13.
 
 **D-4. Addresses from tool output are never "the user's".** Stricter than the previous build,
 which let any address that had appeared in the conversation be fetched. Consequence: after a
