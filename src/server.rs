@@ -209,9 +209,13 @@ async fn get_settings(State(st): S) -> ApiResult {
     } else {
         "none"
     };
+    let providers: Vec<Value> = crate::cli_llm::providers().iter().map(|s| json!({"id": s.id, "name": s.display_name, "auth": s.auth_kind, "cost": s.cost_note, "login": s.login_command, "experimental": s.experimental})).collect();
     Ok(Json(json!({
         "name": cfg.agent.name, "base_url": cfg.llm.base_url, "model": cfg.llm.model, "fast_model": cfg.llm.fast_model,
         "fallback_models": cfg.llm.fallback_models.join(", "), "key_source": key_source,
+        "provider": cfg.llm.provider, "cli_command": cfg.llm.cli_command, "cli_model": cfg.llm.cli_model,
+        "cli_config_dir": cfg.llm.cli_config_dir, "cli_allow_agent_tools": cfg.llm.cli_allow_agent_tools,
+        "cli_allow_api_key": cfg.llm.cli_allow_api_key, "providers": providers,
         "mode": st.app.policy.mode().name(), "daemon_mode": cfg.permissions.daemon_mode, "auto_memory": cfg.agent.auto_memory,
         "neural_memory": cfg.agent.neural_memory, "neural_available": crate::embed::neural_built_in(),
         "browser": crate::browser::find(&cfg).map(|p| p.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()), "browser_visible": cfg.agent.browser_visible,
@@ -244,6 +248,29 @@ async fn set_settings(State(st): S, Json(body): Json<Value>) -> ApiResult {
     }
     if let Some(v) = text("fallback_models") {
         cfg.llm.fallback_models = v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    }
+    if let Some(v) = text("provider") {
+        if v != "http" && crate::cli_llm::spec_for(&v).is_none() {
+            return Err(bad(
+                "Unknown provider. Pick \"http\" or one of the ids listed by `heron providers`.",
+            ));
+        }
+        cfg.llm.provider = v;
+    }
+    if let Some(v) = text("cli_command") {
+        cfg.llm.cli_command = v;
+    }
+    if let Some(v) = text("cli_model") {
+        cfg.llm.cli_model = v;
+    }
+    if let Some(v) = text("cli_config_dir") {
+        cfg.llm.cli_config_dir = v;
+    }
+    if let Some(v) = body.get("cli_allow_agent_tools").and_then(|v| v.as_bool()) {
+        cfg.llm.cli_allow_agent_tools = v;
+    }
+    if let Some(v) = body.get("cli_allow_api_key").and_then(|v| v.as_bool()) {
+        cfg.llm.cli_allow_api_key = v;
     }
     if let Some(v) = text("daemon_mode") {
         Mode::parse(&v)?;
