@@ -353,46 +353,6 @@ fn now_ts() -> i64 {
     chrono::Local::now().timestamp()
 }
 
-fn window_weak(ctrl: &Arc<ViewsController>) -> Option<Weak<MainWindow>> {
-    ctrl.window.lock().unwrap().clone()
-}
-
-// ---------- sidebar ----------
-
-/// Reload the sidebar badges, footer, and session list through the Window.
-pub fn refresh_sidebar(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
-    let ctrl = ctrl.clone();
-    let rt = ctrl.rt.clone();
-    rt.spawn(async move {
-        let (state_res, sessions_res) =
-            tokio::join!(ctrl.bridge.get_state(), ctrl.bridge.list_sessions());
-        let Ok(state) = state_res else { return };
-        let Ok(sessions) = sessions_res else { return };
-        let (unread, suggestions, waiting) = {
-            let mut st = ctrl.state.lock().unwrap();
-            st.state = Some(state.clone());
-            st.sessions = sessions.clone();
-            st.badges()
-        };
-        let footer = logic::sidebar_footer(&state);
-        let current = ctrl.state.lock().unwrap().current_session.clone();
-        let rows: Vec<SessionRow> = sessions
-            .iter()
-            .filter(|s| s.messages > 0)
-            .map(|s| session_row(s, current.as_deref()))
-            .collect();
-        let _ = slint::invoke_from_event_loop(move || {
-            if let Some(window) = ui.upgrade() {
-                window.set_sidebar_unread_count(saturating_u32(unread));
-                window.set_sidebar_suggestions_count(saturating_u32(suggestions));
-                window.set_sidebar_waiting_count(saturating_u32(waiting));
-                window.set_sidebar_footer_text(footer.into());
-                window.set_sidebar_sessions(model_of(rows));
-            }
-        });
-    });
-}
-
 // ---------- memory ----------
 
 /// Reload the Memory list from the bridge and post it to the Window.
@@ -1271,9 +1231,12 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
                     .map(|s| s.status.clone())
                     .unwrap_or_default()
             };
-            let (server_action, should_execute) =
-                logic::suggestion_action(&action, &status);
-            match ctrl.bridge.answer_suggestion(id as i64, server_action).await {
+            let (server_action, should_execute) = logic::suggestion_action(&action, &status);
+            match ctrl
+                .bridge
+                .answer_suggestion(id as i64, server_action)
+                .await
+            {
                 Ok((prompt, session_id)) => {
                     if should_execute {
                         (ctrl.on_accept_suggestion)(prompt, session_id);

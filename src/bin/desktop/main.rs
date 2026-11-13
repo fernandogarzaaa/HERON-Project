@@ -12,6 +12,8 @@ mod bridge;
 mod models;
 mod sse;
 mod ui_state;
+mod views_bridge;
+mod views_slint;
 
 use bridge::{Bridge, ChatEvent, HeronClient, UndoOutcome};
 use heron::app::App;
@@ -21,6 +23,8 @@ use models::begin_send;
 use slint::{ModelRc, SharedString, VecModel};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
+use views_bridge::HeronViewsBridge;
+use views_slint::{bind_window, ViewsController};
 
 slint::include_modules!();
 
@@ -514,6 +518,153 @@ fn main() {
             window.on_open_settings(move || {
                 if let Some(window) = weak.upgrade() {
                     window.set_current_view(SharedString::from("settings"));
+                }
+            });
+        }
+
+        // Views: sidebar, Memory, Tasks, Reminders, Awareness, Usage,
+        // Activity. The controller owns the Views lane's glue
+        // (src/bin/desktop/views_slint.rs) and the HTTP bridge behind it.
+        // The four Shell closures run on tokio tasks, never on the UI
+        // thread, so each one posts back through upgrade_in_event_loop.
+        // The controller slot breaks the circle: the closures need the
+        // controller (to mark the current session), and the controller is
+        // built from the closures.
+        let ctrl_slot: Arc<Mutex<Option<Arc<ViewsController>>>> = Arc::new(Mutex::new(None));
+        let on_accept_suggestion = {
+            let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            let slot = ctrl_slot.clone();
+            Arc::new(move |prompt: String, session_id: Option<String>| {
+                let client = bridge.client().clone();
+                let bridge_task = bridge.clone();
+                let chat_task = chat.clone();
+                let weak_task = weak.clone();
+                let slot_task = slot.clone();
+                bridge.spawn(async move {
+                    // A session id means the server started one for this
+                    // suggestion. Load its history first, so the new turn
+                    // does not append to another session's thread.
+                    let detail = match &session_id {
+                        Some(id) => client.get_session(id).await.ok(),
+                        None => None,
+                    };
+                    let _ = weak_task.upgrade_in_event_loop(move |window| {
+                        {
+                            let mut chat = chat_task.lock().unwrap();
+                            match detail {
+                                Some(detail) => models::open_history(&window, &mut chat, &detail),
+                                None => {
+                                    if let Some(id) = &session_id {
+                                        chat.session_id = Some(id.clone());
+                                    }
+                                }
+                            }
+                        }
+                        window.set_current_view(SharedString::from("chat"));
+                        if let Some(ctrl) = slot_task.lock().unwrap().as_ref() {
+                            ctrl.set_current_session(session_id.clone());
+                        }
+                        send_message(&window, &chat_task, &bridge_task, &prompt, session_id);
+                    });
+                });
+            }) as Arc<dyn Fn(String, Option<String>) + Send + Sync>
+        };
+        let on_open_session = {
+            let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            let slot = ctrl_slot.clone();
+            Arc::new(move |id: String| {
+                let client = bridge.client().clone();
+                let chat_task = chat.clone();
+                let weak_task = weak.clone();
+                let slot_task = slot.clone();
+                bridge.spawn(async move {
+                    let detail = client.get_session(&id).await.ok();
+                    let _ = weak_task.upgrade_in_event_loop(move |window| {
+                        // Do not switch away while a reply is running:
+                        // the web UI refuses the same way.
+                        if chat_task.lock().unwrap().busy {
+                            return;
+                        }
+                        let Some(detail) = detail else { return };
+                        {
+                            let mut chat = chat_task.lock().unwrap();
+                            models::open_history(&window, &mut chat, &detail);
+                        }
+                        window.set_current_view(SharedString::from("chat"));
+                        if let Some(ctrl) = slot_task.lock().unwrap().as_ref() {
+                            ctrl.set_current_session(Some(id));
+                        }
+                    });
+                });
+            }) as Arc<dyn Fn(String) + Send + Sync>
+        };
+        let on_navigate = {
+            let weak = window.as_weak();
+            Arc::new(move |view: String| {
+                let weak = weak.clone();
+                let _ = weak.upgrade_in_event_loop(move |window| {
+                    window.set_current_view(SharedString::from(view));
+                });
+            }) as Arc<dyn Fn(String) + Send + Sync>
+        };
+        let on_new_conversation = {
+            let bridge = bridge.clone();
+            let chat = chat.clone();
+            let weak = window.as_weak();
+            let slot = ctrl_slot.clone();
+            Arc::new(move || {
+                let bridge = bridge.clone();
+                let chat = chat.clone();
+                let slot = slot.clone();
+                let weak = weak.clone();
+                let _ = weak.upgrade_in_event_loop(move |window| {
+                    start_new_conversation(&window, &chat, &bridge);
+                    window.set_current_view(SharedString::from("chat"));
+                    if let Some(ctrl) = slot.lock().unwrap().as_ref() {
+                        ctrl.set_current_session(None);
+                    }
+                });
+            }) as Arc<dyn Fn() + Send + Sync>
+        };
+        let views_bridge: Arc<dyn heron::ui::views::ViewsBridge> =
+            Arc::new(HeronViewsBridge::new(bridge.client().clone()));
+        let ctrl = ViewsController::new(
+            views_bridge,
+            bridge.handle(),
+            on_accept_suggestion,
+            on_open_session,
+            on_navigate,
+            on_new_conversation,
+        );
+        *ctrl_slot.lock().unwrap() = Some(ctrl.clone());
+        bind_window(&window, &ctrl);
+
+        // Sidebar refresh every 30 seconds: the tick syncs the window's
+        // current session into the controller, so the sidebar highlights
+        // the conversation the chat is actually in (including one the
+        // Chat lane just created), and the controller reloads the badges,
+        // footer, and session list with it.
+        {
+            let weak = window.as_weak();
+            let ctrl_tick = ctrl.clone();
+            let bridge_tick = bridge.clone();
+            bridge_tick.spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+                loop {
+                    interval.tick().await;
+                    let ctrl = ctrl_tick.clone();
+                    let weak = weak.clone();
+                    let posted = weak.upgrade_in_event_loop(move |window| {
+                        let id = current_session_id(&window);
+                        ctrl.set_current_session(id);
+                    });
+                    if posted.is_err() {
+                        break;
+                    }
                 }
             });
         }

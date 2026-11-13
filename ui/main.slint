@@ -1,95 +1,29 @@
-// Heron native shell. Phase 0: the window, the rail, the view switcher, and
-// the chat view the Chat lane builds on. Later lanes fill the other views
-// beside the chat; they share the MainWindow properties and the bridge
-// contract in docs/slint-bridge.md.
+// Heron native shell. The window, the sidebar, the view switcher, and
+// the chat view. The Views lane fills the other views beside the chat;
+// they share the MainWindow properties and the bridge contract in
+// docs/slint-bridge.md.
 //
 // Design bar (Inan, 2026-11-13): "make it beautiful, more interactive, more
 // intuitive to use." The shell carries it: Heron's dark palette as the
 // Theme global (ui/components/theme.slint, copied from the Setup lane's
 // worktree with one word added: `export`, which Slint requires for a global
 // another file imports; the integration keeps one copy), serif headings,
-// animated feedback on every interactive element, and a rail that makes the
-// next action obvious. Animation budget: 150ms for rail feedback, 180ms for
+// animated feedback on every interactive element, and a sidebar that makes the
+// next action obvious. Animation budget: 150ms for sidebar feedback, 180ms for
 // view fades, 0ms when reduce-motion is on. See docs/slint-bridge.md.
 
 import { AboutSlint, StandardButton } from "std-widgets.slint";
 import { Theme } from "components/theme.slint";
 import { ChatMsg } from "components/message.slint";
 import { ChatView } from "views/chat.slint";
-
-// One rail item: label, optional count badge, current-view indicator.
-// Hover and press fade the background; focus draws a talon ring; Enter or
-// Space activates it. The current view is unmistakable: slate-soft fill,
-// semibold label, and a slate bar on the left edge.
-component RailItem inherits Rectangle {
-    in property <string> item-view;
-    in property <string> label;
-    in property <string> badge: "";
-    in property <bool> current: false;
-    in property <bool> reduce-motion: false;
-    callback activated();
-
-    height: 34px;
-    border-radius: 6px;
-    border-width: focus.has-focus ? 2px : touch.has-hover ? 1px : 0px;
-    border-color: Theme.talon;
-    background: touch.pressed ? Theme.slate-soft : touch.has-hover ? Theme.slate-soft : transparent;
-    animate background { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
-
-    if current : Rectangle {
-        width: 3px;
-        height: parent.height;
-        background: Theme.slate;
-        border-radius: 2px;
-    }
-
-    HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 10px;
-        spacing: 8px;
-        Text {
-            text: label;
-            color: Theme.ink;
-            font-weight: current ? 600 : 400;
-            vertical-alignment: center;
-            horizontal-stretch: 1;
-        }
-        if badge != "" : Rectangle {
-            background: Theme.talon;
-            border-radius: 9px;
-            HorizontalLayout {
-                padding-left: 7px;
-                padding-right: 7px;
-                Text {
-                    text: badge;
-                    // Dark text on the bright talon badge, mirroring the web
-                    // UI .count rule (talon background, near-black text).
-                    color: Theme.slate-ink;
-                    font-size: 12px;
-                    font-weight: 700;
-                    vertical-alignment: center;
-                }
-            }
-        }
-    }
-
-    focus := FocusScope {
-        key-pressed(event) => {
-            if (event.text == "\n" || event.text == " ") {
-                root.activated();
-                accept
-            } else {
-                reject
-            }
-        }
-    }
-    touch := TouchArea {
-        clicked => {
-            focus.focus();
-            root.activated();
-        }
-    }
-}
+import { Sidebar } from "views/sidebar.slint";
+import { MemoryView } from "views/memory.slint";
+import { TasksView } from "views/tasks.slint";
+import { RemindersView } from "views/reminders.slint";
+import { AwarenessView } from "views/awareness.slint";
+import { ActivityView } from "views/activity.slint";
+import { UsageView } from "views/usage.slint";
+import { SessionRow, MemoryRow, TaskRow, ScheduleRow, RunStepRow, InboxRow, SuggestionRow, SimpleRow, AuditRow, UsageDayRow, ModelRow } from "views/common.slint";
 
 // About dialog. A separate exported Dialog component: a Dialog nested in
 // MainWindow stays embedded in the parent window instead of opening a
@@ -165,15 +99,139 @@ export component MainWindow inherits Window {
     in-out property <[string]> starters: [];
     in-out property <int> thread-version: 0;
     // View switching. current-view is the active view id; the content area
-    // fades between views. Badges are strings set from Rust: empty means no
-    // badge, so the .slint side never formats a number.
+    // fades between views.
     in-out property <string> current-view: "chat";
-    in-out property <string> waiting-badge: "";
-    in-out property <string> unread-badge: "";
-    in-out property <string> suggestions-badge: "";
     // Reduced motion: animations run at 0ms while this is on. Default off.
     // Wiring it to the OS setting (or a Settings toggle) is still open.
     in-out property <bool> reduce-motion: false;
+
+    // Views lane (sidebar, Memory, Tasks, Reminders, Awareness, Usage,
+    // Activity). Forwarded properties and callbacks the glue in
+    // src/bin/desktop/views_slint.rs drives. Every property is in-out so
+    // the view and Rust share one value; two-way bindings (<=>) carry the
+    // form fields the user edits back to the window. The *-reduce-motion
+    // properties and sidebar-current-view are bound to the Shell's own
+    // reduce-motion and current-view: the glue never sets them, and the
+    // binding keeps the forwarded value live without a second source of
+    // truth. See docs/slint-views-bridge.md.
+    // Sidebar.
+    in-out property <bool> sidebar-reduce-motion: root.reduce-motion;
+    in-out property <string> sidebar-current-view: root.current-view;
+    in-out property <int> sidebar-unread-count: 0;
+    in-out property <int> sidebar-suggestions-count: 0;
+    in-out property <int> sidebar-waiting-count: 0;
+    in-out property <string> sidebar-footer-text: "";
+    in-out property <[SessionRow]> sidebar-sessions: [];
+    callback sidebar-navigate(string);
+    callback sidebar-open-session(string);
+    callback sidebar-new-conversation();
+    // Memory.
+    in-out property <bool> memory-reduce-motion: root.reduce-motion;
+    in-out property <[MemoryRow]> memory-rows: [];
+    in-out property <string> memory-search-text: "";
+    in-out property <string> memory-new-content: "";
+    in-out property <string> memory-new-kind: "";
+    in-out property <string> memory-empty-text: "";
+    callback memory-add-memory(string, string);
+    callback memory-delete-memory(int);
+    callback memory-confirm-memory(int);
+    callback memory-search-changed(string);
+    // Tasks.
+    in-out property <bool> tasks-reduce-motion: root.reduce-motion;
+    in-out property <[TaskRow]> tasks-rows: [];
+    in-out property <string> tasks-new-title: "";
+    in-out property <string> tasks-empty-text: "";
+    callback tasks-add-task(string);
+    callback tasks-set-task-done(int, bool);
+    callback tasks-delete-task(int);
+    // Reminders.
+    in-out property <bool> reminders-reduce-motion: root.reduce-motion;
+    in-out property <[ScheduleRow]> reminders-schedules: [];
+    in-out property <[InboxRow]> reminders-delivered: [];
+    in-out property <string> reminders-schedules-empty-text: "";
+    in-out property <string> reminders-delivered-empty-text: "";
+    in-out property <string> reminders-form-error: "";
+    in-out property <string> reminders-new-what: "";
+    in-out property <string> reminders-new-when: "";
+    in-out property <string> reminders-new-may: "read";
+    in-out property <int> reminders-new-may-index: 0;
+    in-out property <bool> reminders-new-quiet: false;
+    in-out property <[RunStepRow]> reminders-last-run-steps: [];
+    in-out property <string> reminders-last-run-title: "";
+    callback reminders-add-schedule(string, string, string, bool);
+    callback reminders-cancel-schedule(int);
+    callback reminders-run-schedule-now(int);
+    callback reminders-set-schedule-may(int, string);
+    callback reminders-show-last-run(int);
+    callback reminders-fill-daily-briefing();
+    callback reminders-fill-inbox-watch();
+    // Awareness.
+    in-out property <bool> awareness-reduce-motion: root.reduce-motion;
+    in-out property <bool> awareness-paused: false;
+    in-out property <bool> awareness-watching: false;
+    in-out property <bool> awareness-reflecting: false;
+    in-out property <string> awareness-workspace: "";
+    in-out property <string> awareness-proactive: "off";
+    in-out property <string> awareness-proactive-note: "";
+    in-out property <[SuggestionRow]> awareness-suggestions: [];
+    in-out property <string> awareness-suggestions-empty-text: "";
+    in-out property <[SimpleRow]> awareness-right-now: [];
+    in-out property <string> awareness-right-now-empty-text: "";
+    in-out property <[MemoryRow]> awareness-insights: [];
+    in-out property <string> awareness-insights-empty-text: "";
+    in-out property <[SimpleRow]> awareness-journal: [];
+    in-out property <string> awareness-journal-empty-text: "";
+    callback awareness-set-paused(bool);
+    callback awareness-set-watching(bool);
+    callback awareness-set-reflecting(bool);
+    callback awareness-set-proactive(string);
+    callback awareness-clear-observations();
+    callback awareness-forget-insight(int);
+    callback awareness-answer-suggestion(int, string);
+    callback awareness-open-suggestion-session(int);
+    // Activity.
+    in-out property <bool> activity-reduce-motion: root.reduce-motion;
+    in-out property <[AuditRow]> activity-rows: [];
+    in-out property <string> activity-seal-text: "";
+    in-out property <bool> activity-seal-danger: false;
+    in-out property <string> activity-empty-text: "";
+    // Usage.
+    in-out property <bool> usage-reduce-motion: root.reduce-motion;
+    in-out property <string> usage-level-note: "";
+    in-out property <string> usage-today-big: "";
+    in-out property <string> usage-today-small: "";
+    in-out property <float> usage-today-frac: -1;
+    in-out property <string> usage-today-state: "normal";
+    in-out property <string> usage-month-big: "";
+    in-out property <string> usage-month-small: "";
+    in-out property <float> usage-month-frac: -1;
+    in-out property <string> usage-month-state: "normal";
+    in-out property <string> usage-heading-big: "";
+    in-out property <string> usage-heading-small: "";
+    in-out property <bool> usage-provider-visible: false;
+    in-out property <string> usage-provider-title: "";
+    in-out property <string> usage-provider-big: "";
+    in-out property <string> usage-provider-small: "";
+    in-out property <float> usage-provider-frac: -1;
+    in-out property <string> usage-provider-state: "normal";
+    in-out property <[UsageDayRow]> usage-days: [];
+    in-out property <string> usage-pace-note: "";
+    in-out property <[ModelRow]> usage-models: [];
+    in-out property <string> usage-models-empty-text: "";
+    in-out property <bool> usage-models-note-visible: false;
+    in-out property <bool> usage-daily-visible: false;
+    in-out property <[SimpleRow]> usage-daily-rows: [];
+    in-out property <string> usage-day-limit: "";
+    in-out property <string> usage-month-limit: "";
+    in-out property <string> usage-bg-limit: "";
+    in-out property <string> usage-bg-note: "";
+    in-out property <string> usage-fast-model: "";
+    in-out property <string> usage-fast-note: "";
+    in-out property <string> usage-main-model: "";
+    in-out property <bool> usage-route-checked: false;
+    in-out property <string> usage-save-error: "";
+    in-out property <bool> usage-saved-visible: false;
+    callback usage-save-usage();
 
     callback send-message(string);
     callback new-session();
@@ -219,163 +277,38 @@ export component MainWindow inherits Window {
     }
 
     HorizontalLayout {
-        // Rail: brand, New conversation, views, status. New conversation is
-        // the first and loudest thing in it: full-width slate button.
-        rail := Rectangle {
+        // Sidebar: brand, New conversation, views, sessions, status. The
+        // Views lane's Sidebar replaces the Shell's Phase 0 rail; the glue
+        // in src/bin/desktop/views_slint.rs drives it through the
+        // forwarded sidebar-* properties and callbacks. The status line
+        // under the footer is the Shell's backend status.
+        Sidebar {
             width: 240px;
-            background: Theme.surface;
-            VerticalLayout {
-                padding-top: 18px;
-                padding-left: 12px;
-                padding-right: 12px;
-                padding-bottom: 12px;
-                spacing: 0px;
-
-                HorizontalLayout {
-                    padding-left: 8px;
-                    padding-bottom: 16px;
-                    Text {
-                        text: "Heron";
-                        font-family: Theme.heading-font;
-                        font-size: 21px;
-                        font-weight: 600;
-                        color: Theme.ink;
-                    }
-                }
-
-                new-btn := Rectangle {
-                    height: 38px;
-                    border-radius: 8px;
-                    background: new-touch.pressed ? Theme.slate-soft : Theme.slate;
-                    border-width: new-focus.has-focus ? 2px : 1px;
-                    border-color: new-touch.has-hover || new-focus.has-focus ? Theme.talon : transparent;
-                    animate background { duration: root.reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
-                    Text {
-                        text: "New conversation";
-                        color: new-touch.pressed ? Theme.slate : Theme.slate-ink;
-                        font-weight: 600;
-                        x: 12px;
-                        y: (parent.height - self.height) / 2;
-                    }
-                    new-focus := FocusScope {
-                        key-pressed(event) => {
-                            if (event.text == "\n" || event.text == " ") {
-                                root.new-session();
-                                accept
-                            } else {
-                                reject
-                            }
-                        }
-                    }
-                    new-touch := TouchArea {
-                        clicked => {
-                            new-focus.focus();
-                            root.new-session();
-                        }
-                    }
-                }
-
-                VerticalLayout {
-                    spacing: 1px;
-                    padding-top: 14px;
-                    padding-bottom: 6px;
-                    RailItem {
-                        item-view: "chat";
-                        label: "Conversation";
-                        badge: root.waiting-badge;
-                        current: root.current-view == "chat";
-                        reduce-motion: root.reduce-motion;
-                        activated => { root.current-view = "chat"; }
-                    }
-                    RailItem {
-                        item-view: "onboarding";
-                        label: "Getting to know you";
-                        current: root.current-view == "onboarding";
-                        reduce-motion: root.reduce-motion;
-                        activated => { root.current-view = "onboarding"; }
-                    }
-                    RailItem {
-                        item-view: "awareness";
-                        label: "Awareness";
-                        badge: root.suggestions-badge;
-                        current: root.current-view == "awareness";
-                        reduce-motion: root.reduce-motion;
-                        activated => { root.current-view = "awareness"; }
-                    }
-                    RailItem {
-                        item-view: "memory";
-                        label: "Memory";
-                        current: root.current-view == "memory";
-                        reduce-motion: root.reduce-motion;
-                        activated => { root.current-view = "memory"; }
-                    }
-                    RailItem {
-                        item-view: "tasks";
-                        label: "Tasks";
-                        current: root.current-view == "tasks";
-                        reduce-motion: root.reduce-motion;
-                        activated => { root.current-view = "tasks"; }
-                    }
-                    RailItem {
-                        item-view: "reminders";
-                        label: "Reminders";
-                        badge: root.unread-badge;
-                        current: root.current-view == "reminders";
-                        reduce-motion: root.reduce-motion;
-                        activated => { root.current-view = "reminders"; }
-                    }
-                    RailItem {
-                        item-view: "usage";
-                        label: "Usage";
-                        current: root.current-view == "usage";
-                        reduce-motion: root.reduce-motion;
-                        activated => { root.current-view = "usage"; }
-                    }
-                    RailItem {
-                        item-view: "activity";
-                        label: "Activity log";
-                        current: root.current-view == "activity";
-                        reduce-motion: root.reduce-motion;
-                        activated => { root.current-view = "activity"; }
-                    }
-                    RailItem {
-                        item-view: "settings";
-                        label: "Settings";
-                        current: root.current-view == "settings";
-                        reduce-motion: root.reduce-motion;
-                        activated => { root.current-view = "settings"; }
-                    }
-                }
-
-                // The Views lane fills the session list here (Phase 1).
-                Rectangle {
-                    vertical-stretch: 1;
-                }
-
-                HorizontalLayout {
-                    padding-left: 10px;
-                    padding-top: 10px;
-                    Text {
-                        text: root.backend-status;
-                        color: Theme.muted;
-                        font-size: 12px;
-                        horizontal-stretch: 1;
-                        wrap: word-wrap;
-                    }
-                }
-            }
-            Rectangle {
-                x: parent.width - 1px;
-                width: 1px;
-                height: parent.height;
-                background: Theme.line;
-            }
+            reduce-motion: root.sidebar-reduce-motion;
+            current-view: root.sidebar-current-view;
+            unread-count: root.sidebar-unread-count;
+            suggestions-count: root.sidebar-suggestions-count;
+            waiting-count: root.sidebar-waiting-count;
+            footer-text: root.sidebar-footer-text;
+            status-text: root.backend-status;
+            sessions: root.sidebar-sessions;
+            navigate(v) => { root.sidebar-navigate(v); }
+            open-session(id) => { root.sidebar-open-session(id); }
+            new-conversation => { root.sidebar-new-conversation(); }
         }
+        Rectangle {
+            width: 1px;
+            height: parent.height;
+            background: Theme.line;
+        }
+    }
 
         // Content area. One branch per view, all present at once so the
         // opacity fade can run on switch; only the current branch takes
-        // input. The chat branch is real. The other branches are scaffolding
-        // the owning lanes replace with their views (see the note in each).
+        // input (each branch is gated on visible as well as opacity).
+        // The chat, awareness, memory, tasks, reminders, usage, and
+        // activity branches are real. Onboarding and settings are still
+        // scaffolding the Setup lane replaces with its views.
         content := Rectangle {
             horizontal-stretch: 1;
 
@@ -434,7 +367,8 @@ export component MainWindow inherits Window {
                 }
             }
 
-            // Scaffolding: the owning lane replaces each branch with its view.
+            // Scaffolding: the Setup lane replaces these two branches
+            // with its views.
             VerticalLayout {
                 width: parent.width;
                 height: parent.height;
@@ -459,127 +393,168 @@ export component MainWindow inherits Window {
             VerticalLayout {
                 width: parent.width;
                 height: parent.height;
-                alignment: center;
-                spacing: 8px;
+                visible: root.current-view == "awareness";
                 opacity: root.current-view == "awareness" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                Text {
-                    text: "Awareness";
-                    font-family: Theme.heading-font;
-                    font-size: 20px;
-                    font-weight: 600;
-                    color: Theme.ink;
-                    horizontal-alignment: center;
-                }
-                Text {
-                    text: "Awareness arrives with the Views lane (Phase 2).";
-                    color: Theme.muted;
-                    horizontal-alignment: center;
+                AwarenessView {
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    reduce-motion: root.awareness-reduce-motion;
+                    paused: root.awareness-paused;
+                    watching: root.awareness-watching;
+                    reflecting: root.awareness-reflecting;
+                    workspace: root.awareness-workspace;
+                    proactive: root.awareness-proactive;
+                    proactive-note: root.awareness-proactive-note;
+                    suggestions: root.awareness-suggestions;
+                    suggestions-empty-text: root.awareness-suggestions-empty-text;
+                    right-now: root.awareness-right-now;
+                    right-now-empty-text: root.awareness-right-now-empty-text;
+                    insights: root.awareness-insights;
+                    insights-empty-text: root.awareness-insights-empty-text;
+                    journal: root.awareness-journal;
+                    journal-empty-text: root.awareness-journal-empty-text;
+                    set-paused(a0) => { root.awareness-set-paused(a0); }
+                    set-watching(a0) => { root.awareness-set-watching(a0); }
+                    set-reflecting(a0) => { root.awareness-set-reflecting(a0); }
+                    set-proactive(a0) => { root.awareness-set-proactive(a0); }
+                    clear-observations() => { root.awareness-clear-observations(); }
+                    forget-insight(a0) => { root.awareness-forget-insight(a0); }
+                    answer-suggestion(a0, a1) => { root.awareness-answer-suggestion(a0, a1); }
+                    open-suggestion-session(a0) => { root.awareness-open-suggestion-session(a0); }
                 }
             }
             VerticalLayout {
                 width: parent.width;
                 height: parent.height;
-                alignment: center;
-                spacing: 8px;
+                visible: root.current-view == "memory";
                 opacity: root.current-view == "memory" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                Text {
-                    text: "Memory";
-                    font-family: Theme.heading-font;
-                    font-size: 20px;
-                    font-weight: 600;
-                    color: Theme.ink;
-                    horizontal-alignment: center;
-                }
-                Text {
-                    text: "Memory arrives with the Views lane (Phase 2).";
-                    color: Theme.muted;
-                    horizontal-alignment: center;
+                MemoryView {
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    reduce-motion: root.memory-reduce-motion;
+                    rows: root.memory-rows;
+                    search-text <=> root.memory-search-text;
+                    new-content <=> root.memory-new-content;
+                    new-kind <=> root.memory-new-kind;
+                    empty-text: root.memory-empty-text;
+                    add-memory(a0, a1) => { root.memory-add-memory(a0, a1); }
+                    delete-memory(a0) => { root.memory-delete-memory(a0); }
+                    confirm-memory(a0) => { root.memory-confirm-memory(a0); }
+                    search-changed(a0) => { root.memory-search-changed(a0); }
                 }
             }
             VerticalLayout {
                 width: parent.width;
                 height: parent.height;
-                alignment: center;
-                spacing: 8px;
+                visible: root.current-view == "tasks";
                 opacity: root.current-view == "tasks" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                Text {
-                    text: "Tasks";
-                    font-family: Theme.heading-font;
-                    font-size: 20px;
-                    font-weight: 600;
-                    color: Theme.ink;
-                    horizontal-alignment: center;
-                }
-                Text {
-                    text: "Tasks arrive with the Views lane (Phase 2).";
-                    color: Theme.muted;
-                    horizontal-alignment: center;
+                TasksView {
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    reduce-motion: root.tasks-reduce-motion;
+                    rows: root.tasks-rows;
+                    new-title <=> root.tasks-new-title;
+                    empty-text: root.tasks-empty-text;
+                    add-task(a0) => { root.tasks-add-task(a0); }
+                    set-task-done(a0, a1) => { root.tasks-set-task-done(a0, a1); }
+                    delete-task(a0) => { root.tasks-delete-task(a0); }
                 }
             }
             VerticalLayout {
                 width: parent.width;
                 height: parent.height;
-                alignment: center;
-                spacing: 8px;
+                visible: root.current-view == "reminders";
                 opacity: root.current-view == "reminders" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                Text {
-                    text: "Reminders";
-                    font-family: Theme.heading-font;
-                    font-size: 20px;
-                    font-weight: 600;
-                    color: Theme.ink;
-                    horizontal-alignment: center;
-                }
-                Text {
-                    text: "Reminders arrive with the Views lane (Phase 2).";
-                    color: Theme.muted;
-                    horizontal-alignment: center;
+                RemindersView {
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    reduce-motion: root.reminders-reduce-motion;
+                    schedules: root.reminders-schedules;
+                    delivered: root.reminders-delivered;
+                    schedules-empty-text: root.reminders-schedules-empty-text;
+                    delivered-empty-text: root.reminders-delivered-empty-text;
+                    form-error: root.reminders-form-error;
+                    new-what <=> root.reminders-new-what;
+                    new-when <=> root.reminders-new-when;
+                    new-may <=> root.reminders-new-may;
+                    new-may-index <=> root.reminders-new-may-index;
+                    new-quiet <=> root.reminders-new-quiet;
+                    last-run-steps: root.reminders-last-run-steps;
+                    last-run-title: root.reminders-last-run-title;
+                    add-schedule(a0, a1, a2, a3) => { root.reminders-add-schedule(a0, a1, a2, a3); }
+                    cancel-schedule(a0) => { root.reminders-cancel-schedule(a0); }
+                    run-schedule-now(a0) => { root.reminders-run-schedule-now(a0); }
+                    set-schedule-may(a0, a1) => { root.reminders-set-schedule-may(a0, a1); }
+                    show-last-run(a0) => { root.reminders-show-last-run(a0); }
+                    fill-daily-briefing() => { root.reminders-fill-daily-briefing(); }
+                    fill-inbox-watch() => { root.reminders-fill-inbox-watch(); }
                 }
             }
             VerticalLayout {
                 width: parent.width;
                 height: parent.height;
-                alignment: center;
-                spacing: 8px;
+                visible: root.current-view == "usage";
                 opacity: root.current-view == "usage" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                Text {
-                    text: "Usage";
-                    font-family: Theme.heading-font;
-                    font-size: 20px;
-                    font-weight: 600;
-                    color: Theme.ink;
-                    horizontal-alignment: center;
-                }
-                Text {
-                    text: "Usage arrives with the Views lane (Phase 2).";
-                    color: Theme.muted;
-                    horizontal-alignment: center;
+                UsageView {
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    reduce-motion: root.usage-reduce-motion;
+                    level-note: root.usage-level-note;
+                    today-big: root.usage-today-big;
+                    today-small: root.usage-today-small;
+                    today-frac: root.usage-today-frac;
+                    today-state: root.usage-today-state;
+                    month-big: root.usage-month-big;
+                    month-small: root.usage-month-small;
+                    month-frac: root.usage-month-frac;
+                    month-state: root.usage-month-state;
+                    heading-big: root.usage-heading-big;
+                    heading-small: root.usage-heading-small;
+                    provider-visible: root.usage-provider-visible;
+                    provider-title: root.usage-provider-title;
+                    provider-big: root.usage-provider-big;
+                    provider-small: root.usage-provider-small;
+                    provider-frac: root.usage-provider-frac;
+                    provider-state: root.usage-provider-state;
+                    days: root.usage-days;
+                    pace-note: root.usage-pace-note;
+                    models: root.usage-models;
+                    models-empty-text: root.usage-models-empty-text;
+                    models-note-visible: root.usage-models-note-visible;
+                    daily-visible <=> root.usage-daily-visible;
+                    daily-rows: root.usage-daily-rows;
+                    day-limit <=> root.usage-day-limit;
+                    month-limit <=> root.usage-month-limit;
+                    bg-limit <=> root.usage-bg-limit;
+                    bg-note: root.usage-bg-note;
+                    fast-model <=> root.usage-fast-model;
+                    fast-note: root.usage-fast-note;
+                    main-model: root.usage-main-model;
+                    route-checked <=> root.usage-route-checked;
+                    save-error: root.usage-save-error;
+                    saved-visible: root.usage-saved-visible;
+                    save-usage() => { root.usage-save-usage(); }
                 }
             }
             VerticalLayout {
                 width: parent.width;
                 height: parent.height;
-                alignment: center;
-                spacing: 8px;
+                visible: root.current-view == "activity";
                 opacity: root.current-view == "activity" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                Text {
-                    text: "Activity log";
-                    font-family: Theme.heading-font;
-                    font-size: 20px;
-                    font-weight: 600;
-                    color: Theme.ink;
-                    horizontal-alignment: center;
-                }
-                Text {
-                    text: "Activity arrives with the Views lane (Phase 2).";
-                    color: Theme.muted;
-                    horizontal-alignment: center;
+                ActivityView {
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    reduce-motion: root.activity-reduce-motion;
+                    rows: root.activity-rows;
+                    seal-text: root.activity-seal-text;
+                    seal-danger: root.activity-seal-danger;
+                    empty-text: root.activity-empty-text;
                 }
             }
             VerticalLayout {

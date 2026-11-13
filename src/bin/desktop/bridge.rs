@@ -523,6 +523,12 @@ impl Bridge {
         &self.client
     }
 
+    /// The runtime handle, for work the Shell hands to the Views lane's
+    /// controller. The controller spawns its own bridge calls on it.
+    pub fn handle(&self) -> tokio::runtime::Handle {
+        self.runtime.handle().clone()
+    }
+
     pub fn spawn<F>(&self, fut: F)
     where
         F: std::future::Future<Output = ()> + Send + 'static,
