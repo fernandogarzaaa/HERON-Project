@@ -10,7 +10,7 @@ import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { LabeledInput } from "atoms.slint";
 
-struct SourceItem {
+export struct SourceItem {
     kind: string,
     title: string,
     status: string,
@@ -18,7 +18,7 @@ struct SourceItem {
     learn_enabled: bool,
 }
 
-component SourceCard inherits Rectangle {
+export component SourceCard inherits Rectangle {
     in property <SourceItem> item;
     // Form fields. Only the ones matching item.kind are shown.
     // doc_path is display only. The picker sets it from the Rust side.

@@ -5,7 +5,7 @@ import { LineEdit, VerticalBox } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 // A small section heading. Serif, like the web UI headings.
-component SectionTitle inherits Text {
+export component SectionTitle inherits Text {
     in property <string> label;
     text: label;
     font-size: 19px;
@@ -15,7 +15,7 @@ component SectionTitle inherits Text {
 }
 
 // A label above a single-line input.
-component LabeledInput inherits VerticalBox {
+export component LabeledInput inherits VerticalBox {
     in property <string> label;
     in property <string> hint;
     in-out property <string> value;
@@ -34,7 +34,7 @@ component LabeledInput inherits VerticalBox {
 // Pressed feedback is immediate: the background answers the tap while
 // the finger is down. The selected state animates. Both are motion that
 // communicates, not decoration. Durations are 0 when reduce-motion is on.
-component ChoiceCard inherits Rectangle {
+export component ChoiceCard inherits Rectangle {
     in property <string> title;
     in property <string> detail;
     in property <bool> selected;
@@ -59,7 +59,7 @@ component ChoiceCard inherits Rectangle {
 // sequential, so numbering them encodes real order. The fill bar is the
 // progress; its width animates when a step completes. Display only: going
 // back is the Back button on each step, not a tap on the indicator.
-component StepIndicator inherits VerticalBox {
+export component StepIndicator inherits VerticalBox {
     in property <[string]> labels;
     in property <int> current;
     in property <[bool]> done;

@@ -21,6 +21,11 @@ pub mod sources;
 pub mod store;
 pub mod telegram;
 pub mod tools;
+/// Slint view logic: the Chat and Views lane state machines.
+/// These are pure Rust (no Slint dependency) so `cargo test --lib`
+/// covers them. The desktop binary's `views_slint.rs` glue drives
+/// them through the generated MainWindow.
+pub mod ui;
 pub mod usage;
 pub mod util;
 pub mod workflow;

@@ -28,12 +28,11 @@ states what the views need, so the Shell can check its contract against it.
 | Reminders | `list_schedules`, `add_schedule`, `set_schedule_may`, `run_schedule_now`, `schedule_runs`, `delete_schedule`, `get_inbox`, `read_inbox` | schedule rows, last-run steps, delivered inbox rows (Markdown body) |
 | Awareness | `get_awareness`, `set_awareness_enabled`, `set_awareness_reflect`, `set_awareness_proactive`, `clear_awareness`, `set_paused`, `list_suggestions`, `answer_suggestion` | awareness flags, proactive note, suggestion rows, right-now / insights / journal rows |
 
-The glue in `src/ui/views_slint.rs` drives the MainWindow's forwarded API
+The glue in `src/bin/desktop/views_slint.rs` drives the MainWindow's forwarded API
 through one `bind_window(window, ctrl)` call. It never touches the view
-components directly. The Slint compiler generates Rust code only for the
-last exported component of a file, so the seven view components have no Rust
-types of their own. The Shell's `ui/main.slint` instantiates them and
-forwards every property and callback. The glue registers the Window's
+components directly. Nested component instances are not reachable from Rust:
+only the root component's forwarded properties and callbacks are. The Shell's
+`ui/main.slint` instantiates the views and forwards every property and callback. The glue registers the Window's
 callbacks, triggers the refreshes, and posts results back through the
 Window's setters. It also needs four Shell-provided closures:
 `on_navigate`, `on_open_session`, `on_new_conversation`, and
@@ -144,15 +143,18 @@ different module, and the two `MainWindow` types would not match.
   and identical to the Shell's `ui/components/theme.slint`. The
   integration keeps one copy of the Theme; until then this lane carries
   the same values so the views render dark on their own.
-- Layout (CORRECTED Nov 13, measured): the brief's single `ui/views.slint`
-  cannot work. The Slint 1.18 compiler generates Rust code only for the
-  last exported component of a file, so six of the seven views had no Rust
-  types and the glue failed with 54 errors. The per-view layout
+- Layout (CORRECTED Nov 14, measured): the brief's single `ui/views.slint`
+  cannot work. The glue drives the views only through the MainWindow's
+  forwarded properties and callbacks, and one file per view keeps that
+  forwarding readable. The per-view layout
   `ui/views/*.slint` (common, sidebar, memory, tasks, reminders,
-  awareness, activity, usage) is REQUIRED by the compiler, not a
-  preference. The old
-  single file was deleted Nov 13 after the split verified in the harness
-  (15/15 logic tests plus the behavioral glue test green). The logic in `views.rs` has no Slint dependency, so it can
+  awareness, activity, usage) is REQUIRED by that design, not a
+  preference. The old single file was deleted Nov 13 after the split
+  verified in the harness (15/15 logic tests plus the behavioral glue
+  test green). (The earlier claim that Slint generates Rust code only
+  for the last exported component was wrong: AboutDialog is not last
+  in `ui/main.slint`, yet its struct was generated and CI run #85
+  named it.) The logic in `views.rs` has no Slint dependency, so it can
   live in the library without dragging Slint in. The glue cannot. It
   belongs in the desktop binary crate next to the generated `main` module.
 - Scope: the plan's Phase 2 assigns the Activity log and Usage views to

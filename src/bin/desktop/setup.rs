@@ -866,6 +866,9 @@ pub struct OnboardingState<B: SetupBridge> {
     pub bridge: B,
     pub state: Option<StateSnapshot>,
     pub sources: Option<SourcesSnapshot>,
+    /// Provider selection from /api/settings; /api/sources does not report
+    /// CLI-only model configuration when no API key is present.
+    pub settings: Option<SettingsSnapshot>,
     pub about: AboutForm,
     pub fields: SourceFields,
     pub proactivity: Proactivity,
@@ -880,6 +883,7 @@ impl<B: SetupBridge> OnboardingState<B> {
             bridge,
             state: None,
             sources: None,
+            settings: None,
             about: AboutForm::default(),
             fields: SourceFields::default(),
             proactivity: Proactivity::Off,
@@ -889,23 +893,35 @@ impl<B: SetupBridge> OnboardingState<B> {
         }
     }
 
-    /// Loads state, sources, and the proactivity level. The web page
-    /// loads sources and awareness together.
+    /// Load the onboarding state and the selected model provider. /sources
+    /// currently reports has_model only for HTTP/local endpoints; without
+    /// /settings, subscription CLI users cannot proceed past step one.
     pub async fn refresh(&mut self) -> Result<(), String> {
         let state = self.bridge.load_state().await?;
         let sources = self.bridge.load_sources().await?;
+        let settings = self.bridge.load_settings().await?;
         self.proactivity = self.bridge.load_proactivity().await?;
         self.state = Some(state);
         self.sources = Some(sources);
+        self.settings = Some(settings);
         Ok(())
     }
 
-    /// Step 1 is done when a model is connected and it is not demo mode.
+    /// A selected CLI is a configured model even when the HTTP endpoint has
+    /// no API key. This checks configuration, not installation or login: the
+    /// CLI's own authentication check still occurs when Heron invokes it.
+    fn cli_selected(&self) -> bool {
+        self.settings.as_ref().is_some_and(|s| {
+            s.provider != "http"
+                && s.providers.iter().any(|p| p.id == s.provider)
+                && (s.provider != "custom-cli" || !s.cli_command.trim().is_empty())
+        })
+    }
+
     pub fn model_ready(&self) -> bool {
-        match &self.sources {
-            Some(s) => s.has_model && !s.demo,
-            None => false,
-        }
+        self.sources
+            .as_ref()
+            .is_some_and(|s| (s.has_model && !s.demo) || self.cli_selected())
     }
 
     /// Demo mode counts as done for step 1: the user can proceed without
@@ -916,6 +932,13 @@ impl<B: SetupBridge> OnboardingState<B> {
 
     /// The step 1 status line. Matches the web page text.
     pub fn model_status(&self) -> String {
+        if self.cli_selected() {
+            let s = self.settings.as_ref().expect("checked by cli_selected");
+            return format!(
+                "Configured to use {}. Sign in with its CLI on this computer before chatting.",
+                s.provider
+            );
+        }
         match &self.sources {
             Some(s) if s.has_model && !s.demo => format!("Connected to {}.", s.model),
             Some(s) if s.demo => "You are in demo mode: Heron can act, but it cannot think or learn yet. Connect a model whenever you are ready.".to_string(),
@@ -1721,6 +1744,40 @@ mod tests {
         view.goto_step(0).unwrap();
         assert_eq!(view.current_step, 0);
         assert!(view.goto_step(4).is_err());
+    }
+
+    #[test]
+    fn subscription_cli_counts_as_configured_without_http_api_key() {
+        let mut bridge = fake();
+        bridge.sources.has_model = false;
+        bridge.sources.demo = false;
+        bridge.settings.provider = "codex-cli".to_string();
+        bridge.settings.providers.push(ProviderItem {
+            id: "codex-cli".to_string(),
+            label: "Codex — ChatGPT subscription".to_string(),
+        });
+        let mut view = OnboardingState::new(bridge);
+        block_on(view.refresh()).unwrap();
+        assert!(view.model_ready());
+        assert!(view.model_status().contains("codex-cli"));
+        assert!(view.goto_step(1).is_ok());
+    }
+
+    #[test]
+    fn custom_cli_requires_a_command_to_count_as_configured() {
+        let mut bridge = fake();
+        bridge.sources.has_model = false;
+        bridge.sources.demo = false;
+        bridge.settings.provider = "custom-cli".to_string();
+        bridge.settings.providers.push(ProviderItem {
+            id: "custom-cli".to_string(),
+            label: "Custom CLI".to_string(),
+        });
+        let mut view = OnboardingState::new(bridge);
+        block_on(view.refresh()).unwrap();
+        assert!(!view.model_ready());
+        view.settings.as_mut().unwrap().cli_command = "/usr/bin/custom-model".to_string();
+        assert!(view.model_ready());
     }
 
     #[test]

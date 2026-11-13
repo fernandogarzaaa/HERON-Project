@@ -14,6 +14,7 @@
 
 import { AboutSlint, Button, LineEdit, ListView, StandardButton } from "std-widgets.slint";
 import { Theme } from "components/theme.slint";
+import { ChatMsg, MessageView } from "components/message.slint";
 
 // One rail item: label, optional count badge, current-view indicator.
 // Hover and press fade the background; focus draws a talon ring; Enter or
@@ -87,12 +88,6 @@ component RailItem inherits Rectangle {
             root.activated();
         }
     }
-}
-
-export struct ChatMsg {
-    role: string,
-    text: string,
-    body: styled-text,
 }
 
 // About dialog. A separate exported Dialog component: a Dialog nested in
