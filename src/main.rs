@@ -393,7 +393,11 @@ async fn providers(cfg: &Config) -> Result<()> {
     println!();
     println!("  http            API key via an OpenAI-compatible endpoint (the default)");
     for spec in heron::cli_llm::providers() {
-        let st = heron::cli_llm::probe_status(&spec, &cfg.llm.cli_command).await;
+        let st = heron::cli_llm::probe_status(
+            &spec,
+            heron::cli_llm::override_for_provider(&spec.id, &cfg.llm.provider, &cfg.llm.cli_command),
+        )
+        .await;
         let mark = if cfg.llm.provider == spec.id {
             "*"
         } else {

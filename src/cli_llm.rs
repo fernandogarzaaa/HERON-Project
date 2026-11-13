@@ -1503,12 +1503,42 @@ impl Drop for KillTreeOnDrop {
     }
 }
 
+/// Removes the request's private temp directory when dropped, so
+/// cancellation (which skips the explicit cleanup calls) and early
+/// errors cannot leave request artifacts behind.
+struct RemoveTempDirOnDrop {
+    dir: PathBuf,
+}
+
+impl Drop for RemoveTempDirOnDrop {
+    fn drop(&mut self) {
+        let _ = remove_temp_dir(&self.dir);
+    }
+}
+
+/// The command override applies only to the selected provider. Passing
+/// it to every probe would report all providers as installed with that
+/// one binary's version.
+pub fn override_for_provider<'a>(spec_id: &str, selected: &str, cli_command: &'a str) -> &'a str {
+    if spec_id == selected {
+        cli_command
+    } else {
+        ""
+    }
+}
+
 #[async_trait]
 impl Llm for CliLlm {
     async fn chat(&self, req: ChatRequest, on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
         let prompt = render_prompt(&req);
         let (path, args) = self.argv(&prompt)?;
         let run_dir = make_private_temp_dir(&self.home)?;
+        // Removes the dir when chat() returns or the future is dropped
+        // (cancel). This is the only cleanup: explicit calls cannot run
+        // on cancellation or on the spawn-error return below.
+        let _dir_guard = RemoveTempDirOnDrop {
+            dir: run_dir.clone(),
+        };
         let mut cmd = Command::new(&path);
         cmd.args(&args)
             .current_dir(&run_dir)
@@ -1603,13 +1633,11 @@ impl Llm for CliLlm {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
                 kill_process_tree(&mut child).await;
-                let _ = remove_temp_dir(&run_dir);
                 return Err(e);
             }
             Err(_) => {
                 kill_process_tree(&mut child).await;
                 let _ = child.wait().await;
-                let _ = remove_temp_dir(&run_dir);
                 bail!("{} took longer than {}s and was killed. The prompt may be too long for this CLI, or the CLI may be waiting on a login or approval. Run `{}` to check.", self.spec.display_name, self.timeout_secs, self.spec.login_command);
             }
         }
@@ -1622,7 +1650,6 @@ impl Llm for CliLlm {
             let _ = handle.await;
         }
         let stderr = stderr_buf.lock().await.clone();
-        let _ = remove_temp_dir(&run_dir);
         // Flush before measuring: a plain-text JsonSingle/JsonAuto reply
         // sits in json_buf until finish(), and must not be rejected as
         // "returned no text".
@@ -2391,5 +2418,61 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         assert!(gone, "grandchild {grandchild} survived the tree kill");
+    }
+
+    #[test]
+    fn override_for_provider_applies_only_to_the_selected_provider() {
+        assert_eq!(
+            override_for_provider("claude-cli", "claude-cli", "/usr/local/bin/claude"),
+            "/usr/local/bin/claude"
+        );
+        assert_eq!(
+            override_for_provider("codex-cli", "claude-cli", "/usr/local/bin/claude"),
+            ""
+        );
+        assert_eq!(
+            override_for_provider("codex-cli", "http", "/usr/local/bin/claude"),
+            ""
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn cancelled_chat_removes_its_temp_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\ncat > /dev/null\nsleep 30\n";
+        let bin = fake_bin(dir.path(), "claude", script);
+        let mut cfg = test_cfg(dir.path(), "claude-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let tmp = dir.path().join("tmp");
+        let handle = tokio::spawn(async move {
+            llm.chat(
+                ChatRequest {
+                    messages: vec![Message::user("hi")],
+                    ..Default::default()
+                },
+                &|_| {},
+            )
+            .await
+        });
+        // Let the request start and create its temp dir.
+        let mut started = false;
+        for _ in 0..50 {
+            if let Ok(entries) = std::fs::read_dir(&tmp) {
+                if entries.count() > 0 {
+                    started = true;
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(started, "the request never created its temp dir");
+        handle.abort();
+        let _ = handle.await;
+        let remaining = std::fs::read_dir(&tmp)
+            .map(|entries| entries.count())
+            .unwrap_or(0);
+        assert_eq!(remaining, 0, "a cancelled request left its temp dir behind");
     }
 }
