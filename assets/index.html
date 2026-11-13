@@ -1045,7 +1045,7 @@ $('#tg-remove').onclick = async () => { if (!confirm('Disconnect your phone from
 $('#s-persona-save').onclick = async () => { const out = $('#s-persona-saved'); out.textContent = '';
   try { const p = await api('/persona', { method: 'POST', body: { text: $('#s-persona').value, name: $('#s-name').value } }); out.textContent = 'Personality saved'; $('#s-persona-reset').hidden = p.is_default; refreshState(); } catch (e) { out.textContent = e.message; } };
 $('#s-backup').onclick = async () => { const b = $('#s-backup'), out = $('#s-backup-saved'); out.textContent = ''; b.disabled = true;
-  try { const r = await api('/backup', { method: 'POST' }); out.textContent = 'Saved as ' + r.path; } catch (e) { out.textContent = 'Could not save a copy: ' + e.message; } finally { b.disabled = false; } };
+  try { const r = await api('/backup', { method: 'POST' }); out.textContent = 'Saved in the backups folder as ' + r.path.split(/[\\/]/).pop(); out.title = r.path; } catch (e) { out.textContent = 'Could not save a copy: ' + e.message; } finally { b.disabled = false; } };
 $('#s-persona-reset').onclick = async () => { if (!confirm('Put Heron back to its original personality?')) return; const p = await api('/persona', { method: 'DELETE' }); $('#s-persona').value = p.text; $('#s-persona-reset').hidden = true; $('#s-persona-saved').textContent = 'Back to the original'; };
 $('#presets').onclick = e => { const b = e.target.closest('button'); if (!b) return; $('#s-base').value = b.dataset.url; $('#s-model').value = b.dataset.model; };
 $('#settings').onsubmit = async e => { e.preventDefault(); const err = $('#s-err'); err.hidden = true; $('#s-saved').textContent = '';
