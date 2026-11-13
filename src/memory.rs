@@ -270,7 +270,9 @@ impl Memory {
         let mut out = Vec::new();
         for (id, base) in fused {
             if let Some(mut m) = self.store.get_memory(id)? {
-                let age_days = ((now - m.updated_at).max(0) as f64) / 86_400.0;
+                // Whole days: a fact saved a second later is not "more recent" in any way that should
+                // decide between two equally good matches (and would make rankings depend on timing).
+                let age_days = ((now - m.updated_at).max(0) / 86_400) as f64;
                 let recency = 1.0 + 0.25 * (-age_days / 30.0).exp();
                 m.score = Some(base * (0.6 + 0.8 * m.importance) * recency);
                 out.push(m);
