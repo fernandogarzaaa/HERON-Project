@@ -210,6 +210,7 @@ async fn get_settings(State(st): S) -> ApiResult {
         "fallback_models": cfg.llm.fallback_models.join(", "), "key_source": key_source,
         "mode": st.app.policy.mode().name(), "daemon_mode": cfg.permissions.daemon_mode, "auto_memory": cfg.agent.auto_memory,
         "neural_memory": cfg.agent.neural_memory, "neural_available": crate::embed::neural_built_in(),
+        "browser": crate::browser::find(&cfg).map(|p| p.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()), "browser_visible": cfg.agent.browser_visible,
         "workspace": st.app.workspace.display().to_string(), "home": cfg.home.display().to_string(),
         "allow_rules": st.app.policy.allow_rules(), "secret_storage": cfg.secret_storage(),
         "mcp": st.app.mcp_status, "mcp_changed": st.app.mcp_pending.keys().collect::<Vec<_>>(),
@@ -250,6 +251,12 @@ async fn set_settings(State(st): S, Json(body): Json<Value>) -> ApiResult {
     }
     if let Some(v) = body.get("auto_memory").and_then(|v| v.as_bool()) {
         cfg.agent.auto_memory = v;
+    }
+    if let Some(v) = body.get("browser_visible").and_then(|v| v.as_bool()) {
+        if v != cfg.agent.browser_visible {
+            cfg.agent.browser_visible = v;
+            crate::browser::shutdown().await; // the next use starts it the new way
+        }
     }
     if let Some(v) = body.get("neural_memory").and_then(|v| v.as_bool()) {
         cfg.agent.neural_memory = v && crate::embed::neural_built_in();
