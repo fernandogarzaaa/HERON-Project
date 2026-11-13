@@ -3,71 +3,392 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Heron is a local-first, private, proactive personal AI agent that runs on your own computer. Download it for macOS, Windows or Linux.">
 <title>Heron — a personal AI agent that runs on your computer</title>
 <style>
-  :root { color-scheme: light; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; color: #1a1a1a; background: #fff; line-height: 1.6; }
-  main { max-width: 720px; margin: 0 auto; padding: 64px 24px 80px; }
-  h1 { font-size: 40px; margin: 0 0 8px; letter-spacing: -0.02em; }
-  .tagline { font-size: 20px; color: #555; margin: 0 0 32px; }
-  p { margin: 0 0 16px; }
-  .downloads { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin: 32px 0; }
-  .dl { display: block; border: 1px solid #ddd; border-radius: 12px; padding: 18px; text-decoration: none; color: inherit; }
-  .dl:hover { border-color: #111; }
-  .dl strong { display: block; font-size: 17px; }
-  .dl span { color: #555; font-size: 14px; }
-  h2 { font-size: 22px; margin: 40px 0 12px; letter-spacing: -0.01em; }
-  code { background: #f2f2f2; padding: 2px 6px; border-radius: 6px; font-size: 14px; }
-  pre { background: #f6f6f6; padding: 16px; border-radius: 10px; overflow-x: auto; font-size: 14px; }
-  pre code { background: none; padding: 0; }
-  ul { padding-left: 22px; }
-  li { margin-bottom: 6px; }
-  footer { margin-top: 48px; color: #777; font-size: 14px; }
-  footer a { color: #555; }
+  :root {
+    --ink: #0d1210;
+    --surface: #131a16;
+    --surface-2: #182019;
+    --line: #263129;
+    --line-strong: #3a4a3e;
+    --text: #ece8de;
+    --muted: #9ba69c;
+    --faint: #6f7a70;
+    --amber: #e0a458;
+    --amber-soft: #f2c889;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--amber-soft); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; border-radius: 4px; }
+  ::selection { background: var(--amber); color: var(--ink); }
+
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+
+  /* Header */
+  header { border-bottom: 1px solid var(--line); }
+  .nav { display: flex; align-items: center; justify-content: space-between; min-height: 64px; }
+  .wordmark { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-family: var(--serif); font-size: 22px; letter-spacing: 0.01em; }
+  .wordmark .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 14px rgba(224, 164, 88, 0.65); }
+  .nav-links { display: flex; gap: 28px; }
+  .nav-links a { color: var(--muted); text-decoration: none; font-size: 15px; transition: color 0.2s ease; }
+  .nav-links a:hover { color: var(--text); }
+
+  /* Hero */
+  .hero { position: relative; padding: 96px 0 72px; overflow: hidden; }
+  .hero::before {
+    content: "";
+    position: absolute;
+    top: -260px; right: -140px;
+    width: 560px; height: 560px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(224, 164, 88, 0.14) 0%, rgba(224, 164, 88, 0.04) 42%, transparent 70%);
+    pointer-events: none;
+  }
+  .eyebrow { color: var(--amber); font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; margin: 0 0 20px; }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(42px, 7vw, 68px);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0 0 24px;
+    max-width: 15ch;
+  }
+  h1 em { font-style: italic; color: var(--amber-soft); }
+  .lede { font-size: 20px; line-height: 1.6; color: var(--muted); max-width: 56ch; margin: 0 0 32px; }
+  .cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-bottom: 40px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    min-height: 52px; padding: 0 24px;
+    border-radius: 999px;
+    font-size: 16px; font-weight: 600; text-decoration: none;
+    transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .btn-primary { background: var(--amber); color: #191410; }
+  .btn-primary:hover { background: var(--amber-soft); transform: translateY(-1px); }
+  .btn-primary .arrow { transition: transform 0.2s ease; }
+  .btn-primary:hover .arrow { transform: translateY(2px); }
+  .btn-ghost { border: 1px solid var(--line-strong); color: var(--text); }
+  .btn-ghost:hover { border-color: var(--amber); color: var(--amber-soft); }
+  .status { display: flex; align-items: baseline; gap: 10px; color: var(--faint); font-size: 15px; min-height: 26px; }
+  .status .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); flex: none; transform: translateY(-1px); animation: breathe 2.4s ease-in-out infinite; }
+  .status .line { color: var(--muted); transition: opacity 0.35s ease; }
+  .status .line.fading { opacity: 0; }
+  @keyframes breathe { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(224, 164, 88, 0.35); } 50% { opacity: 0.65; box-shadow: 0 0 0 5px rgba(224, 164, 88, 0); } }
+
+  /* Sections */
+  section { padding: 64px 0; border-top: 1px solid var(--line); }
+  h2 { font-family: var(--serif); font-weight: 500; font-size: clamp(28px, 4vw, 36px); letter-spacing: -0.01em; margin: 0 0 8px; }
+  .section-note { color: var(--muted); margin: 0 0 32px; max-width: 60ch; }
+  .section-note code { background: var(--surface-2); border: 1px solid var(--line); padding: 2px 6px; border-radius: 6px; font-family: var(--mono); font-size: 14px; color: var(--text); }
+
+  /* Downloads */
+  .downloads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .dl {
+    display: flex; flex-direction: column; gap: 6px;
+    min-height: 168px; padding: 22px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    color: var(--text); text-decoration: none;
+    transition: border-color 0.25s ease, background 0.25s ease, transform 0.25s ease;
+    position: relative;
+  }
+  .dl:hover { border-color: var(--amber); background: var(--surface-2); transform: translateY(-3px); }
+  .dl .os { font-family: var(--serif); font-size: 22px; }
+  .dl .file { color: var(--muted); font-size: 14px; font-family: var(--mono); }
+  .dl .meta { color: var(--faint); font-size: 14px; margin-top: auto; display: flex; justify-content: space-between; align-items: center; }
+  .dl .go { font-size: 20px; color: var(--amber); transition: transform 0.25s ease; }
+  .dl:hover .go { transform: translate(3px, 3px); }
+  .dl .tag {
+    position: absolute; top: -11px; left: 18px;
+    background: var(--amber); color: #191410;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+    padding: 3px 10px; border-radius: 999px;
+  }
+  .dl.recommended { border-color: var(--amber); }
+  .fineprint { color: var(--faint); font-size: 14px; margin: 20px 0 0; }
+
+  /* Install steps */
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+  .steps li { display: grid; grid-template-columns: 56px 1fr; gap: 20px; padding: 22px 0; border-top: 1px solid var(--line); }
+  .steps li:first-child { border-top: none; }
+  .steps .num { font-family: var(--serif); font-size: 30px; color: var(--amber); line-height: 1.2; }
+  .steps strong { display: block; font-size: 18px; margin-bottom: 2px; }
+  .steps p { margin: 0; color: var(--muted); }
+  .steps code { background: var(--surface-2); border: 1px solid var(--line); padding: 2px 6px; border-radius: 6px; font-family: var(--mono); font-size: 14px; color: var(--text); }
+
+  /* Why */
+  .why { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 40px; }
+  .why div { padding-top: 18px; border-top: 1px solid var(--line); }
+  .why h3 { font-size: 17px; margin: 0 0 4px; }
+  .why p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  /* Source */
+  .codeblock { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; overflow-x: auto; }
+  .codeblock pre { margin: 0; font-family: var(--mono); font-size: 14.5px; line-height: 1.7; color: var(--text); }
+  .codeblock .copy {
+    position: absolute; top: 12px; right: 12px;
+    background: var(--surface-2); border: 1px solid var(--line-strong);
+    color: var(--muted); font-size: 13px; font-family: var(--sans);
+    padding: 6px 12px; border-radius: 999px; cursor: pointer;
+    transition: color 0.2s ease, border-color 0.2s ease;
+  }
+  .codeblock .copy:hover { color: var(--text); border-color: var(--amber); }
+
+  footer { border-top: 1px solid var(--line); padding: 36px 0 56px; color: var(--faint); font-size: 14px; }
+  footer p { margin: 0 0 8px; }
+  footer a { color: var(--muted); }
+
+  /* Load-in */
+  .rise { opacity: 0; transform: translateY(14px); animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+  .rise-1 { animation-delay: 0.05s; }
+  .rise-2 { animation-delay: 0.15s; }
+  .rise-3 { animation-delay: 0.25s; }
+  .rise-4 { animation-delay: 0.35s; }
+  .rise-5 { animation-delay: 0.45s; }
+  @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+
+  /* Scroll reveal, only where it means something (the install steps, in order).
+     The hidden state only applies once JavaScript has initialized (the script adds
+     a `js` class to the root), so the steps stay visible with JavaScript off. */
+  .js .reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+  .js .reveal.in { opacity: 1; transform: translateY(0); }
+
+  @media (max-width: 720px) {
+    .hero { padding: 64px 0 56px; }
+    .downloads { grid-template-columns: 1fr; }
+    .why { grid-template-columns: 1fr; }
+    .nav-links { gap: 18px; }
+    .steps li { grid-template-columns: 40px 1fr; gap: 14px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .rise { opacity: 1; transform: none; animation: none; }
+    .js .reveal { opacity: 1; transform: none; transition: none; }
+    .status .pulse { animation: none; }
+    .btn, .dl, .dl .go, .btn-primary .arrow { transition: none; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <h1>Heron</h1>
-  <p class="tagline">A local-first, private, proactive personal AI agent that runs on your own computer.</p>
-
-  <p>Heron is a desktop app and command-line tool. It keeps your notes, calendar, email and tasks in one place, remembers what you tell it, works while you are away, and asks before it changes anything. Your data stays on your machine, and your keys stay in your operating system&rsquo;s credential store.</p>
-
-  <h2>Download</h2>
-  <div class="downloads">
-    <a class="dl" href="https://github.com/fernandogarzaaa/HERON-Project/releases/download/v0.2.0/Heron-macos-universal.dmg">
-      <strong>macOS</strong>
-      <span>Universal app, Apple silicon and Intel (.dmg)</span>
-    </a>
-    <a class="dl" href="https://github.com/fernandogarzaaa/HERON-Project/releases/download/v0.2.0/Heron-Setup-windows-x64.exe">
-      <strong>Windows</strong>
-      <span>Installer (.exe)</span>
-    </a>
-    <a class="dl" href="https://github.com/fernandogarzaaa/HERON-Project/releases/download/v0.2.0/Heron-linux-x64.tar.gz">
-      <strong>Linux</strong>
-      <span>Tarball with an install script (.tar.gz)</span>
-    </a>
+<header>
+  <div class="wrap nav">
+    <a class="wordmark" href="#"><span class="dot" aria-hidden="true"></span>Heron</a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="#download">Download</a>
+      <a href="https://github.com/fernandogarzaaa/HERON-Project/releases/tag/v0.2.0">Releases</a>
+      <a href="https://github.com/fernandogarzaaa/HERON-Project">Source</a>
+    </nav>
   </div>
-  <p>These links point at the v0.2.0 release. Checksums are in <code>SHA256SUMS.txt</code> on the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases/tag/v0.2.0">release page</a>.</p>
+</header>
 
-  <h2>Install</h2>
-  <ul>
-    <li><strong>macOS:</strong> open the .dmg and drag Heron into Applications. The app is not code-signed yet, so macOS shows a warning on first launch.</li>
-    <li><strong>Windows:</strong> run the installer, or unzip the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases/download/v0.2.0/Heron-windows-x64.zip">portable build</a> and run <code>Heron.exe</code>.</li>
-    <li><strong>Linux:</strong> extract the tarball and run <code>./install.sh</code> inside it.</li>
-  </ul>
+<main>
+  <div class="wrap">
+    <div class="hero">
+      <p class="eyebrow rise rise-1">Local-first personal AI agent</p>
+      <h1 class="rise rise-2">An agent that works <em>on your computer,</em> not someone else&rsquo;s.</h1>
+      <p class="lede rise rise-3">Heron keeps your notes, calendar, email and tasks in one place, remembers what you tell it, works while you are away, and asks before it changes anything. Your data stays on your machine, and your keys stay in your operating system&rsquo;s credential store.</p>
+      <div class="cta-row rise rise-4">
+        <a class="btn btn-primary" href="#download">Download Heron <span class="arrow" aria-hidden="true">&darr;</span></a>
+        <a class="btn btn-ghost" href="https://github.com/fernandogarzaaa/HERON-Project">Read the source</a>
+      </div>
+      <p class="status rise rise-5" aria-live="polite"><span class="pulse" aria-hidden="true"></span><span class="line" id="status-line">Heron is ready when you are.</span></p>
+    </div>
+  </div>
 
-  <h2>Use your subscription instead of an API key</h2>
-  <p>Heron can drive the AI CLIs you already pay for, such as Claude Code, Codex, OpenCode, Cursor, Grok, Gemini, Cline, Copilot, Qwen and Antigravity, instead of needing an API key. Log in with the CLI itself, set the provider in Settings or with <code>HERON_PROVIDER</code>, and Heron uses your subscription. Heron never sees or stores the CLI&rsquo;s login.</p>
+  <section id="download" aria-labelledby="download-heading">
+    <div class="wrap">
+      <h2 id="download-heading">Download</h2>
+      <p class="section-note">Version 0.2.0, the current beta. Pick your system and you are done.</p>
+      <div class="downloads">
+        <a class="dl" data-os="mac" href="https://github.com/fernandogarzaaa/HERON-Project/releases/download/v0.2.0/Heron-macos-universal.dmg">
+          <span class="os">macOS</span>
+          <span class="file">Heron-macos-universal.dmg</span>
+          <span class="meta"><span>Apple silicon and Intel &middot; 14 MB</span><span class="go" aria-hidden="true">&nearr;</span></span>
+        </a>
+        <a class="dl" data-os="win" href="https://github.com/fernandogarzaaa/HERON-Project/releases/download/v0.2.0/Heron-Setup-windows-x64.exe">
+          <span class="os">Windows</span>
+          <span class="file">Heron-Setup-windows-x64.exe</span>
+          <span class="meta"><span>Installer &middot; 11 MB</span><span class="go" aria-hidden="true">&nearr;</span></span>
+        </a>
+        <a class="dl" data-os="linux" href="https://github.com/fernandogarzaaa/HERON-Project/releases/download/v0.2.0/Heron-linux-x64.tar.gz">
+          <span class="os">Linux</span>
+          <span class="file">Heron-linux-x64.tar.gz</span>
+          <span class="meta"><span>Tarball, install script inside &middot; 13 MB</span><span class="go" aria-hidden="true">&nearr;</span></span>
+        </a>
+      </div>
+      <p class="fineprint">Prefer the portable Windows build? Grab the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases/download/v0.2.0/Heron-windows-x64.zip">zip (13 MB)</a> instead. Checksums are in <code>SHA256SUMS.txt</code> on the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases/tag/v0.2.0">release page</a>.</p>
+    </div>
+  </section>
 
-  <h2>From source</h2>
-  <pre><code>git clone https://github.com/fernandogarzaaa/HERON-Project.git
+  <section aria-labelledby="install-heading">
+    <div class="wrap">
+      <h2 id="install-heading">Install</h2>
+      <p class="section-note">Three steps, no account, no cloud to sign up for.</p>
+      <ol class="steps">
+        <li class="reveal" style="transition-delay: 0s">
+          <span class="num" aria-hidden="true">1</span>
+          <div><strong>Download</strong><p>Pick your system above. The app is not code-signed yet, so macOS and Windows show a warning on first launch.</p></div>
+        </li>
+        <li class="reveal" style="transition-delay: 0.12s">
+          <span class="num" aria-hidden="true">2</span>
+          <div><strong>Open it</strong><p>macOS: drag Heron into Applications. Windows: run the installer, or unzip the portable build and run <code>Heron.exe</code>. Linux: extract the tarball and run <code>./install.sh</code> inside it.</p></div>
+        </li>
+        <li class="reveal" style="transition-delay: 0.24s">
+          <span class="num" aria-hidden="true">3</span>
+          <div><strong>Tell it about you</strong><p>Onboarding gets to know you, looks around your computer with your say-so, and connects notes, a calendar and email, read-only.</p></div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section aria-labelledby="why-heading">
+    <div class="wrap">
+      <h2 id="why-heading">Why Heron</h2>
+      <p class="section-note">Built to be lived with, not demoed.</p>
+      <div class="why">
+        <div>
+          <h3>Your data stays yours</h3>
+          <p>Everything lives on your computer. No account, no cloud copy, no training on your notes.</p>
+        </div>
+        <div>
+          <h3>Use your subscription, not an API key</h3>
+          <p>Heron can drive the AI CLIs you already pay for, such as Claude Code, Codex, OpenCode, Cursor, Grok, Gemini, Cline, Copilot, Qwen and Antigravity. Log in with the CLI itself and Heron uses your subscription. It never sees or stores the login.</p>
+        </div>
+        <div>
+          <h3>It asks before it changes anything</h3>
+          <p>Four permission modes, approval for anything that changes state, and undo for file changes, with an activity log you can read.</p>
+        </div>
+        <div>
+          <h3>It works while you are away</h3>
+          <p>Tasks, reminders and recurring jobs with per-job permissions, and a proactivity dial from only-when-asked to taking over within limits.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="source-heading">
+    <div class="wrap">
+      <h2 id="source-heading">From source</h2>
+      <p class="section-note">Heron is open source under the Apache 2.0 license. Clone it and run the CLI.</p>
+      <div class="codeblock">
+        <button class="copy" type="button" id="copy-btn">Copy</button>
+        <pre><code id="source-cmd">git clone https://github.com/fernandogarzaaa/HERON-Project.git
 cd HERON-Project
 cargo run --release --bin heron</code></pre>
-
-  <footer>
-    <p>Heron is in beta. See the <a href="https://github.com/fernandogarzaaa/HERON-Project">GitHub repo</a> for the README, the changelog and the source, and the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases">releases page</a> for every version.</p>
-  </footer>
+      </div>
+    </div>
+  </section>
 </main>
+
+<footer>
+  <div class="wrap">
+    <p>Heron is in beta. See the <a href="https://github.com/fernandogarzaaa/HERON-Project">GitHub repo</a> for the README, the changelog and the source, and the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases">releases page</a> for every version.</p>
+    <p>Built by Fernando Garza. Heron runs on your computer and keeps your data there.</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  // Mark the page as scripted, so the scroll-reveal hidden state applies.
+  // Without this, the install steps stay visible by default (see the .js .reveal rule).
+  document.documentElement.classList.add("js");
+
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Mark the download card for this computer, so the choice is made for you.
+  var platform = (navigator.platform || "").toLowerCase();
+  var os = platform.indexOf("mac") !== -1 ? "mac"
+    : platform.indexOf("win") !== -1 ? "win"
+    : platform.indexOf("linux") !== -1 ? "linux" : null;
+  if (os) {
+    var card = document.querySelector('.dl[data-os="' + os + '"]');
+    if (card) {
+      card.classList.add("recommended");
+      var tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = "For this computer";
+      card.appendChild(tag);
+    }
+  }
+
+  // The status line cycles through what Heron does while you are not looking.
+  var lines = [
+    "Heron is ready when you are.",
+    "Heron is keeping your notes, and remembering what changed.",
+    "Heron is watching your calendar for what is next.",
+    "Heron is waiting for your word before it changes anything."
+  ];
+  var lineEl = document.getElementById("status-line");
+  if (!reduceMotion && lineEl) {
+    var i = 0;
+    setInterval(function () {
+      lineEl.classList.add("fading");
+      setTimeout(function () {
+        i = (i + 1) % lines.length;
+        lineEl.textContent = lines[i];
+        lineEl.classList.remove("fading");
+      }, 350);
+    }, 4200);
+  }
+
+  // Reveal the install steps in order as they come into view. The observer does the
+  // work on scroll; the check below is a safety net, so the steps are never left
+  // invisible if the observer does not fire.
+  var steps = document.querySelectorAll(".reveal");
+  function revealInView() {
+    steps.forEach(function (el) {
+      if (el.classList.contains("in")) return;
+      var r = el.getBoundingClientRect();
+      if (r.top < window.innerHeight * 0.9 && r.bottom > 0) {
+        el.classList.add("in");
+      }
+    });
+  }
+  if (!reduceMotion && "IntersectionObserver" in window) {
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("in");
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.3 });
+    steps.forEach(function (el) { observer.observe(el); });
+    window.addEventListener("scroll", revealInView, { passive: true });
+    revealInView();
+  } else {
+    steps.forEach(function (el) { el.classList.add("in"); });
+  }
+
+  // Copy the source commands.
+  var copyBtn = document.getElementById("copy-btn");
+  var cmd = document.getElementById("source-cmd");
+  if (copyBtn && cmd && navigator.clipboard) {
+    copyBtn.addEventListener("click", function () {
+      navigator.clipboard.writeText(cmd.textContent).then(function () {
+        copyBtn.textContent = "Copied";
+        setTimeout(function () { copyBtn.textContent = "Copy"; }, 1600);
+      });
+    });
+  }
+})();
+</script>
 </body>
 </html>
