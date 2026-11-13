@@ -142,6 +142,7 @@ pub fn router(app: Arc<App>, token: String) -> Router {
         .route("/tools/{name}", post(set_tool))
         .route("/today", get(get_today))
         .route("/telegram", get(get_telegram).post(set_telegram).delete(remove_telegram))
+        .route("/usage", get(get_usage).post(set_usage))
         .route("/sources", get(get_sources))
         .route("/sources/{name}", post(connect_source).delete(disconnect_source))
         .route("/sources/{name}/learn", post(learn_source))
@@ -341,6 +342,7 @@ fn event_json(e: Event) -> Value {
         Event::ToolEnd { id, name, ok, preview } => json!({"type": "tool_end", "id": id, "name": name, "ok": ok, "preview": preview}),
         Event::Notice(t) => json!({"type": "notice", "text": t}),
         Event::Usage(u) => json!({"type": "usage", "prompt": u.prompt_tokens, "completion": u.completion_tokens}),
+        Event::Model { name, why } => json!({"type": "model", "name": name, "why": why}),
     }
 }
 
@@ -419,6 +421,7 @@ async fn approve(State(st): S, Json(b): Json<ApproveBody>) -> ApiResult {
     let _ = tx.send(match b.decision.as_str() {
         "once" => Approval::Once,
         "always" => Approval::Always,
+        "session" => Approval::Session,
         _ => Approval::Deny(None),
     });
     Ok(Json(json!({"ok": true})))
@@ -745,6 +748,52 @@ async fn get_today(State(st): S) -> ApiResult {
 }
 
 // ---------- phone (Telegram) ----------
+
+/// What has been used, what is left and where the month is heading.
+async fn get_usage(State(st): S) -> ApiResult {
+    let cfg = st.app.cfg();
+    let report = crate::usage::report(&st.app.store, &cfg, st.app.background_budget().0);
+    let mut out = serde_json::to_value(&report).map_err(anyhow::Error::from)?;
+    out["session"] = serde_json::to_value(st.app.usage.lock().unwrap().clone()).unwrap_or_default();
+    out["demo"] = json!(crate::llm::is_demo(&cfg));
+    // Where the provider can say how much credit is left, show that too (OpenRouter can).
+    if cfg.llm.base_url.contains("openrouter.ai") {
+        if let Some(key) = cfg.api_key() {
+            let client = reqwest::Client::builder().timeout(Duration::from_secs(6)).build().map_err(anyhow::Error::from)?;
+            if let Ok(resp) = client.get(format!("{}/credits", cfg.llm.base_url.trim_end_matches('/'))).bearer_auth(key).send().await {
+                if let Ok(v) = resp.json::<Value>().await {
+                    if let (Some(total), Some(used)) = (v["data"]["total_credits"].as_f64(), v["data"]["total_usage"].as_f64()) {
+                        out["provider"] = json!({"name": "OpenRouter", "credits_bought": total, "credits_used": used, "credits_left": (total - used).max(0.0)});
+                    }
+                }
+            }
+        }
+    }
+    Ok(Json(out))
+}
+
+/// Change the limits and whether simple requests go to the cheaper model.
+async fn set_usage(State(st): S, Json(b): Json<Value>) -> ApiResult {
+    let mut cfg = (*st.app.cfg()).clone();
+    let tokens = |v: &Value| v.as_u64().or_else(|| v.as_str().and_then(|s| s.replace([',', ' ', '_'], "").parse().ok()));
+    if let Some(v) = b.get("daily_token_limit").and_then(tokens) {
+        cfg.agent.daily_token_limit = v;
+    }
+    if let Some(v) = b.get("monthly_token_limit").and_then(tokens) {
+        cfg.agent.monthly_token_limit = v;
+    }
+    if let Some(v) = b.get("background_tokens_per_day").and_then(tokens) {
+        cfg.agent.background_tokens_per_day = v;
+    }
+    if let Some(v) = b.get("routing").and_then(|v| v.as_bool()) {
+        cfg.agent.routing = if v { "auto".into() } else { "off".into() };
+    }
+    if let Some(v) = b.get("fast_model").and_then(|v| v.as_str()) {
+        cfg.llm.fast_model = v.trim().to_string();
+    }
+    st.app.update_config(cfg)?;
+    get_usage(State(st)).await
+}
 
 async fn get_telegram(State(st): S) -> ApiResult {
     let configured = st.app.cfg().secret("telegram_token").is_some();

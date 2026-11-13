@@ -213,6 +213,24 @@ pub fn describe_trigger(trigger: &str) -> String {
 }
 
 /// Parse a human or cron time expression relative to `now`.
+/// A phrase that names days of the week and (optionally) a time: which days, as a cron field, and when.
+/// Without a time, 9:00 is meant.
+fn days_phrase(phrase: &str) -> Option<(&'static str, NaiveTime)> {
+    const DAYS: &[(&str, &str)] = &[
+        ("weekdays", "1-5"), ("weekday", "1-5"), ("weekends", "0,6"), ("weekend", "0,6"),
+        ("mondays", "1"), ("monday", "1"), ("tuesdays", "2"), ("tuesday", "2"), ("wednesdays", "3"), ("wednesday", "3"), ("thursdays", "4"), ("thursday", "4"),
+        ("fridays", "5"), ("friday", "5"), ("saturdays", "6"), ("saturday", "6"), ("sundays", "0"), ("sunday", "0"),
+    ];
+    let (days, rest) = DAYS.iter().find_map(|(name, field)| phrase.strip_prefix(name).map(|rest| (*field, rest)))?;
+    // The day name must be a whole word ("monday 9:00", not "mondayish").
+    if !(rest.is_empty() || rest.starts_with(' ')) {
+        return None;
+    }
+    let rest = rest.trim().trim_start_matches("at ").trim();
+    let time = if rest.is_empty() { NaiveTime::from_hms_opt(9, 0, 0) } else { parse_time(rest) }?;
+    Some((days, time))
+}
+
 pub fn parse_when(expr: &str, now: DateTime<Local>) -> Result<When> {
     let e = expr.trim();
     let lower = e.to_lowercase();
@@ -220,6 +238,10 @@ pub fn parse_when(expr: &str, now: DateTime<Local>) -> Result<When> {
     if let Some(rest) = lower.strip_prefix("in ") {
         let d = parse_duration(rest).ok_or_else(|| anyhow!("could not parse duration '{rest}' (try 'in 10m', 'in 2 hours')"))?;
         return Ok(When { cron: String::new(), next_run: (now + d).timestamp() });
+    }
+    // "weekdays at 9am", "every weekday 9:00", "weekends 10:00", "every monday at 8", "fridays 17:30"
+    if let Some((days, time)) = days_phrase(lower.strip_prefix("every ").unwrap_or(&lower).trim()) {
+        return cron_when(&format!("{} {} * * {days}", time.minute(), time.hour()), now);
     }
     if let Some(rest) = lower.strip_prefix("every ") {
         let rest = rest.trim();
@@ -377,5 +399,21 @@ mod tests {
             assert!(next > t, "{next} is not after {t}");
             t = next;
         }
+    }
+
+    #[test]
+    fn days_of_the_week_are_understood() {
+        let now = Local.with_ymd_and_hms(2026, 11, 12, 10, 0, 0).unwrap(); // a Thursday
+        for (said, cron) in [
+            ("weekday 9:00", "0 9 * * 1-5"), ("weekdays at 9am", "0 9 * * 1-5"), ("every weekday at 9am", "0 9 * * 1-5"), ("Every Weekday 08:30", "30 8 * * 1-5"),
+            ("weekends 10:00", "0 10 * * 0,6"), ("every monday at 8", "0 8 * * 1"), ("fridays 17:30", "30 17 * * 5"), ("every sunday", "0 9 * * 0"),
+        ] {
+            assert_eq!(parse_when(said, now).unwrap().cron, cron, "{said}");
+        }
+        // the next weekday 9:00 after Thursday 10:00 is Friday
+        assert_eq!(parse_when("weekdays 9am", now).unwrap().next_run, Local.with_ymd_and_hms(2026, 11, 13, 9, 0, 0).unwrap().timestamp());
+        // other "every ..." phrases still mean what they did
+        assert_eq!(parse_when("every 2h", now).unwrap().cron, "0 */2 * * *");
+        assert_eq!(parse_when("every day at 7am", now).unwrap().cron, "0 7 * * *");
     }
 }

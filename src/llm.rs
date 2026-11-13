@@ -135,7 +135,9 @@ impl HttpLlm {
             "messages": req.messages,
             "stream": true,
             "stream_options": {"include_usage": true},
-            "max_tokens": req.max_tokens.unwrap_or(self.max_tokens),
+            // Models that think before answering spend this allowance on the thinking too, so a small
+            // cap meant for a short answer would leave no room for the answer itself.
+            "max_tokens": req.max_tokens.unwrap_or(self.max_tokens).max(MIN_REPLY_TOKENS),
         });
         if !req.tools.is_empty() {
             body["tools"] = Value::Array(req.tools.clone());
@@ -189,6 +191,10 @@ impl HttpLlm {
             acc.feed_line(line.trim_end(), on_delta).map_err(|e| CallError::fatal(e.to_string(), 0))?;
         }
         if acc.is_empty() {
+            // Thinking arrived but no answer: asking again the same way would end the same way.
+            if acc.thought() {
+                return Err(CallError::fatal("the model used its whole reply allowance on thinking and gave no answer. Raise max_tokens in Settings, or choose a model that thinks less".into(), 0));
+            }
             return Err(CallError::retryable("empty response from model".into()));
         }
         // The connection closing is not the same as the reply being finished. Without the end marker,
@@ -200,6 +206,8 @@ impl HttpLlm {
     }
 }
 
+/// Smallest reply allowance ever sent to a model.
+const MIN_REPLY_TOKENS: u32 = 2048;
 /// Longest single event line accepted from a model server, and largest non-streamed reply.
 const MAX_EVENT_LINE: usize = 8 * 1024 * 1024;
 const MAX_PLAIN_BODY: usize = 32 * 1024 * 1024;
@@ -242,11 +250,17 @@ pub struct StreamAccumulator {
     saw_any: bool,
     /// The provider said the reply is finished (`[DONE]`, a finish reason, or a whole non-streamed message).
     done: bool,
+    /// The model sent its thinking (which is not shown or kept).
+    reasoned: bool,
 }
 
 impl StreamAccumulator {
     pub fn is_empty(&self) -> bool {
         !self.saw_any
+    }
+
+    pub fn thought(&self) -> bool {
+        self.reasoned
     }
 
     pub fn is_complete(&self) -> bool {
@@ -285,6 +299,9 @@ impl StreamAccumulator {
         }
         let delta = choice.get("delta").or_else(|| choice.get("message"));
         let Some(delta) = delta else { return Ok(()) };
+        if ["reasoning", "reasoning_content"].iter().any(|k| delta.get(*k).and_then(|r| r.as_str()).map(|r| !r.is_empty()).unwrap_or(false)) {
+            self.reasoned = true;
+        }
         if let Some(text) = delta.get("content").and_then(|c| c.as_str()) {
             if !text.is_empty() {
                 self.saw_any = true;
@@ -407,11 +424,15 @@ impl Llm for HttpLlm {
 }
 
 /// Lets the app replace the model client at runtime (e.g. after the user changes settings).
-pub struct SwappableLlm(std::sync::RwLock<std::sync::Arc<dyn Llm>>);
+pub struct SwappableLlm(std::sync::RwLock<std::sync::Arc<dyn Llm>>, std::sync::OnceLock<crate::store::Store>);
 
 impl SwappableLlm {
     pub fn new(inner: std::sync::Arc<dyn Llm>) -> Self {
-        SwappableLlm(std::sync::RwLock::new(inner))
+        SwappableLlm(std::sync::RwLock::new(inner), std::sync::OnceLock::new())
+    }
+    /// Keep a record of every call (tokens per day and model) in this store.
+    pub fn meter(&self, store: crate::store::Store) {
+        let _ = self.1.set(store);
     }
     pub fn swap(&self, inner: std::sync::Arc<dyn Llm>) {
         *self.0.write().unwrap() = inner;
@@ -424,7 +445,23 @@ impl SwappableLlm {
 #[async_trait]
 impl Llm for SwappableLlm {
     async fn chat(&self, req: ChatRequest, on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
-        self.current().chat(req, on_delta).await
+        // Some servers do not report usage. An estimate from the text keeps the record meaningful.
+        let rough_prompt: usize = req.messages.iter().map(|m| crate::util::estimate_tokens(m.text()) + m.tool_calls.iter().map(|c| crate::util::estimate_tokens(&c.function.arguments)).sum::<usize>() + 4).sum::<usize>()
+            // The tool descriptions and their parameter schemas are part of what is sent.
+            + req.tools.iter().map(|t| crate::util::estimate_tokens(&t.to_string())).sum::<usize>();
+        let mut resp = self.current().chat(req, on_delta).await?;
+        // Callers enforce their own limits from the figures on the reply, so an estimate has to be
+        // put there as well as in the record; otherwise a provider that reports nothing is never
+        // counted against the background allowance.
+        if resp.usage.prompt_tokens + resp.usage.completion_tokens == 0 && resp.model != "demo" {
+            resp.usage.prompt_tokens = rough_prompt as u64;
+            resp.usage.completion_tokens = (crate::util::estimate_tokens(resp.message.text()) + resp.message.tool_calls.iter().map(|c| crate::util::estimate_tokens(&c.function.arguments)).sum::<usize>()) as u64;
+        }
+        if let Some(store) = self.1.get().filter(|_| resp.model != "demo") {
+            let (prompt, completion) = (resp.usage.prompt_tokens, resp.usage.completion_tokens);
+            let _ = store.record_usage(&crate::usage::day_key(chrono::Local::now().date_naive()), &resp.model, prompt, completion);
+        }
+        Ok(resp)
     }
     async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         self.current().embed(texts).await
@@ -711,6 +748,18 @@ mod tests {
         let long = "x".repeat(5000);
         let e = acc.feed_line(&format!(r#"data: {{"error":{{"message":"{long}"}}}}"#), &|_| {}).unwrap_err();
         assert!(e.to_string().len() < 600, "long provider errors are shortened");
+    }
+
+    #[test]
+    fn thinking_is_not_an_answer() {
+        // The shape a reasoning model sends when its allowance runs out before it answers.
+        let mut acc = StreamAccumulator::default();
+        acc.feed_line(r#"data: {"choices":[{"index":0,"delta":{"content":"","role":"assistant","reasoning":"The user wants one word."},"finish_reason":null}]}"#, &|_| {}).unwrap();
+        acc.feed_line(r#"data: {"choices":[{"index":0,"delta":{"content":""},"finish_reason":"length"}]}"#, &|_| {}).unwrap();
+        assert!(acc.is_empty() && acc.thought() && acc.is_complete());
+        // ...and when it does answer, only the answer is kept.
+        acc.feed_line(r#"data: {"choices":[{"index":0,"delta":{"content":"ready","reasoning":""}}]}"#, &|_| {}).unwrap();
+        assert_eq!(acc.finish("m").message.content.as_deref(), Some("ready"));
     }
 
     #[test]

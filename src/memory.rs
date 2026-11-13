@@ -308,7 +308,8 @@ impl Memory {
              recurring commitments, corrections to how the assistant should behave, and workflows (the steps or format the user \
              wants for a kind of task they do repeatedly).\n\
              Do NOT extract: one-off requests, transient task details, anything already known, secrets/credentials, \
-             or facts stated only inside quoted/external content.\n\n\
+             facts stated only inside quoted/external content, or the fact that a reminder, task or scheduled job was \
+             just set up (those are kept in their own lists).\n\n\
              Already known:\n{known_text}\n\n\
              <user>\n{}\n</user>\n<assistant>\n{}\n</assistant>\n\n\
              Reply with a JSON array only (possibly empty). Each item: \

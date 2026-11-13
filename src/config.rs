@@ -128,6 +128,14 @@ pub struct AgentConfig {
     /// Daily token budget for work Heron starts on its own (suggestions, preparing, taking over,
     /// reflection). 0 = no limit. Reminders you scheduled yourself always run.
     pub background_tokens_per_day: u64,
+    /// Your own cap on tokens per day across everything Heron does. 0 = no limit. As it runs down
+    /// Heron economises (fewer steps, shorter answers, the cheaper model, nothing in the background).
+    pub daily_token_limit: u64,
+    /// The same, per calendar month. 0 = no limit.
+    pub monthly_token_limit: u64,
+    /// "auto": send short, simple requests to `fast_model` when one is set, and move to the main model
+    /// if the request turns out to need real work. "off": always use the main model.
+    pub routing: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -221,6 +229,9 @@ impl Default for AgentConfig {
             proactive_allow: vec!["write_file:*".into(), "edit_file:*".into()],
             proactive_quiet_secs: 180,
             background_tokens_per_day: 150_000,
+            daily_token_limit: 0,
+            monthly_token_limit: 0,
+            routing: "auto".into(),
         }
     }
 }
@@ -502,6 +513,9 @@ max_steps = 40
 context_tokens = 100000
 auto_memory = true
 notify_command = ""                  # e.g. 'notify-send Heron "$HERON_MESSAGE"'
+daily_token_limit = 0                # your own cap per day; 0 = none. Heron economises as it runs down
+monthly_token_limit = 0              # the same, per calendar month
+routing = "auto"                     # send short, simple requests to fast_model when one is set; "off" = never
 browser = ""                         # empty = find Chrome/Edge/Chromium/Brave; a path; or "off"
 browser_visible = false              # true = show the browser window while Heron uses it
 

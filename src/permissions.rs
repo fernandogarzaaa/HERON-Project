@@ -228,6 +228,8 @@ pub enum Approval {
     Once,
     /// Approve and remember a rule for this kind of action.
     Always,
+    /// Approve this kind of action for the rest of this conversation only.
+    Session,
     Deny(Option<String>),
 }
 

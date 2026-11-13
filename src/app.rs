@@ -45,6 +45,7 @@ impl App {
         std::fs::create_dir_all(&workspace).with_context(|| format!("creating workspace {}", workspace.display()))?;
         let workspace = dunce::canonicalize(&workspace)?;
         let llm = Arc::new(SwappableLlm::new(llm));
+        llm.meter(store.clone());
         let remote: Option<Arc<dyn Llm>> = if cfg.llm.embedding_model.is_empty() { None } else { Some(llm.clone()) };
         let mut memory = Memory::new(store.clone(), remote);
         if cfg.agent.neural_memory {
@@ -433,7 +434,8 @@ impl App {
 
     fn background_budget_left(&self) -> bool {
         let (used, limit) = self.background_budget();
-        limit == 0 || used < limit
+        // Work nobody asked for stops first when the user's overall allowance is running low.
+        (limit == 0 || used < limit) && crate::usage::Budget::now(&self.store, &self.cfg()).background_allowed()
     }
 
     fn spend_background(&self, usage: &Usage) {
