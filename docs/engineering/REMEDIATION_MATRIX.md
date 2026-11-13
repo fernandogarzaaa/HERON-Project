@@ -32,7 +32,7 @@ No item is "done" on the strength of a document.
 | B1 Browser request interception, redirect/subresource checks | **Not started** | Only pre-navigation and post-navigation checks exist. Known gap: a request can happen before the post-check. |
 | B1 Per-session browser state | **Not started** | One global browser and one global `last_seen` table. Known cross-session hazard. |
 | B1 Screenshots behind opt-in | **Not started** | |
-| B2 Allowlisted subprocess environment | **Not started** | Only the model key is removed from the child environment today. |
+| B2 Allowlisted subprocess environment | **Verified** | Commands start from an empty environment and receive a fixed list (paths, language, toolchain locations, certificate bundles) plus names the user adds in `shell_env`. Proxy settings pass only without a password. Test: `commands_see_a_short_list_of_variables_not_the_whole_environment`. **Not covered:** the `notify_command` and MCP server processes still inherit the full environment. |
 | B2 Resource limits, process-tree cancel, output ceiling | **Partial** | Output ceiling and process-group kill exist (`endless_output_is_cut_off_instead_of_filling_memory`). No memory/CPU limit. |
 | B2 Windows containment | **Not started** | No sandbox on Windows; autonomous shell is still allowed there. This is an accepted, documented risk for the beta, not a pass. |
 | B3 MCP trust tiers, per-tool grants, budgets | **Partial** | Trusted servers are now `NetworkEgress`, unknown ones `ExternalWrite`; schema changes force approval. No per-tool grants, budgets or environment containment. |
@@ -44,8 +44,8 @@ No item is "done" on the strength of a document.
 | Item | Status | Evidence / what is missing |
 |---|---|---|
 | C1 Atomic claim of approvals given later | **Verified** | `Store::claim_approval` (`new → running` in one statement). Test in `app::tests`: 20 concurrent approvals execute once; an interrupted one becomes `unknown`, is not repeated. **Missing:** lease/heartbeat, revalidation of tool fingerprint and taint at execution. |
-| C2 Undo with hash preconditions and conflict detection | **Not started** | Undo restores the checkpoint without checking for later edits. |
-| C3 Durable run queue, leases, retries, DST policy, pause/resume | **Not started** | Jobs still advance before running. |
+| C2 Undo with hash preconditions and conflict detection | **Verified** | Each checkpoint records a hash of what Heron wrote. Undo refuses when the file has since been edited, replaced or removed; the checkpoint is kept until a restore succeeds; a forced restore first saves the current version beside the file. Writes and restores are atomic (temporary file, then rename). Tests: `undo_restores_only_what_is_still_as_heron_left_it`, `a_write_that_fails_leaves_nothing_to_undo_and_no_stray_files`. **Missing:** fault injection for a crash between checkpoint and write (the order makes it safe: a checkpoint without a hash restores as before); symlink-swap race test. |
+| C3 Durable run queue, leases, retries, DST policy, pause/resume | **Partial** | A due job is claimed in one transaction that moves the schedule on and writes a `running` record, only if it is still due as seen (`Store::claim_due_job`). A run cut short by a restart is marked `unknown`, reported in the inbox and not repeated. Test: `a_due_job_is_claimed_once_recorded_and_never_silently_lost`. **Missing:** heartbeat/lease expiry (single process is assumed), retry with backoff, per-job pause/resume, concurrency cap, per-job budget, explicit time-zone and misfire policy, event-triggered jobs (they are not claimed this way). |
 | C4 Resumable workflow steps, save-time and run-time validation | **Partial** | Validation at save and run exists; no resumable state. |
 | C5 `user_version` migrations, pre-upgrade snapshot, integrity tests | **Not started** | Schema changes are additive `ALTER TABLE` checks. |
 

@@ -27,25 +27,118 @@ fn write_risk(args: &Value, ctx: &ToolCtx) -> Effect {
     classify_path(&path, &ctx.workspace, true)
 }
 
-fn checkpoint(ctx: &ToolCtx, path: &Path) -> Result<()> {
+fn content_hash(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Replace a file in one step: the new content is written beside it and renamed over it, so a crash
+/// or a full disk can never leave half a file, and a link put in its place is replaced, not followed.
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let tmp = dir.join(format!(".{name}.heron-{}-{}", std::process::id(), uuid::Uuid::new_v4().simple()));
+    let done = (|| -> Result<()> {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        // Keep the file's permissions (an executable script stays executable).
+        if let Ok(meta) = std::fs::metadata(path) {
+            let _ = std::fs::set_permissions(&tmp, meta.permissions());
+        }
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    })();
+    if done.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    done.with_context(|| format!("cannot write {}", path.display()))
+}
+
+/// Change a file so that the change can be undone: keep what was there, write the new content in one
+/// step, and note what the file looks like afterwards. If the write fails nothing is kept.
+fn write_with_checkpoint(ctx: &ToolCtx, path: &Path, bytes: &[u8]) -> Result<()> {
     let prev = if path.exists() { Some(std::fs::read(path)?) } else { None };
-    ctx.store.save_checkpoint(&ctx.session_id, &path.to_string_lossy(), prev.as_deref())
+    let id = ctx.store.save_checkpoint(&ctx.session_id, &path.to_string_lossy(), prev.as_deref())?;
+    if let Err(e) = write_atomic(path, bytes) {
+        let _ = ctx.store.drop_checkpoint(id);
+        return Err(e);
+    }
+    ctx.store.set_checkpoint_after(id, &content_hash(bytes))
+}
+
+/// What undoing would do, or why it will not.
+#[derive(Debug, PartialEq)]
+pub enum Undo {
+    Nothing,
+    Done(String),
+    /// The file is no longer as Heron left it. Nothing was touched; the checkpoint is kept.
+    Conflict(String),
+}
+
+/// Undo the most recent file change Heron made in a conversation.
+///
+/// It first checks that the file is still exactly as Heron left it. If someone has edited, replaced or
+/// removed it since, restoring the old version would destroy their work, so nothing is touched and the
+/// checkpoint stays. With `force`, the current content is first saved beside the file and then the
+/// old version is restored. The checkpoint is removed only after the restore has succeeded.
+pub fn undo(ctx: &ToolCtx, force: bool) -> Result<Undo> {
+    let Some((id, path, prev, after)) = ctx.store.last_checkpoint(&ctx.session_id)? else { return Ok(Undo::Nothing) };
+    let file = Path::new(&path);
+    let current = if file.exists() { Some(std::fs::read(file).with_context(|| format!("cannot read {path}"))?) } else { None };
+    // Checkpoints from before this check existed have no hash and are restored as they always were.
+    let untouched = match (&after, &current) {
+        (None, _) => true,
+        (Some(hash), Some(bytes)) => *hash == content_hash(bytes),
+        (Some(_), None) => false,
+    };
+    let mut kept = String::new();
+    if !untouched {
+        match (&current, &prev, force) {
+            // Heron created it and it is already gone: there is nothing left to undo.
+            (None, None, _) => {
+                ctx.store.drop_checkpoint(id)?;
+                return Ok(Undo::Done(format!("{path} was already removed")));
+            }
+            (_, _, false) => {
+                return Ok(Undo::Conflict(match current {
+                    Some(_) => format!("{path} has been changed since Heron edited it, so undoing would overwrite those changes. Nothing was restored."),
+                    None => format!("{path} has been removed or moved since Heron edited it. Nothing was restored."),
+                }));
+            }
+            (Some(bytes), _, true) => {
+                let copy = format!("{path}.before-undo-{}", crate::util::now_ts());
+                write_atomic(Path::new(&copy), bytes)?;
+                kept = format!(" The version that was there is kept as {copy}.");
+            }
+            (None, Some(_), true) => {}
+        }
+    }
+    let said = match prev {
+        Some(bytes) => {
+            write_atomic(file, &bytes)?;
+            format!("restored {path}.{kept}")
+        }
+        None => {
+            if file.exists() {
+                std::fs::remove_file(file).with_context(|| format!("cannot remove {path}"))?;
+            }
+            format!("removed {path} (it did not exist before).{kept}")
+        }
+    };
+    ctx.store.drop_checkpoint(id)?;
+    Ok(Undo::Done(said))
 }
 
 /// Undo the most recent file change made in a session. Returns a description, or None if nothing to undo.
+/// A file changed since is reported as an error and left alone.
 pub fn undo_last(ctx: &ToolCtx) -> Result<Option<String>> {
-    let Some((path, prev)) = ctx.store.pop_checkpoint(&ctx.session_id)? else { return Ok(None) };
-    match prev {
-        Some(bytes) => {
-            std::fs::write(&path, bytes)?;
-            Ok(Some(format!("restored {path}")))
-        }
-        None => {
-            if Path::new(&path).exists() {
-                std::fs::remove_file(&path)?;
-            }
-            Ok(Some(format!("removed {path} (it did not exist before)")))
-        }
+    match undo(ctx, false)? {
+        Undo::Nothing => Ok(None),
+        Undo::Done(said) => Ok(Some(said)),
+        Undo::Conflict(why) => bail!("{why}"),
     }
 }
 
@@ -82,11 +175,10 @@ async fn read_file(args: &Value, ctx: &ToolCtx) -> Result<String> {
 async fn write_file(args: &Value, ctx: &ToolCtx) -> Result<String> {
     let path = resolve_path(&ctx.workspace, arg_str(args, "path")?);
     let content = arg_str(args, "content")?;
-    checkpoint(ctx, &path)?;
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    tokio::fs::write(&path, content).await.with_context(|| format!("cannot write {}", path.display()))?;
+    write_with_checkpoint(ctx, &path, content.as_bytes())?;
     Ok(format!("wrote {} bytes to {}", content.len(), shown(&path, ctx)))
 }
 
@@ -109,9 +201,8 @@ async fn edit_file(args: &Value, ctx: &ToolCtx) -> Result<String> {
     if count > 1 && !replace_all {
         bail!("old_string occurs {count} times in {}. Add surrounding context to make it unique, or set replace_all=true.", path.display());
     }
-    checkpoint(ctx, &path)?;
     let updated = if replace_all { text.replace(old, new) } else { text.replacen(old, new, 1) };
-    tokio::fs::write(&path, updated).await?;
+    write_with_checkpoint(ctx, &path, updated.as_bytes())?;
     Ok(format!("edited {} ({} replacement{})", path.display(), count.min(if replace_all { count } else { 1 }), if replace_all && count > 1 { "s" } else { "" }))
 }
 
@@ -306,4 +397,87 @@ pub fn tools() -> Vec<FnTool> {
             run: |a, c| Box::pin(find_files(a, c)),
         },
     ]
+}
+
+#[cfg(test)]
+mod undo_tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::memory::Memory;
+    use crate::store::Store;
+    use std::sync::Arc;
+
+    fn ctx(ws: &Path) -> ToolCtx {
+        let store = Store::in_memory().unwrap();
+        ToolCtx { workspace: dunce::canonicalize(ws).unwrap(), memory: Memory::new(store.clone(), None), store, session_id: "s".into(), cfg: Arc::new(Config::default()), tainted: Default::default(), seen_urls: Default::default() }
+    }
+
+    #[tokio::test]
+    async fn undo_restores_only_what_is_still_as_heron_left_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = ctx(dir.path());
+        let file = c.workspace.join("notes.md");
+        std::fs::write(&file, "the user's original").unwrap();
+
+        // The ordinary case: Heron edits, nobody touches it, undo puts the original back.
+        write_file(&json!({"path": "notes.md", "content": "Heron's version"}), &c).await.unwrap();
+        assert_eq!(undo(&c, false).unwrap(), Undo::Done(format!("restored {}.", file.display())));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "the user's original");
+        assert_eq!(undo(&c, false).unwrap(), Undo::Nothing, "the checkpoint is used up");
+
+        // Heron edits, then the user edits. Undo must not throw the user's edit away.
+        write_file(&json!({"path": "notes.md", "content": "Heron's version"}), &c).await.unwrap();
+        std::fs::write(&file, "the user's later edit").unwrap();
+        assert!(matches!(undo(&c, false).unwrap(), Undo::Conflict(why) if why.contains("changed since")));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "the user's later edit", "nothing was touched");
+        assert!(undo_last(&c).is_err(), "the plain form reports it as a failure");
+        assert!(c.store.last_checkpoint("s").unwrap().is_some(), "and the checkpoint is still there to use");
+
+        // If they insist, their version is kept beside the file before the old one comes back.
+        let Undo::Done(said) = undo(&c, true).unwrap() else { panic!("expected a restore") };
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "the user's original");
+        let kept: Vec<_> = std::fs::read_dir(&c.workspace).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().starts_with("notes.md.before-undo-")).collect();
+        assert_eq!(kept.len(), 1, "{said}");
+        assert_eq!(std::fs::read_to_string(kept[0].path()).unwrap(), "the user's later edit");
+        assert_eq!(undo(&c, false).unwrap(), Undo::Nothing);
+
+        // A file Heron created and the user then filled in is not deleted by undo.
+        write_file(&json!({"path": "new.md", "content": "draft"}), &c).await.unwrap();
+        std::fs::write(c.workspace.join("new.md"), "the user wrote a lot here").unwrap();
+        assert!(matches!(undo(&c, false).unwrap(), Undo::Conflict(_)));
+        assert!(c.workspace.join("new.md").exists());
+        // ...and one the user already deleted needs no undoing.
+        std::fs::remove_file(c.workspace.join("new.md")).unwrap();
+        assert!(matches!(undo(&c, false).unwrap(), Undo::Done(said) if said.contains("already removed")));
+
+        // A file the user removed after Heron edited it is reported, not silently recreated.
+        std::fs::write(&file, "v1").unwrap();
+        edit_file(&json!({"path": "notes.md", "old_string": "v1", "new_string": "v2"}), &c).await.unwrap();
+        std::fs::remove_file(&file).unwrap();
+        assert!(matches!(undo(&c, false).unwrap(), Undo::Conflict(why) if why.contains("removed or moved")));
+        assert!(!file.exists());
+    }
+
+    #[tokio::test]
+    async fn a_write_that_fails_leaves_nothing_to_undo_and_no_stray_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = ctx(dir.path());
+        // The target is a folder, so the write cannot succeed.
+        std::fs::create_dir(c.workspace.join("taken")).unwrap();
+        assert!(write_file(&json!({"path": "taken", "content": "x"}), &c).await.is_err());
+        assert_eq!(undo(&c, false).unwrap(), Undo::Nothing, "a change that did not happen is not offered for undo");
+        let stray: Vec<_> = std::fs::read_dir(&c.workspace).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".heron-")).collect();
+        assert!(stray.is_empty(), "no temporary file is left behind");
+
+        // Writing keeps a script executable, and replaces a link instead of writing through it.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let script = c.workspace.join("run.sh");
+            std::fs::write(&script, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            write_file(&json!({"path": "run.sh", "content": "#!/bin/sh\necho hi\n"}), &c).await.unwrap();
+            assert_eq!(std::fs::metadata(&script).unwrap().permissions().mode() & 0o777, 0o755);
+        }
+    }
 }

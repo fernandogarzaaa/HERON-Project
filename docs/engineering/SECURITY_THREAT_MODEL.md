@@ -46,7 +46,7 @@ The full table is the test `permissions::tests::the_decision_table`.
 |---|---|---|
 | T1 | Taint is per conversation, not per datum. | Coarse: one fetched page makes every later change ask. Safe, but noisy. |
 | T2 | Facts learned from mail or documents are stored unconfirmed, yet can be recalled into a clean conversation without marking it as tainted. | An injected "fact" could steer a later conversation that looks clean. |
-| T3 | The OS sandbox for commands leaves the network open, and there is none on Windows. | An approved command can send data anywhere. |
+| T3 | The OS sandbox for commands leaves the network open, and there is none on Windows. Commands no longer inherit tokens and keys from the environment, but can still read files the sandbox allows. | An approved command can send what it can read anywhere. |
 | T4 | The browser checks addresses before and after navigating, not each request. | A page can make the browser request internal addresses. |
 | T5 | One browser and one "last seen" table for all conversations. | Element numbers from one conversation could be used in another. |
 | T6 | A page listing many addresses can signal a few bits by which the user approves. | Low-bandwidth leak with user approval. |

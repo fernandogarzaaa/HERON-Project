@@ -15,6 +15,13 @@ Permission system (behaviour changes):
 - Approving a waiting request from two places at once can no longer carry it out twice, and a request interrupted by a restart is shown as "outcome unknown" instead of being repeated.
 - Engineering documents (threat model, remediation matrix, decisions, qualification) are in `docs/engineering/`.
 
+Durability and isolation:
+
+- **Undo will not overwrite your edits.** If a file has been changed, replaced or removed since Heron edited it, undo says so and touches nothing. You can restore anyway; the version that was there is saved beside the file first.
+- File changes are written in one step, so a crash or a full disk cannot leave half a file.
+- A scheduled job can no longer be started twice for the same time, and a job that was running when Heron stopped is reported in the inbox as "not known whether it finished" instead of disappearing. It is not repeated automatically.
+- **Commands no longer see your whole environment.** They get paths, language settings and toolchain locations; tokens and cloud keys are withheld. If a command needs one, add its name to `shell_env` under `[agent]`.
+
 Found by the first runs against a real AI model (a free reasoning model through OpenRouter):
 
 - Models that think before answering no longer come back empty: every request leaves room for the thinking as well as the answer, and a reply that is all thinking is reported as such instead of being retried.

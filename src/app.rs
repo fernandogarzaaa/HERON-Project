@@ -88,6 +88,9 @@ impl App {
         }
         // Anything that was mid-way when Heron last stopped has an unknown outcome; say so.
         let _ = store.recover_interrupted_approvals();
+        for (_, name) in store.recover_interrupted_jobs().unwrap_or_default() {
+            let _ = store.add_inbox(&name, "Heron stopped while this job was running, so it is not known whether it finished. It was not run again. Check what it was meant to do, and use \"Run now\" under Reminders if it should be repeated.");
+        }
         Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy: Arc::new(policy), workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default() })
     }
 
@@ -151,18 +154,24 @@ impl App {
             return 0;
         }
         let due = self.store.due_schedules(crate::util::now_ts()).unwrap_or_default();
+        let mut ran = 0;
         for job in &due {
-            // Advance first: a crash or a slow run must never cause the same job to fire in a loop.
-            let _ = self.store.advance_schedule(job.id, crate::schedule::next_run(&job.cron, chrono::Local::now()));
-            self.run_job(job, None).await;
+            // Claim first, in one step with moving the schedule on: a crash or a slow run can never
+            // make the same job fire in a loop, two schedulers can never both run it, and a run that
+            // is cut short stays on record.
+            let Ok(Some(run)) = self.store.claim_due_job(job, crate::schedule::next_run(&job.cron, chrono::Local::now())) else { continue };
+            let ok = self.run_job(job, None).await;
+            let _ = self.store.finish_job_run(run, if ok { "ok" } else { "failed" }, "");
+            ran += 1;
         }
-        due.len()
+        ran
     }
 
     /// Run one unattended job. Each job has exactly the authority the user granted it; anything beyond
     /// that is not done but kept in the "waiting for you" list. `event` describes what set off a trigger
     /// and is outside content, so a triggered job starts under the outside-content rule.
-    async fn run_job(&self, job: &crate::store::Schedule, event: Option<String>) {
+    /// Returns whether the job did its work (a refusal that is waiting for approval counts as done).
+    async fn run_job(&self, job: &crate::store::Schedule, event: Option<String>) -> bool {
         let cfg = self.cfg();
         let grants: Vec<String> = job.allow.split('\n').map(str::trim).filter(|r| !r.is_empty()).map(String::from).collect();
         let policy = if grants.is_empty() {
@@ -201,22 +210,24 @@ impl App {
             total.prompt_tokens += used.prompt_tokens;
             total.completion_tokens += used.completion_tokens;
         }
+        let worked = outcome.is_ok();
         let body = match outcome {
             Ok(text) => text,
             Err(e) => format!("Scheduled job failed: {e:#}"),
         };
         if job.quiet && body.trim().trim_matches(['.', '`', '"']) == "NOTHING_TO_REPORT" {
             let _ = self.store.record_schedule_run(job.id, "Checked: nothing needed your attention.", tokens);
-            return;
+            return true;
         }
         let _ = self.store.record_schedule_run(job.id, &preview(&body, 500), tokens);
         let _ = self.store.add_inbox(&job.name, &body);
         notify(&cfg, &job.name, &body);
+        worked
     }
 
     /// Run a job whose work is a fixed list of steps. Steps run as plain code through the same permission
     /// checks as the agent; the model is called only by steps that ask for it.
-    async fn run_automation(&self, job: &crate::store::Schedule, agent: Agent, event: Option<String>) {
+    async fn run_automation(&self, job: &crate::store::Schedule, agent: Agent, event: Option<String>) -> bool {
         let cfg = self.cfg();
         let spent = agent.usage.clone();
         let outcome: Result<crate::workflow::RunRecord> = async {
@@ -273,6 +284,7 @@ impl App {
             }
         };
         let _ = self.store.record_schedule_run(job.id, &summary, tokens);
+        matches!(record.status.as_str(), "ok" | "stopped" | "waiting")
     }
 
     /// Run a job right now, whatever its schedule (the "Run now" button).
@@ -673,6 +685,49 @@ mod tests {
     use super::*;
     use crate::llm::{Message, ScriptedLlm};
     use serde_json::json;
+
+    #[tokio::test]
+    async fn a_due_job_is_claimed_once_recorded_and_never_silently_lost() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        cfg.agent.auto_memory = false;
+        let llm = Arc::new(ScriptedLlm::new(vec![Message::assistant("Done: stretched.")]));
+        let store = Store::in_memory().unwrap();
+        let app = App::assemble(cfg.clone(), dir.path().join("ws"), store.clone(), llm.clone()).await.unwrap();
+        let daily = app.store.add_schedule("stretch", "0 9 * * *", "remind me to stretch", 1, "").unwrap();
+
+        // Two schedulers see the same due job at the same moment. Only one of them gets it.
+        let seen = app.store.due_schedules(crate::util::now_ts()).unwrap();
+        assert_eq!(seen.len(), 1);
+        let first = app.store.claim_due_job(&seen[0], Some(i64::MAX - 1)).unwrap();
+        let second = app.store.claim_due_job(&seen[0], Some(i64::MAX - 1)).unwrap();
+        assert!(first.is_some() && second.is_none(), "the same due time cannot be taken twice");
+        // The schedule has moved on, so it is not due again and cannot fire in a loop.
+        assert!(app.store.due_schedules(crate::util::now_ts()).unwrap().is_empty());
+
+        // That run never finishes (Heron stops). On the next start it is reported, not repeated.
+        let restarted = App::assemble(cfg, dir.path().join("ws"), store.clone(), llm.clone()).await.unwrap();
+        let runs = restarted.store.job_runs(10).unwrap();
+        assert_eq!((runs.len(), runs[0].4.as_str()), (1, "unknown"));
+        let inbox = restarted.store.inbox(true, 10).unwrap();
+        assert!(inbox.iter().any(|m| m.title == "stretch" && m.body.contains("not known whether it finished")), "{inbox:?}");
+        assert_eq!(restarted.run_due_schedules().await, 0, "the interrupted run is not started again by itself");
+        assert_eq!(llm.requests.lock().unwrap().len(), 0);
+
+        // A normal run is recorded as finished, and a failing one as failed.
+        restarted.store.add_schedule("ok job", "", "say done", 1, "").unwrap();
+        assert_eq!(restarted.run_due_schedules().await, 1);
+        let broken = restarted.store.add_schedule("broken job", "", "this will fail", 1, "").unwrap();
+        restarted.store.set_schedule_workflow(broken, "{ this is not a valid automation").unwrap();
+        assert_eq!(restarted.run_due_schedules().await, 1);
+        let runs = restarted.store.job_runs(10).unwrap();
+        let status = |name: &str| runs.iter().find(|r| r.0 == name).map(|r| (r.4.clone(), r.3.is_some())).unwrap();
+        assert_eq!(status("ok job"), ("ok".to_string(), true));
+        assert_eq!(status("broken job"), ("failed".to_string(), true));
+        assert!(restarted.store.inbox(true, 10).unwrap().iter().any(|m| m.title == "broken job" && m.body.contains("did not finish")));
+        let _ = daily;
+    }
 
     #[tokio::test]
     async fn scheduled_job_runs_once_readonly_and_lands_in_inbox() {

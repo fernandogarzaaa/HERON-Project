@@ -46,7 +46,14 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
             None => tokio::process::Command::new(shell),
         };
         cmd.args(flags).arg(command).current_dir(&ctx.workspace).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
-        cmd.env_remove("HERON_API_KEY").env_remove(&ctx.cfg.llm.api_key_env);
+        // Start from nothing and hand over only what is on the list: a command should not be able to
+        // read (or send away) every token and key that happens to be in the user's environment.
+        cmd.env_clear();
+        for (name, value) in std::env::vars_os() {
+            if env_allowed(&name.to_string_lossy(), &value.to_string_lossy(), &ctx.cfg.agent.shell_env) {
+                cmd.env(name, value);
+            }
+        }
         #[cfg(unix)]
         cmd.process_group(0); // so a timeout kills the whole process tree, not just the shell
         match cmd.spawn() {
@@ -114,6 +121,38 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
     Ok(text)
 }
 
+/// Variables every command may see. Nothing here is a credential: locations, language, time zone,
+/// display, and where toolchains and certificate bundles live.
+const ENV_ALLOWED: &[&str] = &[
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "COLORTERM", "LANG", "LANGUAGE", "TZ", "PWD", "TMPDIR", "TMP", "TEMP", "EDITOR", "PAGER", "DISPLAY", "WAYLAND_DISPLAY",
+    "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR",
+    // toolchains
+    "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "GOPATH", "GOROOT", "GOCACHE", "JAVA_HOME", "NVM_DIR", "NODE_PATH", "PYENV_ROOT", "VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONPATH",
+    // certificate bundles (needed to reach the network through a company proxy; they are not secrets)
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO", "CARGO_HTTP_CAINFO",
+    // Windows
+    "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT", "USERPROFILE", "USERNAME", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "COMMONPROGRAMFILES",
+    "HOMEDRIVE", "HOMEPATH", "OS", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "PSMODULEPATH",
+];
+/// Proxy settings are passed on only when they carry no password.
+const ENV_PROXY: &[&str] = &["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"];
+
+/// May a command see this variable? Names are compared without regard to case (Windows does not
+/// distinguish it). The model's own key is never passed, whatever the user's list says.
+fn env_allowed(name: &str, value: &str, extra: &[String]) -> bool {
+    let upper = name.to_uppercase();
+    if upper == "HERON_API_KEY" || upper.starts_with("HERON_") {
+        return false;
+    }
+    if ENV_ALLOWED.contains(&upper.as_str()) || upper.starts_with("LC_") {
+        return true;
+    }
+    if ENV_PROXY.contains(&upper.as_str()) {
+        return !value.contains('@');
+    }
+    extra.iter().any(|e| e.eq_ignore_ascii_case(name))
+}
+
 /// Read a pipe to its end, keeping at most `keep` bytes. Reading continues past that point (the bytes
 /// are dropped) so the command is never left blocked on a full pipe. Returns what was kept and whether
 /// anything was dropped.
@@ -156,6 +195,45 @@ mod tests {
     use crate::memory::Memory;
     use crate::store::Store;
     use std::sync::Arc;
+
+    #[tokio::test]
+    async fn commands_see_a_short_list_of_variables_not_the_whole_environment() {
+        let ws = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.agent.sandbox = "off".into();
+        cfg.llm.api_key_env = "HERON_TEST_MODEL_KEY".into();
+        // What a real environment looks like: the model's key, a cloud key, a token, a proxy with a password.
+        for (k, v) in [
+            ("HERON_TEST_MODEL_KEY", "sk-model-secret"), ("AWS_SECRET_ACCESS_KEY", "aws-secret"), ("GITHUB_TOKEN", "ghp_secret"), ("HERON_TEST_WANTED", "needed-by-the-build"),
+            ("HERON_TEST_PROXY_PROBE", "x"),
+        ] {
+            std::env::set_var(k, v);
+        }
+        let store = Store::in_memory().unwrap();
+        let ctx = ToolCtx { workspace: dunce::canonicalize(ws.path()).unwrap(), memory: Memory::new(store.clone(), None), store, session_id: "t".into(), cfg: Arc::new(cfg.clone()), tainted: Default::default(), seen_urls: Default::default() };
+        let seen = run(&json!({"command": "env"}), &ctx).await.unwrap();
+        for secret in ["sk-model-secret", "aws-secret", "ghp_secret", "needed-by-the-build"] {
+            assert!(!seen.contains(secret), "a command could read {secret}");
+        }
+        assert!(seen.contains("PATH=") && seen.contains("HOME="), "ordinary commands still work: {seen}");
+        assert!(run(&json!({"command": "ls / > /dev/null && echo fine"}), &ctx).await.unwrap().contains("fine"));
+
+        // The user can hand over a variable by name; the model's own key stays out regardless.
+        cfg.agent.shell_env = vec!["GITHUB_TOKEN".into(), "HERON_API_KEY".into()];
+        std::env::set_var("HERON_API_KEY", "sk-heron-secret");
+        let seen = run(&json!({"command": "env"}), &ToolCtx { cfg: Arc::new(cfg), ..ctx.clone() }).await.unwrap();
+        std::env::remove_var("HERON_API_KEY");
+        assert!(seen.contains("ghp_secret"), "{seen}");
+        assert!(!seen.contains("sk-heron-secret") && !seen.contains("aws-secret"));
+
+        // The rule itself, including a proxy address that carries a password.
+        assert!(env_allowed("Path", "x", &[]) && env_allowed("LC_ALL", "C", &[]) && env_allowed("SSL_CERT_FILE", "/x", &[]));
+        assert!(env_allowed("HTTPS_PROXY", "http://proxy.example:8080", &[]));
+        assert!(!env_allowed("HTTPS_PROXY", "http://user:pw@proxy.example:8080", &[]));
+        for hidden in ["OPENAI_API_KEY", "OPENROUTER_API_KEY", "AWS_SESSION_TOKEN", "SSH_AUTH_SOCK", "NPM_TOKEN", "DATABASE_URL", "HERON_HOME"] {
+            assert!(!env_allowed(hidden, "x", &[]), "{hidden}");
+        }
+    }
 
     #[tokio::test]
     async fn endless_output_is_cut_off_instead_of_filling_memory() {

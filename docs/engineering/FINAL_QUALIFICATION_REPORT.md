@@ -22,13 +22,14 @@ The full matrix is REMEDIATION_MATRIX.md. Summary by status:
 
 - **Verified:** A1 effect model; A2 outside-content rule in unrestricted mode; A2 addresses from
   tool output are not the user's; A3 search exemption removed and narrow research grant;
-  C1 atomic approval claim; MCP server entry point under the policy.
+  C1 atomic approval claim; MCP server entry point under the policy; B2 allowlisted environment
+  for commands; C2 undo conflict detection and atomic writes (second session, branch
+  `durability/undo-jobs-env`, stacked on PR #4).
 - **Partial:** A1 across entry points (the app's own buttons are outside the mode, by decision
   D-3); A2 provenance; A3 typed egress policy; A4 invariant tests (no fuzz harness);
-  B2 limits; B3 MCP; B5 atomic writes; C4; D3; D4; E2; F1; G7.
+  B2 limits; B3 MCP; B5 atomic writes; C3 job claims and interrupted-run reporting; C4; D3; D4; E2; F1; G7.
 - **Not started:** B1 (browser request interception, per-session state, screenshots);
-  B2 environment allowlist and Windows containment; B4; C2 undo conflicts; C3 durable job queue;
-  C5 migrations; D1–D2 capability router; E1, E3, E4; F2 Automation Studio; F3 OAuth; F4 voice;
+  B2 Windows containment; B4; C5 migrations; D1–D2 capability router; E1, E3, E4; F2 Automation Studio; F3 OAuth; F4 voice;
   F5; F6; G1 gates; G2 mutation testing; G3 fuzzing; G5.
 - **Blocked externally:** G4 signing and installer qualification; G6 branch protection; live
   OAuth tests; paid-model tests; removing the stray file from the v0.1.0 release.
@@ -52,7 +53,7 @@ The full matrix is REMEDIATION_MATRIX.md. Summary by status:
 
 ## 4. Correctness and performance evidence
 
-- Tests: 101 unit and 8 integration pass locally (Linux 6.18 x86_64, rustc 1.97.0), including
+- Tests: 105 unit and 8 integration pass locally (Linux 6.18 x86_64, rustc 1.97.0), including
   the real-browser test against Chromium. Windows type-check passes from Linux.
 - Hosted CI: green on PR #2's head. For the permission branch see its pull request; a local
   pass is not a hosted pass.

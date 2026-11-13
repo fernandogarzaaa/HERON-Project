@@ -442,10 +442,22 @@ async fn cancel(State(st): S, Json(b): Json<SessionBody>) -> ApiResult {
     Ok(Json(json!({"ok": true})))
 }
 
-async fn undo(State(st): S, Json(b): Json<SessionBody>) -> ApiResult {
+#[derive(Deserialize)]
+struct UndoBody {
+    session_id: String,
+    /// Restore even though the file has changed since (the current version is kept beside it).
+    #[serde(default)]
+    force: bool,
+}
+
+async fn undo(State(st): S, Json(b): Json<UndoBody>) -> ApiResult {
+    use crate::tools::fs::Undo;
     let agent = st.app.agent(Arc::new(crate::permissions::DenyAll));
-    let result = crate::tools::fs::undo_last(&agent.tool_ctx(&b.session_id))?;
-    Ok(Json(json!({"undone": result})))
+    Ok(Json(match crate::tools::fs::undo(&agent.tool_ctx(&b.session_id), b.force)? {
+        Undo::Nothing => json!({"undone": null}),
+        Undo::Done(said) => json!({"undone": said}),
+        Undo::Conflict(why) => json!({"undone": null, "conflict": why}),
+    }))
 }
 
 // ---------- memory / tasks / schedules / inbox / audit ----------
