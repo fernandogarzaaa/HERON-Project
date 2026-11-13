@@ -40,23 +40,39 @@ pub fn push_message(window: &MainWindow, role: &str, text: &str) {
     });
 }
 
-/// Append streamed text to the current assistant reply (the last row), creating
-/// one when the last row is not an assistant message.
+/// Push a new assistant row and record it as this turn's reply row. The
+/// reply row is tracked by index, not by role: Notice and Approval rows
+/// also use the "assistant" role, so finding the reply by role would land
+/// streamed text on a notice row and lose it at Done.
+fn push_reply_row(window: &MainWindow, text: &str) {
+    push_message(window, "assistant", text);
+    let messages = message_model(window);
+    let model = vec_model(&messages);
+    window.set_reply_row(model.row_count() as i32 - 1);
+}
+
+/// Start a reply turn: an empty assistant row that streamed deltas
+/// accumulate on. Called by the send handler when a message goes out.
+pub fn begin_reply(window: &MainWindow) {
+    push_reply_row(window, "");
+}
+
+/// Append streamed text to this turn's reply row, creating one when there
+/// is no live reply row (a stray event, or the first delta of a turn).
 pub fn append_reply_text(window: &MainWindow, delta: &str) {
     let messages = message_model(window);
     let model = vec_model(&messages);
     let count = model.row_count();
-    if count > 0 {
-        let mut last = model.row_data(count - 1).expect("last row exists");
-        if last.role.as_str() == "assistant" {
-            let text = format!("{}{delta}", last.text);
-            last.body = StyledText::from_plain_text(&text);
-            last.text = SharedString::from(text);
-            model.set_row_data(count - 1, last);
-            return;
-        }
+    let reply = window.get_reply_row();
+    if reply >= 0 && (reply as usize) < count {
+        let mut row = model.row_data(reply as usize).expect("reply row exists");
+        let text = format!("{}{delta}", row.text);
+        row.body = StyledText::from_plain_text(&text);
+        row.text = SharedString::from(text);
+        model.set_row_data(reply as usize, row);
+        return;
     }
-    push_message(window, "assistant", delta);
+    push_reply_row(window, delta);
 }
 
 /// One streamed chat event, applied on the UI thread. The Chat lane owns the
@@ -82,23 +98,27 @@ pub fn apply_chat_event(window: &MainWindow, event: ChatEvent) {
             let messages = message_model(window);
             let model = vec_model(&messages);
             let count = model.row_count();
-            if count > 0 {
-                let mut last = model.row_data(count - 1).expect("last row exists");
-                if last.role.as_str() == "assistant" {
-                    last.body = StyledText::from_markdown(&text)
-                        .unwrap_or_else(|_| StyledText::from_plain_text(&text));
-                    last.text = SharedString::from(&text);
-                    model.set_row_data(count - 1, last);
-                }
+            let reply = window.get_reply_row();
+            if reply >= 0 && (reply as usize) < count {
+                let mut last = model.row_data(reply as usize).expect("reply row exists");
+                last.body = StyledText::from_markdown(&text)
+                    .unwrap_or_else(|_| StyledText::from_plain_text(&text));
+                last.text = SharedString::from(&text);
+                model.set_row_data(reply as usize, last);
             }
+            window.set_reply_row(-1);
             window.set_session_title(SharedString::from(title));
             window.set_busy(false);
         }
         ChatEvent::Learned { .. } => {}
         ChatEvent::Error { message } => {
             append_reply_text(window, &format!("\nError: {message}"));
+            window.set_reply_row(-1);
             window.set_busy(false);
         }
-        ChatEvent::Cancelled => window.set_busy(false),
+        ChatEvent::Cancelled => {
+            window.set_reply_row(-1);
+            window.set_busy(false);
+        }
     }
 }

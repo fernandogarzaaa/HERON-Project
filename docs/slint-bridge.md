@@ -61,19 +61,26 @@ All Slint code lives in the desktop binary crate, never the lib:
   which Slint requires for a global another file imports. The integration
   keeps one copy, and it must be the exported one. Do not edit the values in
   one worktree without the other.
-- `build.rs` compiles every file in `ui/` with
+- `build.rs` compiles only the root file `ui/main.slint` with
   `slint_build::compile_with_config`, pinning the widget style per target
   (settled 2026-11-13): cupertino on macOS, fluent on Windows and Linux. The
   dark palette (slate #2F6690, talon #C98F00, serif headings) rides as custom
   theme properties in the .slint files. The style-pinning call is NOT verified
-  in this sandbox; the first Mac or CI build is the check for it.
+  in this sandbox; the first Mac or CI build is the check for it. One root
+  only, on purpose: each `compile_with_config` call sets the
+  SLINT_INCLUDE_GENERATED variable, last call wins, and `include_modules!()`
+  reads exactly that one path, so compiling a second top-level file would
+  silently drop MainWindow from the generated code. Lanes add their UI as
+  modules imported from main.slint, never as separate compile roots. Every
+  .slint file under ui/ is still watched for rebuilds.
 
 The Shell lane owns `ui/main.slint` (window, properties, callbacks) and
 `src/bin/desktop*`. The Chat lane owns the chat view layout inside the window
 and the richer chat rendering. The Views lane owns the sidebar, sessions,
 memory, reminders, and awareness panels. The Setup lane owns onboarding,
-providers/settings, and persona. The About dialog lives in the shell
-(`ui/main.slint`, see the license note).
+providers/settings, and persona. The About dialog is its own exported
+`Dialog` component in `ui/main.slint`, shown from Rust as a separate native
+window (see the license note).
 
 ## Window surface (`MainWindow` in `ui/main.slint`)
 
@@ -83,13 +90,12 @@ through the bridge):
 | Property | Type | Meaning |
 | --- | --- | --- |
 | `backend-status` | string | One-line server state, e.g. `Heron · model · mode`. Polled every 30s. |
-| `error-message` | string | Startup failure text. Empty when the backend started. |
+| `error-message` | string | Startup failure text. Empty when the backend started. While non-empty the composer (LineEdit and Send) is disabled, so a failed start never eats the user's text. |
 | `session-id` | string | Current conversation id, owned by Rust. Empty means "no session yet"; the server creates one lazily on the first message. |
 | `session-title` | string | Title of the current conversation. |
 | `messages` | `[ChatMsg]` | Current conversation, in order. `ChatMsg` is `{role, text, body}` where `role` is `user`, `assistant`, or `tool`, `text` is the plain source text, and `body` is the rendered `styled-text`. |
 | `busy` | bool | A reply is streaming in the current conversation. |
-| `show-about` | bool | The About dialog is open. Set by the Help menu; closed by its OK button. |
-| `app-version` | string | Release version shown in the About dialog, set from Rust at startup. |
+| `reply-row` | int | Index of this turn's reply row in `messages`. -1 means no live reply. Streamed text and Done target this row by identity, never "the last assistant row" (Notice and Approval rows also use that role). Set when a reply starts, cleared when the turn ends or the conversation is cleared. |
 | `current-view` | string | Active view id (`chat`, `onboarding`, `awareness`, `memory`, `tasks`, `reminders`, `usage`, `activity`, `settings`). Set by the rail. |
 | `waiting-badge` | string | Waiting-approvals count for the Conversation rail item. Empty means no badge. Set by the state poll. |
 | `unread-badge` | string | Unread-inbox count for the Reminders rail item. Empty means no badge. Set by the state poll. |
@@ -101,9 +107,10 @@ Callbacks the bridge handles:
 | Callback | Arguments | Meaning |
 | --- | --- | --- |
 | `send-message(string)` | typed text | Send a message in the current conversation. |
-| `new-session()` | | Forget the server session id and clear the view. The server creates the next session lazily on the first message. |
+| `new-session()` | | Stop the running reply on the server, forget the server session id, and clear the view. The server creates the next session lazily on the first message. Also invalidates the old turn, so its forwarder drops any event still in flight. |
 | `cancel-reply()` | | Stop the running reply (`POST /api/cancel`). |
 | `approve(string, string)` | approval id, decision | Answer a waiting approval. Decision is `once`, `always`, `session`, or anything else to deny. |
+| `show-about()` | | Open the About dialog (a separate native window, shown from Rust). |
 | `copy-requested(string)` | text to copy | Programmatic copy. There is no Slint copy API, so Rust copies through the `arboard` crate (new dependency, not yet added). |
 
 The window has a real macOS menu bar via Slint's `MenuBar`: File has "New
@@ -346,6 +353,27 @@ Errors are `{"error": "..."}` with a non-2xx status.
   `max-lines` doc says "Wrapped lines count towards the limit". The
   `wrap: word-wrap;` line was deleted from the chat bubble's `StyledText`;
   the three `wrap` lines on plain `Text` elements stay, and they compile.
+- **Dialog is a window, not a widget.** A `Dialog` must be the root of its
+  own exported component and be shown from Rust (`AboutDialog::new()`,
+  `.show()`). Nested inside `MainWindow` it stays embedded in the parent
+  window instead of opening a separate native window. The About dialog is
+  `export component AboutDialog inherits Dialog` in `ui/main.slint`; the
+  Help menu invokes the `show-about()` callback, Rust creates the dialog,
+  sets its version, and shows it. Its OK button has no explicit handler, so
+  the Dialog adds the `ok_clicked` callback and Rust hides the dialog from
+  it.
+- **Chat text color is explicit.** The chat bubble's `StyledText` sets
+  `default-color: Theme.ink`. Without it the color comes from the widget
+  palette, and under a light OS scheme that foreground is nearly black
+  against the dark message backgrounds.
+- **New stops the old turn two ways.** `new-session` cancels the running
+  reply on the server (`POST /api/cancel`) and increments a turn counter.
+  The forwarder for an old turn breaks out of its receive loop on a stale
+  turn and checks the turn again inside the event-loop closure before
+  applying, so no event from the cleared conversation can land in the new
+  one (including the race between receiving and applying). The send handler
+  never increments the turn: a second send while a reply runs is rejected
+  by the server (409), and the live reply's forwarder must keep applying.
 - **Layouts have no `enabled`.** `VerticalLayout` and the other layouts take
   no `enabled` property. Input gating lives on the controls themselves
   (`Button`, `LineEdit`), which do have it. See the design-bar section.

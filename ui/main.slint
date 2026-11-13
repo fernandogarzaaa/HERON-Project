@@ -95,6 +95,43 @@ export struct ChatMsg {
     body: styled-text,
 }
 
+// About dialog. A separate exported Dialog component: a Dialog nested in
+// MainWindow stays embedded in the parent window instead of opening a
+// separate native window. Shown from Rust (on_show_about in main.rs).
+// The StandardButton has no explicit handler, so the Dialog adds the
+// ok_clicked callback and Rust hides the dialog from it. The AboutSlint
+// widget is the royalty-free Slint license attribution; Heron ships
+// binaries, so it stays.
+export component AboutDialog inherits Dialog {
+    title: "About Heron";
+    in-out property <string> app-version: "";
+
+    VerticalLayout {
+        spacing: 8px;
+        padding: 16px;
+        Text {
+            text: "Heron";
+            font-family: Theme.heading-font;
+            font-size: 20px;
+            font-weight: 700;
+            color: Theme.ink;
+        }
+        Text {
+            text: "Version " + root.app-version;
+            color: Theme.ink;
+        }
+        Text {
+            text: "A local-first, private, proactive personal AI agent.";
+            color: Theme.ink;
+            wrap: word-wrap;
+        }
+        AboutSlint { }
+        StandardButton {
+            kind: ok;
+        }
+    }
+}
+
 export component MainWindow inherits Window {
     title: "Heron";
     background: Theme.paper;
@@ -114,6 +151,12 @@ export component MainWindow inherits Window {
     in-out property <string> session-title: "";
     in-out property <[ChatMsg]> messages: [];
     in-out property <bool> busy: false;
+    // This turn's reply row, by index. Streamed text and Done both target
+    // this row, never "the last assistant row": Notice and Approval rows
+    // also use that role. -1 means no live reply. Set by Rust when a reply
+    // starts, cleared when the turn ends (Done, Error, Cancelled) or the
+    // conversation is cleared.
+    in-out property <int> reply-row: -1;
     // View switching. current-view is the active view id; the content area
     // fades between views. Badges are strings set from Rust: empty means no
     // badge, so the .slint side never formats a number.
@@ -124,15 +167,13 @@ export component MainWindow inherits Window {
     // Reduced motion: animations run at 0ms while this is on. Default off.
     // Wiring it to the OS setting (or a Settings toggle) is still open.
     in-out property <bool> reduce-motion: false;
-    // About dialog state. show-about opens it; app-version is set from Rust
-    // at startup so the dialog never hardcodes the release number.
-    in-out property <bool> show-about: false;
-    in-out property <string> app-version: "";
 
     callback send-message(string);
     callback new-session();
     callback cancel-reply();
     callback approve(string, string);
+    // Opens the About dialog (a separate native window, shown from Rust).
+    callback show-about();
     // Programmatic copy: the shell has no Slint copy API, so Rust copies
     // through the arboard crate (see the bridge contract).
     callback copy-requested(string);
@@ -155,7 +196,7 @@ export component MainWindow inherits Window {
             title: "Help";
             MenuItem {
                 title: "About Heron";
-                activated => { root.show-about = true; }
+                activated => { root.show-about(); }
             }
         }
     }
@@ -355,6 +396,7 @@ export component MainWindow inherits Window {
                                 padding: 10px;
                                 StyledText {
                                     text: msg.body;
+                                    default-color: Theme.ink;
                                 }
                             }
                         }
@@ -366,7 +408,7 @@ export component MainWindow inherits Window {
                     input := LineEdit {
                         placeholder-text: "Message Heron…";
                         horizontal-stretch: 1;
-                        enabled: root.current-view == "chat" && !root.busy;
+                        enabled: root.current-view == "chat" && root.error-message == "" && !root.busy;
                         accepted(text) => {
                             root.send-message(text);
                             input.text = "";
@@ -374,7 +416,7 @@ export component MainWindow inherits Window {
                     }
                     Button {
                         text: "Send";
-                        enabled: root.current-view == "chat" && !root.busy && input.text != "";
+                        enabled: root.current-view == "chat" && root.error-message == "" && !root.busy && input.text != "";
                         clicked => {
                             root.send-message(input.text);
                             input.text = "";
@@ -562,39 +604,6 @@ export component MainWindow inherits Window {
                     color: Theme.muted;
                     horizontal-alignment: center;
                 }
-            }
-        }
-    }
-
-    // About dialog. Carries the AboutSlint widget: the royalty-free Slint
-    // license requires that attribution, and Heron ships binaries. The item
-    // sits in the Help menu as a plain item: the MenuItemRole variant that
-    // would move About into the macOS application menu is unverified, so no
-    // role is guessed here.
-    if root.show-about : Dialog {
-        VerticalLayout {
-            spacing: 8px;
-            padding: 16px;
-            Text {
-                text: "Heron";
-                font-family: Theme.heading-font;
-                font-size: 20px;
-                font-weight: 700;
-                color: Theme.ink;
-            }
-            Text {
-                text: "Version " + root.app-version;
-                color: Theme.ink;
-            }
-            Text {
-                text: "A local-first, private, proactive personal AI agent.";
-                color: Theme.ink;
-                wrap: word-wrap;
-            }
-            AboutSlint { }
-            StandardButton {
-                kind: ok;
-                clicked => { root.show-about = false; }
             }
         }
     }
