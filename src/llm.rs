@@ -431,7 +431,10 @@ impl Llm for SwappableLlm {
     }
 }
 
-/// Build the model client for a configuration. `base_url = "demo"` selects the built-in demo model.
+/// Build the model client for a configuration. `base_url = "demo"` selects the built-in demo model,
+/// unless a subscription CLI provider is explicitly selected: the provider
+/// choice wins over the demo sentinel, so picking a provider in Settings
+/// (or via HERON_PROVIDER) never silently returns canned answers.
 /// `[llm] provider` selects a subscription CLI instead of the HTTP endpoint
 /// (see `cli_llm`); "http" is the default. With HERON_CASSETTE set, model calls
 /// are recorded to (or replayed from) that file.
@@ -528,7 +531,11 @@ impl Llm for Cassette {
 }
 
 pub fn is_demo(cfg: &Config) -> bool {
+    // A CLI provider is an explicit model choice: it wins over the demo
+    // sentinel, so every demo check (doctor, settings, background work)
+    // agrees with what build() actually constructs.
     cfg.llm.base_url.trim().eq_ignore_ascii_case("demo")
+        && !crate::cli_llm::is_cli_provider(cfg.llm.provider.trim())
 }
 
 /// Offline demo model: no key, no network. Replies are canned, but it issues real tool calls,
@@ -733,5 +740,17 @@ mod tests {
         let m = Message::tool("c1", "ok");
         let v = serde_json::to_value(&m).unwrap();
         assert_eq!(v, json!({"role":"tool","content":"ok","tool_call_id":"c1"}));
+    }
+
+    #[test]
+    fn demo_mode_yields_to_an_explicit_cli_provider() {
+        let mut cfg = Config::default();
+        cfg.llm.base_url = "demo".to_string();
+        assert!(is_demo(&cfg));
+        cfg.llm.provider = "claude-cli".to_string();
+        assert!(
+            !is_demo(&cfg),
+            "selecting a CLI provider must not silently return canned demo answers"
+        );
     }
 }

@@ -149,7 +149,11 @@ answer with one JSON object and to use none of its own tools:
 Plain text with no envelope is a reply with no tool calls. Tool names not
 in the request are dropped, so a CLI that invents a tool cannot reach one.
 Usage tokens are read from the CLI's own JSON when it reports them;
-providers that do not report usage show zero for that turn.
+providers that do not report usage show zero for that turn. While the
+answer streams, only the reply text is shown: the envelope framing and
+the tool-call arguments never reach the terminal or the web chat.
+An explicitly selected CLI provider wins over `base_url = "demo"`, so
+picking a provider never silently returns canned demo answers.
 
 ## Claude model names
 

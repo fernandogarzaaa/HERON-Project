@@ -388,18 +388,21 @@ fn is_executable(p: &PathBuf) -> bool {
 
 fn find_on_path(name: &str) -> Option<PathBuf> {
     let path = std::env::var("PATH").unwrap_or_default();
-    for dir in path.split(':') {
-        if dir.is_empty() {
+    // std::env::split_paths uses the platform separator (`:` on Unix,
+    // `;` on Windows). Splitting on `:` by hand breaks Windows paths
+    // like `C:\Users\user\bin;C:\Windows`.
+    for dir in std::env::split_paths(&path) {
+        if dir.as_os_str().is_empty() {
             continue;
         }
-        let p = PathBuf::from(dir).join(name);
+        let p = dir.join(name);
         if is_executable(&p) {
             return Some(p);
         }
         #[cfg(windows)]
         {
             for ext in ["exe", "cmd", "bat"] {
-                let p = PathBuf::from(dir).join(format!("{name}.{ext}"));
+                let p = dir.join(format!("{name}.{ext}"));
                 if p.is_file() {
                     return Some(p);
                 }
@@ -655,6 +658,77 @@ pub fn extract_envelope(text: &str, valid_tools: &[String]) -> (String, Vec<Tool
     (text.trim().to_string(), vec![])
 }
 
+/// Decoded prefix of the `"text"` value inside a JSON envelope that is
+/// still arriving, plus whether the string closed. Returns None when the
+/// `"text"` key has not arrived yet (or the envelope carries none). This
+/// is what keeps the envelope framing out of the streamed output: only
+/// the text value itself reaches `on_delta`, never `{"text": "` or the
+/// tool-call arguments that follow it.
+fn envelope_text_prefix(text: &str) -> Option<(String, bool)> {
+    let bytes = text.as_bytes();
+    let key = b"\"text\"";
+    let mut i = 0;
+    while i + key.len() <= bytes.len() {
+        if &bytes[i..i + key.len()] == key {
+            let mut j = i + key.len();
+            while j < bytes.len() && (bytes[j] as char).is_whitespace() {
+                j += 1;
+            }
+            if j >= bytes.len() || bytes[j] != b':' {
+                return None;
+            }
+            j += 1;
+            while j < bytes.len() && (bytes[j] as char).is_whitespace() {
+                j += 1;
+            }
+            if j >= bytes.len() || bytes[j] != b'"' {
+                return None;
+            }
+            let mut out = String::new();
+            let mut k = j + 1;
+            while k < bytes.len() {
+                match bytes[k] {
+                    b'"' => return Some((out, true)),
+                    b'\\' => {
+                        if k + 1 >= bytes.len() {
+                            return Some((out, false));
+                        }
+                        match bytes[k + 1] {
+                            b'"' => out.push('"'),
+                            b'\\' => out.push('\\'),
+                            b'/' => out.push('/'),
+                            b'b' => out.push('\u{8}'),
+                            b'f' => out.push('\u{c}'),
+                            b'n' => out.push('\n'),
+                            b'r' => out.push('\r'),
+                            b't' => out.push('\t'),
+                            b'u' => {
+                                if k + 6 > bytes.len() {
+                                    return Some((out, false));
+                                }
+                                let hex = std::str::from_utf8(&bytes[k + 2..k + 6]).ok()?;
+                                let code = u32::from_str_radix(hex, 16).ok()?;
+                                out.push(char::from_u32(code).unwrap_or('\u{fffd}'));
+                                k += 4;
+                            }
+                            other => out.push(other as char),
+                        }
+                        k += 2;
+                    }
+                    _ => {
+                        let ch = text[k..].chars().next()?;
+                        out.push(ch);
+                        k += ch.len_utf8();
+                    }
+                }
+            }
+            return Some((out, false));
+        }
+        i += 1;
+    }
+    None
+}
+
 fn valid_tool_names(req: &ChatRequest) -> Vec<String> {
     req.tools
         .iter()
@@ -885,11 +959,26 @@ impl CliLlm {
     }
 }
 
+/// Whether streamed output goes straight to the caller or is held back
+/// until the JSON envelope's `text` value can be read.
+#[derive(Clone, Copy, PartialEq)]
+enum StreamMode {
+    /// Nothing seen yet.
+    Unknown,
+    /// Plain-text reply: stream fragments as they arrive.
+    Plain,
+    /// JSON envelope reply: stream only the decoded `text` value.
+    Envelope,
+}
+
 struct Accumulator {
     text: String,
     usage: Usage,
     tool_calls: Vec<ToolCall>,
     streamed: bool,
+    stream_mode: StreamMode,
+    /// Bytes of the decoded envelope `text` value already streamed.
+    emitted: usize,
 }
 
 impl Accumulator {
@@ -899,6 +988,46 @@ impl Accumulator {
             usage: Usage::default(),
             tool_calls: vec![],
             streamed: false,
+            stream_mode: StreamMode::Unknown,
+            emitted: 0,
+        }
+    }
+
+    /// Append a fragment of the model's text and stream it, without ever
+    /// showing the JSON envelope framing. Plain replies stream as they
+    /// arrive; envelope replies stream only the decoded `text` value, so
+    /// the user never sees `{"text": "` or the tool-call arguments.
+    fn push_text(&mut self, frag: &str, on_delta: DeltaFn<'_>) {
+        self.text.push_str(frag);
+        match self.stream_mode {
+            StreamMode::Unknown => {
+                if self.text.trim_start().starts_with('{') {
+                    self.stream_mode = StreamMode::Envelope;
+                    self.emit_envelope_prefix(on_delta);
+                } else {
+                    self.stream_mode = StreamMode::Plain;
+                    on_delta(frag);
+                    self.streamed = true;
+                }
+            }
+            StreamMode::Plain => {
+                on_delta(frag);
+                self.streamed = true;
+            }
+            StreamMode::Envelope => self.emit_envelope_prefix(on_delta),
+        }
+    }
+
+    fn emit_envelope_prefix(&mut self, on_delta: DeltaFn<'_>) {
+        if let Some((decoded, _)) = envelope_text_prefix(&self.text) {
+            if decoded.len() > self.emitted {
+                // `emitted` is always the length of a previously emitted
+                // prefix of `decoded`, so this slice is a char boundary.
+                let new = &decoded[self.emitted..];
+                on_delta(new);
+                self.streamed = true;
+                self.emitted = decoded.len();
+            }
         }
     }
 
@@ -913,10 +1042,8 @@ impl Accumulator {
             OutputKind::JsonLines => self.jsonl_line(line, on_delta),
             OutputKind::JsonSingle | OutputKind::JsonAuto => self.json_auto_line(line, on_delta),
             OutputKind::Text => {
-                self.text.push_str(line);
+                self.push_text(line, on_delta);
                 self.text.push('\n');
-                on_delta(line);
-                self.streamed = true;
                 Some(line.to_string())
             }
         }
@@ -937,9 +1064,7 @@ impl Accumulator {
                             .and_then(|d| d.get("text"))
                             .and_then(|t| t.as_str())
                         {
-                            self.text.push_str(t);
-                            on_delta(t);
-                            self.streamed = true;
+                            self.push_text(t, on_delta);
                             return Some(t.to_string());
                         }
                     }
@@ -959,7 +1084,7 @@ impl Accumulator {
                                     // Text blocks repeat what stream events already
                                     // streamed; only keep them if nothing streamed.
                                     if !self.streamed {
-                                        self.text.push_str(t);
+                                        self.push_text(t, on_delta);
                                     }
                                 }
                             }
@@ -1048,16 +1173,12 @@ impl Accumulator {
         }
         if let Some(t) = event_text(&v) {
             if is_complete || v.get("type").and_then(|t| t.as_str()) == Some("text") {
-                self.text.push_str(&t);
-                on_delta(&t);
-                self.streamed = true;
+                self.push_text(&t, on_delta);
                 return Some(t);
             }
             // A text fragment inside a larger event: keep it, stream it once.
             if !t.is_empty() && !self.text.ends_with(&t) {
-                self.text.push_str(&t);
-                on_delta(&t);
-                self.streamed = true;
+                self.push_text(&t, on_delta);
                 return Some(t);
             }
         }
@@ -1068,9 +1189,7 @@ impl Accumulator {
         if let Ok(v) = serde_json::from_str::<Value>(line) {
             merge_usage(&mut self.usage, event_usage(&v));
             if let Some(t) = event_text(&v) {
-                self.text.push_str(&t);
-                on_delta(&t);
-                self.streamed = true;
+                self.push_text(&t, on_delta);
                 return Some(t);
             }
             return None;
@@ -1153,6 +1272,19 @@ impl Llm for CliLlm {
                 });
             }
         }
+        // Drain stderr on its own task from the start. A chatty provider
+        // can fill the stderr pipe and block forever if stderr is only
+        // read after the child exits.
+        let stderr_buf = std::sync::Arc::new(tokio::sync::Mutex::new(String::new()));
+        let stderr_task = child.stderr.take().map(|mut err| {
+            let buf = stderr_buf.clone();
+            tokio::spawn(async move {
+                use tokio::io::AsyncReadExt;
+                let mut s = String::new();
+                let _ = err.read_to_string(&mut s).await;
+                *buf.lock().await = s;
+            })
+        });
         let stdout = child
             .stdout
             .take()
@@ -1182,11 +1314,10 @@ impl Llm for CliLlm {
             }
         }
         let status = child.wait().await?;
-        let mut stderr = String::new();
-        if let Some(mut err) = child.stderr.take() {
-            use tokio::io::AsyncReadExt;
-            let _ = err.read_to_string(&mut stderr).await;
+        if let Some(handle) = stderr_task {
+            let _ = handle.await;
         }
+        let stderr = stderr_buf.lock().await.clone();
         let _ = remove_temp_dir(&run_dir);
         let text_len = acc.text.trim().len();
         if !status.success() {
@@ -1272,10 +1403,18 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// Fake provider binary: a POSIX shell script. Tests that use it are
+    /// gated off Windows (`#[cfg(not(windows))]`), because Windows cannot
+    /// execute a `#!/bin/sh` script and fails with "not a valid Win32
+    /// application". The parsing logic they cover is platform-independent.
     fn fake_bin(dir: &std::path::Path, name: &str, script: &str) -> PathBuf {
         let path = dir.join(name);
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(script.as_bytes()).unwrap();
+        // Flush before returning: exec of a still-open file fails with
+        // "Text file busy" on some filesystems.
+        f.sync_all().unwrap();
+        drop(f);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -1475,6 +1614,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn claude_fake_binary_parses_stream_json_and_tool_call() {
         let dir = tempfile::tempdir().unwrap();
         let envelope = r#"{\"text\": \"two files\", \"tool_calls\": [{\"name\": \"list_dir\", \"arguments\": {\"path\": \".\"}}]}"#;
@@ -1505,9 +1645,15 @@ mod tests {
         );
         assert_eq!(r.usage.prompt_tokens, 11);
         assert_eq!(r.usage.completion_tokens, 4);
+        assert_eq!(
+            seen.lock().unwrap().as_str(),
+            "two files",
+            "streamed output must be the reply text, not the JSON envelope"
+        );
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn codex_fake_binary_parses_jsonl_and_scrubs_api_key() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("env-check.txt");
@@ -1520,22 +1666,29 @@ mod tests {
         cfg.llm.cli_command = bin.to_string_lossy().to_string();
         std::env::set_var("OPENAI_API_KEY", "sk-test-should-be-scrubbed");
         let llm = CliLlm::from_config(&cfg).unwrap();
+        let seen = std::sync::Mutex::new(String::new());
         let r = llm
             .chat(
                 ChatRequest {
                     messages: vec![Message::user("hi")],
                     ..Default::default()
                 },
-                &|_| {},
+                &|t| seen.lock().unwrap().push_str(t),
             )
             .await
             .unwrap();
         std::env::remove_var("OPENAI_API_KEY");
         assert_eq!(r.message.text(), "hi there");
+        assert_eq!(
+            seen.lock().unwrap().as_str(),
+            "hi there",
+            "streamed output must be the reply text, not the JSON envelope"
+        );
         assert_eq!(std::fs::read_to_string(&out).unwrap().trim(), "scrubbed");
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn opencode_fake_binary_parses_text_events_and_runs_in_temp_dir() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("cwd.txt");
@@ -1547,29 +1700,40 @@ mod tests {
         let mut cfg = test_cfg(dir.path(), "opencode-cli");
         cfg.llm.cli_command = bin.to_string_lossy().to_string();
         let llm = CliLlm::from_config(&cfg).unwrap();
+        let seen = std::sync::Mutex::new(String::new());
         let r = llm
             .chat(
                 ChatRequest {
                     messages: vec![Message::user("hi")],
                     ..Default::default()
                 },
-                &|_| {},
+                &|t| seen.lock().unwrap().push_str(t),
             )
             .await
             .unwrap();
         assert_eq!(r.message.text(), "listed");
+        assert_eq!(
+            seen.lock().unwrap().as_str(),
+            "listed",
+            "streamed output must be the reply text, not the JSON envelope"
+        );
         let cwd = std::fs::read_to_string(&out).unwrap();
         let cwd = cwd.trim();
         assert!(
             cwd.contains("cli-"),
             "CLI must run in a temp dir, ran in {cwd}"
         );
+        // Canonicalize both sides: on macOS `tempfile` returns
+        // `/var/folders/...` but the real path is `/private/var/folders/...`
+        // (`/var` is a symlink), and the child's `pwd` reports the real one.
+        let tmp_root = std::fs::canonicalize(dir.path().join("tmp")).unwrap();
         assert!(
-            cwd.starts_with(dir.path().join("tmp").to_str().unwrap()),
+            cwd.starts_with(tmp_root.to_str().unwrap()),
             "CLI must run under the private temp dir, ran in {cwd}"
         );
+        let here = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
         assert!(
-            !cwd.starts_with(std::env::current_dir().unwrap().to_str().unwrap()),
+            !cwd.starts_with(here.to_str().unwrap()),
             "CLI must not run in the test workspace, ran in {cwd}"
         );
     }
@@ -1594,6 +1758,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn not_logged_in_error_names_the_login_command() {
         let dir = tempfile::tempdir().unwrap();
         let bin = fake_bin(
@@ -1615,5 +1780,49 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("codex login"), "{err}");
+    }
+
+    #[test]
+    fn envelope_text_prefix_decodes_incrementally() {
+        assert_eq!(envelope_text_prefix(""), None);
+        assert_eq!(envelope_text_prefix("{\"te"), None);
+        assert_eq!(
+            envelope_text_prefix("{\"text\": \"two fi"),
+            Some(("two fi".to_string(), false))
+        );
+        assert_eq!(
+            envelope_text_prefix("{\"text\": \"ab\\"),
+            Some(("ab".to_string(), false))
+        );
+        assert_eq!(
+            envelope_text_prefix("{\"text\": \"a\\\"b\\n c\", \"tool_calls\": []}"),
+            Some(("a\"b\n c".to_string(), true))
+        );
+        assert_eq!(envelope_text_prefix("{\"tool_calls\": []}"), None);
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn stderr_is_drained_while_the_cli_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        // 200KB on stderr would fill the pipe and block the child if
+        // stderr were only read after the child exits.
+        let script = "#!/bin/sh\nhead -c 200000 /dev/zero | tr '\\0' 'x' >&2\ncat > /dev/null\nprintf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"text\\\":\\\"loud\\\",\\\"tool_calls\\\":[]}\"}}'\n";
+        let bin = fake_bin(dir.path(), "codex", script);
+        let mut cfg = test_cfg(dir.path(), "codex-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        cfg.llm.request_timeout_secs = 5;
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let r = llm
+            .chat(
+                ChatRequest {
+                    messages: vec![Message::user("hi")],
+                    ..Default::default()
+                },
+                &|_| {},
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.message.text(), "loud");
     }
 }
