@@ -160,15 +160,17 @@ impl CliSpec {
             // Codex: --sandbox read-only plus approval never. Note the sharp
             // edge T3 Code and the R-project helper both hit: Codex 0.164 keeps
             // its shell tool even under read-only, so the temp-dir cwd (never
-            // the workspace) is what actually bounds it here.
+            // the workspace) is what actually bounds it here. `-a` is a
+            // top-level option: `codex exec -a never` fails with
+            // "unexpected argument '-a' found" (verified on 0.164.0).
             "codex-cli" => {
                 args.extend([
+                    "-a".into(),
+                    "never".into(),
                     "exec".into(),
                     "--json".into(),
                     "--sandbox".into(),
                     "read-only".into(),
-                    "-a".into(),
-                    "never".into(),
                     "--skip-git-repo-check".into(),
                 ]);
                 model_arg("--model", &mut args);
@@ -664,106 +666,203 @@ pub fn extract_envelope(text: &str, valid_tools: &[String]) -> (String, Vec<Tool
 /// is what keeps the envelope framing out of the streamed output: only
 /// the text value itself reaches `on_delta`, never `{"text": "` or the
 /// tool-call arguments that follow it.
+///
+/// Only the envelope's top-level `text` counts. The scan walks the
+/// top-level object's members with nesting tracked, so a `"text"` key
+/// nested inside a tool argument is never streamed as the reply.
 fn envelope_text_prefix(text: &str) -> Option<(String, bool)> {
     let bytes = text.as_bytes();
-    let key = b"\"text\"";
-    let mut i = 0;
-    while i + key.len() <= bytes.len() {
-        if &bytes[i..i + key.len()] == key {
-            let mut j = i + key.len();
-            while j < bytes.len() && (bytes[j] as char).is_whitespace() {
-                j += 1;
-            }
-            if j >= bytes.len() || bytes[j] != b':' {
-                return None;
-            }
-            j += 1;
-            while j < bytes.len() && (bytes[j] as char).is_whitespace() {
-                j += 1;
-            }
-            if j >= bytes.len() || bytes[j] != b'"' {
-                return None;
-            }
-            let mut out = String::new();
-            let mut k = j + 1;
-            while k < bytes.len() {
-                match bytes[k] {
-                    b'"' => return Some((out, true)),
-                    b'\\' => {
-                        if k + 1 >= bytes.len() {
-                            return Some((out, false));
-                        }
-                        match bytes[k + 1] {
-                            b'"' => out.push('"'),
-                            b'\\' => out.push('\\'),
-                            b'/' => out.push('/'),
-                            b'b' => out.push('\u{8}'),
-                            b'f' => out.push('\u{c}'),
-                            b'n' => out.push('\n'),
-                            b'r' => out.push('\r'),
-                            b't' => out.push('\t'),
-                            b'u' => {
-                                if k + 6 > bytes.len() {
-                                    return Some((out, false));
-                                }
-                                let hex = std::str::from_utf8(&bytes[k + 2..k + 6]).ok()?;
-                                let code = u32::from_str_radix(hex, 16).ok()?;
-                                if (0xD800..0xDC00).contains(&code) {
-                                    // High surrogate: combine it with the
-                                    // following low surrogate into one
-                                    // character. If the pair is split
-                                    // across fragments, wait for the rest
-                                    // instead of emitting a replacement
-                                    // character for half a pair.
-                                    if k + 12 > bytes.len() {
-                                        return Some((out, false));
-                                    }
-                                    let mut paired = false;
-                                    if bytes[k + 6] == b'\\' && bytes[k + 7] == b'u' {
-                                        if let Ok(hex2) = std::str::from_utf8(&bytes[k + 8..k + 12])
-                                        {
-                                            if let Ok(low) = u32::from_str_radix(hex2, 16) {
-                                                if (0xDC00..0xE000).contains(&low) {
-                                                    let c = 0x10000
-                                                        + ((code - 0xD800) << 10)
-                                                        + (low - 0xDC00);
-                                                    out.push(
-                                                        char::from_u32(c).unwrap_or('\u{fffd}'),
-                                                    );
-                                                    paired = true;
-                                                    k += 6;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if !paired {
-                                        // Lone high surrogate.
-                                        out.push('\u{fffd}');
-                                    }
-                                } else if (0xDC00..0xE000).contains(&code) {
-                                    // Lone low surrogate.
-                                    out.push('\u{fffd}');
-                                } else {
-                                    out.push(char::from_u32(code).unwrap_or('\u{fffd}'));
-                                }
-                                k += 4;
-                            }
-                            other => out.push(other as char),
-                        }
-                        k += 2;
-                    }
-                    _ => {
-                        let ch = text[k..].chars().next()?;
-                        out.push(ch);
-                        k += ch.len_utf8();
-                    }
-                }
-            }
-            return Some((out, false));
+    let mut i = text.find('{')? + 1;
+    loop {
+        while i < bytes.len() && ((bytes[i] as char).is_whitespace() || bytes[i] == b',') {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            return None;
+        }
+        if bytes[i] == b'}' {
+            return None;
+        }
+        if bytes[i] != b'"' {
+            i = skip_json_value(bytes, text, i)?;
+            continue;
+        }
+        let (key, next) = parse_json_string(bytes, text, i)?;
+        i = next;
+        while i < bytes.len() && (bytes[i] as char).is_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() || bytes[i] != b':' {
+            return None;
         }
         i += 1;
+        while i < bytes.len() && (bytes[i] as char).is_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            return None;
+        }
+        if key == "text" {
+            if bytes[i] != b'"' {
+                return None;
+            }
+            let (decoded, _, terminated) = decode_json_string(bytes, text, i)?;
+            return Some((decoded, terminated));
+        }
+        i = skip_json_value(bytes, text, i)?;
     }
-    None
+}
+
+/// Decode the JSON string starting at the `"` at `start`. Returns the
+/// decoded prefix, the index just past what was consumed, and whether
+/// the closing quote was found. `None` only when the string is so
+/// malformed that nothing can be decoded (invalid UTF-8 or hex).
+fn decode_json_string(bytes: &[u8], text: &str, start: usize) -> Option<(String, usize, bool)> {
+    let mut out = String::new();
+    let mut k = start + 1;
+    while k < bytes.len() {
+        match bytes[k] {
+            b'"' => return Some((out, k + 1, true)),
+            b'\\' => {
+                if k + 1 >= bytes.len() {
+                    return Some((out, k, false));
+                }
+                match bytes[k + 1] {
+                    b'"' => out.push('"'),
+                    b'\\' => out.push('\\'),
+                    b'/' => out.push('/'),
+                    b'b' => out.push('\u{8}'),
+                    b'f' => out.push('\u{c}'),
+                    b'n' => out.push('\n'),
+                    b'r' => out.push('\r'),
+                    b't' => out.push('\t'),
+                    b'u' => {
+                        if k + 6 > bytes.len() {
+                            return Some((out, k, false));
+                        }
+                        let hex = std::str::from_utf8(&bytes[k + 2..k + 6]).ok()?;
+                        let code = u32::from_str_radix(hex, 16).ok()?;
+                        if (0xD800..0xDC00).contains(&code) {
+                            // High surrogate: combine it with the
+                            // following low surrogate into one
+                            // character. If the pair is split across
+                            // fragments, wait for the rest instead of
+                            // emitting a replacement character for half
+                            // a pair.
+                            if k + 12 > bytes.len() {
+                                return Some((out, k, false));
+                            }
+                            let mut paired = false;
+                            if bytes[k + 6] == b'\\' && bytes[k + 7] == b'u' {
+                                if let Ok(hex2) = std::str::from_utf8(&bytes[k + 8..k + 12]) {
+                                    if let Ok(low) = u32::from_str_radix(hex2, 16) {
+                                        if (0xDC00..0xE000).contains(&low) {
+                                            let c =
+                                                0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+                                            out.push(char::from_u32(c).unwrap_or('\u{fffd}'));
+                                            paired = true;
+                                            k += 6;
+                                        }
+                                    }
+                                }
+                            }
+                            if !paired {
+                                // Lone high surrogate.
+                                out.push('\u{fffd}');
+                            }
+                        } else if (0xDC00..0xE000).contains(&code) {
+                            // Lone low surrogate.
+                            out.push('\u{fffd}');
+                        } else {
+                            out.push(char::from_u32(code).unwrap_or('\u{fffd}'));
+                        }
+                        k += 4;
+                    }
+                    other => out.push(other as char),
+                }
+                k += 2;
+            }
+            _ => {
+                let ch = text[k..].chars().next()?;
+                out.push(ch);
+                k += ch.len_utf8();
+            }
+        }
+    }
+    Some((out, k, false))
+}
+
+/// Parse a complete JSON string starting at the `"` at `start`.
+/// Returns the decoded string and the index just past its closing
+/// quote, or None when the string has not arrived in full yet.
+fn parse_json_string(bytes: &[u8], text: &str, start: usize) -> Option<(String, usize)> {
+    let (decoded, next, terminated) = decode_json_string(bytes, text, start)?;
+    if terminated {
+        Some((decoded, next))
+    } else {
+        None
+    }
+}
+
+/// Skip one JSON value starting at `i` (object, array, string, number,
+/// or literal), returning the index just past it. Returns None when the
+/// value has not arrived in full yet, so the caller waits for more
+/// input instead of guessing.
+fn skip_json_value(bytes: &[u8], text: &str, mut i: usize) -> Option<usize> {
+    while i < bytes.len() && (bytes[i] as char).is_whitespace() {
+        i += 1;
+    }
+    if i >= bytes.len() {
+        return None;
+    }
+    match bytes[i] {
+        b'"' => {
+            let (_, next) = parse_json_string(bytes, text, i)?;
+            Some(next)
+        }
+        b'{' | b'[' => {
+            let mut stack = vec![if bytes[i] == b'{' { b'}' } else { b']' }];
+            i += 1;
+            while i < bytes.len() {
+                match bytes[i] {
+                    b'"' => {
+                        let (_, next) = parse_json_string(bytes, text, i)?;
+                        i = next;
+                    }
+                    b'{' => {
+                        stack.push(b'}');
+                        i += 1;
+                    }
+                    b'[' => {
+                        stack.push(b']');
+                        i += 1;
+                    }
+                    b'}' | b']' => {
+                        if stack.last() == Some(&bytes[i]) {
+                            stack.pop();
+                            i += 1;
+                            if stack.is_empty() {
+                                return Some(i);
+                            }
+                        } else {
+                            return None;
+                        }
+                    }
+                    _ => i += 1,
+                }
+            }
+            None
+        }
+        _ => {
+            while i < bytes.len()
+                && !matches!(bytes[i], b',' | b'}' | b']')
+                && !(bytes[i] as char).is_whitespace()
+            {
+                i += 1;
+            }
+            Some(i)
+        }
+    }
 }
 
 /// Truncate to at most `max` bytes without splitting a UTF-8 character.
@@ -974,6 +1073,19 @@ impl CliLlm {
     }
 
     fn argv(&self, prompt: &str) -> Result<(PathBuf, Vec<String>)> {
+        // The size cap needs no binary: check it first, so a prompt over
+        // the cap is refused even when the CLI is not installed.
+        if matches!(self.spec.input, PromptInput::Arg | PromptInput::Flag) {
+            let limit = if cfg!(windows) { 30_000 } else { 120_000 };
+            if prompt.len() > limit {
+                bail!(
+                    "the prompt for {} is {} bytes, over the {} byte limit for providers that take the prompt as one command-line argument. Shorten the conversation, or switch to a provider that takes the prompt on stdin (for example claude-cli or codex-cli).",
+                    self.spec.display_name,
+                    prompt.len(),
+                    limit
+                );
+            }
+        }
         let path = self.binary_path()?;
         let model = if self.spec.id == "claude-cli" {
             let base = if !self.model.is_empty() {
@@ -1005,22 +1117,6 @@ impl CliLlm {
                 args.push(prompt.to_string())
             }
             _ => {}
-        }
-        // One argv entry has a hard size cap (131,072 bytes on Linux,
-        // 32,767 characters for the whole command line on Windows). A
-        // long conversation would fail at spawn with `Argument list too
-        // long`, so refuse early with a clear error instead. Stdin
-        // providers (claude-cli, codex-cli) have no such cap.
-        if matches!(self.spec.input, PromptInput::Arg | PromptInput::Flag) {
-            let limit = if cfg!(windows) { 30_000 } else { 120_000 };
-            if prompt.len() > limit {
-                bail!(
-                    "the prompt for {} is {} bytes, over the {} byte limit for providers that take the prompt as one command-line argument. Shorten the conversation, or switch to a provider that takes the prompt on stdin (for example claude-cli or codex-cli).",
-                    self.spec.display_name,
-                    prompt.len(),
-                    limit
-                );
-            }
         }
         Ok((path, args))
     }
@@ -1946,6 +2042,15 @@ mod tests {
         assert_eq!(
             envelope_text_prefix("{\"text\": \"a\\udc00b\"}"),
             Some(("a\u{fffd}b".to_string(), true))
+        );
+        // A "text" nested inside a tool argument is not the reply.
+        assert_eq!(
+            envelope_text_prefix("{\"tool_calls\": [{\"name\": \"browser_type\", \"arguments\": {\"id\": 1, \"text\": \"input value\"}}], \"text\": \"Done\"}"),
+            Some(("Done".to_string(), true))
+        );
+        assert_eq!(
+            envelope_text_prefix("{\"tool_calls\": [{\"name\": \"x\", \"arguments\": {\"text\": \"input value\"}}], \"text\": \"Do"),
+            Some(("Do".to_string(), false))
         );
     }
 
