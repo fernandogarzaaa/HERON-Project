@@ -25,7 +25,7 @@
 //! Home: `src/bin/desktop/setup.rs`, per the plan file layout (section 5).
 //! All Slint code lives in the desktop binary crate behind the `desktop`
 //! feature, never in the library. Wiring (the module declarations in
-//! `src/bin/desktop.rs` and the `desktop` feature dependencies) belongs to
+//! `src/bin/desktop/main.rs` and the `desktop` feature dependencies) belongs to
 //! the Shell lane and integration.
 //!
 //! Verification here: `rustc --edition 2021 --crate-type lib` and

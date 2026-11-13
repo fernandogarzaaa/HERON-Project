@@ -1,7 +1,7 @@
 // Heron native shell. The window, the sidebar, the view switcher, and
-// the chat view. The Views lane fills the other views beside the chat;
-// they share the MainWindow properties and the bridge contract in
-// docs/slint-bridge.md.
+// the chat view. The Views lane fills the six views beside the chat and
+// the Setup lane fills onboarding and settings; they share the
+// MainWindow properties and the bridge contract in docs/slint-bridge.md.
 //
 // Design bar (Inan, 2026-11-13): "make it beautiful, more interactive, more
 // intuitive to use." The shell carries it: Heron's dark palette as the
@@ -23,6 +23,9 @@ import { RemindersView } from "views/reminders.slint";
 import { AwarenessView } from "views/awareness.slint";
 import { ActivityView } from "views/activity.slint";
 import { UsageView } from "views/usage.slint";
+import { OnboardingView } from "views/onboarding.slint";
+import { SettingsView, ToolItem, McpLine } from "views/settings.slint";
+import { SourceItem } from "components/source_card.slint";
 import { SessionRow, MemoryRow, TaskRow, ScheduleRow, RunStepRow, InboxRow, SuggestionRow, SimpleRow, AuditRow, UsageDayRow, ModelRow } from "views/common.slint";
 
 // About dialog. A separate exported Dialog component: a Dialog nested in
@@ -233,6 +236,98 @@ export component MainWindow inherits Window {
     in-out property <bool> usage-saved-visible: false;
     callback usage-save-usage();
 
+    // Setup lane (onboarding, settings). Forwarded properties and
+    // callbacks the glue in src/bin/desktop/setup_glue.rs drives.
+    // Every property is in-out so the view and Rust share one value;
+    // two-way bindings (<=>) carry the form fields the user edits
+    // back to the window. The *-reduce-motion properties are bound
+    // to the Shell's own reduce-motion: the glue never sets them.
+    // Onboarding.
+    in-out property <bool> onboarding-reduce-motion: root.reduce-motion;
+    in-out property <int> onboarding-current-step: 0;
+    in-out property <float> onboarding-progress: 0.0;
+    in-out property <string> onboarding-model-status: "";
+    in-out property <bool> onboarding-model-ready: false;
+    in-out property <bool> onboarding-demo: false;
+    in-out property <string> onboarding-about-name: "";
+    in-out property <string> onboarding-about-work: "";
+    in-out property <string> onboarding-about-goals: "";
+    in-out property <string> onboarding-about-style: "";
+    in-out property <string> onboarding-about-people: "";
+    in-out property <string> onboarding-about-notes: "";
+    in-out property <int> onboarding-about-saved: 0;
+    in-out property <string> onboarding-about-message: "";
+    in-out property <[SourceItem]> onboarding-sources: [];
+    in-out property <bool> onboarding-world-done: false;
+    in-out property <string> onboarding-doc-path: "";
+    in-out property <string> onboarding-cal-url: "";
+    in-out property <string> onboarding-email-host: "";
+    in-out property <string> onboarding-email-user: "";
+    in-out property <string> onboarding-email-pass: "";
+    in-out property <string> onboarding-source-message: "";
+    in-out property <string> onboarding-proactivity: "off";
+    in-out property <bool> onboarding-onboarded: false;
+    in-out property <bool> onboarding-busy: false;
+    callback onboarding-open-settings();
+    callback onboarding-use-demo();
+    callback onboarding-save-about();
+    callback onboarding-connect-source(string);
+    callback onboarding-learn-source(string);
+    callback onboarding-disconnect-source(string);
+    callback onboarding-pick-folder-requested();
+    callback onboarding-set-proactivity(string);
+    callback onboarding-goto-step(int);
+    callback onboarding-finish();
+    // Settings.
+    in-out property <bool> settings-reduce-motion: root.reduce-motion;
+    in-out property <string> settings-base-url: "";
+    in-out property <string> settings-model: "";
+    in-out property <string> settings-fallback-models: "";
+    in-out property <string> settings-fast-model: "";
+    in-out property <[string]> settings-provider-labels: [];
+    in-out property <int> settings-provider-index: 0;
+    in-out property <string> settings-cli-command: "";
+    in-out property <string> settings-cli-model: "";
+    in-out property <string> settings-api-key: "";
+    in-out property <string> settings-key-note: "";
+    in-out property <string> settings-key-placeholder: "";
+    in-out property <string> settings-agent-name: "";
+    in-out property <string> settings-persona-text: "";
+    in-out property <bool> settings-persona-is-default: false;
+    in-out property <string> settings-persona-message: "";
+    in-out property <string> settings-mode: "ask";
+    in-out property <string> settings-daemon-mode: "readonly";
+    in-out property <string> settings-sandbox-note: "";
+    in-out property <bool> settings-browser-visible: false;
+    in-out property <bool> settings-browser-available: false;
+    in-out property <string> settings-browser-note: "";
+    in-out property <[ToolItem]> settings-tools: [];
+    in-out property <[string]> settings-tool-settings: [];
+    in-out property <[McpLine]> settings-mcp-lines: [];
+    in-out property <string> settings-mcp-note: "";
+    in-out property <bool> settings-telegram-configured: false;
+    in-out property <bool> settings-telegram-paired: false;
+    in-out property <string> settings-telegram-status: "";
+    in-out property <string> settings-telegram-token: "";
+    in-out property <bool> settings-auto-memory: false;
+    in-out property <bool> settings-neural-memory: false;
+    in-out property <bool> settings-neural-available: false;
+    in-out property <string> settings-workspace: "";
+    in-out property <string> settings-home: "";
+    in-out property <string> settings-saved-message: "";
+    in-out property <string> settings-error-message: "";
+    in-out property <string> settings-backup-message: "";
+    in-out property <bool> settings-busy: false;
+    callback settings-apply-preset(string);
+    callback settings-save-settings();
+    callback settings-save-persona();
+    callback settings-reset-persona();
+    callback settings-set-tool(string, int);
+    callback settings-accept-mcp(string);
+    callback settings-connect-telegram();
+    callback settings-disconnect-telegram();
+    callback settings-make-backup();
+
     callback send-message(string);
     callback new-session();
     callback cancel-reply();
@@ -306,9 +401,8 @@ export component MainWindow inherits Window {
         // Content area. One branch per view, all present at once so the
         // opacity fade can run on switch; only the current branch takes
         // input (each branch is gated on visible as well as opacity).
-        // The chat, awareness, memory, tasks, reminders, usage, and
-        // activity branches are real. Onboarding and settings are still
-        // scaffolding the Setup lane replaces with its views.
+        // Every branch is real: chat, awareness, memory, tasks,
+        // reminders, usage, activity, onboarding, and settings.
         content := Rectangle {
             horizontal-stretch: 1;
 
@@ -372,22 +466,47 @@ export component MainWindow inherits Window {
             VerticalLayout {
                 width: parent.width;
                 height: parent.height;
-                alignment: center;
-                spacing: 8px;
+                visible: root.current-view == "onboarding";
                 opacity: root.current-view == "onboarding" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                Text {
-                    text: "Getting to know you";
-                    font-family: Theme.heading-font;
-                    font-size: 20px;
-                    font-weight: 600;
-                    color: Theme.ink;
-                    horizontal-alignment: center;
-                }
-                Text {
-                    text: "Onboarding arrives with the Setup lane (Phase 3).";
-                    color: Theme.muted;
-                    horizontal-alignment: center;
+                OnboardingView {
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    reduce-motion: root.onboarding-reduce-motion;
+                    current-step: root.onboarding-current-step;
+                    progress: root.onboarding-progress;
+                    model-status: root.onboarding-model-status;
+                    model-ready: root.onboarding-model-ready;
+                    demo: root.onboarding-demo;
+                    about-name <=> root.onboarding-about-name;
+                    about-work <=> root.onboarding-about-work;
+                    about-goals <=> root.onboarding-about-goals;
+                    about-style <=> root.onboarding-about-style;
+                    about-people <=> root.onboarding-about-people;
+                    about-notes <=> root.onboarding-about-notes;
+                    about-saved: root.onboarding-about-saved;
+                    about-message: root.onboarding-about-message;
+                    sources: root.onboarding-sources;
+                    world-done: root.onboarding-world-done;
+                    doc-path <=> root.onboarding-doc-path;
+                    cal-url <=> root.onboarding-cal-url;
+                    email-host <=> root.onboarding-email-host;
+                    email-user <=> root.onboarding-email-user;
+                    email-pass <=> root.onboarding-email-pass;
+                    source-message: root.onboarding-source-message;
+                    proactivity: root.onboarding-proactivity;
+                    onboarded: root.onboarding-onboarded;
+                    busy: root.onboarding-busy;
+                    open-settings => { root.onboarding-open-settings(); }
+                    use-demo => { root.onboarding-use-demo(); }
+                    save-about => { root.onboarding-save-about(); }
+                    connect-source(kind) => { root.onboarding-connect-source(kind); }
+                    learn-source(kind) => { root.onboarding-learn-source(kind); }
+                    disconnect-source(kind) => { root.onboarding-disconnect-source(kind); }
+                    pick-folder-requested => { root.onboarding-pick-folder-requested(); }
+                    set-proactivity(level) => { root.onboarding-set-proactivity(level); }
+                    goto-step(step) => { root.onboarding-goto-step(step); }
+                    finish => { root.onboarding-finish(); }
                 }
             }
             VerticalLayout {
@@ -560,22 +679,60 @@ export component MainWindow inherits Window {
             VerticalLayout {
                 width: parent.width;
                 height: parent.height;
-                alignment: center;
-                spacing: 8px;
+                visible: root.current-view == "settings";
                 opacity: root.current-view == "settings" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                Text {
-                    text: "Settings";
-                    font-family: Theme.heading-font;
-                    font-size: 20px;
-                    font-weight: 600;
-                    color: Theme.ink;
-                    horizontal-alignment: center;
-                }
-                Text {
-                    text: "Settings arrive with the Setup lane (Phase 3).";
-                    color: Theme.muted;
-                    horizontal-alignment: center;
+                SettingsView {
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    reduce-motion: root.settings-reduce-motion;
+                    base-url <=> root.settings-base-url;
+                    model <=> root.settings-model;
+                    fallback-models <=> root.settings-fallback-models;
+                    fast-model <=> root.settings-fast-model;
+                    provider-labels: root.settings-provider-labels;
+                    provider-index <=> root.settings-provider-index;
+                    cli-command <=> root.settings-cli-command;
+                    cli-model <=> root.settings-cli-model;
+                    api-key <=> root.settings-api-key;
+                    key-note: root.settings-key-note;
+                    key-placeholder: root.settings-key-placeholder;
+                    agent-name <=> root.settings-agent-name;
+                    persona-text <=> root.settings-persona-text;
+                    persona-is-default: root.settings-persona-is-default;
+                    persona-message: root.settings-persona-message;
+                    mode <=> root.settings-mode;
+                    daemon-mode <=> root.settings-daemon-mode;
+                    sandbox-note: root.settings-sandbox-note;
+                    browser-visible <=> root.settings-browser-visible;
+                    browser-available: root.settings-browser-available;
+                    browser-note: root.settings-browser-note;
+                    tools: root.settings-tools;
+                    tool-settings: root.settings-tool-settings;
+                    mcp-lines: root.settings-mcp-lines;
+                    mcp-note: root.settings-mcp-note;
+                    telegram-configured: root.settings-telegram-configured;
+                    telegram-paired: root.settings-telegram-paired;
+                    telegram-status: root.settings-telegram-status;
+                    telegram-token <=> root.settings-telegram-token;
+                    auto-memory <=> root.settings-auto-memory;
+                    neural-memory <=> root.settings-neural-memory;
+                    neural-available: root.settings-neural-available;
+                    workspace <=> root.settings-workspace;
+                    home: root.settings-home;
+                    saved-message: root.settings-saved-message;
+                    error-message: root.settings-error-message;
+                    backup-message: root.settings-backup-message;
+                    busy: root.settings-busy;
+                    apply-preset(preset) => { root.settings-apply-preset(preset); }
+                    save-settings => { root.settings-save-settings(); }
+                    save-persona => { root.settings-save-persona(); }
+                    reset-persona => { root.settings-reset-persona(); }
+                    set-tool(name, index) => { root.settings-set-tool(name, index); }
+                    accept-mcp(name) => { root.settings-accept-mcp(name); }
+                    connect-telegram => { root.settings-connect-telegram(); }
+                    disconnect-telegram => { root.settings-disconnect-telegram(); }
+                    make-backup => { root.settings-make-backup(); }
                 }
             }
         }

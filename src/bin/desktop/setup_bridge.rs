@@ -12,7 +12,8 @@
 //! This file does NOT compile in the Setup worktree: `HeronClient` lives
 //! in `src/bin/desktop/bridge.rs`, which belongs to the Shell lane and
 //! is not present here. It compiles in the integrated tree, where
-//! `desktop.rs` declares `mod bridge; mod setup; mod setup_bridge;`.
+//! `src/bin/desktop/main.rs` declares
+//! `mod bridge; mod setup; mod setup_bridge;`.
 //! Verified here with `rustfmt --check` (syntax only). The first Mac or
 //! CI build of the `desktop` feature is the real check.
 

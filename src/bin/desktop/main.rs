@@ -10,6 +10,9 @@
 
 mod bridge;
 mod models;
+mod setup;
+mod setup_bridge;
+mod setup_glue;
 mod sse;
 mod ui_state;
 mod views_bridge;
@@ -20,6 +23,7 @@ use heron::app::App;
 use heron::config::Config;
 use heron::ui::chat::ChatView;
 use models::begin_send;
+use setup_glue::{bind_window as bind_setup_window, SetupDriver};
 use slint::{ModelRc, SharedString, VecModel};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -667,6 +671,25 @@ fn main() {
                     }
                 }
             });
+        }
+
+        // Setup: onboarding and settings. The driver owns the two
+        // state machines and installs every setup callback; the
+        // finish hook starts a new conversation and switches to the
+        // chat view, the way the web UI does after onboarding.
+        {
+            let setup_driver = SetupDriver::new(bridge.client().clone());
+            let weak_finish = window.as_weak();
+            let chat_finish = chat.clone();
+            let bridge_finish = bridge.clone();
+            let on_finish: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+                let Some(window) = weak_finish.upgrade() else {
+                    return;
+                };
+                start_new_conversation(&window, &chat_finish, &bridge_finish);
+                window.set_current_view("chat".into());
+            });
+            bind_setup_window(&window, &bridge, &setup_driver, on_finish);
         }
     }
 

@@ -22,7 +22,7 @@ of that contract.
   matching `parse_*`. It holds no shape logic of its own. It does not
   compile in this worktree because `HeronClient` lives in
   `src/bin/desktop/bridge.rs`, which belongs to the Shell lane. It
-  compiles in the integrated tree, where `desktop.rs` declares
+  compiles in the integrated tree, where `src/bin/desktop/main.rs` declares
   `mod bridge; mod setup; mod setup_bridge;`.
 - Errors come back as JSON `{"error": "..."}` with a non-2xx status.
   `HeronClient::api` turns those into an error carrying the server's
@@ -161,13 +161,13 @@ communicates rather than decorates.
 
 ## Wiring to the Shell contract (integration spec)
 
-`ui/main.slint` and `src/bin/desktop.rs` are Shell-owned. This is the
+`ui/main.slint` and `src/bin/desktop/main.rs` are Shell-owned. This is the
 exact surface integration needs from this lane. Nothing here edits
 Shell files.
 
 ### Modules
 
-`src/bin/desktop.rs` declares, next to the existing modules:
+`src/bin/desktop/main.rs` declares, next to the existing modules:
 
 ```rust
 mod setup;
@@ -202,7 +202,7 @@ import { SettingsView } from "views/settings.slint";
 
 ### Driver: one pattern per callback
 
-The driver follows the exact pattern `desktop.rs` already uses for
+The driver follows the exact pattern `src/bin/desktop/main.rs` already uses for
 the chat callbacks: install the callback on the window, spawn the work
 on the Bridge runtime, hand the result to the UI thread with
 `Weak::upgrade_in_event_loop`. Never `.block_on` on the UI thread.
@@ -291,7 +291,7 @@ open. The interface:
 
 - `src/bin/desktop/setup.rs` and `src/bin/desktop/setup_bridge.rs`
   are not declared as modules yet. The declarations in
-  `src/bin/desktop.rs` belong to Shell and integration (see the spec
+  `src/bin/desktop/main.rs` belong to Shell and integration (see the spec
   above).
 - `setup_bridge.rs` does not compile in this worktree (no
   `HeronClient` here). Verified here with `rustfmt --check` only. The

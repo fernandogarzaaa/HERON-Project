@@ -6,7 +6,7 @@ import { Button, TextEdit, ComboBox, CheckBox, VerticalBox, HorizontalBox } from
 import { Theme } from "../components/theme.slint";
 import { SectionTitle, LabeledInput, ChoiceCard } from "../components/atoms.slint";
 
-struct ToolItem {
+export struct ToolItem {
     name: string,
     about: string,
     setting: int, // 0 ask, 1 allow, 2 never
@@ -15,7 +15,7 @@ struct ToolItem {
 // One connected app line. The Rust side splits the name from the line,
 // because Slint has no string split. changed is true when the app is in
 // the server's mcp_changed list.
-struct McpLine {
+export struct McpLine {
     text: string,
     name: string,
     changed: bool,
