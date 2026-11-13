@@ -21,5 +21,6 @@ pub mod sources;
 pub mod store;
 pub mod telegram;
 pub mod tools;
+pub mod usage;
 pub mod util;
 pub mod workflow;

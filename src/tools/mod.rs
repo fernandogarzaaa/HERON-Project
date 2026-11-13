@@ -8,7 +8,7 @@ pub mod web;
 
 use crate::config::Config;
 use crate::memory::Memory;
-use crate::permissions::Risk;
+use crate::permissions::Effect;
 use crate::store::Store;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -81,7 +81,7 @@ pub trait Tool: Send + Sync {
     fn parameters(&self) -> Value;
     /// One-line description of this specific call (shown to the user, matched by permission rules).
     fn summary(&self, args: &Value) -> String;
-    fn risk(&self, args: &Value, ctx: &ToolCtx) -> Risk;
+    fn risk(&self, args: &Value, ctx: &ToolCtx) -> Effect;
     /// Longer text for the approval prompt.
     fn detail(&self, args: &Value, _ctx: &ToolCtx) -> String {
         self.summary(args)
@@ -99,7 +99,7 @@ pub struct FnTool {
     pub description: &'static str,
     pub parameters: Value,
     pub summary: fn(&Value) -> String,
-    pub risk: fn(&Value, &ToolCtx) -> Risk,
+    pub risk: fn(&Value, &ToolCtx) -> Effect,
     pub detail: Option<fn(&Value, &ToolCtx) -> String>,
     pub untrusted: bool,
     pub run: for<'a> fn(&'a Value, &'a ToolCtx) -> BoxFuture<'a, Result<String>>,
@@ -119,7 +119,7 @@ impl Tool for FnTool {
     fn summary(&self, args: &Value) -> String {
         (self.summary)(args)
     }
-    fn risk(&self, args: &Value, ctx: &ToolCtx) -> Risk {
+    fn risk(&self, args: &Value, ctx: &ToolCtx) -> Effect {
         (self.risk)(args, ctx)
     }
     fn detail(&self, args: &Value, ctx: &ToolCtx) -> String {

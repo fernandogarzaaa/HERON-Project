@@ -267,7 +267,7 @@ async fn mcp_client_talks_to_a_real_server_and_detects_changed_tools() {
     cfg.home = dir.path().join("client-home");
     let ctx = ToolCtx { workspace: dir.path().to_path_buf(), memory: heron::memory::Memory::new(store.clone(), None), store, session_id: "t".into(), cfg: Arc::new(cfg), tainted: Default::default(), seen_urls: Default::default() };
     let remember = registry.get("mcp__other-heron__remember").unwrap();
-    assert_eq!(remember.risk(&json!({}), &ctx), heron::permissions::Risk::Exec, "an unknown app's tool needs approval");
+    assert_eq!(remember.risk(&json!({}), &ctx), heron::permissions::Effect::ExternalWrite, "an unknown app's tool is assumed able to change things elsewhere");
     assert!(remember.untrusted_output());
     let saved = remember.call(&json!({"content": "The user's dog is called Bean"}), &ctx).await.unwrap();
     assert!(saved.contains("remembered"), "{saved}");
@@ -281,7 +281,7 @@ async fn mcp_client_talks_to_a_real_server_and_detects_changed_tools() {
     assert!(!heron::mcp::attach(&mut again, "other-heron", &server, Some(&attached.fingerprint)).await.unwrap().changed);
     let mut changed = ToolRegistry::new();
     assert!(heron::mcp::attach(&mut changed, "other-heron", &server, Some("0000000000000000")).await.unwrap().changed);
-    assert_eq!(changed.get("mcp__other-heron__remember").unwrap().risk(&json!({}), &ctx), heron::permissions::Risk::Danger);
+    assert_eq!(changed.get("mcp__other-heron__remember").unwrap().risk(&json!({}), &ctx), heron::permissions::Effect::Privileged);
 }
 
 #[tokio::test]
@@ -441,9 +441,9 @@ async fn browser_reads_pages_follows_links_and_fills_in_forms() {
     assert!(!page.contains("hunter2") && !page.contains("do-not-list") && !page.contains("Hidden"), "passwords and hidden things are not shown: {page}");
     // Pressing a button acts on the site, and the page is outside content: not done without the user.
     assert!(session.messages[4].text().starts_with("Permission denied"), "{}", session.messages[4].text());
-    // Following a link that was on the page is just reading.
-    assert!(session.messages[6].text().contains("Second page here"), "{}", session.messages[6].text());
-    assert!(session.messages[6].text().contains(&format!("Address: {base}/second")));
+    // A link on the page leads where the page chose, not where the user asked to go, so following it
+    // is not automatic either (the address the user typed was opened without asking).
+    assert!(session.messages[6].text().starts_with("Permission denied"), "{}", session.messages[6].text());
 
     // With the user's go-ahead, the form can be filled in and used.
     let ctx = agent.tool_ctx(&session.id);
@@ -451,6 +451,19 @@ async fn browser_reads_pages_follows_links_and_fills_in_forms() {
         let (tools, ctx) = (app.tools.clone(), ctx.clone());
         async move { tools.get(name).unwrap().call(&args, &ctx).await }
     };
+    run("browser_open", json!({"url": format!("{base}/")})).await.unwrap();
+    // How each kind of click is classified, from the page as it stands.
+    {
+        use heron::permissions::Effect;
+        let click = app.tools.get("browser_click").unwrap();
+        assert_eq!(click.risk(&json!({"id": 1}), &ctx), Effect::NetworkEgress, "a link the page supplied");
+        assert_eq!(click.risk(&json!({"id": 5}), &ctx), Effect::ExternalWrite, "a button");
+        assert_eq!(app.tools.get("browser_type").unwrap().risk(&json!({"id": 2, "text": "x"}), &ctx), Effect::ExternalWrite);
+        assert_eq!(app.tools.get("browser_open").unwrap().risk(&json!({"url": "https://made-up.example/x"}), &ctx), Effect::NetworkEgress, "an address the user never gave");
+        assert_eq!(app.tools.get("web_search").unwrap().risk(&json!({"query": "x"}), &ctx), Effect::NetworkEgress);
+    }
+    let second = run("browser_click", json!({"id": 1})).await.unwrap();
+    assert!(second.contains("Second page here") && second.contains(&format!("Address: {base}/second")), "{second}");
     run("browser_open", json!({"url": format!("{base}/")})).await.unwrap();
     let typed = run("browser_type", json!({"id": 2, "text": "Ada"})).await.unwrap();
     assert!(typed.contains("(now: Ada)"), "{typed}");
@@ -467,4 +480,87 @@ async fn browser_reads_pages_follows_links_and_fills_in_forms() {
 
     heron::browser::shutdown().await;
     assert!(dir.path().join("home/browser").is_dir(), "the browser used its own profile inside the Heron folder");
+}
+
+/// Token awareness end to end: calls are recorded, simple requests go to the cheaper model, work that
+/// grows moves to the main model, and a nearly spent allowance changes how Heron behaves.
+#[tokio::test]
+async fn usage_is_recorded_and_shapes_model_choice_and_effort() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = Config::default();
+    cfg.home = dir.path().join("home");
+    cfg.llm.model = "big".into();
+    cfg.llm.fast_model = "small".into();
+    cfg.agent.auto_memory = false;
+    cfg.agent.ambient_context = false;
+    cfg.permissions.mode = "auto".into();
+    let llm = Arc::new(ScriptedLlm::new(vec![
+        // 1: a greeting
+        Message::assistant("Hello!"),
+        // 2: looks simple, but turns into three steps of work
+        ScriptedLlm::tool_call("task_list", json!({})),
+        ScriptedLlm::tool_call("task_list", json!({})),
+        ScriptedLlm::tool_call("task_list", json!({})),
+        Message::assistant("You have nothing on your list."),
+        // 3: plainly real work
+        Message::assistant("Here is the plan."),
+        // 4: after the allowance is spent
+        Message::assistant("Short answer."),
+    ]));
+    let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap());
+    let agent = app.agent(Arc::new(heron::permissions::DenyAll));
+    let events = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = events.clone();
+    let sink: heron::agent::EventSink = Arc::new(move |e| match e {
+        heron::agent::Event::Model { name, why } => seen.lock().unwrap().push(format!("model {name}: {why}")),
+        heron::agent::Event::Notice(n) => seen.lock().unwrap().push(format!("notice {n}")),
+        _ => {}
+    });
+    let mut session = heron::agent::Session::create(&app.store, "").unwrap();
+    let models = |llm: &ScriptedLlm| llm.requests.lock().unwrap().iter().map(|r| r.model.clone().unwrap_or_else(|| "main".into())).collect::<Vec<_>>();
+
+    agent.run_turn(&mut session, "hi there", &sink).await.unwrap();
+    assert_eq!(models(&llm), vec!["small"]);
+    agent.run_turn(&mut session, "what's on my list?", &sink).await.unwrap();
+    assert_eq!(models(&llm)[1..], ["small", "small", "main", "main"], "two steps on the cheaper model, then the main one takes over");
+    agent.run_turn(&mut session, "Research the best way to learn Rust in a month and write a plan", &sink).await.unwrap();
+    assert_eq!(models(&llm).last().unwrap(), "main");
+    {
+        let e = events.lock().unwrap();
+        assert!(e.iter().any(|l| l.starts_with("model small: a short, simple request")), "{e:?}");
+        assert!(e.iter().any(|l| l.starts_with("model big: this turned out to need more work")), "{e:?}");
+        assert!(!e.iter().any(|l| l.starts_with("notice")), "no economy notice while there is no limit: {e:?}");
+    }
+
+    // Every call was recorded (estimated here, since the stand-in model reports no usage).
+    let report = heron::usage::report(&app.store, &app.cfg(), 0);
+    assert!(report.budget.today.used > 0 && report.budget.month.used == report.budget.today.used);
+    assert_eq!(report.models.iter().map(|m| m.3).sum::<u64>(), 6, "six model calls so far");
+    assert_eq!(report.budget.level, heron::usage::Level::Normal);
+    assert!(report.routing);
+
+    // Set a daily limit below what has been used: Heron still answers, as cheaply as it can.
+    let mut tight = (*app.cfg()).clone();
+    tight.agent.daily_token_limit = 10;
+    app.update_config(tight).unwrap();
+    // update_config swaps in a client built from the settings; put the stand-in back for the test.
+    app.llm.swap(llm.clone());
+    let agent = app.agent(Arc::new(heron::permissions::DenyAll));
+    agent.run_turn(&mut session, "Research the best way to learn Go and write a plan", &sink).await.unwrap();
+    let requests = llm.requests.lock().unwrap();
+    let last = requests.last().unwrap();
+    assert_eq!(last.model.as_deref(), Some("small"), "even real work goes to the cheaper model now");
+    assert_eq!(last.max_tokens, Some(2048));
+    assert!(last.messages[0].text().contains("token allowance for this period is used up"), "the model is told to be brief");
+    assert!(events.lock().unwrap().iter().any(|l| l.contains("Your token allowance is used up")));
+    let calls_so_far = requests.len();
+    drop(requests);
+    // Learning is switched on here, so it is the allowance (not the setting) that stops it.
+    let mut learning = (*app.cfg()).clone();
+    learning.agent.auto_memory = true;
+    app.update_config(learning).unwrap();
+    app.llm.swap(llm.clone());
+    let agent = app.agent(Arc::new(heron::permissions::DenyAll));
+    assert!(agent.learn(&session, "I always take the train to work", "Noted").await.is_empty());
+    assert_eq!(llm.requests.lock().unwrap().len(), calls_so_far, "no extra model call for learning when the allowance is spent");
 }

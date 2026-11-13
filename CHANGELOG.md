@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+Permission system (behaviour changes):
+
+- Every tool call is now classified as one of ten effects (reads, changes to Heron's own notes, file changes, secret reads, running programs, reading the web, sending something out, changing something elsewhere, destructive, forbidden) and decided in one place.
+- **Read-only mode is read-only for everything.** It used to stop file changes and commands but still let Heron save memories, add tasks and schedule jobs. It now refuses all of those.
+- **"Unrestricted" no longer switches off the outside-content rule.** After a web page, email or connected app's output is in a conversation, changes and anything Heron sends out need your approval in every mode.
+- **Web searches are no longer exempt.** After outside content, a search asks too. "Allow searches for this conversation" lets research continue without a prompt per query.
+- **Only addresses you typed count as yours.** An address that arrived inside a page or a tool's result is asked about before it is opened. Expect more prompts in research tasks than before.
+- Reading a file that may hold secrets always asks, even in unrestricted mode.
+- Pressing buttons and typing in the browser, and unknown connected-app tools, ask in auto mode as well as ask mode.
+- Other apps calling Heron over MCP go through the same rules; they used to bypass them.
+- Approving a waiting request from two places at once can no longer carry it out twice, and a request interrupted by a restart is shown as "outcome unknown" instead of being repeated.
+- Engineering documents (threat model, remediation matrix, decisions, qualification) are in `docs/engineering/`.
+
+Found by the first runs against a real AI model (a free reasoning model through OpenRouter):
+
+- Models that think before answering no longer come back empty: every request leaves room for the thinking as well as the answer, and a reply that is all thinking is reported as such instead of being retried.
+- When nobody is present to approve a change, Heron now tells the model the real reason (outside content is in the conversation, or the action is risky), so the advice it passes on is right. It used to suggest switching mode, which would not have helped.
+- Reminders understand days of the week: "weekdays 9:00", "every weekday at 9am", "every Friday at 4pm", "weekends 10:00".
+- Setting a reminder no longer also saves a memory saying that a reminder was set.
+- Releases no longer include the interface file as a download.
+
+Token awareness:
+
+- A Usage page (and `heron usage`): tokens used today and this month, what is left of your own daily and monthly limits, a projection for the month, a 30-day chart, a breakdown by model, and remaining OpenRouter credit where that applies. Every model call is recorded; where a provider reports no counts they are estimated.
+- Economy behaviour as the allowance runs down: fewer steps and shorter answers at a quarter left; the cheapest model and no self-started work near the end. Heron always still answers you.
+- Model routing: with a cheaper model configured, short simple requests go to it, and a request that turns out to need real work moves to the main model after two steps. The conversation shows which model is answering and why.
+- Approval prompts have a middle choice, "Allow for this conversation", between once and always. It is never offered for risky actions or after outside content has been read, and it ends with the conversation.
+- A written comparison with Hark Pro, Muse, Grok Bot, Dots and Claude Duet (docs/COMPARISON.md), from public sources.
+
+Interface, checked against the Web Interface Guidelines and a review of chat-interface practice:
+
+- While Heron works you can see it: a "thinking" indicator between steps, a cursor on the reply as it is written, and no stray symbols from half-arrived formatting.
+- The page no longer pulls you to the bottom while you are reading earlier text; a "Newest message" button takes you back.
+- Finished replies have a Copy button. Reminders read "Every weekday at 9:00 AM" instead of a cron pattern. The folder line shows the folder's name, not its whole location.
+- Smaller things: new messages ease in, buttons respond to a press, text wraps without orphans, the composer clears the phone's home bar, the browser's toolbar colour matches the page, and the phone layout no longer truncates the title.
+
 ## 0.1.0 — first beta
 
 The first public beta of Heron, a personal AI agent that runs on your own computer.
@@ -39,7 +77,7 @@ The first public beta of Heron, a personal AI agent that runs on your own comput
 
 **Known limits of this beta**
 
-- Not yet tested with real users. It has been exercised with automated tests and stand-ins for model, mail, calendar and Telegram services.
+- Not yet tested with real users. It was built and tested with automated tests and stand-ins for model, mail, calendar and Telegram services; the first runs against a real model came after this release (see Unreleased).
 - The apps are not code-signed, so macOS and Windows show a warning on first launch.
 - No command sandbox on Windows; no voice, mobile app, email sending or calendar writing. Browser control reads pages as text, without screenshots.
 - Outlook.com and Microsoft 365 mail cannot be connected.

@@ -7,7 +7,7 @@
 
 use crate::agent::{null_sink, Session};
 use crate::app::App;
-use crate::permissions::{Approval, ApprovalRequest, Approver, Risk};
+use crate::permissions::{Approval, ApprovalRequest, Approver};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -67,7 +67,7 @@ struct TelegramApprover {
 #[async_trait]
 impl Approver for TelegramApprover {
     async fn approve(&self, req: &ApprovalRequest) -> Approval {
-        if req.risk >= Risk::Danger || req.tainted {
+        if req.risk.high() || req.tainted {
             let why = if req.tainted { "Heron has read outside content in this conversation" } else { "it is a risky action" };
             self.bot.send(self.chat, &format!("Heron wanted to use {} but did not: {why}, so it can only be approved at your computer.", req.tool)).await;
             return Approval::Deny(Some("this can only be approved at the user's computer, not from a phone".into()));

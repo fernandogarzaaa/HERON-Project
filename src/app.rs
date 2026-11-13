@@ -45,6 +45,7 @@ impl App {
         std::fs::create_dir_all(&workspace).with_context(|| format!("creating workspace {}", workspace.display()))?;
         let workspace = dunce::canonicalize(&workspace)?;
         let llm = Arc::new(SwappableLlm::new(llm));
+        llm.meter(store.clone());
         let remote: Option<Arc<dyn Llm>> = if cfg.llm.embedding_model.is_empty() { None } else { Some(llm.clone()) };
         let mut memory = Memory::new(store.clone(), remote);
         if cfg.agent.neural_memory {
@@ -85,6 +86,8 @@ impl App {
                 policy.add_allow(&r);
             }
         }
+        // Anything that was mid-way when Heron last stopped has an unknown outcome; say so.
+        let _ = store.recover_interrupted_approvals();
         Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy: Arc::new(policy), workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default() })
     }
 
@@ -334,8 +337,23 @@ impl App {
     /// The user approved something that was parked while they were away: do exactly that one action now.
     pub async fn run_parked(&self, id: i64) -> Result<String> {
         let parked = self.store.get_approval(id).filter(|a| a.status == "new").ok_or_else(|| anyhow::anyhow!("That request is no longer waiting."))?;
-        let tool = self.tools.get(&parked.tool).ok_or_else(|| anyhow::anyhow!("The tool '{}' is no longer available.", parked.tool))?;
-        let args: serde_json::Value = serde_json::from_str(&parked.args)?;
+        // Two clicks, two windows or a retry must never carry the action out twice. Only the caller
+        // that wins this claim goes on; from here every exit records an outcome.
+        if !self.store.claim_approval(id)? {
+            anyhow::bail!("That request is already being carried out or has been dealt with.");
+        }
+        let prepared = (|| -> Result<_> {
+            let tool = self.tools.get(&parked.tool).ok_or_else(|| anyhow::anyhow!("The tool '{}' is no longer available.", parked.tool))?;
+            let args: serde_json::Value = serde_json::from_str(&parked.args)?;
+            Ok((tool, args))
+        })();
+        let (tool, args) = match prepared {
+            Ok(p) => p,
+            Err(e) => {
+                self.store.resolve_approval(id, "failed", Some(&format!("{e:#}")))?;
+                return Err(e);
+            }
+        };
         let agent = self.agent(Arc::new(DenyAll));
         let ctx = agent.tool_ctx(&parked.session_id);
         // Re-check against today's rules: what was allowed to be asked then may be blocked now.
@@ -433,7 +451,8 @@ impl App {
 
     fn background_budget_left(&self) -> bool {
         let (used, limit) = self.background_budget();
-        limit == 0 || used < limit
+        // Work nobody asked for stops first when the user's overall allowance is running low.
+        (limit == 0 || used < limit) && crate::usage::Budget::now(&self.store, &self.cfg()).background_allowed()
     }
 
     fn spend_background(&self, usage: &Usage) {
@@ -685,6 +704,26 @@ mod tests {
         assert!(app.store.pending_approvals().unwrap().is_empty());
         assert_eq!(app.store.audit_log(5).unwrap()[0].decision, "approved-later");
         assert!(app.run_parked(waiting[0].id).await.is_err(), "an approval is used once");
+
+        // Twenty approvals of the same request at the same moment carry it out exactly once.
+        let id = app.store.park_approval("s", "task_add", "{\"title\":\"pay the invoice\"}", "pay the invoice", "", "state", false, "test").unwrap();
+        let app = Arc::new(app);
+        let attempts = futures_util::future::join_all((0..20).map(|_| {
+            let app = app.clone();
+            tokio::spawn(async move { app.run_parked(id).await.is_ok() })
+        }))
+        .await;
+        assert_eq!(attempts.iter().filter(|r| *r.as_ref().unwrap()).count(), 1, "exactly one caller carried it out");
+        assert_eq!(app.store.list_tasks(None).unwrap().iter().filter(|t| t.title == "pay the invoice").count(), 1, "the action happened once");
+        assert_eq!(app.store.get_approval(id).unwrap().status, "approved");
+
+        // One that was mid-way when Heron stopped is reported as unknown, not repeated and not called done.
+        let stuck = app.store.park_approval("s", "task_add", "{\"title\":\"send the report\"}", "send the report", "", "state", false, "test").unwrap();
+        assert!(app.store.claim_approval(stuck).unwrap());
+        assert_eq!(app.store.recover_interrupted_approvals().unwrap(), 1);
+        assert_eq!(app.store.get_approval(stuck).unwrap().status, "unknown");
+        assert!(app.run_parked(stuck).await.is_err());
+        assert!(!app.store.list_tasks(None).unwrap().iter().any(|t| t.title == "send the report"));
         let agent = app.agent(Arc::new(DenyAll));
         assert!(crate::tools::fs::undo_last(&agent.tool_ctx(&waiting[0].session_id)).unwrap().is_some());
         assert!(!app.workspace.join("evil.txt").exists());

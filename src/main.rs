@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use heron::agent::{Agent, Event, EventSink, Session};
 use heron::app::App;
 use heron::config::Config;
-use heron::permissions::{Approval, ApprovalRequest, Approver, DenyAll, Mode, Risk};
+use heron::permissions::{Approval, ApprovalRequest, Approver, DenyAll, Mode};
 use heron::util::fmt_ts;
 use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
@@ -84,6 +84,8 @@ enum Cmd {
     Inbox,
     /// Show the audit log of tool actions
     Audit,
+    /// Show how many tokens have been used, what is left and where the month is heading
+    Usage,
     /// Serve Heron's memory and tasks to other apps over MCP (stdio)
     McpServe,
 }
@@ -132,12 +134,19 @@ struct TerminalApprover;
 impl Approver for TerminalApprover {
     async fn approve(&self, req: &ApprovalRequest) -> Approval {
         if !std::io::stdin().is_terminal() {
-            return Approval::Deny(Some("not running interactively, so nobody can approve this. Re-run with --mode auto to allow file edits and commands".into()));
+            // Say the real reason, so the model passes on advice that will actually work.
+            return Approval::Deny(Some(if req.tainted {
+                "this conversation now contains content from outside (a web page, an email or a connected app), so changes need the user's own approval, and nobody is at the keyboard to give it. This is the same in every mode. Tell the user what you would have done and that they can approve it by asking again in `heron chat` or the Heron app".into()
+            } else if req.risk.high() {
+                "this is a risky action that always needs the user's own approval, and nobody is at the keyboard to give it. Tell the user they can approve it by asking again in `heron chat` or the Heron app".into()
+            } else {
+                "not running interactively, so nobody can approve this. Re-run with --mode auto to allow file edits and commands".into()
+            }));
         }
         let st = style();
         let req = req.clone();
         tokio::task::spawn_blocking(move || {
-            let head = if req.risk == Risk::Danger { st.red("Heron wants to do something risky") } else { st.yellow("Heron wants permission") };
+            let head = if req.risk.high() { st.red("Heron wants to do something risky") } else { st.yellow("Heron wants permission") };
             eprintln!("\n{head} — {} [{}]", st.bold(&req.tool), req.risk.label());
             if req.tainted {
                 eprintln!("  {}", st.yellow("Content from outside (a web page, email or connected app) is in this conversation and may have influenced this request."));
@@ -145,7 +154,7 @@ impl Approver for TerminalApprover {
             for line in req.detail.lines().take(30) {
                 eprintln!("  {line}");
             }
-            let can_always = req.risk < Risk::Danger && !req.tainted;
+            let can_always = !req.risk.high() && !req.tainted;
             loop {
                 eprint!("{}", if can_always { "Allow? [y]es / [a]lways / [n]o: " } else { "Allow? [y]es / [n]o: " });
                 let _ = std::io::stderr().flush();
@@ -197,6 +206,9 @@ fn terminal_sink() -> EventSink {
                 let _ = writeln!(out, "{}", st.dim(&format!("  {n}")));
             }
             Event::Usage(_) => {}
+            Event::Model { name, why } => {
+                let _ = writeln!(out, "{}", st.dim(&format!("  model: {name} ({why})")));
+            }
         }
         let _ = out.flush();
     })
@@ -624,6 +636,30 @@ async fn real_main() -> Result<()> {
             app.store.mark_inbox_read()?;
             Ok(())
         }
+        Cmd::Usage => {
+            let r = heron::usage::report(&app.store, &app.cfg(), app.background_budget().0);
+            let n = |v: u64| { let s = v.to_string(); let mut out = String::new(); for (i, c) in s.chars().enumerate() { if i > 0 && (s.len() - i) % 3 == 0 { out.push(','); } out.push(c); } out };
+            let window = |name: &str, w: &heron::usage::Window| match w.left {
+                Some(left) => println!("{name:<12} {} used of {} ({} left)", n(w.used), n(w.limit), n(left)),
+                None => println!("{name:<12} {} used (no limit set)", n(w.used)),
+            };
+            window("Today", &r.budget.today);
+            window("This month", &r.budget.month);
+            println!("{:<12} about {} a day; this month is heading for about {}", "Pace", n(r.budget.daily_average), n(r.budget.projected_month));
+            if let Some(day) = &r.budget.limit_reached_on {
+                println!("{:<12} at this pace the monthly limit is reached on {day}", "");
+            }
+            println!("{:<12} {}", "Effort", r.level_label);
+            println!("{:<12} {}", "Routing", if r.routing { format!("simple requests go to {}, the rest to {}", r.fast_model, r.main_model) } else { format!("everything goes to {}", r.main_model) });
+            if !r.models.is_empty() {
+                println!("\nThis month by model:");
+                for (model, tin, tout, calls) in &r.models {
+                    println!("  {model:<44} {:>12} in  {:>10} out  {:>5} calls", n(*tin), n(*tout), calls);
+                }
+            }
+            println!("\nSet limits in the app (Usage), or daily_token_limit / monthly_token_limit under [agent] in the config file.");
+            Ok(())
+        }
         Cmd::Audit => {
             let (checked, altered) = app.store.verify_audit()?;
             match altered {
@@ -638,7 +674,7 @@ async fn real_main() -> Result<()> {
         Cmd::McpServe => {
             let agent = app.agent(Arc::new(DenyAll));
             let ctx = agent.tool_ctx("mcp");
-            heron::mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app.tools, &ctx).await
+            heron::mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app.tools, &ctx, &app.policy).await
         }
         Cmd::Init | Cmd::Doctor | Cmd::Providers | Cmd::Eval { .. } => unreachable!(),
     }

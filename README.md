@@ -22,6 +22,7 @@ Heron reads and writes files, runs commands, searches and reads the web, keeps l
 | **Memory you can inspect and trust** | Facts are never overwritten: a corrected fact retires the old version, which is kept as history and no longer recalled. Facts picked up from email, calendar, documents or observation are marked unconfirmed, never become part of your profile, cannot replace something you said, and wait for your confirmation under Memory. |
 | **Keys in the OS credential store** | API keys, the email app password, calendar links and the Telegram token go to the macOS Keychain or Windows Credential Manager (an owner-only file on Linux). Never the config file, database, logs, or the environment of commands it runs. |
 | **Uses websites for you** | Heron can drive a real browser already on your computer (Chrome, Edge, Chromium or Brave): open pages that need JavaScript, follow links, fill in forms and press buttons. It uses its own browser profile inside the Heron folder, never yours, so it has none of your logins unless you sign in there (set `browser_visible = true` to see and use its window). Reading and following links is treated like fetching a page; typing and pressing buttons is treated like running a command and asks first, always once a page's content is in the conversation. Passwords already in a field are never shown to the model, downloads are off, and internal addresses are refused. |
+| **Knows what it costs** | A Usage page shows tokens used today and this month, what is left of the limits you set, where the month is heading at the recent pace, and a breakdown by model (plus your remaining OpenRouter credit, if that is your provider). Heron paces itself: with a quarter of the allowance left it takes fewer steps and answers briefly; near the end it uses its cheapest model and stops everything it does on its own. It never refuses to answer you. With a cheaper model configured, short simple requests go to it and anything that turns out to need real work moves to the main model part-way. No extra model call is spent deciding any of this. `heron usage` prints the same figures. |
 | **From your phone** | Connect a Telegram bot and talk to Heron while your computer is on. It answers exactly one chat — the one that sent the pairing code shown in the app. Permission questions arrive as yes/no; risky actions can only be approved at the computer; `/stop` halts it. Results of scheduled work are forwarded. |
 | **Spending is capped** | Work Heron starts on its own (suggestions, preparing, taking over, reflection) has a daily token allowance (150,000 by default). Reminders you scheduled always run. |
 | **You can see what it did** | Each action appears on a track beside the reply, and in a permanent activity log. |
@@ -115,12 +116,19 @@ In chat: `/help`, `/new`, `/resume <id>`, `/memory [query]`, `/forget <id>`, `/t
 
 ## Permission modes
 
-| Mode | Reads, searches, web | File changes in the working folder | Commands | Risky actions |
-|---|---|---|---|---|
-| `readonly` | allowed | refused | refused (read-only commands allowed) | refused |
-| `ask` (default) | allowed | asks | asks (read-only commands allowed) | asks |
-| `auto` | allowed | allowed | allowed | asks |
-| `yolo` | allowed | allowed | allowed | allowed |
+| Mode | Reading | Memories, tasks, reminders | File changes in the working folder | Commands | Acting on websites or other apps | Risky actions | Reading secrets |
+|---|---|---|---|---|---|---|---|
+| `readonly` | allowed | refused | refused | refused (read-only commands allowed) | refused | refused | asks |
+| `ask` (default) | allowed | allowed | asks | asks (read-only commands allowed) | asks | asks | asks |
+| `auto` | allowed | allowed | allowed | allowed | asks | asks | asks |
+| `yolo` | allowed | allowed | allowed | allowed | allowed | allowed | asks |
+
+Two rules apply in every mode, `yolo` included, and no allow rule or setting switches them off:
+
+- **After outside content** (a web page, an email, a document, a connected app's output) has entered a conversation, anything that changes something, and anything Heron composes and sends out (a search query, an address it built, a form, a connected app's arguments), needs your approval. Only addresses you typed yourself are opened without asking. "Allow searches for this conversation" lets research continue.
+- **Catastrophic commands** (wiping the disk or home folder, formatting drives) are refused outright.
+
+The whole table, cell by cell, is a test (`permissions::tests::the_decision_table`). The threat model and what is still open are in [docs/engineering](docs/engineering/).
 
 "Risky" means destructive or hard to undo (`rm -r`, `sudo`, `git push --force`, piping downloads into a shell…), touching credentials (`.ssh`, `.env`, key files), or writing outside the working folder. A small set of catastrophic commands (wiping the disk or home folder, formatting drives) is refused in every mode, including `yolo`.
 
@@ -288,6 +296,9 @@ Platform verification: every push runs the test suite and builds the desktop app
 - Calendar: repeating events are moved to their next occurrence for daily, weekly, monthly and yearly rules; multi-day patterns such as "every Tue and Thu" are approximated from the first occurrence, and other time zones are read as local time.
 - Facts learned from email, calendar and documents come from content other people wrote. They are stored with lower importance than what you say directly and the extraction prompt treats the content as data, but a deliberately misleading email could still plant a wrong fact; review Memory from time to time.
 - Proactive suggestions, "take over", reflection and learning need a real model and spend tokens; they are all off until you turn them on.
+- How Heron compares with Hark Pro, Muse, Grok Bot, Dots and Claude Duet, including where it is behind, is in [docs/COMPARISON.md](docs/COMPARISON.md). It is a comparison from public sources, not a measured benchmark.
+- Model routing decides from the request's length and wording, not its meaning, so it will sometimes send a request to the wrong model; a wrong "simple" guess is corrected after two steps, a wrong "needs the main model" guess just costs more.
+- Real-model testing so far is narrow: two free models through OpenRouter, on a handful of tasks (creating and reading files, remembering something and recalling it in a later conversation, setting reminders, summarising a page that carried a hidden instruction, approving a change in the app, and routing a simple and a harder request to different models). Other providers, long conversations, the background features above and unattended jobs have not been run against a real model.
 
 - Web search uses DuckDuckGo's HTML page, which can change or rate-limit.
 - On Linux, saved keys are protected by file permissions only (no desktop keyring integration yet).
