@@ -1167,6 +1167,16 @@ impl Accumulator {
         }
     }
 
+    /// Move any buffered JsonSingle/JsonAuto text into `text`. Called
+    /// before the empty-response check so a plain-text reply is not
+    /// rejected as empty; `finish` does the same move, harmlessly.
+    fn flush_json_buf(&mut self) {
+        if !self.json_buf.is_empty() {
+            self.text.push_str(&self.json_buf);
+            self.json_buf.clear();
+        }
+    }
+
     /// Append a fragment of the model's text and stream it, without ever
     /// showing the JSON envelope framing. Plain replies stream as they
     /// arrive; envelope replies stream only the decoded `text` value, so
@@ -1420,9 +1430,7 @@ impl Accumulator {
     fn finish(mut self, req: &ChatRequest, on_delta: DeltaFn<'_>) -> ChatResponse {
         // A JsonSingle/JsonAuto buffer that never parsed is plain text,
         // not a document; it is the reply.
-        if !self.json_buf.is_empty() {
-            self.text.push_str(&self.json_buf);
-        }
+        self.flush_json_buf();
         let text = self.text.trim().to_string();
         let valid = valid_tool_names(req);
         let (reply, mut calls) = extract_envelope(&text, &valid);
@@ -1454,6 +1462,47 @@ impl Accumulator {
     }
 }
 
+/// Kill the provider's process group (Unix only). The child is spawned
+/// as a group leader, so this reaches descendants a plain `child.kill()`
+/// would leave running. Best effort: the group may already be gone.
+#[cfg(unix)]
+fn kill_tree_group(child: &tokio::process::Child) {
+    if let Some(pid) = child.id() {
+        unsafe {
+            libc::killpg(pid as libc::pid_t, libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_tree_group(_child: &tokio::process::Child) {}
+
+/// Kill the provider's whole process tree: the group first, then the
+/// direct child. Used on timeout and on read errors, where the child is
+/// still running.
+async fn kill_process_tree(child: &mut tokio::process::Child) {
+    kill_tree_group(child);
+    let _ = child.kill().await;
+}
+
+/// Kills the provider's process group when the chat future is dropped
+/// (for example by /cancel aborting the task). `kill_on_drop` only
+/// kills the direct child; without this, a wrapper's descendants keep
+/// running and consuming usage after the user cancelled.
+#[cfg(unix)]
+struct KillTreeOnDrop {
+    pgid: u32,
+}
+
+#[cfg(unix)]
+impl Drop for KillTreeOnDrop {
+    fn drop(&mut self) {
+        unsafe {
+            libc::killpg(self.pgid as libc::pid_t, libc::SIGKILL);
+        }
+    }
+}
+
 #[async_trait]
 impl Llm for CliLlm {
     async fn chat(&self, req: ChatRequest, on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
@@ -1465,6 +1514,13 @@ impl Llm for CliLlm {
             .current_dir(&run_dir)
             .env_clear()
             .envs(self.child_env());
+        // On Unix the child leads its own process group, so a kill can
+        // reach the whole provider tree, not just the direct child.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
         match self.spec.input {
             PromptInput::Stdin => {
                 cmd.stdin(std::process::Stdio::piped());
@@ -1501,6 +1557,10 @@ impl Llm for CliLlm {
                 }
             }
         };
+        // Kills the group if this future is dropped (for example by
+        // /cancel aborting the task). Lives until chat() returns.
+        #[cfg(unix)]
+        let _tree_guard = child.id().map(|pid| KillTreeOnDrop { pgid: pid });
         // Write the prompt on a separate task so a long prompt cannot
         // deadlock against the child's stdout pipe.
         if self.spec.input == PromptInput::Stdin {
@@ -1542,23 +1602,31 @@ impl Llm for CliLlm {
         match tokio::time::timeout(timeout, read).await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                let _ = child.kill().await;
+                kill_process_tree(&mut child).await;
                 let _ = remove_temp_dir(&run_dir);
                 return Err(e);
             }
             Err(_) => {
-                let _ = child.kill().await;
+                kill_process_tree(&mut child).await;
                 let _ = child.wait().await;
                 let _ = remove_temp_dir(&run_dir);
                 bail!("{} took longer than {}s and was killed. The prompt may be too long for this CLI, or the CLI may be waiting on a login or approval. Run `{}` to check.", self.spec.display_name, self.timeout_secs, self.spec.login_command);
             }
         }
         let status = child.wait().await?;
+        // A descendant that outlived the child still holds the stderr
+        // pipe open; kill the group before awaiting the drain task, or
+        // that await never returns.
+        kill_tree_group(&child);
         if let Some(handle) = stderr_task {
             let _ = handle.await;
         }
         let stderr = stderr_buf.lock().await.clone();
         let _ = remove_temp_dir(&run_dir);
+        // Flush before measuring: a plain-text JsonSingle/JsonAuto reply
+        // sits in json_buf until finish(), and must not be rejected as
+        // "returned no text".
+        acc.flush_json_buf();
         let text_len = acc.text.trim().len();
         if !status.success() {
             let err = stderr.trim();
@@ -2178,6 +2246,34 @@ mod tests {
 
     #[tokio::test]
     #[cfg(not(windows))]
+    async fn qwen_fake_binary_plain_text_reply_is_not_rejected_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\ncat > /dev/null\nprintf 'Hello\\n'\n";
+        let bin = fake_bin(dir.path(), "qwen", script);
+        let mut cfg = test_cfg(dir.path(), "qwen-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let seen = std::sync::Mutex::new(String::new());
+        let r = llm
+            .chat(
+                ChatRequest {
+                    messages: vec![Message::user("hi")],
+                    ..Default::default()
+                },
+                &|t| seen.lock().unwrap().push_str(t),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.message.text(), "Hello");
+        assert_eq!(
+            seen.lock().unwrap().as_str(),
+            "Hello",
+            "a plain-text JsonAuto reply must reach the user, not be rejected as empty"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
     async fn partial_output_with_failed_exit_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         let script = "#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"text\\\":\\\"partial\\\",\\\"tool_calls\\\":[]}\"}}'\necho 'boom' >&2\nexit 2\n";
@@ -2246,5 +2342,54 @@ mod tests {
             "first\n  indented\n\nsecond\n",
             "streamed plain text must keep its newlines, indentation, and blank lines"
         );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn kill_process_tree_kills_descendants() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("grandchild.pid");
+        let script = format!(
+            "#!/bin/sh\nsleep 30 & echo $! > '{}'\nwait\n",
+            pid_file.display()
+        );
+        let bin = fake_bin(dir.path(), "wrapper", &script);
+        let mut cmd = tokio::process::Command::new(&bin);
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        let mut child = cmd.spawn().unwrap();
+        let grandchild: u32 = {
+            let mut pid = None;
+            for _ in 0..50 {
+                if let Ok(s) = std::fs::read_to_string(&pid_file) {
+                    if let Ok(p) = s.trim().parse::<u32>() {
+                        pid = Some(p);
+                        break;
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            pid.expect("wrapper did not record its grandchild's pid")
+        };
+        assert_ne!(grandchild, child.id().unwrap());
+        kill_process_tree(&mut child).await;
+        let _ = child.wait().await;
+        // The grandchild must be gone, not just the wrapper.
+        let mut gone = false;
+        for _ in 0..50 {
+            let alive = unsafe { libc::kill(grandchild as libc::pid_t, 0) } == 0;
+            if !alive {
+                gone = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(gone, "grandchild {grandchild} survived the tree kill");
     }
 }

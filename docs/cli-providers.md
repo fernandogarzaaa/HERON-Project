@@ -82,6 +82,11 @@ from T3 Code shape this module:
    the same provider as chat, so it draws on the same subscription usage.
    Keep that in mind before turning on proactive features with a
    subscription provider.
+7. Cancellation and timeout kill the whole provider process tree, not
+   just the CLI process, so a wrapper cannot leave a model call running
+   after you cancelled it. On Unix the CLI runs in its own process
+   group; on Windows only the direct child is killed. A CLI that
+   daemonizes will have its daemons killed when the request ends.
 
 ## Providers
 
