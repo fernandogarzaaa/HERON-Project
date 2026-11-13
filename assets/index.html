@@ -668,8 +668,11 @@ function renderHistory(messages) {
 // Follow the reply as it grows, unless the reader has scrolled up to read something: then leave the
 // page where it is and offer a way back down instead of pulling them away.
 const nearEnd = v => v.scrollHeight - v.scrollTop - v.clientHeight < 240;
-function scroll(force) { const v = $('#v-chat'); if (force || nearEnd(v)) { v.scrollTop = v.scrollHeight; $('#latest').hidden = true; } else if (busy) $('#latest').hidden = false; }
-$('#v-chat').addEventListener('scroll', () => { if (nearEnd($('#v-chat'))) $('#latest').hidden = true; }, { passive: true });
+// Whether the reader is following is decided when they scroll, not after new content lands: one
+// large chunk can add more than the threshold and would otherwise look like they had scrolled away.
+let following = true;
+function scroll(force) { const v = $('#v-chat'); if (force || following) { following = true; v.scrollTop = v.scrollHeight; $('#latest').hidden = true; } else if (busy) $('#latest').hidden = false; }
+$('#v-chat').addEventListener('scroll', () => { following = nearEnd($('#v-chat')); if (following) $('#latest').hidden = true; }, { passive: true });
 $('#latest').onclick = () => scroll(true);
 
 async function openSession(id) {
@@ -957,7 +960,14 @@ async function loadUsage() {
   else { const t = el('table'); t.innerHTML = '<thead><tr><th>Model</th><th>Sent to it</th><th>Written by it</th><th>Calls</th></tr></thead>'; const tb = el('tbody');
     for (const [name, i, o, calls] of u.models) { const tr = el('tr'); tr.append(el('td', 'm', name), el('td', 'n', Number(i).toLocaleString()), el('td', 'n', Number(o).toLocaleString()), el('td', 'n', Number(calls).toLocaleString())); tb.append(tr); }
     t.append(tb); models.append(t); models.append(el('p', 'note', 'Where a provider does not report token counts, Heron estimates them from the length of the text.')); }
-  const show = n => n ? Number(n).toLocaleString() : '';
+  // Plain digits in the boxes: a number formatted for the reader's language (other digit shapes,
+  // other separators) would not survive being read back when the form is saved.
+  const show = n => n ? String(n) : '';
+  // The same daily figures as the chart, as a table anyone can read (the bars only show them on hover).
+  const daily = el('details'), dt = el('table'), db = el('tbody'); daily.append(el('summary', '', 'Daily figures'));
+  dt.innerHTML = '<thead><tr><th>Day</th><th>Tokens</th></tr></thead>';
+  for (const [day, n] of [...u.days].reverse()) { if (!n) continue; const tr = el('tr'); tr.append(el('td', '', new Date(day + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' })), el('td', 'n', Number(n).toLocaleString())); db.append(tr); }
+  dt.append(db); daily.append(dt); daily.id = 'u-daily'; $('#u-daily')?.remove(); $('#u-pace').after(daily);
   $('#u-day').value = show(b.today.limit); $('#u-month').value = show(b.month.limit); $('#u-bg').value = show(u.background_limit);
   $('#u-bg-note').textContent = `Suggestions, preparing ahead, taking over and reflection. ${Number(u.background_today).toLocaleString()} used today. Reminders you set up yourself always run.`;
   $('#u-fast').value = u.fast_model || ''; $('#u-route').checked = u.routing; $('#u-route').disabled = !u.fast_model || u.fast_model === u.main_model;

@@ -446,14 +446,19 @@ impl SwappableLlm {
 impl Llm for SwappableLlm {
     async fn chat(&self, req: ChatRequest, on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
         // Some servers do not report usage. An estimate from the text keeps the record meaningful.
-        let rough_prompt: usize = req.messages.iter().map(|m| crate::util::estimate_tokens(m.text()) + m.tool_calls.iter().map(|c| crate::util::estimate_tokens(&c.function.arguments)).sum::<usize>() + 4).sum();
-        let resp = self.current().chat(req, on_delta).await?;
+        let rough_prompt: usize = req.messages.iter().map(|m| crate::util::estimate_tokens(m.text()) + m.tool_calls.iter().map(|c| crate::util::estimate_tokens(&c.function.arguments)).sum::<usize>() + 4).sum::<usize>()
+            // The tool descriptions and their parameter schemas are part of what is sent.
+            + req.tools.iter().map(|t| crate::util::estimate_tokens(&t.to_string())).sum::<usize>();
+        let mut resp = self.current().chat(req, on_delta).await?;
+        // Callers enforce their own limits from the figures on the reply, so an estimate has to be
+        // put there as well as in the record; otherwise a provider that reports nothing is never
+        // counted against the background allowance.
+        if resp.usage.prompt_tokens + resp.usage.completion_tokens == 0 && resp.model != "demo" {
+            resp.usage.prompt_tokens = rough_prompt as u64;
+            resp.usage.completion_tokens = (crate::util::estimate_tokens(resp.message.text()) + resp.message.tool_calls.iter().map(|c| crate::util::estimate_tokens(&c.function.arguments)).sum::<usize>()) as u64;
+        }
         if let Some(store) = self.1.get().filter(|_| resp.model != "demo") {
-            let (mut prompt, mut completion) = (resp.usage.prompt_tokens, resp.usage.completion_tokens);
-            if prompt + completion == 0 {
-                prompt = rough_prompt as u64;
-                completion = (crate::util::estimate_tokens(resp.message.text()) + resp.message.tool_calls.iter().map(|c| crate::util::estimate_tokens(&c.function.arguments)).sum::<usize>()) as u64;
-            }
+            let (prompt, completion) = (resp.usage.prompt_tokens, resp.usage.completion_tokens);
             let _ = store.record_usage(&crate::usage::day_key(chrono::Local::now().date_naive()), &resp.model, prompt, completion);
         }
         Ok(resp)
