@@ -142,7 +142,7 @@ async fn http_api_chat_approval_and_settings() {
         ScriptedLlm::tool_call("write_file", json!({"path": "b.txt", "content": "two"})),
         Message::assistant("I was not allowed to write b.txt."),
     ]));
-    let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm).await.unwrap());
+    let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::open(&dir.path().join("home/heron.db")).unwrap(), llm).await.unwrap());
     let ws = app.workspace.clone();
     let token = "test-token".to_string();
     let base = spawn(heron::server::router(app, token.clone())).await;
@@ -260,6 +260,18 @@ async fn http_api_chat_approval_and_settings() {
     assert_eq!(paused["paused"], true);
     let today: Value = get("/api/today", &token).await.unwrap().json().await.unwrap();
     assert_eq!((today["paused"].as_bool(), today["open_tasks"].as_u64(), today["waiting"].as_u64()), (Some(true), Some(1), Some(0)));
+
+    // Saving a copy of the data while the app is running: a real, complete database lands in the backups folder.
+    let saved: Value = post("/api/backup", json!({})).await.unwrap().json().await.unwrap();
+    let copy = std::path::PathBuf::from(saved["path"].as_str().unwrap_or_else(|| panic!("{saved}")));
+    assert!(copy.starts_with(dir.path().join("home/backups")), "{copy:?}");
+    let restored_elsewhere = dir.path().join("elsewhere/heron.db");
+    assert_eq!(heron::store::Store::restore(&restored_elsewhere, &copy).unwrap(), None);
+    let from_copy = heron::store::Store::open(&restored_elsewhere).unwrap();
+    assert_eq!(from_copy.list_schedules().unwrap().len(), schedules.as_array().unwrap().len(), "the copy holds what the app holds");
+    assert!(from_copy.integrity().unwrap().is_empty());
+    let no_token = client.post(format!("{base}/api/backup")).json(&json!({})).send().await.unwrap();
+    assert!(!no_token.status().is_success(), "a copy cannot be requested without the app's token");
 }
 
 #[tokio::test]

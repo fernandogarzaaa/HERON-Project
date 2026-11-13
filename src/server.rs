@@ -136,6 +136,7 @@ pub fn router(app: Arc<App>, token: String) -> Router {
         .route("/mcp/{name}/accept", post(accept_mcp))
         .route("/persona", get(get_persona).post(set_persona).delete(reset_persona))
         .route("/pause", post(set_pause))
+        .route("/backup", post(make_backup))
         .route("/approvals", get(list_approvals))
         .route("/approvals/{id}", post(answer_approval))
         .route("/tools", get(list_tools))
@@ -721,6 +722,13 @@ async fn reset_persona(State(st): S) -> ApiResult {
 async fn set_pause(State(st): S, Json(b): Json<Value>) -> ApiResult {
     st.app.set_paused(b.get("paused").and_then(|p| p.as_bool()).unwrap_or(true));
     Ok(Json(json!({"paused": st.app.paused()})))
+}
+
+/// Save a complete copy of the database beside it. The app keeps running while it is made.
+async fn make_backup(State(st): S) -> ApiResult {
+    let store = st.app.store.clone();
+    let saved = tokio::task::spawn_blocking(move || store.backup(None)).await.map_err(|e| anyhow::anyhow!("the copy could not be made: {e}"))??;
+    Ok(Json(json!({"path": saved.display().to_string()})))
 }
 
 async fn list_approvals(State(st): S) -> ApiResult {

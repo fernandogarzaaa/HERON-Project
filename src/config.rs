@@ -303,7 +303,14 @@ impl Config {
         let path = home.join("config.toml");
         let mut cfg: Config = if path.exists() {
             let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-            toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?
+            toml::from_str(&text).with_context(|| {
+                let previous = home.join("config.toml.previous");
+                if previous.exists() {
+                    format!("parsing {} (the settings from before the last save are in {}; copy that file over it to go back)", path.display(), previous.display())
+                } else {
+                    format!("parsing {}", path.display())
+                }
+            })?
         } else {
             let mut c = Config::default();
             // Sensible auto-detection when there is no config file yet.
@@ -439,10 +446,45 @@ impl Config {
     }
 
     /// Persist the current settings to config.toml.
+    ///
+    /// The new file is written beside the old one, flushed, and renamed over it, so stopping half-way
+    /// (a crash, a full disk) cannot leave a cut-off settings file that Heron then refuses to start
+    /// with. The settings that were there are kept as `config.toml.previous`, so one bad save can be
+    /// taken back by hand. Nothing is written unless it reads back as valid settings.
     pub fn save(&self) -> Result<()> {
+        use std::io::Write;
         self.ensure_home()?;
-        std::fs::write(self.home.join("config.toml"), toml::to_string_pretty(self)?)?;
-        Ok(())
+        let path = self.home.join("config.toml");
+        let text = toml::to_string_pretty(self)?;
+        toml::from_str::<Config>(&text).context("these settings could not be written in a form Heron can read back; nothing was saved")?;
+        let tmp = self.home.join(format!("config.toml.tmp-{}-{}", std::process::id(), uuid::Uuid::new_v4().simple()));
+        let written = (|| -> Result<()> {
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.mode(0o600);
+            }
+            let mut f = opts.open(&tmp)?;
+            f.write_all(text.as_bytes())?;
+            f.sync_all()?;
+            drop(f);
+            if path.exists() {
+                // Best effort: failing to keep the old copy is no reason to refuse the new settings.
+                let _ = std::fs::copy(&path, self.home.join("config.toml.previous"));
+            }
+            std::fs::rename(&tmp, &path)?;
+            #[cfg(unix)]
+            if let Ok(dir) = std::fs::File::open(&self.home) {
+                let _ = dir.sync_all();
+            }
+            Ok(())
+        })();
+        if written.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        written.with_context(|| format!("could not save {}", path.display()))
     }
 
     /// Folder the desktop app works in when no folder was chosen on the command line.
@@ -610,6 +652,41 @@ mod tests {
         assert_eq!(parsed.llm.model, d.llm.model);
         assert_eq!(parsed.permissions.mode, "ask");
         assert_eq!(parsed.server.port, 7878);
+    }
+
+    #[test]
+    fn saving_settings_replaces_the_file_whole_and_keeps_the_previous_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        cfg.llm.model = "first-model".into();
+        cfg.save().unwrap();
+        let path = cfg.home.join("config.toml");
+        assert!(!cfg.home.join("config.toml.previous").exists(), "nothing came before the first save");
+
+        cfg.llm.model = "second-model".into();
+        cfg.save().unwrap();
+        let read = |p: &std::path::Path| toml::from_str::<Config>(&std::fs::read_to_string(p).unwrap()).unwrap().llm.model;
+        assert_eq!(read(&path), "second-model");
+        assert_eq!(read(&cfg.home.join("config.toml.previous")), "first-model", "the settings before the last save can be put back by hand");
+        let stray: Vec<_> = std::fs::read_dir(&cfg.home).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".tmp-")).collect();
+        assert!(stray.is_empty(), "no half-written file is left behind");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+
+        // A save that cannot complete (the settings file's place is taken by a folder) changes nothing
+        // and cleans up after itself.
+        let blocked = dir.path().join("blocked");
+        std::fs::create_dir_all(blocked.join("config.toml")).unwrap();
+        let mut other = Config::default();
+        other.home = blocked.clone();
+        assert!(other.save().is_err());
+        assert!(blocked.join("config.toml").is_dir());
+        let stray: Vec<_> = std::fs::read_dir(&blocked).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".tmp-")).collect();
+        assert!(stray.is_empty());
     }
 
     #[test]

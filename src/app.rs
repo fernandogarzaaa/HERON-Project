@@ -634,8 +634,18 @@ impl App {
     }
 
     pub async fn scheduler_loop(self: Arc<Self>) {
+        // Fold the write-ahead log into the database now and every six hours: a process that runs for
+        // weeks must not let it grow without limit.
+        const HOUSEKEEPING_EVERY: u64 = 6 * 60 * 60 / 20;
+        let mut ticks: u64 = 0;
         let mut said = false;
         loop {
+            if ticks % HOUSEKEEPING_EVERY == 0 {
+                if let Err(e) = self.store.maintain() {
+                    eprintln!("heron: database housekeeping failed: {e:#}");
+                }
+            }
+            ticks += 1;
             // Only one Heron runs reminders and jobs. If another already does, wait: this one takes
             // over within a few seconds of the other stopping.
             if self.own_background_work() {
