@@ -2682,7 +2682,14 @@ mod tests {
     #[test]
     fn normalize_config_dir_expands_tilde_and_relative_paths() {
         assert_eq!(normalize_config_dir(""), "");
-        assert_eq!(normalize_config_dir("/tmp/acct"), "/tmp/acct");
+        // "/tmp/acct" is drive-relative on Windows, not absolute, so the
+        // absolute case needs a path that is absolute on every platform.
+        let dir = tempfile::tempdir().unwrap();
+        let abs = dir.path().join("acct");
+        assert_eq!(
+            normalize_config_dir(&abs.to_string_lossy()),
+            abs.to_string_lossy()
+        );
         let cwd = std::env::current_dir().unwrap();
         assert_eq!(
             normalize_config_dir("accounts/work"),
