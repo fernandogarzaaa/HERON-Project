@@ -2,7 +2,7 @@
 //! is removed from the child environment so a command can never read or leak it.
 
 use super::{arg_str, opt_i64, schema, FnTool, ToolCtx};
-use crate::permissions::{classify_shell, Risk};
+use crate::permissions::{classify_shell, Effect};
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::process::Stdio;
@@ -12,7 +12,7 @@ fn summary(args: &Value) -> String {
     args.get("command").and_then(|c| c.as_str()).unwrap_or("").to_string()
 }
 
-fn risk(args: &Value, _ctx: &ToolCtx) -> Risk {
+fn risk(args: &Value, _ctx: &ToolCtx) -> Effect {
     classify_shell(&summary(args))
 }
 

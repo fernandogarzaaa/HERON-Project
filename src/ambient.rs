@@ -2,7 +2,7 @@
 //! in the working folder changed recently, so that context is ready before it is asked for.
 //! Stateless and bounded: one capped directory walk per turn, no file contents read.
 
-use crate::permissions::{classify_path, Risk};
+use crate::permissions::{classify_path, Effect};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
@@ -19,7 +19,7 @@ pub fn recent_changes(workspace: &Path, window: Duration, limit: usize) -> Vec<(
         .build();
     for entry in walk.flatten().take(MAX_ENTRIES) {
         let path = entry.path();
-        if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) || classify_path(path, workspace, false) == Risk::Danger {
+        if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) || classify_path(path, workspace, false) == Effect::SensitiveRead {
             continue;
         }
         let Ok(modified) = entry.metadata().map_err(|_| ()).and_then(|m| m.modified().map_err(|_| ())) else { continue };

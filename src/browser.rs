@@ -14,7 +14,7 @@
 //! The browser is spoken to over the Chrome DevTools Protocol on a local WebSocket.
 
 use crate::config::Config;
-use crate::permissions::{check_url, url_host_obviously_local, Risk};
+use crate::permissions::{check_url, url_host_obviously_local, Effect};
 use crate::tools::{arg_str, opt_i64, schema, FnTool, ToolCtx};
 use anyhow::{anyhow, bail, Context, Result};
 use futures_util::{SinkExt, StreamExt};
@@ -539,7 +539,7 @@ pub fn tools() -> Vec<FnTool> {
             description: "Open a web address in a real browser and return what the page shows: its text, and a numbered list of the links, buttons and fields on it. Use this instead of web_fetch when a page needs JavaScript, or when you need to click or fill something in. The browser has its own profile with no logins unless the user signed in there.",
             parameters: schema(json!({"url": {"type": "string"}, "max_chars": limit.clone()}), &["url"]),
             summary: |a| a.get("url").and_then(|u| u.as_str()).unwrap_or("").to_string(),
-            risk: |_, _| Risk::Network,
+            risk: |a, c| if a.get("url").and_then(|u| u.as_str()).map(|u| c.seen_urls.contains(u)).unwrap_or(false) { Effect::NetworkRead } else { Effect::NetworkEgress },
             detail: None,
             untrusted: true,
             run: |a, c| Box::pin(open(a, c)),
@@ -549,7 +549,7 @@ pub fn tools() -> Vec<FnTool> {
             description: "Look again at the page that is open in the browser (for example after it has changed) and get fresh numbers for what is on it.",
             parameters: schema(json!({"max_chars": limit.clone()}), &[]),
             summary: |_| String::new(),
-            risk: |_, _| Risk::Safe,
+            risk: |_, _| Effect::LocalRead,
             detail: None,
             untrusted: true,
             run: |a, c| Box::pin(read(a, c)),
@@ -560,7 +560,13 @@ pub fn tools() -> Vec<FnTool> {
             parameters: schema(json!({"id": {"type": "integer"}, "max_chars": limit.clone()}), &["id"]),
             summary: |a| format!("click {}", describe(a)),
             // Following a link is reading. Pressing anything else may send, buy or change something.
-            risk: |a, _| if link_target(a).is_some() { Risk::Network } else { Risk::Exec },
+            // A link leads to an address the page chose, not the user, unless the user gave that address
+            // themselves. Pressing anything else may send, buy or change something on the site.
+            risk: |a, c| match link_target(a) {
+                Some(href) if c.seen_urls.contains(&href) => Effect::NetworkRead,
+                Some(_) => Effect::NetworkEgress,
+                None => Effect::ExternalWrite,
+            },
             detail: Some(|a, _| match link_target(a) {
                 Some(href) => format!("Follow the link {} to {href}", describe(a)),
                 None => format!("Click the {} on the page open in the browser", describe(a)),
@@ -573,7 +579,7 @@ pub fn tools() -> Vec<FnTool> {
             description: "Type text into a field on the open page (or pick an option in a list of choices) by its number. Set submit to true to press Enter afterwards. Returns the page as it is afterwards.",
             parameters: schema(json!({"id": {"type": "integer"}, "text": {"type": "string"}, "submit": {"type": "boolean"}, "max_chars": limit}), &["id", "text"]),
             summary: |a| format!("type \"{}\" into {}{}", crate::util::preview(a.get("text").and_then(|t| t.as_str()).unwrap_or(""), 80), describe(a), if a.get("submit").and_then(|s| s.as_bool()).unwrap_or(false) { " and press Enter" } else { "" }),
-            risk: |_, _| Risk::Exec,
+            risk: |_, _| Effect::ExternalWrite,
             detail: Some(|a, _| format!("Type this into the {} on the page open in the browser{}:\n\n{}", describe(a), if a.get("submit").and_then(|s| s.as_bool()).unwrap_or(false) { ", then press Enter" } else { "" }, a.get("text").and_then(|t| t.as_str()).unwrap_or(""))),
             untrusted: true,
             run: |a, c| Box::pin(type_into(a, c)),

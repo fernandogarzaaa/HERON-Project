@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Permission system (behaviour changes):
+
+- Every tool call is now classified as one of ten effects (reads, changes to Heron's own notes, file changes, secret reads, running programs, reading the web, sending something out, changing something elsewhere, destructive, forbidden) and decided in one place.
+- **Read-only mode is read-only for everything.** It used to stop file changes and commands but still let Heron save memories, add tasks and schedule jobs. It now refuses all of those.
+- **"Unrestricted" no longer switches off the outside-content rule.** After a web page, email or connected app's output is in a conversation, changes and anything Heron sends out need your approval in every mode.
+- **Web searches are no longer exempt.** After outside content, a search asks too. "Allow searches for this conversation" lets research continue without a prompt per query.
+- **Only addresses you typed count as yours.** An address that arrived inside a page or a tool's result is asked about before it is opened. Expect more prompts in research tasks than before.
+- Reading a file that may hold secrets always asks, even in unrestricted mode.
+- Pressing buttons and typing in the browser, and unknown connected-app tools, ask in auto mode as well as ask mode.
+- Other apps calling Heron over MCP go through the same rules; they used to bypass them.
+- Approving a waiting request from two places at once can no longer carry it out twice, and a request interrupted by a restart is shown as "outcome unknown" instead of being repeated.
+- Engineering documents (threat model, remediation matrix, decisions, qualification) are in `docs/engineering/`.
+
 Found by the first runs against a real AI model (a free reasoning model through OpenRouter):
 
 - Models that think before answering no longer come back empty: every request leaves room for the thinking as well as the answer, and a reply that is all thinking is reported as such instead of being retried.

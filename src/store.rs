@@ -593,6 +593,22 @@ impl Store {
         self.approval_rows("SELECT id, ts, session_id, tool, args, summary, detail, risk, tainted, origin, status, result FROM approvals WHERE status='new' ORDER BY id DESC LIMIT 50", &[])
     }
 
+    /// Take a waiting request for execution. Exactly one caller gets `true`, however many ask at the
+    /// same moment: the change from "new" to "running" is a single statement that only succeeds while
+    /// the request is still new.
+    pub fn claim_approval(&self, id: i64) -> Result<bool> {
+        Ok(self.db().execute("UPDATE approvals SET status='running' WHERE id=? AND status='new'", [id])? == 1)
+    }
+
+    /// Requests that were being carried out when Heron last stopped. Whether they finished is not
+    /// known, so they are neither repeated nor reported as done: the user is told and decides.
+    pub fn recover_interrupted_approvals(&self) -> Result<usize> {
+        Ok(self.db().execute(
+            "UPDATE approvals SET status='unknown', result='Heron stopped while doing this, so it is not known whether it finished. Check before asking for it again.' WHERE status='running'",
+            [],
+        )?)
+    }
+
     pub fn get_approval(&self, id: i64) -> Option<ParkedApproval> {
         self.approval_rows("SELECT id, ts, session_id, tool, args, summary, detail, risk, tainted, origin, status, result FROM approvals WHERE id=?", &[&id]).ok()?.pop()
     }

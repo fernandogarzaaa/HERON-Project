@@ -1,7 +1,7 @@
 //! File tools: read, write, edit, list, search. Writes are checkpointed so they can be undone.
 
 use super::{arg_str, opt_bool, opt_i64, opt_str, schema, FnTool, ToolCtx};
-use crate::permissions::{classify_path, resolve_path, Risk};
+use crate::permissions::{classify_path, resolve_path, Effect};
 use crate::util::preview;
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
@@ -13,16 +13,16 @@ fn path_summary(args: &Value) -> String {
     args.get("path").and_then(|p| p.as_str()).unwrap_or(".").to_string()
 }
 
-fn read_risk(args: &Value, ctx: &ToolCtx) -> Risk {
+fn read_risk(args: &Value, ctx: &ToolCtx) -> Effect {
     classify_path(&resolve_path(&ctx.workspace, &path_summary(args)), &ctx.workspace, false)
 }
 
-fn write_risk(args: &Value, ctx: &ToolCtx) -> Risk {
+fn write_risk(args: &Value, ctx: &ToolCtx) -> Effect {
     let path = resolve_path(&ctx.workspace, &path_summary(args));
     // The agent must never quietly rewrite its own settings, permission rules, skills, memory or keys.
     let home = dunce::canonicalize(&ctx.cfg.home).unwrap_or_else(|_| ctx.cfg.home.clone());
     if path.starts_with(&home) || path.starts_with(&ctx.cfg.home) {
-        return Risk::Danger;
+        return Effect::Privileged;
     }
     classify_path(&path, &ctx.workspace, true)
 }
@@ -171,7 +171,7 @@ async fn search_files(args: &Value, ctx: &ToolCtx) -> Result<String> {
                     continue;
                 }
             }
-            if classify_path(p, &root, false) == Risk::Danger {
+            if classify_path(p, &root, false) == Effect::SensitiveRead {
                 continue; // never grep through credential files
             }
             let Ok(bytes) = std::fs::read(p) else { continue };

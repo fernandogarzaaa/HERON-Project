@@ -5,7 +5,7 @@
 use crate::app::App;
 use crate::llm::{ChatRequest, Llm, Message};
 use crate::memory::{tokenize, SaveOutcome};
-use crate::permissions::{classify_path, Risk};
+use crate::permissions::{classify_path, Effect};
 use crate::store::{KnowledgeItem, Store};
 use crate::util::{now_ts, preview, truncate_middle};
 use anyhow::{anyhow, bail, Result};
@@ -250,7 +250,7 @@ fn scan_folder(store: &Store, folder: &Path) -> Result<usize> {
     for entry in walk.flatten().filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false)).take(20_000) {
         let path = entry.path();
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-        if !DOC_EXTENSIONS.contains(&ext.as_str()) || classify_path(path, folder, false) == Risk::Danger {
+        if !DOC_EXTENSIONS.contains(&ext.as_str()) || classify_path(path, folder, false) == Effect::SensitiveRead {
             continue;
         }
         let Ok(meta) = entry.metadata() else { continue };
