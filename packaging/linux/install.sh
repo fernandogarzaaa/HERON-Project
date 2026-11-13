@@ -39,8 +39,18 @@ exec_path=$(printf '%s' "$APP_DIR/heron-desktop" | sed -e 's/[\\"`$]/\\&/g' -e '
 } > "$DESKTOP_DIR/heron.desktop"
 echo "Heron is installed. Open it from your applications menu, or run: heron-desktop"
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) echo "To use the 'heron' command in a terminal, add $BIN_DIR to your PATH." ;; esac
-if ! ldconfig -p 2>/dev/null | grep -q libwebkit2gtk-4.1; then
-  echo "The Heron window needs WebKitGTK 4.1. Install it with your package manager, for example:"
-  echo "  sudo apt install libwebkit2gtk-4.1-0     (Debian, Ubuntu)"
-  echo "  sudo dnf install webkit2gtk4.1           (Fedora)"
+# The Slint window needs fontconfig for system fonts and OpenGL for the
+# FemtoVG renderer. Both are present on most desktop Linux installs; if
+# either is missing, point at the package that provides it.
+missing=""
+if ! ldconfig -p 2>/dev/null | grep -q libfontconfig.so.1; then
+  missing="fontconfig"
+fi
+if ! ldconfig -p 2>/dev/null | grep -q libGL.so.1; then
+  missing="$missing OpenGL"
+fi
+if [ -n "$missing" ]; then
+  echo "The Heron window needs:$missing. Install it with your package manager, for example:"
+  echo "  sudo apt install libfontconfig1 libgl1     (Debian, Ubuntu)"
+  echo "  sudo dnf install fontconfig mesa-libGL      (Fedora)"
 fi
