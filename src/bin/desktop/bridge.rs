@@ -471,6 +471,36 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn incomplete_chat_stream_returns_error_instead_of_leaving_ui_busy() {
+        // The HTTP transport can end cleanly without a Done/Error/Cancelled
+        // event. That must be a stream failure, not a successful reply.
+        let app = axum::Router::new().route(
+            "/api/chat",
+            axum::routing::post(|| async { "data: {\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"partial\\\"}\\n\\n" }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test listener");
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("test server stopped");
+        });
+
+        let client = HeronClient::new(&origin, "test-token");
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let error = client.stream_chat(None, "hello", tx).await.unwrap_err();
+        assert!(
+            error.to_string().contains("closed before Heron finished"),
+            "unexpected stream error: {error:#}"
+        );
+        assert!(
+            matches!(rx.try_recv(), Ok(ChatEvent::Text { text }) if text == "partial"),
+            "the UI still receives partial text before the truncated stream error"
+        );
+        server.abort();
+    }
+
     #[test]
     fn launch_url_parsing() {
         assert!(
