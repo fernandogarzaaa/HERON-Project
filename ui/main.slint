@@ -173,14 +173,16 @@ export component MainWindow inherits Window {
                 padding-bottom: 12px;
                 spacing: 0px;
 
-                Text {
-                    text: "Heron";
-                    font-family: Theme.heading-font;
-                    font-size: 21px;
-                    font-weight: 600;
-                    color: Theme.ink;
+                HorizontalLayout {
                     padding-left: 8px;
                     padding-bottom: 16px;
+                    Text {
+                        text: "Heron";
+                        font-family: Theme.heading-font;
+                        font-size: 21px;
+                        font-weight: 600;
+                        color: Theme.ink;
+                    }
                 }
 
                 new-btn := Rectangle {
@@ -292,13 +294,16 @@ export component MainWindow inherits Window {
                     vertical-stretch: 1;
                 }
 
-                Text {
-                    text: root.backend-status;
-                    color: Theme.muted;
-                    font-size: 12px;
+                HorizontalLayout {
                     padding-left: 10px;
                     padding-top: 10px;
-                    wrap: word-wrap;
+                    Text {
+                        text: root.backend-status;
+                        color: Theme.muted;
+                        font-size: 12px;
+                        horizontal-stretch: 1;
+                        wrap: word-wrap;
+                    }
                 }
             }
             Rectangle {
@@ -345,10 +350,12 @@ export component MainWindow inherits Window {
                         Rectangle {
                             background: msg.role == "user" ? Theme.slate-soft : Theme.surface;
                             border-radius: 8px;
-                            padding: 10px;
                             horizontal-stretch: 1;
-                            StyledText {
-                                text: msg.body;
+                            VerticalLayout {
+                                padding: 10px;
+                                StyledText {
+                                    text: msg.body;
+                                }
                             }
                         }
                     }

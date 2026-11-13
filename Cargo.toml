@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "heron-desktop"
-path = "src/bin/desktop.rs"
+path = "src/bin/desktop/main.rs"
 required-features = ["desktop"]
 
 [dependencies]

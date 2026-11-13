@@ -34,8 +34,17 @@ code against. The backend and the server API are unchanged.
 
 All Slint code lives in the desktop binary crate, never the lib:
 
-- `src/bin/desktop.rs` — entry point. Starts the backend, creates the window,
+- `src/bin/desktop/main.rs` — entry point. Starts the backend, creates the window,
   installs the message model, wires the four callbacks, runs the event loop.
+  It is `main.rs` inside `src/bin/desktop/`, not `src/bin/desktop.rs`: for a
+  file crate root, a bare `mod bridge;` resolves to a sibling
+  (`src/bin/bridge.rs`), never to `src/bin/desktop/bridge.rs`. The directory
+  form is what makes the four modules below resolve. The plan's layout had
+  this wrong (file root plus `desktop/` modules), and the compiler failed
+  all four with E0583. Moving the four modules out to `src/bin/` instead
+  was tested and rejected: Cargo auto-discovers every `src/bin/*.rs` file
+  as a binary, so each module would fail with E0601 (`main` function not
+  found). Do not use `#[path]` to work around either rule.
 - `src/bin/desktop/bridge.rs` — `HeronClient`, `ChatEvent`, `AppState`,
   `SessionDetail`, `Bridge`. This is the API the other lanes call.
 - `src/bin/desktop/sse.rs` — SSE line parsing, split out so it is testable
@@ -140,7 +149,7 @@ are spike-verified; do not guess other `MenuItemRole` variant names.
 Slint widgets live on the UI thread only. Network work runs on the `Bridge`
 runtime. A background task never touches a widget directly. It hands results
 to the UI thread with `Weak::upgrade_in_event_loop`, and the UI-thread closure
-mutates the window's models. The binary's chat wiring (`src/bin/desktop.rs`,
+mutates the window's models. The binary's chat wiring (`src/bin/desktop/main.rs`,
 `apply_chat_event` in `models.rs`) is the worked example: stream events into
 a channel on the bridge runtime, forward them one by one with
 `upgrade_in_event_loop`. Never `.block_on` on the UI thread. The current
@@ -340,6 +349,15 @@ Errors are `{"error": "..."}` with a non-2xx status.
 - **Layouts have no `enabled`.** `VerticalLayout` and the other layouts take
   no `enabled` property. Input gating lives on the controls themselves
   (`Button`, `LineEdit`), which do have it. See the design-bar section.
+- **Padding is layout-only.** `padding` and the `padding-*` sides belong to
+  layout elements (`VerticalLayout`, `HorizontalLayout`). On a `Text` or a
+  `Rectangle` the compiler warns and the padding is ignored. Three such
+  paddings were replaced with layout wrappers that keep the same geometry:
+  the brand wordmark and the rail status line each sit in a `HorizontalLayout`
+  carrying the padding, and the chat bubble's `Rectangle` holds an inner
+  `VerticalLayout` with `padding: 10px` around the `StyledText`. The
+  warnings themselves are only warnings: the build reaches `rustc`, which
+  proves the Slint stage passed.
 - **Stream errors reach the UI.** `stream_chat` errors used to die silently
   (the send-message handler dropped the `Result`), leaving the pushed empty
   assistant row live and `busy` true forever. The handler now holds a clone
