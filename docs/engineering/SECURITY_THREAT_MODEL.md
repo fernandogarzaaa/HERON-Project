@@ -54,7 +54,7 @@ The full table is the test `permissions::tests::the_decision_table`.
 | T8 | The activity log is hash-chained but lives in the same database. | Someone who can rewrite the database can rewrite the whole chain. |
 | T9 | The local API's own endpoints (the buttons in the app) are not subject to the permission mode. | By design they are the user's direct actions; a program that steals the launch token can use them. |
 | T10 | Installers are unsigned. | A user cannot verify who built them. |
-| T11 | Undo checks that a file is as Heron left it and then replaces it. The check is repeated at the last moment, after the old version is ready on disk, but the check and the replacement are still two steps. | A save from another program that lands in the instant between them (well under a millisecond) is overwritten without a copy. Closing it fully needs an atomic exchange from the operating system (D-13). |
+| T11 | Undo replaces by atomic exchange and verifies what was displaced (D-13). Removing a file still has only the narrowed check-then-remove gap: the check is repeated at the last moment, after the old version is ready on disk, but the check and the removal are still two steps. | A save from another program that lands in the instant between the removal check and the removal is deleted without a copy. No operating-system primitive closes that one. |
 
 ## Keeping this current
 

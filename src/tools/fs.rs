@@ -5,7 +5,7 @@ use crate::permissions::{classify_path, resolve_path, Effect};
 use crate::util::preview;
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
 
@@ -35,43 +35,295 @@ fn content_hash(bytes: &[u8]) -> String {
 /// Replace a file in one step: the new content is written beside it and renamed over it, so a crash
 /// or a full disk can never leave half a file, and a link put in its place is replaced, not followed.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    write_atomic_if(path, bytes, &|| true).map(|_| ())
+    let tmp = stage_new_version(path, bytes)?;
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let done = std::fs::rename(&tmp, path);
+    if done.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    done.with_context(|| format!("cannot write {}", path.display()))?;
+    sync_dir(dir);
+    Ok(())
 }
 
-/// As [`write_atomic`], but `still_expected` is asked at the last moment, after the new content is
-/// safely on disk and immediately before it takes the file's place. If it says no, nothing is
-/// replaced and this returns `false`. This keeps the time between "the file is as expected" and "the
-/// file is replaced" as short as it can be made without help from the operating system; it does not
-/// make it zero (see T11 in the threat model).
-fn write_atomic_if(path: &Path, bytes: &[u8], still_expected: &dyn Fn() -> bool) -> Result<bool> {
+/// Write `bytes` beside `path` under a name nothing else has, with the original's permissions, and
+/// return that name. The new version is on disk, fsynced, before this returns; the caller decides
+/// how it takes the file's place.
+fn stage_new_version(path: &Path, bytes: &[u8]) -> Result<PathBuf> {
     use std::io::Write;
-    let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    let tmp = dir.join(format!(".{name}.heron-{}-{}", std::process::id(), uuid::Uuid::new_v4().simple()));
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let tmp = dir.join(format!(
+        ".{name}.heron-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4().simple()
+    ));
     // The file being replaced decides who may read the new one, from the first byte: a private file's
     // new content must never sit beside it readable by others, even for a moment.
     let like = std::fs::metadata(path).ok().map(|m| m.permissions());
+    let mut f = create_new_like(&tmp, like.as_ref())?;
+    let written = f.write_all(bytes).and_then(|_| f.sync_all());
+    drop(f);
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e).with_context(|| format!("cannot write {}", path.display()));
+    }
+    // Keep the file's permissions exactly (an executable script stays executable).
+    if let Some(perms) = like {
+        let _ = std::fs::set_permissions(&tmp, perms);
+    }
+    Ok(tmp)
+}
+
+/// Replace `path` with `bytes`, but only if the file still holds `expected`: `Some` bytes it must
+/// still contain, `None` that it must still be absent. Returns `true` when the file was replaced
+/// and `false` when it had changed (or vanished, or appeared) and nothing was touched.
+///
+/// The replacement is an atomic exchange, not a check followed by a rename: the new version and
+/// the old one change places in one operating-system step, and what was displaced is then read
+/// back and compared with `expected`. A save that landed before the exchange is caught and the
+/// exchange is undone, so it is never overwritten; a save after it replaces the new version
+/// normally. When the platform or filesystem cannot exchange, it falls back to reading the file
+/// again immediately before a plain rename, which is the narrowed check undo used before (T11).
+/// A writer holding the file open and writing in place between the verification and the cleanup
+/// can still lose that one write; editors save by renaming, so they are not affected.
+fn replace_if_unchanged(path: &Path, bytes: &[u8], expected: &Option<Vec<u8>>) -> Result<bool> {
+    let tmp = stage_new_version(path, bytes)?;
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let done = (|| -> Result<bool> {
-        let mut f = create_new_like(&tmp, like.as_ref())?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        drop(f);
-        // Keep the file's permissions exactly (an executable script stays executable).
-        if let Some(perms) = like.clone() {
-            let _ = std::fs::set_permissions(&tmp, perms);
+        match atomic_replace(path, &tmp)? {
+            Some(displaced) => {
+                let was = read_if_there(&displaced)?;
+                if was == *expected {
+                    // The exchange displaced exactly what was expected: the new version is in
+                    // place and the displaced copy is no longer needed.
+                    let _ = std::fs::remove_file(&displaced);
+                    sync_dir(dir);
+                    Ok(true)
+                } else {
+                    // The file changed before the exchange: put it back and report that
+                    // nothing was replaced.
+                    atomic_restore(path, &displaced, bytes)?;
+                    let _ = std::fs::remove_file(&tmp);
+                    Ok(false)
+                }
+            }
+            None => {
+                // No exchange here: read the file once more and only rename when it still
+                // holds what was expected.
+                if read_if_there(path)? == *expected {
+                    std::fs::rename(&tmp, path)?;
+                    sync_dir(dir);
+                    Ok(true)
+                } else {
+                    let _ = std::fs::remove_file(&tmp);
+                    Ok(false)
+                }
+            }
         }
-        if !still_expected() {
-            let _ = std::fs::remove_file(&tmp);
-            return Ok(false);
-        }
-        std::fs::rename(&tmp, path)?;
-        sync_dir(dir);
-        Ok(true)
     })();
     if done.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
     done.with_context(|| format!("cannot write {}", path.display()))
+}
+
+/// Atomically install the staged file `tmp` at `path`, and return the path now holding what was
+/// displaced, or `None` when this platform or filesystem cannot do the exchange and the caller
+/// should fall back to a plain rename after re-checking.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn atomic_replace(path: &Path, tmp: &Path) -> Result<Option<PathBuf>> {
+    if swap_files(path, tmp)? {
+        return Ok(Some(tmp.to_path_buf()));
+    }
+    Ok(None)
+}
+
+/// Atomically install the staged file `tmp` at `path` on Windows: `ReplaceFileW` replaces the
+/// target and moves what was displaced to a backup path beside it, which is returned. `None`
+/// when the target is missing or the replacement cannot be done here.
+#[cfg(windows)]
+fn atomic_replace(path: &Path, tmp: &Path) -> Result<Option<PathBuf>> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let backup = dir.join(format!(
+        ".{name}.heron-backup-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let wide = |p: &Path| {
+        p.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>()
+    };
+    let replaced = wide(path);
+    let replacement = wide(tmp);
+    let backup_wide = wide(&backup);
+    // SAFETY: the three pointers are null-terminated UTF-16 strings that live for the call, and
+    // the last two arguments are null. ReplaceFileW only reads them.
+    let ok = unsafe {
+        ReplaceFileW(
+            replaced.as_ptr(),
+            replacement.as_ptr(),
+            backup_wide.as_ptr(),
+            0,
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
+    if ok != 0 {
+        return Ok(Some(backup));
+    }
+    // Any failure falls back to a plain rename after re-checking: the rename reports a real
+    // error (permissions, a missing target) itself, and an unsupported filesystem simply gets
+    // the narrowed check instead of the exchange.
+    Ok(None)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+fn atomic_replace(path: &Path, tmp: &Path) -> Result<Option<PathBuf>> {
+    let _ = (path, tmp);
+    Ok(None)
+}
+
+/// Put the displaced content back at `path` after a failed verification, so the file is exactly
+/// as it was before the exchange. On Unix the two files change places again and the staged file
+/// is removed; on Windows the displaced backup is moved back over the target, unless the target
+/// no longer holds what was installed, in which case a writer has saved over it and the
+/// writer's version is left standing.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn atomic_restore(path: &Path, displaced: &Path, _installed: &[u8]) -> Result<()> {
+    if !swap_files(path, displaced)? {
+        bail!(
+            "could not put back {} after a changed restore",
+            path.display()
+        );
+    }
+    // The exchange put the staged version back at the displaced path; it is no longer needed.
+    let _ = std::fs::remove_file(displaced);
+    if let Some(dir) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        sync_dir(dir);
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn atomic_restore(path: &Path, displaced: &Path, installed: &[u8]) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+    if read_if_there(path)? == Some(installed.to_vec()) {
+        let wide = |p: &Path| {
+            p.as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect::<Vec<u16>>()
+        };
+        let replaced = wide(path);
+        let replacement = wide(displaced);
+        // SAFETY: the pointers are null-terminated UTF-16 strings that live for the call, and
+        // the last three arguments are null. ReplaceFileW only reads them.
+        let ok = unsafe {
+            ReplaceFileW(
+                replaced.as_ptr(),
+                replacement.as_ptr(),
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        };
+        if ok == 0 {
+            return Err(std::io::Error::last_os_error())
+                .with_context(|| format!("could not put back {}", path.display()));
+        }
+    } else {
+        // A writer saved over the target after the exchange: restoring would destroy their
+        // save, so their version stands and the displaced copy is discarded.
+        let _ = std::fs::remove_file(displaced);
+    }
+    if let Some(dir) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        sync_dir(dir);
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+fn atomic_restore(path: &Path, displaced: &Path, _installed: &[u8]) -> Result<()> {
+    let _ = std::fs::remove_file(displaced);
+    let _ = path;
+    Ok(())
+}
+
+/// Atomically exchange the files at `a` and `b`. Returns `Ok(true)` when the exchange happened,
+/// `Ok(false)` when the target is missing or the filesystem cannot exchange (the caller falls
+/// back to a plain rename after re-checking), and `Err` for anything else. The displaced content
+/// ends up at the other path, so the caller can verify it is what was expected.
+#[cfg(target_os = "linux")]
+fn swap_files(a: &Path, b: &Path) -> Result<bool> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let a = CString::new(a.as_os_str().as_bytes())?;
+    let b = CString::new(b.as_os_str().as_bytes())?;
+    // SAFETY: both pointers are valid C strings that live for the call, and the call only
+    // reads them.
+    let rc = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            a.as_ptr(),
+            libc::AT_FDCWD,
+            b.as_ptr(),
+            libc::RENAME_EXCHANGE,
+        )
+    };
+    if rc == 0 {
+        return Ok(true);
+    }
+    let err = std::io::Error::last_os_error();
+    match err.raw_os_error() {
+        // The target is missing, or the filesystem does not support the exchange: fall back.
+        Some(libc::ENOENT) | Some(libc::ENOSYS) | Some(libc::EINVAL) => Ok(false),
+        _ => Err(err.into()),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn swap_files(a: &Path, b: &Path) -> Result<bool> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let a = CString::new(a.as_os_str().as_bytes())?;
+    let b = CString::new(b.as_os_str().as_bytes())?;
+    // SAFETY: both pointers are valid C strings that live for the call, and the call only
+    // reads them.
+    let rc = unsafe { libc::renamex_np(a.as_ptr(), b.as_ptr(), libc::RENAME_SWAP) };
+    if rc == 0 {
+        return Ok(true);
+    }
+    let err = std::io::Error::last_os_error();
+    match err.raw_os_error() {
+        // The target is missing, or the filesystem does not support the exchange: fall back.
+        Some(libc::ENOENT) | Some(libc::EINVAL) | Some(libc::ENOTSUP) => Ok(false),
+        _ => Err(err.into()),
+    }
 }
 
 /// Make a change to a folder's list of names (a new file, a rename, a removal) survive a power cut.
@@ -241,13 +493,15 @@ pub fn undo(ctx: &ToolCtx, restore_anyway: Option<&str>) -> Result<Undo> {
             (None, true) => {}
         }
     }
-    // Asked again at the last moment: is the file still what was just looked at (and, if a copy was
-    // saved, still what was saved)? If it changed in between, stop and say so.
+    // The replacement is an atomic exchange that verifies what it displaced (see
+    // replace_if_unchanged), so a save that lands before it is caught and undone. Removing a
+    // file has no such primitive: it is still asked at the last moment whether the file is
+    // still what was just looked at, and stops if it changed.
     let still_as_seen = || read_if_there(file).map(|now| now == current).unwrap_or(false);
     let changed_meanwhile = || Undo::Conflict { id: name.clone(), why: format!("{path} changed while it was being restored. Nothing was restored.{kept}") };
     let said = match prev {
         Some(bytes) => {
-            if !write_atomic_if(file, &bytes, &still_as_seen)? {
+            if !replace_if_unchanged(file, &bytes, &current)? {
                 return Ok(changed_meanwhile());
             }
             format!("restored {path}.{kept}")
@@ -733,19 +987,71 @@ mod undo_tests {
         assert!(matches!(undo(&c, None).unwrap(), Undo::Done(said) if said.contains("already as it was")));
         assert_eq!(undo(&c, None).unwrap(), Undo::Nothing);
 
-        // The last-moment check: the file is as expected when undo looks, and changes before the
+        // The exchange check: the file is as expected when undo looks, and changes before the
         // old version takes its place. Nothing is replaced.
-        let changed = std::cell::Cell::new(false);
-        let replaced = write_atomic_if(&file, b"old version", &|| {
-            std::fs::write(&file, "saved from an editor just now").unwrap();
-            changed.set(true);
-            false
-        })
-        .unwrap();
-        assert!(changed.get() && !replaced);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "saved from an editor just now");
-        let stray: Vec<_> = std::fs::read_dir(&c.workspace).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".heron-")).collect();
+        std::fs::write(&file, "saved from an editor just now").unwrap();
+        let replaced =
+            replace_if_unchanged(&file, b"old version", &Some(b"original".to_vec())).unwrap();
+        assert!(!replaced);
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "saved from an editor just now"
+        );
+        let stray: Vec<_> = std::fs::read_dir(&c.workspace)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".heron-"))
+            .collect();
         assert!(stray.is_empty(), "and the unused new version is cleaned up");
+    }
+
+    #[tokio::test]
+    async fn replace_if_unchanged_only_replaces_what_it_was_shown() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("notes.md");
+        let stray = || {
+            std::fs::read_dir(dir.path())
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().contains(".heron-"))
+                .count()
+        };
+
+        // The file holds what was expected: the new version takes its place.
+        std::fs::write(&file, "as Heron left it").unwrap();
+        assert!(
+            replace_if_unchanged(&file, b"old version", &Some(b"as Heron left it".to_vec()))
+                .unwrap()
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "old version");
+        assert_eq!(stray(), 0, "the displaced copy is cleaned up");
+
+        // The file changed since it was looked at: nothing is replaced, and the newer version
+        // is left exactly as it is.
+        std::fs::write(&file, "saved from an editor just now").unwrap();
+        assert!(
+            !replace_if_unchanged(&file, b"old version", &Some(b"as Heron left it".to_vec()))
+                .unwrap()
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "saved from an editor just now"
+        );
+        assert_eq!(stray(), 0, "and the unused new version is cleaned up");
+
+        // The file is gone although it was expected to be there: nothing is installed.
+        std::fs::remove_file(&file).unwrap();
+        assert!(
+            !replace_if_unchanged(&file, b"old version", &Some(b"as Heron left it".to_vec()))
+                .unwrap()
+        );
+        assert!(!file.exists());
+        assert_eq!(stray(), 0);
+
+        // The file is gone and was expected to be gone: the old version is installed.
+        assert!(replace_if_unchanged(&file, b"old version", &None).unwrap());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "old version");
+        assert_eq!(stray(), 0);
     }
 
     #[tokio::test]
