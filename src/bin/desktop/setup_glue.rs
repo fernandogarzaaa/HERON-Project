@@ -35,7 +35,7 @@ use super::setup::{
 };
 use super::setup_bridge::HeronSetupBridge;
 use crate::{MainWindow, McpLine, SourceItem, ToolItem};
-use slint::{ModelRc, VecModel, Weak};
+use slint::{ModelRc, VecModel};
 use std::sync::Arc;
 
 /// The two Setup states, held beside the window. The driver is built
