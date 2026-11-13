@@ -29,8 +29,9 @@ dirs = "6"
 futures-util = "0.3"
 globset = "0.4"
 html2text = "0.14"
-open = "5"
 ignore = "0.4"
+libc = "0.2"
+open = "5"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json", "stream", "gzip"] }
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
@@ -77,3 +78,4 @@ keyring = { version = "3", features = ["apple-native"] }
 
 [target."cfg(windows)".dependencies]
 keyring = { version = "3", features = ["windows-native"] }
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }

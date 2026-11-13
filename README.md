@@ -186,6 +186,28 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Documents"]
 
 The API key is read from the environment, or from the OS credential store when saved from the app (macOS Keychain, Windows Credential Manager; an owner-only `~/.heron/secrets.json` on Linux). It is never written to the config, the database, the logs, or passed to commands the agent runs.
 
+### Subscription CLIs instead of an API key
+
+Heron can also run through a local CLI instead of an API key: Claude Code,
+Codex, Cursor, Grok Build, OpenCode, Antigravity, Cline, Copilot, Qwen,
+Gemini, Pi, fx, Kiro, Muse, Goose, or a custom CLI. Most of these bill
+through a subscription you already pay for, but not all of them: OpenCode
+routes to whatever providers you configure in it, metered or free, and
+Gemini and Qwen take API keys rather than a subscription. Run
+`heron providers` to check install and login status, then set `[llm] provider`
+in the config (for example `provider = "claude-cli"`) or
+`HERON_PROVIDER=codex-cli`. Login happens in the CLI itself
+(`claude auth login`, `codex login`, ...); Heron never reads a CLI token,
+runs the CLI in a throwaway directory with its own tools off, and keeps its
+own tool loop, permissions, and audit on top. Cline and Goose are the
+exception: their headless modes cannot turn their own tools off, so they
+only run when you explicitly set `cli_allow_agent_tools = true`, and then
+they run their own tool loop outside Heron's permissions and audit. The
+throwaway directory keeps the CLI away from your files; it is not a
+sandbox. Full list, login steps, and safety rules: `docs/cli-providers.md`.
+The design copies the Hermes `claude-subscription-directsdk` plugin and T3
+Code's provider drivers.
+
 ### Skills
 
 Put `~/.heron/skills/<name>.md` (or `<name>/SKILL.md`) with an optional first block:

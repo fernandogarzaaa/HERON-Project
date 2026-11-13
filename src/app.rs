@@ -101,8 +101,14 @@ impl App {
 
     /// Apply new settings: persist them and hot-swap the model client.
     pub fn update_config(&self, new: Config) -> Result<()> {
+        // Build the replacement client first. A provider the new settings
+        // cannot run (Cline/Goose without cli_allow_agent_tools, Custom
+        // CLI without a command) must be rejected before anything is
+        // persisted: saving first writes a config the next startup cannot
+        // build from, and the app will not start until it is repaired.
+        let llm = crate::llm::build(&new)?;
         new.save()?;
-        self.llm.swap(crate::llm::build(&new)?);
+        self.llm.swap(llm);
         *self.cfg.write().unwrap() = Arc::new(new);
         Ok(())
     }
@@ -1131,5 +1137,41 @@ mod tests {
         app.persist_rules();
         let app2 = App::assemble(cfg, dir.path().join("ws"), store, Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
         assert_eq!(app2.policy.allow_rules(), vec!["shell:cargo *"]);
+    }
+
+    #[tokio::test]
+    async fn rejected_settings_are_never_persisted() {
+        // Cline/Goose without cli_allow_agent_tools, and Custom CLI
+        // without a command, all fail in CliLlm::from_config. Saving
+        // first would leave a config the next startup cannot build from.
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        cfg.agent.auto_memory = false;
+        cfg.llm.provider = "http".to_string();
+        cfg.save().unwrap();
+        let app = App::assemble(
+            cfg.clone(),
+            dir.path().join("ws"),
+            Store::in_memory().unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        )
+        .await
+        .unwrap();
+        let mut bad = cfg.clone();
+        bad.llm.provider = "cline-cli".to_string();
+        assert!(app.update_config(bad).is_err());
+        let mut bad = cfg.clone();
+        bad.llm.provider = "goose-cli".to_string();
+        assert!(app.update_config(bad).is_err());
+        let mut bad = cfg.clone();
+        bad.llm.provider = "custom-cli".to_string();
+        bad.llm.cli_command = String::new();
+        assert!(app.update_config(bad).is_err());
+        // The disk file still holds the good config, and the running app
+        // still runs it, so a restart starts instead of failing.
+        let saved = std::fs::read_to_string(cfg.home.join("config.toml")).unwrap();
+        assert!(saved.contains("provider = \"http\""), "{saved}");
+        assert_eq!(app.cfg().llm.provider, "http");
     }
 }

@@ -57,7 +57,7 @@ The full matrix is REMEDIATION_MATRIX.md. Summary by status:
 
 ## 4. Correctness and performance evidence
 
-- Tests: 121 unit and 8 integration pass locally (Linux 6.18 x86_64, rustc 1.97.0), including
+- Tests: 165 of 166 unit and 8 integration pass locally (the one failure, `cli_llm::tests::kill_process_tree_kills_descendants`, came in from `main`, fails the same way on untouched `main` in this sandbox and passes on hosted CI) (Linux 6.18 x86_64, rustc 1.97.0), including
   the real-browser test against Chromium. Windows type-check passes from Linux.
 - Hosted CI: green on PR #2's head. For the permission branch see its pull request; a local
   pass is not a hosted pass.

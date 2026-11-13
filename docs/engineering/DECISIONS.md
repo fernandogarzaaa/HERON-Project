@@ -63,14 +63,13 @@ them, which is not encrypted either. Encrypted export for moving data between ma
 owed (B5).
 
 
-**D-13. Undo narrows the check-then-replace gap; it does not close it.** A reviewer pointed out
-that a file can change between undo's check and the rename that restores the old version. Undo now
-repeats the check after the old version is written and synced, immediately before the rename, so
-the gap is a read and a rename. Closing it completely needs the operating system to exchange two
-files atomically (`renameat2` with `RENAME_EXCHANGE` on Linux, `renamex_np` on macOS,
-`ReplaceFileW` on Windows). Each is a platform-specific call that needs `unsafe` code, which this
-crate does not otherwise contain, and the macOS and Windows paths cannot be exercised by hand
-here. The safe-code alternative (move the file aside, check it, link the old version in) would
-leave a moment with no file at the path and a crash there would look like data loss. Left as
-T11 for the owner to decide.
+**D-13. Undo replaces by atomic exchange, verified against what was displaced.** A reviewer pointed out
+that a file can change between undo's check and the rename that restores the old version. The
+replacement is now an atomic exchange (`renameat2` with `RENAME_EXCHANGE` on Linux, `renamex_np`
+with `RENAME_SWAP` on macOS, `ReplaceFileW` on Windows): the new version and the old one change
+places in one operating-system step, and what was displaced is read back and compared with what
+undo expected to find. A save that landed before the exchange is caught and the exchange is
+undone, so it is never overwritten. The exchange is the crate's first `unsafe` code; the macOS
+and Windows paths are exercised by the test suite in CI, not by hand here. Removing a file has
+no such primitive and keeps the narrowed check-then-remove gap (see T11).
 

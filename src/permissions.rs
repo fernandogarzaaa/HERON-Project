@@ -22,6 +22,10 @@ pub enum Effect {
     WorkspaceWrite,
     /// Reads something that may hold secrets: keys, credentials, other programs' memory.
     SensitiveRead,
+    /// Runs a program or changes a file that may hold secrets (cp, rm, mv naming a key or
+    /// credential). Mutating, so read-only mode refuses it; sensitive, so every other mode
+    /// still asks about it each time instead of running it on a standing grant.
+    SensitiveWrite,
     /// Runs a program.
     ProcessExec,
     /// Fetches from an address the user themselves gave. Sends nothing the model chose.
@@ -38,9 +42,18 @@ pub enum Effect {
 }
 
 impl Effect {
-    pub const ALL: [Effect; 10] = [
-        Effect::LocalRead, Effect::LocalStateWrite, Effect::WorkspaceWrite, Effect::SensitiveRead, Effect::ProcessExec,
-        Effect::NetworkRead, Effect::NetworkEgress, Effect::ExternalWrite, Effect::Privileged, Effect::Forbidden,
+    pub const ALL: [Effect; 11] = [
+        Effect::LocalRead,
+        Effect::LocalStateWrite,
+        Effect::WorkspaceWrite,
+        Effect::SensitiveRead,
+        Effect::SensitiveWrite,
+        Effect::ProcessExec,
+        Effect::NetworkRead,
+        Effect::NetworkEgress,
+        Effect::ExternalWrite,
+        Effect::Privileged,
+        Effect::Forbidden,
     ];
 
     pub fn label(&self) -> &'static str {
@@ -49,6 +62,7 @@ impl Effect {
             Effect::LocalStateWrite => "state",
             Effect::WorkspaceWrite => "write",
             Effect::SensitiveRead => "sensitive",
+            Effect::SensitiveWrite => "sensitive-write",
             Effect::ProcessExec => "exec",
             Effect::NetworkRead => "network",
             Effect::NetworkEgress => "egress",
@@ -60,7 +74,16 @@ impl Effect {
 
     /// Changes something, here or elsewhere. Read-only mode refuses all of these.
     pub fn mutates(&self) -> bool {
-        matches!(self, Effect::LocalStateWrite | Effect::WorkspaceWrite | Effect::ProcessExec | Effect::ExternalWrite | Effect::Privileged | Effect::Forbidden)
+        matches!(
+            self,
+            Effect::LocalStateWrite
+                | Effect::WorkspaceWrite
+                | Effect::SensitiveWrite
+                | Effect::ProcessExec
+                | Effect::ExternalWrite
+                | Effect::Privileged
+                | Effect::Forbidden
+        )
     }
 
     /// Can carry data the model chose to somewhere outside this computer.
@@ -70,7 +93,10 @@ impl Effect {
 
     /// Too serious for a standing or conversation-wide grant: asked about each time.
     pub fn high(&self) -> bool {
-        matches!(self, Effect::SensitiveRead | Effect::Privileged | Effect::Forbidden)
+        matches!(
+            self,
+            Effect::SensitiveRead | Effect::SensitiveWrite | Effect::Privileged | Effect::Forbidden
+        )
     }
 
     /// Safe to run alongside other calls: reads only, nothing changed, nothing composed and sent.
@@ -206,8 +232,10 @@ impl Policy {
         if mode == Mode::ReadOnly && effect.mutates() {
             return Verdict::Deny("read-only mode: this action would change something. Switch mode to allow it.".into());
         }
-        // 4. Secrets are shown only with the user's say-so, each time.
-        if effect == Effect::SensitiveRead {
+        // 4. Secrets are shown only with the user's say-so, each time. That covers
+        //    reading one and acting on one: a command that copies a credential
+        //    must ask in every mode, Auto and Yolo included.
+        if matches!(effect, Effect::SensitiveRead | Effect::SensitiveWrite) {
             return Verdict::Ask;
         }
         // 5. Once outside content is present, nothing is changed and nothing the model composed is
@@ -478,16 +506,31 @@ pub fn classify_shell(cmd: &str) -> Effect {
     if c.len() > 1500 || links > 10 {
         return Effect::Privileged;
     }
-    // Keys, credentials, other programs' memory and devices: the same files `read_file` asks about.
-    if names_sensitive_path(c) {
-        return Effect::SensitiveRead;
-    }
     // Provably read-only: a pipeline of known-safe commands with no redirection, substitution, chaining,
     // variables (which can hold secrets) or script blocks.
     if c.contains(['>', '<', ';', '&', '`', '\n', '\r', '$', '{', '(', '%']) || c.to_lowercase().contains("env:") {
-        return Effect::ProcessExec;
+        return sensitive_or_exec(c);
     }
-    if c.split('|').all(simple_command_is_readonly) { Effect::LocalRead } else { Effect::ProcessExec }
+    if !c.split('|').all(simple_command_is_readonly) {
+        return sensitive_or_exec(c);
+    }
+    // Keys, credentials, other programs' memory and devices: the same files `read_file` asks about.
+    // Only a provably read-only command earns the read effect. A command that names a secret but
+    // also writes or runs code (cp, rm, mv) is a sensitive write: mutating, so read-only mode
+    // refuses it, and sensitive, so every other mode still asks about it each time.
+    if names_sensitive_path(c) {
+        return Effect::SensitiveRead;
+    }
+    Effect::LocalRead
+}
+
+/// A command that is not provably read-only: an exec, or a sensitive write when it names a secret.
+fn sensitive_or_exec(c: &str) -> Effect {
+    if names_sensitive_path(c) {
+        Effect::SensitiveWrite
+    } else {
+        Effect::ProcessExec
+    }
 }
 
 // ---------------- path sandbox ----------------
@@ -733,6 +776,29 @@ mod tests {
     }
 
     #[test]
+    fn a_command_that_names_a_secret_but_writes_is_a_sensitive_write() {
+        for c in ["cp ~/.npmrc copied.txt", "rm ~/.npmrc", "mv server.pem server.pem.bak", "cp deploy/credentials.json /tmp/x"] {
+            assert_eq!(classify_shell(c), Effect::SensitiveWrite, "{c}");
+        }
+        // The read-only form still asks about the secret instead of allowing it outright.
+        for c in ["cat ~/.npmrc", "grep token ~/.git-credentials", "tail server.pem"] {
+            assert_eq!(classify_shell(c), Effect::SensitiveRead, "{c}");
+        }
+        // A write that names no secret is a plain exec: auto mode runs it.
+        assert_eq!(classify_shell("cp a.txt b.txt"), Effect::ProcessExec);
+        // Both halves of the promise: read-only mode refuses the sensitive
+        // write, and auto and yolo still ask about it each time, so the
+        // copy can never run unapproved and then leak through a plain read.
+        let effect = classify_shell("cp ~/.npmrc copied.txt");
+        let ro = Policy::new(Mode::ReadOnly, &[], &[]);
+        assert!(matches!(ro.decide_in("shell", "cp ~/.npmrc copied.txt", effect, false), Verdict::Deny(_)));
+        for mode in [Mode::Ask, Mode::Auto, Mode::Yolo] {
+            let p = Policy::new(mode, &[], &[]);
+            assert_eq!(p.decide_in("shell", "cp ~/.npmrc copied.txt", effect, false), Verdict::Ask, "{mode:?}");
+        }
+    }
+
+    #[test]
     fn a_standing_rule_for_one_command_does_not_cover_what_is_chained_after_it() {
         let p = Policy::new(Mode::Ask, &["shell:cargo *".into()], &[]);
         assert_eq!(p.decide("shell", "cargo test --all", Effect::ProcessExec), Verdict::Allow);
@@ -754,11 +820,12 @@ mod tests {
         use Verdict::{Allow as A, Ask as Q};
         let d = || Verdict::Deny(String::new());
         // (effect, clean conversation [readonly, ask, auto, yolo], after outside content [same order])
-        let table: [(Effect, [Verdict; 4], [Verdict; 4]); 10] = [
+        let table: [(Effect, [Verdict; 4], [Verdict; 4]); 11] = [
             (LocalRead, [A, A, A, A], [A, A, A, A]),
             (LocalStateWrite, [d(), A, A, A], [d(), Q, Q, Q]),
             (WorkspaceWrite, [d(), Q, A, A], [d(), Q, Q, Q]),
             (SensitiveRead, [Q, Q, Q, Q], [Q, Q, Q, Q]),
+            (SensitiveWrite, [d(), Q, Q, Q], [d(), Q, Q, Q]),
             (ProcessExec, [d(), Q, A, A], [d(), Q, Q, Q]),
             (NetworkRead, [A, A, A, A], [A, A, A, A]),
             (NetworkEgress, [A, A, A, A], [Q, Q, Q, Q]),
@@ -780,7 +847,7 @@ mod tests {
     }
 
     /// The promises that must hold for every combination of mode, effect, taint and rules, checked by
-    /// trying all of them (4 modes x 10 effects x 2 x 5 allow-rule sets x 3 deny-rule sets).
+    /// trying all of them (4 modes x 11 effects x 2 x 5 allow-rule sets x 3 deny-rule sets).
     #[test]
     fn promises_that_hold_whatever_the_settings() {
         let allow_sets: [&[&str]; 5] = [&[], &["tool:*"], &["tool:x"], &["*"], &["shell:cargo *", "tool:*", "*:*"]];
@@ -814,7 +881,7 @@ mod tests {
                                 assert_ne!(v, Verdict::Allow, "{ctx}");
                             }
                             // Secrets and destructive actions are never covered by an allow rule.
-                            if effect == Effect::SensitiveRead {
+                            if matches!(effect, Effect::SensitiveRead | Effect::SensitiveWrite) {
                                 assert_ne!(v, Verdict::Allow, "{ctx}");
                             }
                             if effect == Effect::Privileged && mode != Mode::Yolo {
@@ -833,7 +900,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(checked, 4 * 10 * 2 * 5 * 3);
+        assert_eq!(checked, 4 * 11 * 2 * 5 * 3);
     }
 
     #[test]
