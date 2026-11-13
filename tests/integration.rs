@@ -184,10 +184,24 @@ async fn http_api_chat_approval_and_settings() {
     assert_eq!(session["messages"].as_array().unwrap().len(), 8);
     assert_eq!(session["title"], "write a");
 
-    // Undo restores the pre-write state.
-    let undo: Value = client.post(format!("{base}/api/undo")).header("x-heron-token", &token).json(&json!({"session_id": sid})).send().await.unwrap().json().await.unwrap();
-    assert!(undo["undone"].as_str().unwrap().contains("removed"));
+    // The file Heron wrote has been edited since: undo refuses, names the change it was about, and
+    // "restore anyway" is accepted only for that change.
+    std::fs::write(ws.join("a.txt"), "edited by hand afterwards").unwrap();
+    let undo_with = |body: Value| client.post(format!("{base}/api/undo")).header("x-heron-token", &token).json(&body).send();
+    let refused: Value = undo_with(json!({"session_id": sid})).await.unwrap().json().await.unwrap();
+    assert!(refused["undone"].is_null() && refused["conflict"].as_str().unwrap().contains("changed since"), "{refused}");
+    let asked_about = refused["checkpoint"].as_i64().expect("the refusal names the change");
+    assert_eq!(undo_with(json!({"session_id": sid, "force": true})).await.unwrap().status(), 400, "restoring anyway must say which change");
+    let other: Value = undo_with(json!({"session_id": sid, "force": true, "checkpoint": asked_about + 1000})).await.unwrap().json().await.unwrap();
+    assert!(other["undone"].is_null() && other["stale"].is_string(), "{other}");
+    assert_eq!(std::fs::read_to_string(ws.join("a.txt")).unwrap(), "edited by hand afterwards");
+    // Confirmed for the right change: the file Heron created is removed, and the hand edit is kept beside it.
+    let undo: Value = undo_with(json!({"session_id": sid, "force": true, "checkpoint": asked_about})).await.unwrap().json().await.unwrap();
+    assert!(undo["undone"].as_str().unwrap().contains("removed"), "{undo}");
     assert!(!ws.join("a.txt").exists());
+    let kept: Vec<_> = std::fs::read_dir(&ws).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().starts_with("a.txt.before-undo-")).collect();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(std::fs::read_to_string(kept[0].path()).unwrap(), "edited by hand afterwards");
 
     // Settings: saving a key never echoes it back, and bad input is rejected with a clear message.
     let post = |path: &str, body: Value| client.post(format!("{base}{path}")).header("x-heron-token", &token).json(&body).send();

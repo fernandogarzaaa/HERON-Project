@@ -42,3 +42,16 @@ fuzzing harness is still owed for the parsers (G3).
 
 **D-9. Stacked pull requests.** The permission work is stacked on PR #2, which holds unmerged
 work it depends on (the conversation-wide grant). Nothing is merged without the owner's say-so.
+
+
+**D-13. Undo narrows the check-then-replace gap; it does not close it.** A reviewer pointed out
+that a file can change between undo's check and the rename that restores the old version. Undo now
+repeats the check after the old version is written and synced, immediately before the rename, so
+the gap is a read and a rename. Closing it completely needs the operating system to exchange two
+files atomically (`renameat2` with `RENAME_EXCHANGE` on Linux, `renamex_np` on macOS,
+`ReplaceFileW` on Windows). Each is a platform-specific call that needs `unsafe` code, which this
+crate does not otherwise contain, and the macOS and Windows paths cannot be exercised by hand
+here. The safe-code alternative (move the file aside, check it, link the old version in) would
+leave a moment with no file at the path and a crash there would look like data loss. Left as
+T11 for the owner to decide.
+

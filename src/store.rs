@@ -739,7 +739,8 @@ impl Store {
         }
         tx.execute("INSERT INTO job_runs(schedule_id, name, due_at, started_at, status) VALUES (?,?,?,?,'running')", params![job.id, job.name, job.next_run.unwrap_or(0), now_ts()])?;
         let id = tx.last_insert_rowid();
-        tx.execute("DELETE FROM job_runs WHERE id NOT IN (SELECT id FROM job_runs ORDER BY id DESC LIMIT 500)", [])?;
+        // Keep the last 500 finished runs. A run still in progress is never removed, however old.
+        tx.execute("DELETE FROM job_runs WHERE status != 'running' AND id NOT IN (SELECT id FROM job_runs WHERE status != 'running' ORDER BY id DESC LIMIT 500)", [])?;
         tx.commit()?;
         Ok(Some(id))
     }
@@ -751,14 +752,22 @@ impl Store {
 
     /// Runs that were under way when Heron last stopped. Whether they finished is not known, so they are
     /// marked that way and returned (schedule id, job name) for the user to be told. They are not repeated.
-    pub fn recover_interrupted_jobs(&self) -> Result<Vec<(i64, String)>> {
-        let db = self.db();
+    pub fn recover_interrupted_jobs(&self, notice: &str) -> Result<Vec<(i64, String)>> {
+        let mut db = self.db();
+        // One transaction: a run is never marked without its notice being written, so stopping
+        // half-way cannot leave an interrupted run that nobody is told about.
+        let tx = db.transaction()?;
         let found: Vec<(i64, String)> = {
-            let mut st = db.prepare("SELECT schedule_id, name FROM job_runs WHERE status='running' ORDER BY id")?;
+            let mut st = tx.prepare("SELECT schedule_id, name FROM job_runs WHERE status='running' ORDER BY id")?;
             let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
             rows
         };
-        db.execute("UPDATE job_runs SET status='unknown', finished_at=?, note='Heron stopped while this was running' WHERE status='running'", [now_ts()])?;
+        let now = now_ts();
+        tx.execute("UPDATE job_runs SET status='unknown', finished_at=?, note='Heron stopped while this was running' WHERE status='running'", [now])?;
+        for (_, name) in &found {
+            tx.execute("INSERT INTO inbox(ts, title, body) VALUES (?,?,?)", params![now, name, notice])?;
+        }
+        tx.commit()?;
         Ok(found)
     }
 
@@ -849,17 +858,12 @@ impl Store {
 
     // ---------- checkpoints (undo for file writes) ----------
 
-    pub fn save_checkpoint(&self, session_id: &str, path: &str, prev: Option<&[u8]>) -> Result<i64> {
+    /// Note a file change that is about to be made: what was there (`prev`), and a hash of what the
+    /// file will hold afterwards, so undo can tell later whether anyone has touched it since.
+    pub fn save_checkpoint(&self, session_id: &str, path: &str, prev: Option<&[u8]>, after_hash: Option<&str>) -> Result<i64> {
         let db = self.db();
-        db.execute("INSERT INTO checkpoints(ts, session_id, path, existed, prev) VALUES (?,?,?,?,?)", params![now_ts(), session_id, path, prev.is_some() as i64, prev])?;
+        db.execute("INSERT INTO checkpoints(ts, session_id, path, existed, prev, after_hash) VALUES (?,?,?,?,?,?)", params![now_ts(), session_id, path, prev.is_some() as i64, prev, after_hash])?;
         Ok(db.last_insert_rowid())
-    }
-
-    /// Record what the file looked like after Heron's change (a hash), so undo can tell later whether
-    /// anyone has touched it since.
-    pub fn set_checkpoint_after(&self, id: i64, after_hash: &str) -> Result<()> {
-        self.db().execute("UPDATE checkpoints SET after_hash=? WHERE id=?", params![after_hash, id])?;
-        Ok(())
     }
 
     /// The change turned out not to happen (the write failed): there is nothing to undo.
@@ -1143,6 +1147,35 @@ mod tests {
     }
 
     #[test]
+    fn a_run_in_progress_is_never_pruned_and_is_reported_with_its_notice_in_one_step() {
+        let s = Store::in_memory().unwrap();
+        let slow = s.add_schedule("slow job", "0 9 * * *", "p", 1, "").unwrap();
+        let quick = s.add_schedule("quick job", "* * * * *", "p", 1, "").unwrap();
+        let job = |id: i64| s.list_schedules().unwrap().into_iter().find(|j| j.id == id).unwrap();
+
+        // One long run starts and stays in progress while another job runs many hundreds of times.
+        assert!(s.claim_due_job(&job(slow), Some(i64::MAX - 1)).unwrap().is_some());
+        for n in 0..520 {
+            let run = s.claim_due_job(&job(quick), Some(1000 + n)).unwrap().expect("claimed");
+            s.finish_job_run(run, "ok", "").unwrap();
+        }
+        let runs = s.job_runs(1000).unwrap();
+        // (Pruning happens as a run starts, so the newest finished run can sit one above the cap.)
+        assert!((500..=501).contains(&runs.iter().filter(|r| r.4 == "ok").count()), "finished history is capped");
+        assert_eq!(runs.iter().filter(|r| r.0 == "slow job" && r.4 == "running").count(), 1, "the run in progress is still on record");
+
+        // Heron stops. On the next start the run is marked and its notice written together.
+        let found = s.recover_interrupted_jobs("it is not known whether it finished").unwrap();
+        assert_eq!(found, vec![(slow, "slow job".to_string())]);
+        let notices: Vec<_> = s.inbox(true, 10).unwrap().into_iter().filter(|m| m.title == "slow job").collect();
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].body.contains("not known whether it finished"));
+        // Starting again finds nothing new and says nothing twice.
+        assert!(s.recover_interrupted_jobs("x").unwrap().is_empty());
+        assert_eq!(s.inbox(true, 10).unwrap().iter().filter(|m| m.title == "slow job").count(), 1);
+    }
+
+    #[test]
     fn tasks_schedules_checkpoints() {
         let s = Store::in_memory().unwrap();
         let t = s.add_task("write report", "", 1, Some("2026-12-01")).unwrap();
@@ -1156,10 +1189,9 @@ mod tests {
         assert!(s.due_schedules(i64::MAX).unwrap().is_empty());
         assert!(!s.list_schedules().unwrap()[0].enabled);
 
-        let first = s.save_checkpoint("s", "/a", Some(b"old")).unwrap();
-        s.set_checkpoint_after(first, "abc").unwrap();
+        let first = s.save_checkpoint("s", "/a", Some(b"old"), Some("abc")).unwrap();
         assert_eq!(s.last_checkpoint("s").unwrap(), Some((first, "/a".into(), Some(b"old".to_vec()), Some("abc".into()))));
-        s.save_checkpoint("s", "/b", None).unwrap();
+        s.save_checkpoint("s", "/b", None, None).unwrap();
         assert_eq!(s.pop_checkpoint("s").unwrap(), Some(("/b".into(), None)));
         assert_eq!(s.pop_checkpoint("s").unwrap(), Some(("/a".into(), Some(b"old".to_vec()))));
         assert_eq!(s.pop_checkpoint("s").unwrap(), None);
