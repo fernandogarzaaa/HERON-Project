@@ -738,8 +738,11 @@ input.addEventListener('input', grow);
 document.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); startNew(); } if (e.key === 'Escape') { if (document.body.classList.contains('nav-open')) document.body.classList.remove('nav-open'); else if (busy) stop(); } });
 $('#new').onclick = startNew;
 $('#menu').onclick = () => document.body.classList.toggle('nav-open');
-async function undoLast(force) {
-  const r = await api('/undo', { method: 'POST', body: { session_id: current, force: !!force } }).catch(e => ({ failed: e.message }));
+async function undoLast(confirmed) {
+  // "Restore anyway" answers a question about one change in one conversation: it carries both, so
+  // switching conversations (or Heron changing another file) meanwhile cannot redirect it.
+  const session = confirmed ? confirmed.session : current;
+  const r = await api('/undo', { method: 'POST', body: confirmed ? { session_id: session, force: true, checkpoint: confirmed.checkpoint } : { session_id: session } }).catch(e => ({ failed: e.message }));
   const t = newTurn();
   if (r.conflict) {
     // The file is not as Heron left it. Say so, and let the person decide; their version is kept if they go ahead.
@@ -747,9 +750,9 @@ async function undoLast(force) {
     box.append(el('h3', '', 'Undo would overwrite newer changes'), el('p', 'warn', r.conflict), el('p', 'why', 'If you restore anyway, the version that is there now is saved beside the file first, so nothing is lost.'));
     const row = el('div', 'row'), keep = el('button', 'btn', 'Leave the file as it is'), go = el('button', 'btn quiet', 'Restore anyway');
     keep.onclick = () => box.replaceWith(el('p', 'note', 'Left as it is. Nothing was undone.'));
-    go.onclick = () => { box.remove(); undoLast(true); };
+    go.onclick = () => { box.remove(); undoLast({ session, checkpoint: r.checkpoint }); };
     row.append(keep, go); box.append(row); t.el.append(box); keep.focus();
-  } else t.note(r.failed ? 'Could not undo: ' + r.failed : r.undone ? 'Undone: ' + r.undone : 'Nothing to undo in this conversation.');
+  } else t.note(r.failed ? 'Could not undo: ' + r.failed : r.stale ? r.stale : r.undone ? 'Undone: ' + r.undone : 'Nothing to undo in this conversation.');
   scroll(true);
 }
 $('#undo').onclick = () => undoLast(false);

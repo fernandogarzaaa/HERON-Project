@@ -35,6 +35,15 @@ fn content_hash(bytes: &[u8]) -> String {
 /// Replace a file in one step: the new content is written beside it and renamed over it, so a crash
 /// or a full disk can never leave half a file, and a link put in its place is replaced, not followed.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_atomic_if(path, bytes, &|| true).map(|_| ())
+}
+
+/// As [`write_atomic`], but `still_expected` is asked at the last moment, after the new content is
+/// safely on disk and immediately before it takes the file's place. If it says no, nothing is
+/// replaced and this returns `false`. This keeps the time between "the file is as expected" and "the
+/// file is replaced" as short as it can be made without help from the operating system; it does not
+/// make it zero (see T11 in the threat model).
+fn write_atomic_if(path: &Path, bytes: &[u8], still_expected: &dyn Fn() -> bool) -> Result<bool> {
     use std::io::Write;
     let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -42,7 +51,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     // The file being replaced decides who may read the new one, from the first byte: a private file's
     // new content must never sit beside it readable by others, even for a moment.
     let like = std::fs::metadata(path).ok().map(|m| m.permissions());
-    let done = (|| -> Result<()> {
+    let done = (|| -> Result<bool> {
         let mut f = create_new_like(&tmp, like.as_ref())?;
         f.write_all(bytes)?;
         f.sync_all()?;
@@ -51,13 +60,30 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         if let Some(perms) = like.clone() {
             let _ = std::fs::set_permissions(&tmp, perms);
         }
+        if !still_expected() {
+            let _ = std::fs::remove_file(&tmp);
+            return Ok(false);
+        }
         std::fs::rename(&tmp, path)?;
-        Ok(())
+        sync_dir(dir);
+        Ok(true)
     })();
     if done.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
     done.with_context(|| format!("cannot write {}", path.display()))
+}
+
+/// Make a change to a folder's list of names (a new file, a rename, a removal) survive a power cut.
+/// Writing a file's content to disk does not do this by itself on Linux and macOS. Windows has no
+/// equivalent and needs none here. Failure is not reported: the change itself has already happened.
+fn sync_dir(dir: &Path) {
+    #[cfg(unix)]
+    if let Ok(d) = std::fs::File::open(dir) {
+        let _ = d.sync_all();
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
 }
 
 /// Create a file that must not exist yet, readable by no more people than `like` allows. Without
@@ -77,6 +103,7 @@ fn create_new_like(path: &Path, like: Option<&std::fs::Permissions>) -> std::io:
 
 /// Save `bytes` beside `original` under a name nothing else has, with the original's permissions, and
 /// return that name. An earlier saved copy is never replaced: if the name is taken, the next is tried.
+/// The copy is on disk, name and all, before this returns.
 fn save_copy_beside(original: &Path, bytes: &[u8]) -> Result<String> {
     use std::io::Write;
     let like = std::fs::metadata(original).ok().map(|m| m.permissions());
@@ -97,21 +124,26 @@ fn save_copy_beside(original: &Path, bytes: &[u8]) -> Result<String> {
         if let Some(perms) = like {
             let _ = std::fs::set_permissions(&name, perms);
         }
+        if let Some(dir) = Path::new(&name).parent() {
+            sync_dir(dir);
+        }
         return Ok(name);
     }
     bail!("cannot keep a copy of {}: too many saved copies with the same name", original.display())
 }
 
-/// Change a file so that the change can be undone: keep what was there, write the new content in one
-/// step, and note what the file looks like afterwards. If the write fails nothing is kept.
+/// Change a file so that the change can be undone: keep what was there together with what the file
+/// will look like afterwards, then write the new content in one step. If the write fails nothing is
+/// kept. If Heron stops between the two, the record says what the file should have become, so undo
+/// can see that it never did (or that someone has changed it since) instead of guessing.
 fn write_with_checkpoint(ctx: &ToolCtx, path: &Path, bytes: &[u8]) -> Result<()> {
     let prev = if path.exists() { Some(std::fs::read(path)?) } else { None };
-    let id = ctx.store.save_checkpoint(&ctx.session_id, &path.to_string_lossy(), prev.as_deref())?;
+    let id = ctx.store.save_checkpoint(&ctx.session_id, &path.to_string_lossy(), prev.as_deref(), Some(&content_hash(bytes)))?;
     if let Err(e) = write_atomic(path, bytes) {
         let _ = ctx.store.drop_checkpoint(id);
         return Err(e);
     }
-    ctx.store.set_checkpoint_after(id, &content_hash(bytes))
+    Ok(())
 }
 
 /// What undoing would do, or why it will not.
@@ -120,19 +152,52 @@ pub enum Undo {
     Nothing,
     Done(String),
     /// The file is no longer as Heron left it. Nothing was touched; the checkpoint is kept.
-    Conflict(String),
+    /// `id` names the checkpoint, so a later "restore anyway" can be tied to exactly this one.
+    Conflict { id: i64, why: String },
+    /// "Restore anyway" was asked for a checkpoint that is no longer the latest (Heron has changed
+    /// something else since the question was put). Nothing was touched.
+    Stale(String),
+}
+
+fn read_if_there(file: &Path) -> Result<Option<Vec<u8>>> {
+    match std::fs::read(file) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e).with_context(|| format!("cannot read {}", file.display())),
+    }
 }
 
 /// Undo the most recent file change Heron made in a conversation.
 ///
 /// It first checks that the file is still exactly as Heron left it. If someone has edited, replaced or
 /// removed it since, restoring the old version would destroy their work, so nothing is touched and the
-/// checkpoint stays. With `force`, the current content is first saved beside the file and then the
-/// old version is restored. The checkpoint is removed only after the restore has succeeded.
-pub fn undo(ctx: &ToolCtx, force: bool) -> Result<Undo> {
-    let Some((id, path, prev, after)) = ctx.store.last_checkpoint(&ctx.session_id)? else { return Ok(Undo::Nothing) };
+/// checkpoint stays. The answer names the checkpoint. Passing that name back as `restore_anyway` means
+/// "I have seen that, restore it regardless": the current content is first saved beside the file and
+/// then the old version is restored. If the latest checkpoint is by then a different one, nothing is
+/// done, because that is not what was agreed to. The checkpoint is removed only after the restore has
+/// succeeded.
+pub fn undo(ctx: &ToolCtx, restore_anyway: Option<i64>) -> Result<Undo> {
+    let Some((id, path, prev, after)) = ctx.store.last_checkpoint(&ctx.session_id)? else {
+        return Ok(match restore_anyway {
+            Some(_) => Undo::Stale("That change has already been undone. Nothing was restored.".into()),
+            None => Undo::Nothing,
+        });
+    };
+    if restore_anyway.is_some_and(|confirmed| confirmed != id) {
+        return Ok(Undo::Stale("Heron has changed another file since you were asked, so this is no longer the change you agreed to restore. Nothing was restored; choose Undo again to see what would be undone now.".into()));
+    }
+    let force = restore_anyway.is_some();
     let file = Path::new(&path);
-    let current = if file.exists() { Some(std::fs::read(file).with_context(|| format!("cannot read {path}"))?) } else { None };
+    let current = read_if_there(file)?;
+    // The file is already what it was before Heron's change (the change never landed, or someone put
+    // it back by hand): there is nothing to restore.
+    if current == prev && after.is_some() {
+        ctx.store.drop_checkpoint(id)?;
+        return Ok(Undo::Done(match current {
+            Some(_) => format!("{path} is already as it was before Heron's change"),
+            None => format!("{path} was already removed"),
+        }));
+    }
     // Checkpoints from before this check existed have no hash and are restored as they always were.
     let untouched = match (&after, &current) {
         (None, _) => true,
@@ -141,33 +206,43 @@ pub fn undo(ctx: &ToolCtx, force: bool) -> Result<Undo> {
     };
     let mut kept = String::new();
     if !untouched {
-        match (&current, &prev, force) {
-            // Heron created it and it is already gone: there is nothing left to undo.
-            (None, None, _) => {
-                ctx.store.drop_checkpoint(id)?;
-                return Ok(Undo::Done(format!("{path} was already removed")));
+        match (&current, force) {
+            (_, false) => {
+                return Ok(Undo::Conflict {
+                    id,
+                    why: match current {
+                        Some(_) => format!("{path} has been changed since Heron edited it, so undoing would overwrite those changes. Nothing was restored."),
+                        None => format!("{path} has been removed or moved since Heron edited it. Nothing was restored."),
+                    },
+                });
             }
-            (_, _, false) => {
-                return Ok(Undo::Conflict(match current {
-                    Some(_) => format!("{path} has been changed since Heron edited it, so undoing would overwrite those changes. Nothing was restored."),
-                    None => format!("{path} has been removed or moved since Heron edited it. Nothing was restored."),
-                }));
-            }
-            (Some(bytes), _, true) => {
+            (Some(bytes), true) => {
                 let copy = save_copy_beside(file, bytes)?;
                 kept = format!(" The version that was there is kept as {copy}.");
             }
-            (None, Some(_), true) => {}
+            (None, true) => {}
         }
     }
+    // Asked again at the last moment: is the file still what was just looked at (and, if a copy was
+    // saved, still what was saved)? If it changed in between, stop and say so.
+    let still_as_seen = || read_if_there(file).map(|now| now == current).unwrap_or(false);
+    let changed_meanwhile = || Undo::Conflict { id, why: format!("{path} changed while it was being restored. Nothing was restored.{kept}") };
     let said = match prev {
         Some(bytes) => {
-            write_atomic(file, &bytes)?;
+            if !write_atomic_if(file, &bytes, &still_as_seen)? {
+                return Ok(changed_meanwhile());
+            }
             format!("restored {path}.{kept}")
         }
         None => {
-            if file.exists() {
+            if current.is_some() {
+                if !still_as_seen() {
+                    return Ok(changed_meanwhile());
+                }
                 std::fs::remove_file(file).with_context(|| format!("cannot remove {path}"))?;
+                if let Some(dir) = file.parent() {
+                    sync_dir(dir);
+                }
             }
             format!("removed {path} (it did not exist before).{kept}")
         }
@@ -179,10 +254,10 @@ pub fn undo(ctx: &ToolCtx, force: bool) -> Result<Undo> {
 /// Undo the most recent file change made in a session. Returns a description, or None if nothing to undo.
 /// A file changed since is reported as an error and left alone.
 pub fn undo_last(ctx: &ToolCtx) -> Result<Option<String>> {
-    match undo(ctx, false)? {
+    match undo(ctx, None)? {
         Undo::Nothing => Ok(None),
         Undo::Done(said) => Ok(Some(said)),
-        Undo::Conflict(why) => bail!("{why}"),
+        Undo::Conflict { why, .. } | Undo::Stale(why) => bail!("{why}"),
     }
 }
 
@@ -465,40 +540,42 @@ mod undo_tests {
 
         // The ordinary case: Heron edits, nobody touches it, undo puts the original back.
         write_file(&json!({"path": "notes.md", "content": "Heron's version"}), &c).await.unwrap();
-        assert_eq!(undo(&c, false).unwrap(), Undo::Done(format!("restored {}.", file.display())));
+        assert_eq!(undo(&c, None).unwrap(), Undo::Done(format!("restored {}.", file.display())));
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "the user's original");
-        assert_eq!(undo(&c, false).unwrap(), Undo::Nothing, "the checkpoint is used up");
+        assert_eq!(undo(&c, None).unwrap(), Undo::Nothing, "the checkpoint is used up");
 
         // Heron edits, then the user edits. Undo must not throw the user's edit away.
         write_file(&json!({"path": "notes.md", "content": "Heron's version"}), &c).await.unwrap();
         std::fs::write(&file, "the user's later edit").unwrap();
-        assert!(matches!(undo(&c, false).unwrap(), Undo::Conflict(why) if why.contains("changed since")));
+        let Undo::Conflict { id: asked_about, why } = undo(&c, None).unwrap() else { panic!("expected a refusal") };
+        assert!(why.contains("changed since"), "{why}");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "the user's later edit", "nothing was touched");
         assert!(undo_last(&c).is_err(), "the plain form reports it as a failure");
         assert!(c.store.last_checkpoint("s").unwrap().is_some(), "and the checkpoint is still there to use");
 
         // If they insist, their version is kept beside the file before the old one comes back.
-        let Undo::Done(said) = undo(&c, true).unwrap() else { panic!("expected a restore") };
+        let Undo::Done(said) = undo(&c, Some(asked_about)).unwrap() else { panic!("expected a restore") };
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "the user's original");
         let kept: Vec<_> = std::fs::read_dir(&c.workspace).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().starts_with("notes.md.before-undo-")).collect();
         assert_eq!(kept.len(), 1, "{said}");
         assert_eq!(std::fs::read_to_string(kept[0].path()).unwrap(), "the user's later edit");
-        assert_eq!(undo(&c, false).unwrap(), Undo::Nothing);
+        assert_eq!(undo(&c, None).unwrap(), Undo::Nothing);
+        assert!(matches!(undo(&c, Some(asked_about)).unwrap(), Undo::Stale(_)), "saying yes twice does nothing the second time");
 
         // A file Heron created and the user then filled in is not deleted by undo.
         write_file(&json!({"path": "new.md", "content": "draft"}), &c).await.unwrap();
         std::fs::write(c.workspace.join("new.md"), "the user wrote a lot here").unwrap();
-        assert!(matches!(undo(&c, false).unwrap(), Undo::Conflict(_)));
+        assert!(matches!(undo(&c, None).unwrap(), Undo::Conflict { .. }));
         assert!(c.workspace.join("new.md").exists());
         // ...and one the user already deleted needs no undoing.
         std::fs::remove_file(c.workspace.join("new.md")).unwrap();
-        assert!(matches!(undo(&c, false).unwrap(), Undo::Done(said) if said.contains("already removed")));
+        assert!(matches!(undo(&c, None).unwrap(), Undo::Done(said) if said.contains("already removed")));
 
         // A file the user removed after Heron edited it is reported, not silently recreated.
         std::fs::write(&file, "v1").unwrap();
         edit_file(&json!({"path": "notes.md", "old_string": "v1", "new_string": "v2"}), &c).await.unwrap();
         std::fs::remove_file(&file).unwrap();
-        assert!(matches!(undo(&c, false).unwrap(), Undo::Conflict(why) if why.contains("removed or moved")));
+        assert!(matches!(undo(&c, None).unwrap(), Undo::Conflict { why, .. } if why.contains("removed or moved")));
         assert!(!file.exists());
     }
 
@@ -520,11 +597,15 @@ mod undo_tests {
         std::fs::write(&file, "the user's first edit").unwrap();
         write_file(&json!({"path": "plan.md", "content": "Heron 2"}), &c).await.unwrap();
         std::fs::write(&file, "the user's second edit").unwrap();
-        assert!(matches!(undo(&c, true).unwrap(), Undo::Done(_)));
+        let restore_anyway = |c: &ToolCtx| {
+            let Undo::Conflict { id, .. } = undo(c, None).unwrap() else { panic!("expected to be asked first") };
+            undo(c, Some(id)).unwrap()
+        };
+        assert!(matches!(restore_anyway(&c), Undo::Done(_)));
         // Restoring put "the user's first edit" back, which is what the earlier checkpoint expects to
         // find changed: Heron left "Heron 1" there.
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "the user's first edit");
-        assert!(matches!(undo(&c, true).unwrap(), Undo::Done(_)));
+        assert!(matches!(restore_anyway(&c), Undo::Done(_)));
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "original");
 
         let mut kept: Vec<String> = std::fs::read_dir(&c.workspace)
@@ -553,13 +634,78 @@ mod undo_tests {
     }
 
     #[tokio::test]
+    async fn restoring_anyway_applies_only_to_the_change_that_was_asked_about() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = ctx(dir.path());
+        let (a, b) = (c.workspace.join("a.md"), c.workspace.join("b.md"));
+        std::fs::write(&a, "a: original").unwrap();
+        std::fs::write(&b, "b: original").unwrap();
+
+        // Heron edits a.md, the user edits it too, and undo asks.
+        write_file(&json!({"path": "a.md", "content": "a: Heron"}), &c).await.unwrap();
+        std::fs::write(&a, "a: the user's edit").unwrap();
+        let Undo::Conflict { id: about_a, .. } = undo(&c, None).unwrap() else { panic!("expected to be asked") };
+
+        // Before the answer arrives Heron changes b.md. "Yes, restore anyway" was said about a.md:
+        // it must not undo b.md, which nobody was asked about.
+        write_file(&json!({"path": "b.md", "content": "b: Heron"}), &c).await.unwrap();
+        assert!(matches!(undo(&c, Some(about_a)).unwrap(), Undo::Stale(why) if why.contains("no longer the change")));
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "b: Heron");
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "a: the user's edit");
+
+        // Asked afresh, b.md is undone cleanly, and then a.md's question comes round again.
+        assert!(matches!(undo(&c, None).unwrap(), Undo::Done(_)));
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "b: original");
+        let Undo::Conflict { id: again, .. } = undo(&c, None).unwrap() else { panic!("expected to be asked") };
+        assert_eq!(again, about_a);
+        assert!(matches!(undo(&c, Some(again)).unwrap(), Undo::Done(_)));
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "a: original");
+    }
+
+    #[tokio::test]
+    async fn a_change_that_never_landed_or_was_put_back_by_hand_is_not_restored_over_newer_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = ctx(dir.path());
+        let file = c.workspace.join("notes.md");
+        std::fs::write(&file, "original").unwrap();
+
+        // Heron stopped after noting the change it was about to make and before making it. The note
+        // says what the file should have become, so a later edit by the user is seen as a conflict
+        // (a note without that would have been restored over the user's edit without asking).
+        c.store.save_checkpoint("s", &file.to_string_lossy(), Some(b"original"), Some(&content_hash(b"Heron's version"))).unwrap();
+        std::fs::write(&file, "the user's edit after the crash").unwrap();
+        assert!(matches!(undo(&c, None).unwrap(), Undo::Conflict { .. }));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "the user's edit after the crash");
+
+        // If the file is simply still what it was before (the change never landed, or the user put
+        // it back), there is nothing to restore and the note is cleared.
+        std::fs::write(&file, "original").unwrap();
+        assert!(matches!(undo(&c, None).unwrap(), Undo::Done(said) if said.contains("already as it was")));
+        assert_eq!(undo(&c, None).unwrap(), Undo::Nothing);
+
+        // The last-moment check: the file is as expected when undo looks, and changes before the
+        // old version takes its place. Nothing is replaced.
+        let changed = std::cell::Cell::new(false);
+        let replaced = write_atomic_if(&file, b"old version", &|| {
+            std::fs::write(&file, "saved from an editor just now").unwrap();
+            changed.set(true);
+            false
+        })
+        .unwrap();
+        assert!(changed.get() && !replaced);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "saved from an editor just now");
+        let stray: Vec<_> = std::fs::read_dir(&c.workspace).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".heron-")).collect();
+        assert!(stray.is_empty(), "and the unused new version is cleaned up");
+    }
+
+    #[tokio::test]
     async fn a_write_that_fails_leaves_nothing_to_undo_and_no_stray_files() {
         let dir = tempfile::tempdir().unwrap();
         let c = ctx(dir.path());
         // The target is a folder, so the write cannot succeed.
         std::fs::create_dir(c.workspace.join("taken")).unwrap();
         assert!(write_file(&json!({"path": "taken", "content": "x"}), &c).await.is_err());
-        assert_eq!(undo(&c, false).unwrap(), Undo::Nothing, "a change that did not happen is not offered for undo");
+        assert_eq!(undo(&c, None).unwrap(), Undo::Nothing, "a change that did not happen is not offered for undo");
         let stray: Vec<_> = std::fs::read_dir(&c.workspace).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".heron-")).collect();
         assert!(stray.is_empty(), "no temporary file is left behind");
 

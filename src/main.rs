@@ -324,9 +324,11 @@ async fn repl(app: Arc<App>, mut session: Session) -> Result<()> {
                     }
                     Err(e) => println!("{}", st.red(&e.to_string())),
                 },
-                "undo" => match heron::tools::fs::undo_last(&agent.tool_ctx(&session.id))? {
-                    Some(what) => println!("{}", st.dim(&format!("  undone: {what}"))),
-                    None => println!("{}", st.dim("  nothing to undo")),
+                "undo" => match heron::tools::fs::undo_last(&agent.tool_ctx(&session.id)) {
+                    Ok(Some(what)) => println!("{}", st.dim(&format!("  undone: {what}"))),
+                    Ok(None) => println!("{}", st.dim("  nothing to undo")),
+                    // A refusal (the file has changed since) is an answer, not a reason to end the conversation.
+                    Err(e) => println!("{}", st.red(&format!("  not undone: {e:#}"))),
                 },
                 "tokens" => {
                     let u = app.usage.lock().unwrap().clone();

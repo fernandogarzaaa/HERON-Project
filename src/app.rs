@@ -88,9 +88,7 @@ impl App {
         }
         // Anything that was mid-way when Heron last stopped has an unknown outcome; say so.
         let _ = store.recover_interrupted_approvals();
-        for (_, name) in store.recover_interrupted_jobs().unwrap_or_default() {
-            let _ = store.add_inbox(&name, "Heron stopped while this job was running, so it is not known whether it finished. It was not run again. Check what it was meant to do, and use \"Run now\" under Reminders if it should be repeated.");
-        }
+        let _ = store.recover_interrupted_jobs("Heron stopped while this job was running, so it is not known whether it finished. It was not run again. Check what it was meant to do, and use \"Run now\" under Reminders if it should be repeated.");
         Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy: Arc::new(policy), workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default() })
     }
 

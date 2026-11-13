@@ -1,0 +1,2 @@
+# Recorded schemas are compared byte for byte: keep their line endings the same on every platform.
+tests/fixtures/*.sql text eol=lf
