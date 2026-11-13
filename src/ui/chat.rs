@@ -882,15 +882,22 @@ impl ChatView {
     /// Short workspace path, as the empty state shows it. Two segments
     /// with a "…/" prefix when longer.
     pub fn workspace_short(&self) -> String {
-        let full = self.workspace.trim_end_matches(['/', '\\']);
-        let parts: Vec<&str> = full.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
-        if parts.len() > 2 {
-            format!("…/{}", parts[parts.len() - 2..].join("/"))
-        } else if full.is_empty() {
-            "your folder".to_string()
-        } else {
-            full.to_string()
-        }
+        workspace_short(&self.workspace)
+    }
+}
+
+/// Short form of a workspace path: two segments with a "…/" prefix when
+/// longer, the full path when short, "your folder" when empty. The Shell
+/// poll needs it without a ChatView, so it lives here as a free function.
+pub fn workspace_short(path: &str) -> String {
+    let full = path.trim_end_matches(['/', '\\']);
+    let parts: Vec<&str> = full.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
+    if parts.len() > 2 {
+        format!("…/{}", parts[parts.len() - 2..].join("/"))
+    } else if full.is_empty() {
+        "your folder".to_string()
+    } else {
+        full.to_string()
     }
 }
 

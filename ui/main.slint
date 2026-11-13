@@ -12,9 +12,10 @@
 // next action obvious. Animation budget: 150ms for rail feedback, 180ms for
 // view fades, 0ms when reduce-motion is on. See docs/slint-bridge.md.
 
-import { AboutSlint, Button, LineEdit, ListView, StandardButton } from "std-widgets.slint";
+import { AboutSlint, StandardButton } from "std-widgets.slint";
 import { Theme } from "components/theme.slint";
-import { ChatMsg, MessageView } from "components/message.slint";
+import { ChatMsg } from "components/message.slint";
+import { ChatView } from "views/chat.slint";
 
 // One rail item: label, optional count badge, current-view indicator.
 // Hover and press fade the background; focus draws a talon ring; Enter or
@@ -147,12 +148,22 @@ export component MainWindow inherits Window {
     in-out property <string> session-title: "";
     in-out property <[ChatMsg]> messages: [];
     in-out property <bool> busy: false;
-    // This turn's reply row, by index. Streamed text and Done both target
-    // this row, never "the last assistant row": Notice and Approval rows
-    // also use that role. -1 means no live reply. Set by Rust when a reply
-    // starts, cleared when the turn ends (Done, Error, Cancelled) or the
-    // conversation is cleared.
-    in-out property <int> reply-row: -1;
+    // Chat state, posted by Rust from the ChatView state machine. The
+    // thread is a plain model of ChatMsg rows; the row identity problem
+    // the old reply-row property solved is gone, because Rust rewrites
+    // the exact turn row on every event. chat-mode is the server mode
+    // ("readonly", "ask", "auto", "yolo"), kept in sync by the state
+    // poll. starters are the suggestion prompts for the empty state.
+    // thread-version bumps on every thread mutation so the view can
+    // follow the scroll to the bottom.
+    in-out property <string> chat-mode: "ask";
+    in-out property <bool> has-key: false;
+    in-out property <bool> demo: false;
+    in-out property <bool> paused: false;
+    in-out property <string> workspace-short: "";
+    in-out property <string> workspace-full: "";
+    in-out property <[string]> starters: [];
+    in-out property <int> thread-version: 0;
     // View switching. current-view is the active view id; the content area
     // fades between views. Badges are strings set from Rust: empty means no
     // badge, so the .slint side never formats a number.
@@ -168,6 +179,16 @@ export component MainWindow inherits Window {
     callback new-session();
     callback cancel-reply();
     callback approve(string, string);
+    // Chat callbacks, forwarded to the ChatView's own callbacks.
+    callback set-mode(string);
+    callback undo();
+    callback toggle-step(string);
+    callback open-link(string);
+    callback use-starter(string);
+    callback try-demo();
+    callback resume();
+    callback continue-turn();
+    callback open-settings();
     // Opens the About dialog (a separate native window, shown from Rust).
     callback show-about();
     // Programmatic copy: the shell has no Slint copy API, so Rust copies
@@ -363,16 +384,12 @@ export component MainWindow inherits Window {
                 height: parent.height;
                 padding: 16px;
                 spacing: 8px;
+                // Opacity alone does not block input, so the branch is
+                // also gated on visible: a hidden view must not swallow
+                // clicks meant for the view underneath it.
+                visible: root.current-view == "chat";
                 opacity: root.current-view == "chat" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-
-                Text {
-                    text: root.session-title == "" ? "Heron" : root.session-title;
-                    font-family: Theme.heading-font;
-                    font-size: 16px;
-                    font-weight: 600;
-                    color: Theme.ink;
-                }
 
                 if root.error-message != "" : Text {
                     text: root.error-message;
@@ -380,55 +397,40 @@ export component MainWindow inherits Window {
                     wrap: word-wrap;
                 }
 
-                if root.error-message == "" : ListView {
-                    for msg in root.messages : HorizontalLayout {
-                        padding-left: msg.role == "user" ? 120px : 0px;
-                        padding-right: msg.role == "user" ? 0px : 120px;
-                        Rectangle {
-                            background: msg.role == "user" ? Theme.slate-soft : Theme.surface;
-                            border-radius: 8px;
-                            horizontal-stretch: 1;
-                            VerticalLayout {
-                                padding: 10px;
-                                StyledText {
-                                    text: msg.body;
-                                    default-color: Theme.ink;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                HorizontalLayout {
-                    spacing: 8px;
-                    input := LineEdit {
-                        placeholder-text: "Message Heron…";
-                        horizontal-stretch: 1;
-                        enabled: root.current-view == "chat" && root.error-message == "" && !root.busy;
-                        accepted(text) => {
-                            root.send-message(text);
-                            input.text = "";
-                        }
-                    }
-                    Button {
-                        text: "Send";
-                        enabled: root.current-view == "chat" && root.error-message == "" && !root.busy && input.text != "";
-                        clicked => {
-                            root.send-message(input.text);
-                            input.text = "";
-                        }
-                    }
-                    Button {
-                        text: "Stop";
-                        visible: root.busy;
-                        enabled: root.current-view == "chat";
-                        clicked => { root.cancel-reply(); }
-                    }
-                    Button {
-                        text: "New";
-                        enabled: root.current-view == "chat";
-                        clicked => { root.new-session(); }
-                    }
+                // The Chat lane's view. It owns the header, thread,
+                // composer, empty state, and approval cards; Rust owns
+                // the state machine behind it (see src/bin/desktop/).
+                if root.error-message == "" : ChatView {
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    title: root.session-title == "" ? "New conversation" : root.session-title;
+                    thread: root.messages;
+                    busy: root.busy;
+                    mode: root.chat-mode;
+                    can-undo: root.session-id != "";
+                    show-empty: root.messages.length == 0;
+                    has-key: root.has-key;
+                    demo: root.demo;
+                    paused: root.paused;
+                    workspace-short: root.workspace-short;
+                    workspace-full: root.workspace-full;
+                    starters: root.starters;
+                    thread-version: root.thread-version;
+                    reduce-motion: root.reduce-motion;
+                    send-message(t) => { root.send-message(t); }
+                    cancel-reply => { root.cancel-reply(); }
+                    undo => { root.undo(); }
+                    set-mode(m) => { root.set-mode(m); }
+                    approve(id, decision) => { root.approve(id, decision); }
+                    toggle-step(id) => { root.toggle-step(id); }
+                    copy-requested(t) => { root.copy-requested(t); }
+                    open-link(url) => { root.open-link(url); }
+                    open-settings => { root.open-settings(); }
+                    new-session => { root.new-session(); }
+                    continue-turn => { root.continue-turn(); }
+                    use-starter(s) => { root.use-starter(s); }
+                    try-demo => { root.try-demo(); }
+                    resume => { root.resume(); }
                 }
             }
 
