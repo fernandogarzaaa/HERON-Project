@@ -92,6 +92,28 @@ export struct SimpleRow {
     meta: string,
 }
 
+export struct AuditRow {
+    when: string,
+    action: string,
+    details: string,
+    outcome: string,
+    denied: bool,
+}
+
+export struct UsageDayRow {
+    label: string,
+    tokens: string,
+    frac: float,
+    today: bool,
+}
+
+export struct ModelRow {
+    model: string,
+    sent: string,
+    written: string,
+    calls: string,
+}
+
 
 export component SectionTitle inherits Text {
     in property <string> title;

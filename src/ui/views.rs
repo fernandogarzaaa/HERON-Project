@@ -11,7 +11,7 @@
 
 use async_trait::async_trait;
 use chrono::{Local, TimeZone};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // ---------- errors ----------
 
@@ -244,6 +244,109 @@ pub struct ParkedApproval {
     pub result: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct AuditEntry {
+    pub ts: i64,
+    pub session_id: String,
+    pub tool: String,
+    #[serde(default)]
+    pub args: String,
+    pub decision: String,
+    #[serde(default)]
+    pub result: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct AuditLog {
+    #[serde(default)]
+    pub entries: Vec<AuditEntry>,
+    #[serde(default)]
+    pub checked: u64,
+    #[serde(default)]
+    pub intact: bool,
+}
+
+/// One limit window in the Usage budget: used, limit (0 means no limit),
+/// and what is left (null when there is no limit).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct BudgetWindow {
+    #[serde(default)]
+    pub used: u64,
+    #[serde(default)]
+    pub limit: u64,
+    #[serde(default)]
+    pub left: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Budget {
+    #[serde(default)]
+    pub level: String,
+    #[serde(default)]
+    pub today: BudgetWindow,
+    #[serde(default)]
+    pub month: BudgetWindow,
+    #[serde(default)]
+    pub daily_average: u64,
+    #[serde(default)]
+    pub projected_month: u64,
+    #[serde(default)]
+    pub limit_reached_on: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct ProviderCredit {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub credits_bought: f64,
+    #[serde(default)]
+    pub credits_used: f64,
+    #[serde(default)]
+    pub credits_left: f64,
+}
+
+/// Everything the Usage page shows: the `Report` from usage.rs plus the
+/// session totals, the demo flag, and the optional provider credit.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct UsageReport {
+    #[serde(default)]
+    pub budget: Budget,
+    #[serde(default)]
+    pub level_label: String,
+    #[serde(default)]
+    pub days: Vec<(String, u64)>,
+    #[serde(default)]
+    pub models: Vec<(String, u64, u64, u64)>,
+    #[serde(default)]
+    pub main_model: String,
+    #[serde(default)]
+    pub fast_model: String,
+    #[serde(default)]
+    pub routing: bool,
+    #[serde(default)]
+    pub background_today: u64,
+    #[serde(default)]
+    pub background_limit: u64,
+    #[serde(default)]
+    pub session: UsageTokens,
+    #[serde(default)]
+    pub demo: bool,
+    #[serde(default)]
+    pub provider: Option<ProviderCredit>,
+}
+
+/// The `POST /usage` body. Empty limits are sent as 0, which the server
+/// reads as no limit.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct UsageLimits {
+    pub daily_token_limit: u64,
+    pub monthly_token_limit: u64,
+    pub background_tokens_per_day: u64,
+    pub fast_model: String,
+    pub routing: bool,
+}
+
 // ---------- formatting: ports of the frontend helpers ----------
 
 /// Unix seconds to the frontend's format: "Nov 13, 6:46 PM".
@@ -341,17 +444,161 @@ pub fn may_text(allow: &str) -> &'static str {
     }
 }
 
+/// A number with thousands separators, as the frontend's
+/// `toLocaleString()` renders it: 1,240.
+pub fn fmt_int(n: u64) -> String {
+    let digits: Vec<char> = n.to_string().chars().collect();
+    let mut out = String::new();
+    for (i, c) in digits.iter().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(*c);
+    }
+    out
+}
+
 /// Token counts the way the Usage view shortens them: 1.2M, 45k, 1,240.
+/// Port of `tok` in `assets/index.html`. Zero decimals at ten million and
+/// above, and separators below ten thousand. The earlier port missed both:
+/// it printed 1240 bare and 12.5M where the frontend prints 13M.
 pub fn tok(n: u64) -> String {
     if n >= 1_000_000 {
-        let v = n as f64 / 1_000_000.0;
-        let s = format!("{v:.1}");
-        format!("{}M", s.trim_end_matches(".0"))
+        if n >= 10_000_000 {
+            format!("{}M", (n as f64 / 1_000_000.0).round() as u64)
+        } else {
+            let s = format!("{:.1}", n as f64 / 1_000_000.0);
+            format!("{}M", s.trim_end_matches(".0"))
+        }
     } else if n >= 10_000 {
         format!("{}k", n / 1_000)
     } else {
-        format!("{n}")
+        fmt_int(n)
     }
+}
+
+/// "2026-11-13" to "Nov 13", for the chart tooltips, the daily table, and
+/// the "Limit reached around" line. An unparseable day shows as it is.
+pub fn day_label(day: &str) -> String {
+    match chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d") {
+        Ok(d) => d.format("%b %-d").to_string(),
+        Err(_) => day.to_string(),
+    }
+}
+
+/// The small line under a usage tile: what is left of the limit, or that
+/// there is no limit.
+pub fn tile_small(w: &BudgetWindow) -> String {
+    if w.limit == 0 {
+        "No limit set".to_string()
+    } else {
+        format!("{} left of {}", tok(w.left.unwrap_or(0)), tok(w.limit))
+    }
+}
+
+/// Meter state for a usage tile: "normal", "low" (a quarter or less left),
+/// or "out" (nothing left). No limit means no meter.
+pub fn meter_state(w: &BudgetWindow) -> &'static str {
+    if w.limit == 0 {
+        return "normal";
+    }
+    let left = w.left.unwrap_or(0);
+    if left == 0 {
+        "out"
+    } else if left as f64 / w.limit as f64 <= 0.25 {
+        "low"
+    } else {
+        "normal"
+    }
+}
+
+/// Meter fill as a 0..1 fraction, or -1 when there is no limit and the
+/// meter stays hidden.
+pub fn meter_frac(w: &BudgetWindow) -> f32 {
+    if w.limit == 0 {
+        -1.0
+    } else {
+        ((w.used as f32 / w.limit as f32).min(1.0)).max(0.0)
+    }
+}
+
+/// The small line under the "Heading for" tile.
+pub fn heading_small(month: &BudgetWindow, limit_reached_on: &Option<String>) -> String {
+    if month.limit == 0 {
+        "by the end of this month, at the recent pace".to_string()
+    } else if let Some(day) = limit_reached_on {
+        format!("Limit reached around {}", day_label(day))
+    } else {
+        "Within your monthly limit".to_string()
+    }
+}
+
+/// The level note at the top of the Usage view. Demo mode overrides the
+/// level. A normal level shows nothing.
+pub fn level_note(demo: bool, level: &str) -> &'static str {
+    if demo {
+        "Demo mode uses no tokens. Connect a model to see real figures."
+    } else {
+        match level {
+            "careful" => "Economy mode is on: a quarter or less of your allowance is left, so Heron is taking fewer steps, keeping answers short and doing nothing on its own.",
+            "minimal" => "Strict economy is on: your allowance is almost used up. Heron is using its cheapest model and the least work that answers you.",
+            "spent" => "Your allowance is used up. Heron still answers you, as cheaply as it can, and has stopped everything it does on its own. Raise the limit below to lift this.",
+            _ => "",
+        }
+    }
+}
+
+/// The pace note under the 30-day chart.
+pub fn pace_note(daily_average: u64) -> String {
+    if daily_average == 0 {
+        "Nothing used yet.".to_string()
+    } else {
+        format!(
+            "About {} tokens a day over the last week. Hover a bar for the day's figure; today is highlighted.",
+            tok(daily_average)
+        )
+    }
+}
+
+/// A bar's height as a 0..1 fraction: at least 3 percent when the day had
+/// any use, zero when it had none. Port of the chart's height rule.
+pub fn bar_frac(n: u64, max: u64) -> f32 {
+    if n == 0 {
+        0.0
+    } else {
+        (n as f32 / max.max(1) as f32).max(0.03)
+    }
+}
+
+/// The Outcome cell of the audit table.
+pub fn decision_label(decision: &str) -> &str {
+    match decision {
+        "allowed" => "Done",
+        "approved" => "You allowed",
+        "approved-always" => "You allowed (always)",
+        "denied-by-user" => "You didn't allow",
+        "denied-by-policy" => "Blocked",
+        other => other,
+    }
+}
+
+/// The seal line at the top of the Activity log.
+pub fn seal_line(checked: u64, intact: bool) -> String {
+    if intact {
+        format!(
+            "The log is intact: {} entries checked, none altered or removed.",
+            fmt_int(checked)
+        )
+    } else {
+        "Warning: this log has been altered outside Heron. Entries may have been changed or removed.".to_string()
+    }
+}
+
+/// A limits-form field to a number: non-digits stripped, empty reads as 0.
+/// Port of the save handler's `num()` in the frontend.
+pub fn parse_limit(text: &str) -> u64 {
+    let digits: String = text.chars().filter(|c| c.is_ascii_digit()).collect();
+    digits.parse().unwrap_or(0)
 }
 
 /// Memory kind labels, as the Memory view shows them.
@@ -566,6 +813,13 @@ pub trait ViewsBridge: Send + Sync {
     ) -> BridgeResult<(String, Option<String>)>;
     async fn list_approvals(&self) -> BridgeResult<Vec<ParkedApproval>>;
     async fn answer_approval(&self, id: i64, action: &str) -> BridgeResult<Option<String>>;
+
+    // Usage
+    async fn get_usage(&self) -> BridgeResult<UsageReport>;
+    async fn save_usage(&self, limits: &UsageLimits) -> BridgeResult<UsageReport>;
+
+    // Activity
+    async fn get_audit(&self) -> BridgeResult<AuditLog>;
 }
 
 // ---------- view state: what the components show ----------
@@ -587,6 +841,8 @@ pub struct ViewsState {
     pub awareness: Option<Awareness>,
     pub suggestions: Vec<Suggestion>,
     pub approvals: Vec<ParkedApproval>,
+    pub usage: Option<UsageReport>,
+    pub audit: Option<AuditLog>,
 }
 
 impl ViewsState {
@@ -918,10 +1174,11 @@ mod tests {
 
     #[test]
     fn tok_shortens_like_the_usage_view() {
-        assert_eq!(tok(1240), "1240");
+        assert_eq!(tok(1240), "1,240");
         assert_eq!(tok(45_000), "45k");
         assert_eq!(tok(1_240_000), "1.2M");
         assert_eq!(tok(10_000_000), "10M");
+        assert_eq!(tok(12_500_000), "13M");
     }
 
     #[test]
@@ -985,5 +1242,83 @@ mod tests {
             }),
             "Could not finish: Draft it"
         );
+    }
+
+    #[test]
+    fn usage_shape_matches_the_server() {
+        let raw = r#"{"budget": {"level": "careful", "today": {"used": 9000, "limit": 10000, "left": 1000}, "month": {"used": 120000, "limit": 600000, "left": 480000}, "daily_average": 20000, "projected_month": 500000, "limit_reached_on": "2026-11-20"}, "level_label": "Economy", "days": [["2026-11-12", 1000], ["2026-11-13", 2000]], "models": [["openai/gpt-4o", 100, 50, 3]], "main_model": "openai/gpt-4o", "fast_model": "openai/gpt-4o-mini", "routing": true, "background_today": 300, "background_limit": 5000, "session": {"prompt_tokens": 1200, "completion_tokens": 800}, "demo": false, "provider": {"name": "OpenRouter", "credits_bought": 10.0, "credits_used": 2.5, "credits_left": 7.5}}"#;
+        let u: UsageReport = serde_json::from_str(raw).unwrap();
+        assert_eq!(u.budget.level, "careful");
+        assert_eq!(u.budget.today.used, 9000);
+        assert_eq!(u.budget.today.left, Some(1000));
+        assert_eq!(u.days.len(), 2);
+        assert_eq!(u.models[0].0, "openai/gpt-4o");
+        assert_eq!(u.provider.as_ref().unwrap().credits_left, 7.5);
+        assert_eq!(level_note(u.demo, &u.budget.level), "Economy mode is on: a quarter or less of your allowance is left, so Heron is taking fewer steps, keeping answers short and doing nothing on its own.");
+        assert_eq!(tile_small(&u.budget.today), "1,000 left of 10k");
+        assert_eq!(meter_state(&u.budget.today), "low");
+        assert_eq!(
+            heading_small(&u.budget.month, &u.budget.limit_reached_on),
+            "Limit reached around Nov 20"
+        );
+        assert_eq!(pace_note(u.budget.daily_average), "About 20k tokens a day over the last week. Hover a bar for the day's figure; today is highlighted.");
+    }
+
+    #[test]
+    fn usage_tiles_without_limits() {
+        let w = BudgetWindow {
+            used: 500,
+            limit: 0,
+            left: None,
+        };
+        assert_eq!(tile_small(&w), "No limit set");
+        assert_eq!(meter_frac(&w), -1.0);
+        assert_eq!(
+            heading_small(&w, &None),
+            "by the end of this month, at the recent pace"
+        );
+        assert_eq!(
+            level_note(true, "normal"),
+            "Demo mode uses no tokens. Connect a model to see real figures."
+        );
+        assert_eq!(level_note(false, "normal"), "");
+        assert_eq!(pace_note(0), "Nothing used yet.");
+    }
+
+    #[test]
+    fn audit_shape_matches_the_server() {
+        let raw = r#"{"entries": [{"ts": 1794536000, "session_id": "s1", "tool": "read_file", "args": "{\"path\": \"a.txt\"}", "decision": "allowed", "result": "ok"}, {"ts": 1794536001, "session_id": "s1", "tool": "shell", "args": "rm -rf /", "decision": "denied-by-policy", "result": "blocked"}], "checked": 2, "intact": true}"#;
+        let log: AuditLog = serde_json::from_str(raw).unwrap();
+        assert_eq!(log.entries.len(), 2);
+        assert_eq!(log.entries[0].tool, "read_file");
+        assert_eq!(decision_label("allowed"), "Done");
+        assert_eq!(decision_label("denied-by-policy"), "Blocked");
+        assert_eq!(decision_label("denied-by-user"), "You didn't allow");
+        assert_eq!(
+            seal_line(log.checked, log.intact),
+            "The log is intact: 2 entries checked, none altered or removed."
+        );
+        assert!(seal_line(3, false).starts_with("Warning: this log has been altered"));
+    }
+
+    #[test]
+    fn usage_helpers_cover_the_edges() {
+        assert_eq!(fmt_int(1_234_567), "1,234,567");
+        assert_eq!(fmt_int(999), "999");
+        assert_eq!(day_label("2026-11-13"), "Nov 13");
+        assert_eq!(day_label("not-a-day"), "not-a-day");
+        assert_eq!(bar_frac(0, 100), 0.0);
+        assert_eq!(bar_frac(1, 10000), 0.03);
+        assert!((bar_frac(5000, 10000) - 0.5).abs() < 0.001);
+        assert_eq!(parse_limit("12,000"), 12000);
+        assert_eq!(parse_limit(""), 0);
+        assert_eq!(parse_limit("abc"), 0);
+        let spent = BudgetWindow {
+            used: 10000,
+            limit: 10000,
+            left: Some(0),
+        };
+        assert_eq!(meter_state(&spent), "out");
+        assert!((meter_frac(&spent) - 1.0).abs() < 0.001);
     }
 }

@@ -27,9 +27,8 @@ Tasks, Reminders (including the Delivered inbox section), Awareness
 Not mine: the conversation view and composer (Chat lane); the empty-state
 blocks that render Today, waiting approvals, and offers inside the chat view
 (Chat lane owns the rendering, but the approvals and suggestions data come
-from the endpoints mapped below); onboarding and Settings (Setup lane);
-Usage and Activity log (unassigned in the lane briefs, not mapped here
-beyond a one-line pointer each).
+from the endpoints mapped below); onboarding and Settings (Setup lane). Activity log and Usage joined this
+lane in Phase 2 (plan section 6) and are mapped in sections 7 and 8 below.
 
 Shared: `GET /state` feeds my sidebar badges and the Shell's mode buttons
 and footer. The Shell owns view switching (`show(name)`).
@@ -405,18 +404,154 @@ comes from the same title map the Chat lane uses for approval dialogs
 
 ## 6. Pointers to the views that are not mine
 
-- Usage view: `GET /usage` returns the budget object (tiles, 30-day sparkline,
-  per-model table, limits form). `POST /usage` saves limits. Owned by no
-  lane in the briefs; the Setup lane is the closest owner.
-- Activity log: `GET /audit` returns `{ "entries": [AuditEntry], "checked",
-  "intact" }`. AuditEntry: `{ "ts", "session_id", "tool", "args", "decision",
-  "result" }`. Decision labels: `allowed` -> "Done", `approved` ->
-  "You allowed", `approved-always` -> "You allowed (always)",
-  `denied-by-user` -> "You didn't allow", `denied-by-policy` -> "Blocked".
-  Also unassigned.
 - The Today block in the empty chat view: `GET /today` returns
   `{ "events": [string], "due_tasks": [{ "id", "title", "due",
   "overdue": bool }], "open_tasks", "heron_tasks", "waiting",
   "unconfirmed", "new_mail", "unread", "paused" }`. Chat lane owns the
   rendering; the `due_tasks` and `unread` data overlap my Tasks and
   Reminders views.
+
+## 7. Activity log (`#v-activity`, nav "Activity log")
+
+HTML: `h2` "Activity log", intro "Every action Heron took or was refused,
+newest first. Passwords and keys are blanked out before anything is
+logged.", then `#audit`. No form, no buttons. Read-only.
+
+### API
+
+- `GET /api/audit` (server `get_audit`, server.rs:1014). Returns
+  `{ "entries": [AuditEntry], "checked": <int>, "intact": <bool> }`.
+  `checked` is the number of entries the seal verification checked.
+  `intact` is true when no entry was altered or removed outside Heron.
+  The plan's word "seal" is this `checked`/`intact` pair. Up to 200
+  entries (`audit_log(200)`), newest first.
+- `AuditEntry` (store.rs:144): `{ "ts": <unix seconds>, "session_id":
+  <string>, "tool": <string>, "args": <string>, "decision": <string>,
+  "result": <string> }`. `args` is a display string, already redacted.
+
+### Display rules (loadActivity, index.html:1010)
+
+- Empty list: one line, "Nothing yet. Actions appear here as Heron
+  works." No seal line, no table.
+- Otherwise the seal line comes first: intact ->
+  "The log is intact: {checked} entries checked, none altered or
+  removed." with the count formatted with thousands separators; not
+  intact -> "Warning: this log has been altered outside Heron. Entries
+  may have been changed or removed." in the danger color.
+- Table columns: When, Action, Details, Outcome. One row per entry.
+  When is `fmtTime(ts)` ("Nov 13, 2:13 AM"). Action is the tool label
+  (`label(tool)`): the `toolLabel` map belongs to the Chat lane, so the
+  glue ports only the fallback (strip `mcp__`, turn `__` into ` → `).
+  Details is `args` in monospace. Outcome maps the decision:
+  `allowed` -> "Done", `approved` -> "You allowed", `approved-always`
+  -> "You allowed (always)", `denied-by-user` -> "You didn't allow",
+  `denied-by-policy` -> "Blocked", anything else shows as it is. A
+  decision starting with `denied` renders the Outcome cell in the
+  danger color.
+
+## 8. Usage (`#v-usage`, nav "Usage")
+
+HTML: `h2` "Usage", intro "How many tokens Heron has used, how many are
+left of the limits you set, and where this month is heading. Tokens are
+what your AI model provider counts and charges for.", a level note
+(`#u-level`), tiles (`#u-tiles`), "Last 30 days" with a bar chart
+(`#u-days`) and a pace note (`#u-pace`), "This month by model"
+(`#u-models`), "Your limits" with three number inputs (`#u-day`,
+`#u-month`, `#u-bg`), "Choosing a model" with a cheaper-model input
+(`#u-fast`) and a routing checkbox (`#u-route`), a "Save limits" button
+(`#u-save`) and a "Saved" indicator (`#u-saved`).
+
+### API
+
+- `GET /api/usage` (server `get_usage`, server.rs:813). Returns the
+  `Report` (usage.rs, "Everything the Usage page shows") serialized,
+  plus `session` (the session token totals), `demo` (bool), and an
+  optional `provider` object (only when the base URL contains
+  openrouter.ai and the credits call succeeds).
+- `Report`: `{ "budget": Budget, "level_label": <string>, "days":
+  [[<day "YYYY-MM-DD">, <tokens u64>] x 30, oldest first, zero days
+  included], "models": [[<model>, <in u64>, <out u64>, <calls u64>]],
+  "main_model": <string>, "fast_model": <string>, "routing": <bool>,
+  "background_today": <u64>, "background_limit": <u64> }`.
+- `Budget`: `{ "level": "normal" | "careful" | "minimal" | "spent",
+  "today": Window, "month": Window, "daily_average": <u64>,
+  "projected_month": <u64>, "limit_reached_on": <"YYYY-MM-DD" or null> }`.
+  `level_label` is "Normal", "Economy", "Strict economy", or "Allowance
+  used up". `Window`: `{ "used": <u64>, "limit": <u64, 0 means no limit>,
+  "left": <u64 or null> }` (`left` is null when there is no limit).
+  `daily_average` is the average over the last seven days, zero days
+  counted. `limit_reached_on` is the day the monthly limit would be
+  reached at the recent pace, or null.
+- `provider`: `{ "name": "OpenRouter", "credits_bought": <f64>,
+  "credits_used": <f64>, "credits_left": <f64> }`. Money, not tokens.
+- `POST /api/usage` (server `set_usage`, server.rs:836). Body:
+  `{ "daily_token_limit": <u64>, "monthly_token_limit": <u64>,
+  "background_tokens_per_day": <u64>, "fast_model": <string>,
+  "routing": <bool> }`. Numbers or digit strings (commas, spaces, and
+  underscores stripped server-side). Empty means 0, which the server
+  reads as no limit. Returns the fresh `GET /usage` payload. Setting
+  `routing` false stores `"off"`; true stores `"auto"`.
+
+### Display rules (loadUsage, index.html:969)
+
+- Tiles, in order. "Today": big `tok(today.used)`, small
+  `"{tok(left)} left of {tok(limit)}"` or "No limit set" when there is
+  no limit. "This month": same shape from the month window. "Heading
+  for": big `tok(projected_month)`, small: with a monthly limit and a
+  `limit_reached_on`, "Limit reached around {Mon D}"; with a monthly
+  limit and none, "Within your monthly limit"; without a monthly limit,
+  "by the end of this month, at the recent pace". Provider tile, only
+  when `provider` exists: title `"{name} credit"`, big
+  `"$X.XX left"` (two decimals) when `credits_bought > 0`, or "None";
+  small `left of $Y.YY bought` or "No credit bought on this account, so
+  only free models will answer." A tile with a limit shows a meter: width
+  is `min(100, round(used / limit * 100))` percent. The meter is `out`
+  when `left == 0`, `low` when `left / limit <= 0.25`, plain otherwise.
+- Level note (`#u-level`): demo ->
+  "Demo mode uses no tokens. Connect a model to see real figures.";
+  `normal` -> empty; `careful` -> "Economy mode is on: a quarter or less
+  of your allowance is left, so Heron is taking fewer steps, keeping
+  answers short and doing nothing on its own."; `minimal` -> "Strict
+  economy is on: your allowance is almost used up. Heron is using its
+  cheapest model and the least work that answers you."; `spent` ->
+  "Your allowance is used up. Heron still answers you, as cheaply as it
+  can, and has stopped everything it does on its own. Raise the limit
+  below to lift this."
+- 30-day chart: one bar per day, oldest first, height
+  `max(n ? 3 : 0, round(n / max * 100))` percent where `max` is the
+  largest day (at least 1). The last bar (today) is highlighted. The
+  hover title is `"{Mon D}: {N} tokens"`. The plan says the Slint
+  version is custom-drawn rectangles, not a chart library. The bars show
+  figures only on hover, so the web UI also renders a "Daily figures"
+  details table (newest first, Day and Tokens columns) right after the
+  pace note. The Slint version keeps that table behind a show/hide
+  toggle, since Slint has no `<details>` element.
+- Pace note: `daily_average` non-zero ->
+  "About {tok(daily_average)} tokens a day over the last week. Hover a
+  bar for the day's figure; today is highlighted."; zero ->
+  "Nothing used yet."
+- Models table: columns Model, Sent to it, Written by it, Calls. Rows
+  from `models`, numbers with thousands separators. Empty ->
+  "No model calls this month." When rows exist, a note follows: "Where a
+  provider does not report token counts, Heron estimates them from the
+  length of the text."
+- Limits form: the three inputs show the current limits as plain digits
+  (empty for no limit). The background note reads "Suggestions,
+  preparing ahead, taking over and reflection. {N} used today. Reminders
+  you set up yourself always run." The cheaper-model input shows
+  `fast_model` (empty when none). The routing checkbox is checked when
+  `routing` is true and disabled when there is no fast model or the fast
+  model equals the main model. Its note reads "Your main model is
+  {main_model}. Name a cheaper one here to let Heron choose between
+  them."
+- Save: the button posts the form. Each number input is stripped of
+  non-digits; empty reads as 0. `routing` is sent as `fast ? (route
+  disabled ? true : route checked) : false`. On success the "Saved"
+  indicator shows for 1.8 seconds, the usage reloads, and the sidebar
+  state refreshes. On failure the web UI alerts the error message. The
+  Slint version shows the error as red text under the button instead,
+  since Slint has no alert dialog.
+- `tok(n)`: `n >= 1e6` -> `X.XM` (one decimal, `.0` stripped; zero
+  decimals at `>= 1e7`); `n >= 1e4` -> `Xk` (rounded); otherwise the
+  number with thousands separators. Already ported as `tok` in
+  `src/ui/views.rs`.

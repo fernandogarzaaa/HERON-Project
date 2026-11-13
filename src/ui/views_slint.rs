@@ -44,8 +44,8 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
 
 use super::views as logic;
 use crate::{
-    InboxRow, MainWindow, MemoryRow, RunStepRow, ScheduleRow, SessionRow, SimpleRow, SuggestionRow,
-    TaskRow,
+    AuditRow, InboxRow, MainWindow, MemoryRow, ModelRow, RunStepRow, ScheduleRow, SessionRow,
+    SimpleRow, SuggestionRow, TaskRow, UsageDayRow,
 };
 
 /// How long the Memory search waits after the last keystroke before
@@ -273,6 +273,54 @@ fn run_step_rows(run: &logic::ScheduleRun) -> (String, Vec<RunStepRow>) {
         });
     }
     (title, rows)
+}
+
+fn audit_row(a: &logic::AuditEntry) -> AuditRow {
+    AuditRow {
+        when: logic::fmt_time(a.ts).into(),
+        action: step_label(&a.tool).into(),
+        details: a.args.clone().into(),
+        outcome: logic::decision_label(&a.decision).into(),
+        denied: a.decision.starts_with("denied"),
+    }
+}
+
+/// The 30-day chart rows, oldest first. The last row is today. Heights
+/// follow the chart rule: at least 3 percent when the day had any use.
+fn usage_day_rows(u: &logic::UsageReport) -> Vec<UsageDayRow> {
+    let max = u.days.iter().map(|(_, n)| *n).max().unwrap_or(0);
+    let len = u.days.len();
+    u.days
+        .iter()
+        .enumerate()
+        .map(|(i, (day, n))| UsageDayRow {
+            label: logic::day_label(day).into(),
+            tokens: logic::fmt_int(*n).into(),
+            frac: logic::bar_frac(*n, max),
+            today: i + 1 == len,
+        })
+        .collect()
+}
+
+fn model_row(m: &(String, u64, u64, u64)) -> ModelRow {
+    ModelRow {
+        model: m.0.clone().into(),
+        sent: logic::fmt_int(m.1).into(),
+        written: logic::fmt_int(m.2).into(),
+        calls: logic::fmt_int(m.3).into(),
+    }
+}
+
+/// The daily figures table, newest first: the same figures as the chart.
+fn daily_rows(u: &logic::UsageReport) -> Vec<SimpleRow> {
+    u.days
+        .iter()
+        .rev()
+        .map(|(day, n)| SimpleRow {
+            text: logic::day_label(day).into(),
+            meta: logic::fmt_int(*n).into(),
+        })
+        .collect()
 }
 
 fn model_of<T: Clone + 'static>(rows: Vec<T>) -> ModelRc<T> {
@@ -641,6 +689,189 @@ fn awareness_rows(
         journal,
         journal_empty,
     )
+}
+
+// ---------- usage ----------
+
+/// Reload the Usage report and post every tile, the chart, the models
+/// table, and the limits form to the Window. A bridge error leaves the
+/// old figures in place. There is no error surface on load; the save
+/// error text covers only failed saves.
+pub fn refresh_usage(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
+    let ctrl = ctrl.clone();
+    let rt = ctrl.rt.clone();
+    rt.spawn(async move {
+        let Ok(u) = ctrl.bridge.get_usage().await else {
+            return;
+        };
+        let b = &u.budget;
+        let level_note: SharedString = logic::level_note(u.demo, &b.level).into();
+        let today = b.today.clone();
+        let month = b.month.clone();
+        let (today_big, today_small, today_frac, today_state) = (
+            logic::tok(today.used).into(),
+            logic::tile_small(&today).into(),
+            logic::meter_frac(&today),
+            logic::meter_state(&today).to_string(),
+        );
+        let (month_big, month_small, month_frac, month_state) = (
+            logic::tok(month.used).into(),
+            logic::tile_small(&month).into(),
+            logic::meter_frac(&month),
+            logic::meter_state(&month).to_string(),
+        );
+        let heading_big: SharedString = logic::tok(b.projected_month).into();
+        let heading_small: SharedString =
+            logic::heading_small(&month, &b.limit_reached_on).into();
+        let (provider_visible, provider_title, provider_big, provider_small, provider_frac, provider_state) =
+            match &u.provider {
+                Some(p) => {
+                    // Money tiles show dollars with two decimals, not tok().
+                    // The meter uses the credit share, computed in f64 so
+                    // truncation cannot flip the low boundary.
+                    let big: SharedString = if p.credits_bought > 0.0 {
+                        format!("${:.2} left", p.credits_left.max(0.0)).into()
+                    } else {
+                        "None".into()
+                    };
+                    let small: SharedString = if p.credits_bought > 0.0 {
+                        format!("left of ${:.2} bought", p.credits_bought).into()
+                    } else {
+                        "No credit bought on this account, so only free models will answer.".into()
+                    };
+                    let (frac, state) = if p.credits_bought > 0.0 {
+                        let left = p.credits_left.max(0.0);
+                        let frac = ((p.credits_used / p.credits_bought) as f32).min(1.0).max(0.0);
+                        let state = if left == 0.0 {
+                            "out"
+                        } else if left / p.credits_bought <= 0.25 {
+                            "low"
+                        } else {
+                            "normal"
+                        };
+                        (frac, state.to_string())
+                    } else {
+                        (-1.0, "normal".to_string())
+                    };
+                    (true, format!("{} credit", p.name).into(), big, small, frac, state)
+                }
+                None => (false, SharedString::default(), SharedString::default(), SharedString::default(), -1.0, "normal".to_string()),
+            };
+        let days = usage_day_rows(&u);
+        let pace: SharedString = logic::pace_note(b.daily_average).into();
+        let models: Vec<ModelRow> = u.models.iter().map(model_row).collect();
+        let models_empty: SharedString = if models.is_empty() {
+            "No model calls this month.".into()
+        } else {
+            SharedString::default()
+        };
+        let models_note_visible = !models.is_empty();
+        let daily = daily_rows(&u);
+        let day_limit: SharedString = if b.today.limit == 0 {
+            SharedString::default()
+        } else {
+            b.today.limit.to_string().into()
+        };
+        let month_limit: SharedString = if b.month.limit == 0 {
+            SharedString::default()
+        } else {
+            b.month.limit.to_string().into()
+        };
+        let bg_limit: SharedString = if u.background_limit == 0 {
+            SharedString::default()
+        } else {
+            u.background_limit.to_string().into()
+        };
+        let bg_note: SharedString = format!(
+            "Suggestions, preparing ahead, taking over and reflection. {} used today. Reminders you set up yourself always run.",
+            logic::fmt_int(u.background_today)
+        )
+        .into();
+        let fast_model: SharedString = u.fast_model.clone().into();
+        let fast_note: SharedString = format!("Your main model is {}. Name a cheaper one here to let Heron choose between them.", u.main_model).into();
+        let main_model: SharedString = u.main_model.clone().into();
+        let route_checked = u.routing;
+        {
+            let mut st = ctrl.state.lock().unwrap();
+            st.usage = Some(u);
+        }
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(window) = ui.upgrade() {
+                window.set_usage_level_note(level_note);
+                window.set_usage_today_big(today_big);
+                window.set_usage_today_small(today_small);
+                window.set_usage_today_frac(today_frac);
+                window.set_usage_today_state(today_state.into());
+                window.set_usage_month_big(month_big);
+                window.set_usage_month_small(month_small);
+                window.set_usage_month_frac(month_frac);
+                window.set_usage_month_state(month_state.into());
+                window.set_usage_heading_big(heading_big);
+                window.set_usage_heading_small(heading_small);
+                window.set_usage_provider_visible(provider_visible);
+                window.set_usage_provider_title(provider_title);
+                window.set_usage_provider_big(provider_big);
+                window.set_usage_provider_small(provider_small);
+                window.set_usage_provider_frac(provider_frac);
+                window.set_usage_provider_state(provider_state.into());
+                window.set_usage_days(model_of(days));
+                window.set_usage_pace_note(pace);
+                window.set_usage_models(model_of(models));
+                window.set_usage_models_empty_text(models_empty);
+                window.set_usage_models_note_visible(models_note_visible);
+                window.set_usage_daily_rows(model_of(daily));
+                window.set_usage_day_limit(day_limit);
+                window.set_usage_month_limit(month_limit);
+                window.set_usage_bg_limit(bg_limit);
+                window.set_usage_bg_note(bg_note);
+                window.set_usage_fast_model(fast_model);
+                window.set_usage_fast_note(fast_note);
+                window.set_usage_main_model(main_model);
+                window.set_usage_route_checked(route_checked);
+            }
+        });
+    });
+}
+
+// ---------- activity ----------
+
+/// Reload the audit log and post the seal line and rows to the Window.
+/// A bridge error leaves the old rows in place.
+pub fn refresh_activity(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
+    let ctrl = ctrl.clone();
+    let rt = ctrl.rt.clone();
+    rt.spawn(async move {
+        let Ok(log) = ctrl.bridge.get_audit().await else {
+            return;
+        };
+        let rows: Vec<AuditRow> = log.entries.iter().map(audit_row).collect();
+        let (seal_text, seal_danger, empty_text): (SharedString, bool, SharedString) =
+            if rows.is_empty() {
+                (
+                    SharedString::default(),
+                    false,
+                    "Nothing yet. Actions appear here as Heron works.".into(),
+                )
+            } else {
+                (
+                    logic::seal_line(log.checked, log.intact).into(),
+                    !log.intact,
+                    SharedString::default(),
+                )
+            };
+        {
+            let mut st = ctrl.state.lock().unwrap();
+            st.audit = Some(log);
+        }
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(window) = ui.upgrade() {
+                window.set_activity_rows(model_of(rows));
+                window.set_activity_seal_text(seal_text);
+                window.set_activity_seal_danger(seal_danger);
+                window.set_activity_empty_text(empty_text);
+            }
+        });
+    });
 }
 
 // ---------- wiring: one call binds the whole Window ----------
@@ -1034,9 +1265,81 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
         });
     });
 
+    let weak = window.as_weak();
+    let c = ctrl.clone();
+    window.on_usage_save_usage(move || {
+        // Read the form from the Window on the UI thread, then post from
+        // the tokio side. The routing rule mirrors the web UI: no fast
+        // model means no routing; a fast model equal to the main model
+        // means routing on; otherwise the checkbox decides.
+        let (day, month, bg, fast, route_checked, main_model) = match weak.upgrade() {
+            Some(window) => (
+                logic::parse_limit(&window.get_usage_day_limit()),
+                logic::parse_limit(&window.get_usage_month_limit()),
+                logic::parse_limit(&window.get_usage_bg_limit()),
+                window.get_usage_fast_model().trim().to_string(),
+                window.get_usage_route_checked(),
+                window.get_usage_main_model().to_string(),
+            ),
+            None => return,
+        };
+        let routing = if fast.is_empty() {
+            false
+        } else if fast == main_model {
+            true
+        } else {
+            route_checked
+        };
+        let limits = logic::UsageLimits {
+            daily_token_limit: day,
+            monthly_token_limit: month,
+            background_tokens_per_day: bg,
+            fast_model: fast,
+            routing,
+        };
+        let ctrl = c.clone();
+        let rt = ctrl.rt.clone();
+        let weak = weak.clone();
+        rt.spawn(async move {
+            match ctrl.bridge.save_usage(&limits).await {
+                Ok(_) => {
+                    let weak_for_saved = weak.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(window) = weak_for_saved.upgrade() {
+                            window.set_usage_saved_visible(true);
+                            window.set_usage_save_error(SharedString::default());
+                        }
+                    });
+                    // The web UI shows "Saved" for 1.8 seconds.
+                    let weak_for_hide = weak.clone();
+                    let rt2 = ctrl.rt.clone();
+                    rt2.spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(1800)).await;
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(window) = weak_for_hide.upgrade() {
+                                window.set_usage_saved_visible(false);
+                            }
+                        });
+                    });
+                    refresh_usage(weak, &ctrl);
+                    ctrl.refresh_sidebar_state();
+                }
+                Err(err) => {
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(window) = weak.upgrade() {
+                            window.set_usage_save_error(err.into());
+                        }
+                    });
+                }
+            }
+        });
+    });
+
     ctrl.refresh_sidebar_state();
     refresh_memory(window.as_weak(), ctrl);
     refresh_tasks(window.as_weak(), ctrl);
     refresh_reminders(window.as_weak(), ctrl);
     refresh_awareness(window.as_weak(), ctrl);
+    refresh_usage(window.as_weak(), ctrl);
+    refresh_activity(window.as_weak(), ctrl);
 }

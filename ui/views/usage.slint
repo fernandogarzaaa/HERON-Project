@@ -1,0 +1,225 @@
+// Heron usage view. One file per view: the Slint compiler generates
+// Rust code only for the last exported component of a file, so the views
+// cannot share one file and still be driven from Rust.
+//
+// The 30-day chart is custom-drawn rectangles, not a chart library, per
+// the plan. Slint bars have no hover text, so the figures live in the
+// "Daily figures" table behind the toggle below the pace note, as in the
+// web UI's <details> element. The meter state is a plain string
+// ("normal", "low", "out"); Rust computes it from the window's left
+// share, mirroring the web UI's classes.
+
+import { Button, CheckBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Theme, UsageDayRow, ModelRow, SimpleRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer } from "common.slint";
+
+export component UsageTile inherits Rectangle {
+    in property <string> title;
+    in property <string> big;
+    in property <string> small;
+    in property <float> frac: -1;
+    in property <string> state: "normal";
+    background: Theme.surface;
+    border-color: Theme.line;
+    border-width: 1px;
+    border-radius: 12px;
+    VerticalBox {
+        padding: 14px;
+        spacing: 4px;
+        Text { text: root.title; font-size: 13px; font-weight: 600; color: Theme.muted; }
+        Text { text: root.big; font-size: 24px; font-weight: 600; color: Theme.ink; wrap: TextWrap.word-wrap; }
+        Text { text: root.small; font-size: 13px; color: Theme.muted; wrap: TextWrap.word-wrap; }
+        Rectangle {
+            height: 8px;
+            border-radius: 4px;
+            background: Theme.slate-soft;
+            visible: root.frac >= 0;
+            Rectangle {
+                width: parent.width * root.frac;
+                height: parent.height;
+                border-radius: 4px;
+                background: root.state == "out" ? Theme.danger : root.state == "low" ? Theme.talon : Theme.slate;
+            }
+        }
+    }
+}
+
+export component UsageView inherits Rectangle {
+    background: Theme.paper;
+    in property <string> level-note: "";
+    in property <string> today-big: "";
+    in property <string> today-small: "";
+    in property <float> today-frac: -1;
+    in property <string> today-state: "normal";
+    in property <string> month-big: "";
+    in property <string> month-small: "";
+    in property <float> month-frac: -1;
+    in property <string> month-state: "normal";
+    in property <string> heading-big: "";
+    in property <string> heading-small: "";
+    in property <bool> provider-visible: false;
+    in property <string> provider-title: "";
+    in property <string> provider-big: "";
+    in property <string> provider-small: "";
+    in property <float> provider-frac: -1;
+    in property <string> provider-state: "normal";
+    in property <[UsageDayRow]> days;
+    in property <string> pace-note: "";
+    in property <[ModelRow]> models;
+    in property <string> models-empty-text: "";
+    in property <bool> models-note-visible: false;
+    in-out property <bool> daily-visible: false;
+    in property <[SimpleRow]> daily-rows;
+    in-out property <string> day-limit: "";
+    in-out property <string> month-limit: "";
+    in-out property <string> bg-limit: "";
+    in property <string> bg-note: "";
+    in-out property <string> fast-model: "";
+    in property <string> fast-note: "";
+    in property <string> main-model: "";
+    in-out property <bool> route-checked: false;
+    in property <string> save-error: "";
+    in property <bool> saved-visible: false;
+    callback save-usage();
+
+    ScrollView {
+        width: parent.width;
+        height: parent.height;
+        VerticalBox {
+            width: parent.width;
+            padding: 28px;
+            spacing: 14px;
+            SectionTitle { title: "Usage"; }
+            SectionIntro { body: "How many tokens Heron has used, how many are left of the limits you set, and where this month is heading. Tokens are what your AI model provider counts and charges for."; }
+            Text {
+                text: root.level-note;
+                font-size: 14px;
+                color: Theme.muted;
+                wrap: TextWrap.word-wrap;
+                visible: root.level-note != "";
+            }
+            HorizontalBox {
+                spacing: 12px;
+                UsageTile { title: "Today"; big: root.today-big; small: root.today-small; frac: root.today-frac; state: root.today-state; horizontal-stretch: 1; }
+                UsageTile { title: "This month"; big: root.month-big; small: root.month-small; frac: root.month-frac; state: root.month-state; horizontal-stretch: 1; }
+                UsageTile { title: "Heading for"; big: root.heading-big; small: root.heading-small; horizontal-stretch: 1; }
+                UsageTile { title: root.provider-title; big: root.provider-big; small: root.provider-small; frac: root.provider-frac; state: root.provider-state; horizontal-stretch: 1; visible: root.provider-visible; }
+            }
+            Text { text: "Last 30 days"; font-size: 20px; font-weight: 600; color: Theme.ink; }
+            Rectangle {
+                height: 96px;
+                HorizontalBox {
+                    width: parent.width;
+                    height: parent.height;
+                    spacing: 3px;
+                    for day in root.days: VerticalBox {
+                        horizontal-stretch: 1;
+                        height: parent.height;
+                        Rectangle { vertical-stretch: 1; }
+                        Rectangle {
+                            height: parent.height * day.frac;
+                            border-radius: 3px;
+                            background: day.today ? Theme.talon : Theme.slate;
+                            opacity: 0.85;
+                        }
+                    }
+                }
+            }
+            Rectangle { height: 1px; background: Theme.line; }
+            RowMeta { body: root.pace-note; visible: root.pace-note != ""; }
+            Button {
+                text: root.daily-visible ? "Hide daily figures" : "Daily figures";
+                clicked => { root.daily-visible = !root.daily-visible; }
+            }
+            VerticalBox {
+                spacing: 6px;
+                visible: root.daily-visible;
+                for row in root.daily-rows: HorizontalBox {
+                    spacing: 10px;
+                    Text { text: row.text; font-size: 14px; color: Theme.ink; width: 110px; }
+                    Text { text: row.meta; font-size: 14px; color: Theme.ink; horizontal-stretch: 1; }
+                }
+            }
+            Text { text: "This month by model"; font-size: 20px; font-weight: 600; color: Theme.ink; }
+            EmptyNote { body: root.models-empty-text; visible: root.models-empty-text != ""; }
+            HorizontalBox {
+                spacing: 10px;
+                visible: root.models.length > 0;
+                Text { text: "Model"; font-size: 13px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; }
+                Text { text: "Sent to it"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 100px; }
+                Text { text: "Written by it"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 110px; }
+                Text { text: "Calls"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 70px; }
+            }
+            for row in root.models: Rectangle {
+                background: Theme.surface;
+                border-color: Theme.line;
+                border-width: 1px;
+                border-radius: 8px;
+                HorizontalBox {
+                    width: parent.width;
+                    padding: 10px;
+                    spacing: 10px;
+                    Text { text: row.model; font-size: 14px; font-family: "SF Mono"; color: Theme.ink; horizontal-stretch: 1; wrap: TextWrap.word-wrap; }
+                    Text { text: row.sent; font-size: 14px; color: Theme.ink; width: 100px; }
+                    Text { text: row.written; font-size: 14px; color: Theme.ink; width: 110px; }
+                    Text { text: row.calls; font-size: 14px; color: Theme.ink; width: 70px; }
+                }
+            }
+            RowMeta { body: "Where a provider does not report token counts, Heron estimates them from the length of the text."; visible: root.models-note-visible; }
+            Text { text: "Your limits"; font-size: 20px; font-weight: 600; color: Theme.ink; }
+            SectionIntro { body: "Set a limit and Heron paces itself. With a quarter left it takes fewer steps and keeps answers short. Near the end it uses its cheapest model and stops everything it does on its own. It never refuses to answer you."; }
+            HorizontalBox {
+                spacing: 12px;
+                VerticalBox {
+                    horizontal-stretch: 1;
+                    spacing: 4px;
+                    Text { text: "Per day"; font-size: 14px; color: Theme.ink; }
+                    LineEdit { text <=> root.day-limit; placeholder-text: "No limit"; }
+                    RowMeta { body: "Tokens. Leave empty for no limit."; }
+                }
+                VerticalBox {
+                    horizontal-stretch: 1;
+                    spacing: 4px;
+                    Text { text: "Per month"; font-size: 14px; color: Theme.ink; }
+                    LineEdit { text <=> root.month-limit; placeholder-text: "No limit"; }
+                    RowMeta { body: "Tokens. Leave empty for no limit."; }
+                }
+            }
+            VerticalBox {
+                spacing: 4px;
+                Text { text: "For work Heron starts on its own, per day"; font-size: 14px; color: Theme.ink; }
+                LineEdit { text <=> root.bg-limit; placeholder-text: "No limit"; }
+                RowMeta { body: root.bg-note; visible: root.bg-note != ""; }
+            }
+            Text { text: "Choosing a model"; font-size: 20px; font-weight: 600; color: Theme.ink; }
+            VerticalBox {
+                spacing: 4px;
+                Text { text: "Cheaper model for simple requests"; font-size: 14px; color: Theme.ink; }
+                LineEdit { text <=> root.fast-model; placeholder-text: "e.g. openai/gpt-4o-mini"; }
+                RowMeta { body: root.fast-note; visible: root.fast-note != ""; }
+            }
+            CheckBox {
+                text: "Send short, simple requests to the cheaper model";
+                checked <=> root.route-checked;
+                enabled: root.fast-model != "" && root.fast-model != root.main-model;
+            }
+            RowMeta { body: "A greeting, a reminder or a quick question does not need the large model. If a request turns out to need real work, Heron moves it to the main model part-way through."; }
+            HorizontalBox {
+                spacing: 10px;
+                Button {
+                    text: "Save limits";
+                    primary: true;
+                    clicked => { root.save-usage(); }
+                }
+                Text { text: "Saved"; font-size: 14px; color: Theme.ok; visible: root.saved-visible; vertical-alignment: center; }
+            }
+            Text {
+                text: root.save-error;
+                font-size: 14px;
+                color: Theme.danger;
+                wrap: TextWrap.word-wrap;
+                visible: root.save-error != "";
+            }
+            Spacer { height: 10px; }
+        }
+    }
+}

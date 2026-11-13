@@ -1,6 +1,6 @@
 # Views lane: data interface note
 
-What the five views need from the Shell lane, and what the Shell gets back.
+What the seven views need from the Shell lane, and what the Shell gets back.
 Short version: the contract is the `ViewsBridge` trait in `src/ui/views.rs`.
 The Shell implements it against the local HTTP server. The views never see
 HTTP, tokens, or URLs.
@@ -31,7 +31,7 @@ states what the views need, so the Shell can check its contract against it.
 The glue in `src/ui/views_slint.rs` drives the MainWindow's forwarded API
 through one `bind_window(window, ctrl)` call. It never touches the view
 components directly. The Slint compiler generates Rust code only for the
-last exported component of a file, so the five view components have no Rust
+last exported component of a file, so the seven view components have no Rust
 types of their own. The Shell's `ui/main.slint` instantiates them and
 forwards every property and callback. The glue registers the Window's
 callbacks, triggers the refreshes, and posts results back through the
@@ -58,9 +58,24 @@ watching, reflecting, workspace, proactive, proactive-note, suggestions,
 suggestions-empty-text, right-now, right-now-empty-text, insights,
 insights-empty-text, journal, journal-empty-text; set-paused, set-watching,
 set-reflecting, set-proactive, clear-observations, forget-insight,
-answer-suggestion, open-suggestion-session). NOT forwarded: `kinds` and
+answer-suggestion, open-suggestion-session); activity (rows, seal-text,
+seal-danger, empty-text; no callbacks, read-only); usage (level-note,
+today-big, today-small, today-frac, today-state, month-big, month-small,
+month-frac, month-state, heading-big, heading-small, provider-visible,
+provider-title, provider-big, provider-small, provider-frac,
+provider-state, days, pace-note, models, models-empty-text,
+models-note-visible, daily-visible, daily-rows, day-limit, month-limit,
+bg-limit, bg-note, fast-model, fast-note, main-model, route-checked,
+save-error, saved-visible; save-usage). NOT forwarded: `kinds` and
 `may-options` (constants with defaults inside the children; the glue never
 touches them).
+
+The Shell's `HeronClient` (bridge.rs, checked Nov 13) has no usage or
+audit methods yet: it covers state, sessions, and chat only. The trait
+methods the views need are `get_usage`, `save_usage`, and `get_audit`
+(`src/ui/views.rs`). The Shell implements them when it grows the client,
+or the glue takes a second bridge that does. Nothing in the views guesses
+the client shape.
 
 The executable form of this spec is the harness test Window at
 `~/workspace/slint-views-harness/ui/main.slint`. It imports the real view
@@ -119,7 +134,7 @@ different module, and the two `MainWindow` types would not match.
   dark palette via media query. Dark is unbuilt here.
 - Layout (CORRECTED Nov 13, measured): the brief's single `ui/views.slint`
   cannot work. The Slint 1.18 compiler generates Rust code only for the
-  last exported component of a file, so four of the five views had no Rust
+  last exported component of a file, so six of the seven views had no Rust
   types and the glue failed with 54 errors. The per-view layout
   `ui/views/*.slint` (common, sidebar, memory, tasks, reminders,
   awareness) is REQUIRED by the compiler, not a preference. The old
