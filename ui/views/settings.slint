@@ -1,0 +1,337 @@
+// Settings view, with the PersonaEditor used inside it. See
+// ui/setup-map.md for the API map and ui/setup-bridge.md for the bridge
+// interface.
+
+import { Button, TextEdit, ComboBox, CheckBox, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+import { SectionTitle, LabeledInput, ChoiceCard } from "../components/atoms.slint";
+
+struct ToolItem {
+    name: string,
+    about: string,
+    setting: int, // 0 ask, 1 allow, 2 never
+}
+
+// One connected app line. The Rust side splits the name from the line,
+// because Slint has no string split. changed is true when the app is in
+// the server's mcp_changed list.
+struct McpLine {
+    text: string,
+    name: string,
+    changed: bool,
+}
+
+// Persona editor. It has its own endpoints and its own save and reset,
+// so it stays a separate component.
+component PersonaEditor inherits VerticalBox {
+    in-out property <string> agent_name;
+    in-out property <string> persona_text;
+    in property <bool> is_default;
+    in property <string> message;
+    in property <bool> busy;
+    callback save();
+    callback reset();
+    spacing: 8px;
+    SectionTitle { label: "Personality"; }
+    LabeledInput { label: "What to call it"; value <=> agent_name; }
+    Text { text: "Character"; font-size: 14px; font-weight: 600; color: Theme.ink; }
+    TextEdit { text <=> persona_text; min-height: 260px; }
+    Text {
+        text: "This is how Heron behaves and speaks. Edit it here, or just tell Heron in a conversation (“be more casual”, “shorter answers”) and it will propose the change for you to approve.";
+        font-size: 13px;
+        color: Theme.muted;
+        wrap: word-wrap;
+    }
+    HorizontalBox {
+        spacing: 8px;
+        Button { text: "Save personality"; enabled: !busy; clicked => { root.save(); } }
+        Button {
+            visible: !is_default;
+            text: "Reset to the original";
+            enabled: !busy;
+            clicked => { root.reset(); }
+        }
+        Text {
+            visible: message != "";
+            text: message;
+            color: Theme.ok;
+            font-weight: 600;
+        }
+    }
+}
+
+component SettingsView inherits VerticalBox {
+    // AI model.
+    in-out property <string> base_url;
+    in-out property <string> model;
+    in-out property <string> fallback_models;
+    in-out property <string> fast_model;
+    in property <[string]> provider_labels;
+    in-out property <int> provider_index;
+    in-out property <string> cli_command;
+    in-out property <string> cli_model;
+    in-out property <string> api_key;
+    in property <string> key_note;
+    in property <string> key_placeholder;
+    // Persona (owned by PersonaEditor).
+    in-out property <string> agent_name;
+    in-out property <string> persona_text;
+    in property <bool> persona_is_default;
+    in property <string> persona_message;
+    // Permissions.
+    in-out property <string> mode; // readonly, ask, auto, yolo
+    in-out property <string> daemon_mode; // readonly, auto
+    in property <string> sandbox_note;
+    in-out property <bool> browser_visible;
+    in property <bool> browser_available;
+    in property <string> browser_note;
+    in property <[ToolItem]> tools;
+    in property <[string]> tool_settings; // "Ask as usual", "Never ask", "Never allow"
+    // Connected apps.
+    in property <[McpLine]> mcp_lines;
+    in property <string> mcp_note;
+    // Phone.
+    in property <bool> telegram_configured;
+    in property <bool> telegram_paired;
+    in property <string> telegram_status;
+    in-out property <string> telegram_token;
+    // Memory and files.
+    in-out property <bool> auto_memory;
+    in-out property <bool> neural_memory;
+    in property <bool> neural_available;
+    in-out property <string> workspace;
+    in property <string> home;
+    // Form state.
+    in property <string> saved_message;
+    in property <string> error_message;
+    in property <string> backup_message;
+    in property <bool> busy;
+    in property <bool> reduce-motion: false;
+
+    callback apply_preset(string); // openrouter, openai, ollama, demo
+    callback save_settings();
+    callback save_persona();
+    callback reset_persona();
+    callback set_tool(string, int);
+    callback accept_mcp(string);
+    callback connect_telegram();
+    callback disconnect_telegram();
+    callback make_backup();
+
+    spacing: 24px;
+    padding: 24px;
+
+    Text { text: "Settings"; font-size: 30px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
+    Text {
+        text: "Heron runs on this computer. The only thing that leaves it is what you send to the AI model you choose here.";
+        font-size: 15px;
+        color: Theme.muted;
+        wrap: word-wrap;
+    }
+
+    // AI model.
+    VerticalBox {
+        spacing: 8px;
+        SectionTitle { label: "AI model"; }
+        LabeledInput { label: "Service address"; value <=> base_url; }
+        HorizontalBox {
+            spacing: 6px;
+            Button { text: "OpenRouter"; clicked => { root.apply_preset("openrouter"); } }
+            Button { text: "OpenAI"; clicked => { root.apply_preset("openai"); } }
+            Button { text: "Ollama on this computer"; clicked => { root.apply_preset("ollama"); } }
+            Button { text: "Demo, no key needed"; clicked => { root.apply_preset("demo"); } }
+        }
+        LabeledInput { label: "Model"; value <=> model; }
+        Text { text: "Provider"; font-size: 14px; font-weight: 600; color: Theme.ink; }
+        ComboBox { model: provider_labels; current-index <=> provider_index; }
+        Text {
+            text: "Or run on a subscription you already pay for, through that CLI. Heron never reads the CLI's login; sign in in the CLI itself first. Run heron providers to check install and login status.";
+            font-size: 13px;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+        LabeledInput { label: "CLI command"; hint: "empty = resolve the provider's binary"; value <=> cli_command; }
+        LabeledInput { label: "CLI model"; hint: "empty = the CLI's subscription default"; value <=> cli_model; }
+        LabeledInput { label: "API key"; hint: key_placeholder; password: true; value <=> api_key; }
+        Text { text: key_note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+        LabeledInput { label: "Backup models"; hint: "none"; value <=> fallback_models; }
+        LabeledInput { label: "Model for background work"; hint: "same as main model"; value <=> fast_model; }
+    }
+
+    PersonaEditor {
+        agent_name <=> root.agent_name;
+        persona_text <=> root.persona_text;
+        is_default: root.persona_is_default;
+        message: root.persona_message;
+        busy: root.busy;
+        save => { root.save_persona(); }
+        reset => { root.reset_persona(); }
+    }
+
+    // Permissions.
+    VerticalBox {
+        spacing: 8px;
+        SectionTitle { label: "What Heron may do without asking"; }
+        ChoiceCard {
+            reduce-motion: reduce-motion;
+            title: "Read only";
+            detail: "Look, search and read. Never change anything.";
+            selected: mode == "readonly";
+            clicked => { root.mode = "readonly"; }
+        }
+        ChoiceCard {
+            reduce-motion: reduce-motion;
+            title: "Ask first";
+            detail: "Asks before changing files or running commands.";
+            selected: mode == "ask";
+            clicked => { root.mode = "ask"; }
+        }
+        ChoiceCard {
+            reduce-motion: reduce-motion;
+            title: "Auto";
+            detail: "Edits files and runs commands in your folder. Asks before anything risky.";
+            selected: mode == "auto";
+            clicked => { root.mode = "auto"; }
+        }
+        ChoiceCard {
+            reduce-motion: reduce-motion;
+            title: "Unrestricted";
+            detail: "Never asks. Only catastrophic commands stay blocked.";
+            selected: mode == "yolo";
+            clicked => { root.mode = "yolo"; }
+        }
+        Text { text: "During scheduled reminders"; font-size: 14px; font-weight: 600; color: Theme.ink; }
+        ComboBox {
+            model: ["Read only", "Auto (risky actions are refused)"];
+            current-index: daemon_mode == "auto" ? 1 : 0;
+            selected(index) => { root.daemon_mode = index == 1 ? "auto" : "readonly"; }
+        }
+        Text { text: sandbox_note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+        CheckBox {
+            text: "Show the browser while Heron uses it";
+            checked <=> browser_visible;
+            enabled: browser_available;
+        }
+        Text { text: browser_note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+    }
+
+    // Per-tool permissions.
+    VerticalBox {
+        spacing: 8px;
+        SectionTitle { label: "Each ability, one by one"; }
+        Text {
+            text: "“Ask as usual” follows the choice above. “Never ask” lets Heron use it freely, though risky uses still ask. “Never allow” switches it off.";
+            font-size: 13px;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+        for tool[idx] in tools: HorizontalBox {
+            spacing: 8px;
+            Text { text: tool.name; width: 200px; color: Theme.ink; }
+            Text { text: tool.about; horizontal-stretch: 1; color: Theme.ink; wrap: word-wrap; }
+            ComboBox {
+                model: tool_settings;
+                current-index: tool.setting;
+                selected(index) => { root.set_tool(tool.name, index); }
+            }
+        }
+    }
+
+    // Connected apps.
+    VerticalBox {
+        spacing: 8px;
+        SectionTitle { label: "Connected apps"; }
+        Text {
+            visible: mcp_lines.length == 0;
+            text: "No apps connected through MCP.";
+            color: Theme.muted;
+        }
+        for line[idx] in mcp_lines: HorizontalBox {
+            spacing: 8px;
+            Text {
+                text: line.text;
+                horizontal-stretch: 1;
+                color: line.changed ? Theme.danger : Theme.ink;
+                wrap: word-wrap;
+            }
+            Button {
+                visible: line.changed;
+                text: "Accept the changed tools";
+                clicked => { root.accept_mcp(line.name); }
+            }
+        }
+        Text {
+            visible: mcp_note != "";
+            text: mcp_note;
+            color: Theme.ok;
+            wrap: word-wrap;
+        }
+    }
+
+    // Phone.
+    VerticalBox {
+        spacing: 8px;
+        SectionTitle { label: "Use Heron from your phone"; }
+        Text { text: telegram_status; color: Theme.ink; wrap: word-wrap; }
+        HorizontalBox {
+            visible: !telegram_configured;
+            spacing: 8px;
+            LabeledInput { label: "Bot token from @BotFather"; password: true; value <=> telegram_token; }
+            Button { text: "Connect Telegram"; enabled: !busy; clicked => { root.connect_telegram(); } }
+        }
+        Button {
+            visible: telegram_configured;
+            text: "Disconnect phone";
+            enabled: !busy;
+            clicked => { root.disconnect_telegram(); }
+        }
+    }
+
+    // Memory and files.
+    VerticalBox {
+        spacing: 8px;
+        SectionTitle { label: "Memory and files"; }
+        CheckBox { text: "Learn about me from conversations"; checked <=> auto_memory; }
+        CheckBox {
+            visible: neural_available;
+            text: "Understand meaning when searching memory";
+            checked <=> neural_memory;
+        }
+        LabeledInput { label: "Working folder"; value <=> workspace; }
+        Text { text: "Conversations, memory and settings are stored in " + home + "."; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+        HorizontalBox {
+            spacing: 8px;
+            Button { text: "Save a copy of my data"; enabled: !busy; clicked => { root.make_backup(); } }
+            Text {
+                visible: backup_message != "";
+                text: backup_message;
+                color: Theme.ok;
+                font-weight: 600;
+            }
+        }
+        Text {
+            text: "A copy holds your conversations, memory, tasks, reminders, automations and activity log. Heron also saves one by itself before it upgrades your data. To go back to a copy, close Heron and run heron restore with the file’s name.";
+            font-size: 13px;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+    }
+
+    // Save.
+    HorizontalBox {
+        spacing: 10px;
+        Button { text: "Save settings"; enabled: !busy; clicked => { root.save_settings(); } }
+        Text {
+            visible: saved_message != "";
+            text: saved_message;
+            color: Theme.ok;
+            font-weight: 600;
+        }
+        Text {
+            visible: error_message != "";
+            text: error_message;
+            color: Theme.danger;
+            wrap: word-wrap;
+        }
+    }
+}
