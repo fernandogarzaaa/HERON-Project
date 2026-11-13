@@ -266,6 +266,7 @@ Platform verification: every push runs the test suite and builds the desktop app
 - Calendar: repeating events are moved to their next occurrence for daily, weekly, monthly and yearly rules; multi-day patterns such as "every Tue and Thu" are approximated from the first occurrence, and other time zones are read as local time.
 - Facts learned from email, calendar and documents come from content other people wrote. They are stored with lower importance than what you say directly and the extraction prompt treats the content as data, but a deliberately misleading email could still plant a wrong fact; review Memory from time to time.
 - Proactive suggestions, "take over", reflection and learning need a real model and spend tokens; they are all off until you turn them on.
+- Real-model testing so far is narrow: one free reasoning model through OpenRouter, on a handful of tasks (creating and reading files, remembering something and recalling it in a later conversation, setting reminders, summarising a page that carried a hidden instruction, and approving a change in the app). Other providers, long conversations, the background features above and unattended jobs have not been run against a real model.
 
 - Web search uses DuckDuckGo's HTML page, which can change or rate-limit.
 - On Linux, saved keys are protected by file permissions only (no desktop keyring integration yet).

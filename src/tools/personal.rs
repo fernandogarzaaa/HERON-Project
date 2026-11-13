@@ -288,7 +288,7 @@ pub fn tools() -> Vec<FnTool> {
         },
         FnTool {
             name: "schedule_add",
-            description: "Schedule a reminder or a recurring job. At the scheduled time, `prompt` is given to you as a new task and the result is delivered to the user's inbox. `when` accepts a time ('in 30m', 'tomorrow 9:00', 'daily 08:00', 'every 2h', '2026-12-01 14:00', or a 5-field cron expression) or an event ('when notes/*.md changes', 'when a file changes in Drafts', 'when an email arrives from Maria'). For standing watches ('keep an eye on...') set only_if_needed so the user hears from you only when something needs them. Write `prompt` so it is fully self-contained.",
+            description: "Schedule a reminder or a recurring job. At the scheduled time, `prompt` is given to you as a new task and the result is delivered to the user's inbox. `when` accepts a time ('in 30m', 'tomorrow 9:00', 'daily 08:00', 'weekdays 9:00', 'every monday at 8am', 'every 2h', '2026-12-01 14:00', or a 5-field cron expression) or an event ('when notes/*.md changes', 'when a file changes in Drafts', 'when an email arrives from Maria'). For standing watches ('keep an eye on...') set only_if_needed so the user hears from you only when something needs them. Write `prompt` so it is fully self-contained.",
             parameters: schema(json!({"when": {"type": "string"}, "prompt": {"type": "string"}, "name": {"type": "string"}, "only_if_needed": {"type": "boolean", "description": "Stay silent when there is nothing worth the user's attention"}}), &["when", "prompt"]),
             summary: |a| format!("{} — {}", field("when")(a), field("prompt")(a)),
             risk: lasting,

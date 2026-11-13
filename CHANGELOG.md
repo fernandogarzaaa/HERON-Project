@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+Found by the first runs against a real AI model (a free reasoning model through OpenRouter):
+
+- Models that think before answering no longer come back empty: every request leaves room for the thinking as well as the answer, and a reply that is all thinking is reported as such instead of being retried.
+- When nobody is present to approve a change, Heron now tells the model the real reason (outside content is in the conversation, or the action is risky), so the advice it passes on is right. It used to suggest switching mode, which would not have helped.
+- Reminders understand days of the week: "weekdays 9:00", "every weekday at 9am", "every Friday at 4pm", "weekends 10:00".
+- Setting a reminder no longer also saves a memory saying that a reminder was set.
+- Releases no longer include the interface file as a download.
+
 ## 0.1.0 — first beta
 
 The first public beta of Heron, a personal AI agent that runs on your own computer.
@@ -39,7 +49,7 @@ The first public beta of Heron, a personal AI agent that runs on your own comput
 
 **Known limits of this beta**
 
-- Not yet tested with real users. It has been exercised with automated tests and stand-ins for model, mail, calendar and Telegram services.
+- Not yet tested with real users. It was built and tested with automated tests and stand-ins for model, mail, calendar and Telegram services; the first runs against a real model came after this release (see Unreleased).
 - The apps are not code-signed, so macOS and Windows show a warning on first launch.
 - No command sandbox on Windows; no voice, mobile app, email sending or calendar writing. Browser control reads pages as text, without screenshots.
 - Outlook.com and Microsoft 365 mail cannot be connected.

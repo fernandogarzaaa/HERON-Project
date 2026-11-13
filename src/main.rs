@@ -130,7 +130,14 @@ struct TerminalApprover;
 impl Approver for TerminalApprover {
     async fn approve(&self, req: &ApprovalRequest) -> Approval {
         if !std::io::stdin().is_terminal() {
-            return Approval::Deny(Some("not running interactively, so nobody can approve this. Re-run with --mode auto to allow file edits and commands".into()));
+            // Say the real reason, so the model passes on advice that will actually work.
+            return Approval::Deny(Some(if req.tainted {
+                "this conversation now contains content from outside (a web page, an email or a connected app), so changes need the user's own approval, and nobody is at the keyboard to give it. This is the same in every mode. Tell the user what you would have done and that they can approve it by asking again in `heron chat` or the Heron app".into()
+            } else if req.risk >= Risk::Danger {
+                "this is a risky action that always needs the user's own approval, and nobody is at the keyboard to give it. Tell the user they can approve it by asking again in `heron chat` or the Heron app".into()
+            } else {
+                "not running interactively, so nobody can approve this. Re-run with --mode auto to allow file edits and commands".into()
+            }));
         }
         let st = style();
         let req = req.clone();
