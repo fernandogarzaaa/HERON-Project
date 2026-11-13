@@ -1,6 +1,6 @@
 [package]
 name = "heron"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Heron — a local-first, private, proactive personal AI agent"
 license = "Apache-2.0"

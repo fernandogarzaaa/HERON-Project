@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.2.0 — 2026-11-13
+
+Subscription CLIs instead of an API key:
+
+- Heron can now use the AI CLIs you already pay for (Claude Code, Codex, OpenCode, Cursor, Grok, Gemini, Cline, Copilot, Qwen, Antigravity and more) instead of needing an API key. Set the provider in Settings or with `HERON_PROVIDER`, log in with the CLI itself, and Heron uses your subscription.
+- Heron never sees or stores the CLI's login. The CLI runs with its own tools switched off, in a private temporary folder, and Heron keeps its own approvals, permissions and audit.
+- `heron providers` lists which CLIs are installed and logged in; `heron doctor` checks the one you picked.
+
 Permission system (behaviour changes):
 
 - Every tool call is now classified as one of ten effects (reads, changes to Heron's own notes, file changes, secret reads, running programs, reading the web, sending something out, changing something elsewhere, destructive, forbidden) and decided in one place.
