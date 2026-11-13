@@ -42,12 +42,12 @@ Heron reads and writes files, runs commands, searches and reads the web, keeps l
 
 ## Install
 
-Heron v0.1.0 is a beta. Download from the [releases page](https://github.com/fernandogarzaaa/HERON-Project/releases), or use the one-line installer for your system. The installers check the download against the published checksums before installing anything.
+Heron v0.3.0 is a beta. Download from the [releases page](https://github.com/fernandogarzaaa/HERON-Project/releases), or use the one-line installer for your system. The installers check the download against the published checksums before installing anything.
 
 **macOS** (Apple silicon and Intel, macOS 11 or later)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.1.0/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.0/scripts/install.sh | sh
 ```
 
 Or download `Heron-macos-universal.dmg`, open it, and drag Heron onto Applications.
@@ -55,28 +55,28 @@ Or download `Heron-macos-universal.dmg`, open it, and drag Heron onto Applicatio
 **Windows** (10 or 11, 64-bit)
 
 ```powershell
-irm https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.1.0/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.0/scripts/install.ps1 | iex
 ```
 
 Or download `Heron-Setup-windows-x64.exe` and run it (no administrator rights needed), or unzip `Heron-windows-x64.zip` anywhere and open `Heron.exe`.
 
-**Linux** (64-bit, needs WebKitGTK 4.1)
+**Linux** (x86_64, requires fontconfig and OpenGL runtime libraries)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.1.0/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.0/scripts/install.sh | sh
 ```
 
 Then open Heron. The first launch walks you through getting set up: choose an AI model (or try the built-in demo, which needs no key), tell Heron about yourself, and connect what you like.
 
 Notes for this beta:
-- The apps are not code-signed. If you downloaded the macOS disk image in a browser, the first launch needs right-click → Open. Windows SmartScreen shows "More info → Run anyway". The one-line installers avoid the macOS prompt.
-- Windows needs the WebView2 runtime, which is part of Windows 11 and current Windows 10.
+- The macOS beta has an ad-hoc signature, not Apple Developer ID notarization. macOS may require right-click → Open on first launch. Windows binaries are unsigned and SmartScreen may require More info → Run anyway.
+- The native Slint desktop does not require the WebView2 runtime.
 - Your data lives in the `.heron` folder in your home folder. Uninstalling Heron leaves it in place.
 - To remove Heron: drag it out of Applications (macOS), use "Add or remove programs" or delete `%LOCALAPPDATA%\Programs\Heron` (Windows), or run `~/.local/share/heron/install.sh --uninstall` (Linux).
 
 ### Build from source
 
-Needs [Rust](https://rustup.rs). On Linux also `libwebkit2gtk-4.1-dev` and `libgtk-3-dev`.
+Needs [Rust](https://rustup.rs). On Linux install the fontconfig, X11/XCB, xkbcommon, OpenGL development and SSL libraries listed in [Slint packaging notes](packaging/slint-packaging-notes.md); WebKitGTK is not required.
 
 ```bash
 ./packaging/macos/build-app.sh
@@ -245,8 +245,9 @@ src/
   server.rs       local HTTP API + UI (loopback only, per-launch token)
   ambient.rs      background observer: activity journal and derived awareness
   app.rs          wiring, settings, scheduler, observer and reflection loops
-  main.rs         CLI          bin/desktop.rs   native window (WebView2 / WKWebView / WebKitGTK)
-assets/index.html the interface (single file, no external requests)
+  main.rs         command-line application
+  bin/desktop/    native Slint window, chat, sidebar, setup and views
+assets/index.html legacy web interface (not embedded in native desktop)
 ```
 
 ## Development
@@ -263,7 +264,7 @@ cargo run --example mock_llm -- 8089
 HERON_BASE_URL=http://127.0.0.1:8089/v1 HERON_API_KEY=x HERON_HOME=/tmp/heron-dev cargo run --features desktop --bin heron-desktop
 ```
 
-The mock server is a tiny OpenAI-compatible endpoint that drives real tool calls, for working on the app without a model account. On Linux the desktop feature needs `libwebkit2gtk-4.1-dev` and `libgtk-3-dev`.
+The mock server is a tiny OpenAI-compatible endpoint that drives real tool calls, for working on the app without a model account. Linux desktop builds need the Slint libraries documented in [packaging/slint-packaging-notes.md](packaging/slint-packaging-notes.md).
 
 ## Measured, not claimed
 
