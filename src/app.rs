@@ -26,6 +26,8 @@ pub struct App {
     /// Servers whose tool definitions changed: name -> new fingerprint awaiting the user's acceptance.
     pub mcp_pending: std::collections::BTreeMap<String, String>,
     pub usage: Arc<Mutex<Usage>>,
+    /// The phone gateway, while it is running.
+    pub telegram_task: Mutex<Option<tokio::task::AbortHandle>>,
 }
 
 const RULES_KEY: &str = "allow_rules";
@@ -77,7 +79,7 @@ impl App {
                 policy.add_allow(&r);
             }
         }
-        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy: Arc::new(policy), workspace, mcp_status, mcp_pending, usage: Default::default() })
+        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy: Arc::new(policy), workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default() })
     }
 
     pub fn cfg(&self) -> Arc<Config> {
@@ -110,6 +112,7 @@ impl App {
             workspace: self.workspace.clone(),
             usage: self.usage.clone(),
             depth: 0,
+            token_limit: None,
         }
     }
 
@@ -217,6 +220,9 @@ impl App {
             }
             let mut ctx = agent.tool_ctx(&session.id);
             ctx.tainted = session.tainted.clone();
+            // Addresses written into the automation are the user's own choice of destination.
+            session.seen_urls.note(&job.workflow);
+            ctx.seen_urls = session.seen_urls.clone();
             let host = JobHost { app: self, agent: &agent, ctx, session: tokio::sync::Mutex::new(session), extra_tokens: Default::default() };
             let record = crate::workflow::run(&host, &workflow, event.as_deref()).await;
             let extra = *host.extra_tokens.lock().unwrap();
@@ -498,7 +504,9 @@ impl App {
             }
             let id = self.store.add_suggestion(&preview(title, 80), it["why"].as_str().unwrap_or(""), task)?;
             ids.push(id);
-            if level != "suggest" {
+            // The allowance is checked again before every piece of work, not once for the whole pass:
+            // the first job may have used it up. What is not done stays as a suggestion.
+            if level != "suggest" && self.background_budget_left() {
                 self.act_on_suggestion(id, level == "takeover").await;
             }
         }
@@ -516,6 +524,13 @@ impl App {
         agent.policy = Arc::new(policy);
         agent.usage = Default::default(); // metered separately, against the daily background budget
         let spent = agent.usage.clone();
+        // Work nobody asked for gets a short leash: fewer steps than a conversation, and it stops when
+        // what is left of today's allowance is used, however far along it is.
+        let (used_today, per_day) = self.background_budget();
+        let mut limits = (*agent.cfg).clone();
+        limits.agent.max_steps = limits.agent.max_steps.min(SELF_STARTED_STEPS);
+        agent.cfg = Arc::new(limits);
+        agent.token_limit = (per_day > 0).then(|| per_day.saturating_sub(used_today).max(1));
         let brief = if takeover {
             format!("[You are acting on your own initiative; the user is not present and nobody can approve anything. Do the work below within what you are allowed to do, then report exactly what you did and what you left for the user.]\n\n{}", s.prompt)
         } else {
@@ -552,6 +567,9 @@ impl App {
     }
 }
 
+/// Most steps a run Heron started on its own may take.
+const SELF_STARTED_STEPS: usize = 15;
+
 /// Connects an automation's steps to the real tools and model.
 struct JobHost<'a> {
     app: &'a App,
@@ -585,6 +603,16 @@ impl crate::workflow::Host for JobHost<'_> {
 }
 
 /// Best-effort desktop notification. Uses `notify_command` if configured, else the OS default where one exists.
+/// Wait for a helper process off to the side. A finished process that nobody waits for stays in the
+/// process table until Heron exits, and a long-running Heron would slowly fill it.
+fn reap(child: std::io::Result<std::process::Child>) {
+    if let Ok(mut child) = child {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
+}
+
 fn notify(cfg: &Config, title: &str, body: &str) {
     let message = format!("{title}: {}", preview(body, 180));
     if !cfg.agent.notify_command.is_empty() {
@@ -600,15 +628,17 @@ fn notify(cfg: &Config, title: &str, body: &str) {
             c.arg("-c").arg(&cfg.agent.notify_command);
             c
         };
-        let _ = c.env("HERON_MESSAGE", &message).env("HERON_TITLE", title).spawn();
+        reap(c.env("HERON_MESSAGE", &message).env("HERON_TITLE", title).spawn());
         return;
     }
     #[cfg(target_os = "macos")]
     {
         // Arguments are passed via argv, not interpolated into the script, so job output cannot inject AppleScript.
-        let _ = std::process::Command::new("osascript")
-            .args(["-e", "on run argv", "-e", "display notification (item 1 of argv) with title \"Heron\" subtitle (item 2 of argv)", "-e", "end run", &preview(body, 180), title])
-            .spawn();
+        reap(
+            std::process::Command::new("osascript")
+                .args(["-e", "on run argv", "-e", "display notification (item 1 of argv) with title \"Heron\" subtitle (item 2 of argv)", "-e", "end run", &preview(body, 180), title])
+                .spawn(),
+        );
     }
     let _ = message;
 }

@@ -26,6 +26,51 @@ pub struct ToolCtx {
     pub cfg: Arc<Config>,
     /// Set once content from outside the user's control has entered the conversation.
     pub tainted: Arc<std::sync::atomic::AtomicBool>,
+    /// Web addresses that were in the conversation before the model asked for them.
+    pub seen_urls: SeenUrls,
+}
+
+/// The web addresses that have appeared in a conversation: typed by the user, or returned by a tool.
+///
+/// After outside content has been read, a hidden instruction can try to make the agent "fetch" an address
+/// it has built out of the user's private data, which hands that data to whoever runs the site. An
+/// address that was already in the conversation, exactly, cannot have been built that way, so those may
+/// still be fetched freely; any other address needs the user's approval first.
+#[derive(Clone, Default)]
+pub struct SeenUrls(Arc<std::sync::Mutex<std::collections::HashSet<String>>>);
+
+impl SeenUrls {
+    const MAX: usize = 20_000;
+
+    fn key(raw: &str) -> Option<String> {
+        let mut url = url::Url::parse(raw.trim()).ok()?;
+        url.set_fragment(None);
+        Some(url.to_string())
+    }
+
+    /// Record every address found in a piece of text.
+    pub fn note(&self, text: &str) {
+        static FIND: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let find = FIND.get_or_init(|| regex::Regex::new(r#"https?://[^\s"'<>\\`\[\]{}|^]+"#).unwrap());
+        let mut seen = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        for m in find.find_iter(text) {
+            if seen.len() >= Self::MAX {
+                return;
+            }
+            // Addresses in prose usually drag a full stop or bracket along; keep both readings.
+            let raw = m.as_str();
+            let trimmed = raw.trim_end_matches(['.', ',', ';', ':', '!', '?', ')', '\'', '"', '*', '_']);
+            for candidate in [raw, trimmed] {
+                if let Some(k) = Self::key(candidate) {
+                    seen.insert(k);
+                }
+            }
+        }
+    }
+
+    pub fn contains(&self, raw: &str) -> bool {
+        Self::key(raw).map(|k| self.0.lock().unwrap_or_else(|e| e.into_inner()).contains(&k)).unwrap_or(false)
+    }
 }
 
 #[async_trait]
@@ -169,4 +214,22 @@ pub fn opt_bool(args: &Value, key: &str) -> bool {
 
 pub fn schema(props: Value, required: &[&str]) -> Value {
     json!({"type": "object", "properties": props, "required": required, "additionalProperties": false})
+}
+
+#[cfg(test)]
+mod seen_url_tests {
+    use super::SeenUrls;
+
+    #[test]
+    fn only_addresses_that_were_in_the_conversation_count_as_seen() {
+        let seen = SeenUrls::default();
+        seen.note("Results:\n1. Rust https://www.rust-lang.org/learn\n2. See (https://example.com/a?b=1). Also <a href=\"https://docs.rs/tokio\">tokio</a>");
+        for known in ["https://www.rust-lang.org/learn", "https://example.com/a?b=1", "https://docs.rs/tokio", "https://docs.rs/tokio#section", " https://www.rust-lang.org/learn "] {
+            assert!(seen.contains(known), "{known}");
+        }
+        // The same site with anything added is a different address: that is where data would be carried.
+        for made_up in ["https://www.rust-lang.org/learn?note=secret", "https://www.rust-lang.org/learn/secret", "https://secret.rust-lang.org/learn", "https://example.com/a?b=1&c=secret", "not a url"] {
+            assert!(!seen.contains(made_up), "{made_up}");
+        }
+    }
 }

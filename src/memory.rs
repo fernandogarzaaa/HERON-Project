@@ -15,7 +15,7 @@ const LOCAL_DIM: usize = 384;
 /// Above this cosine similarity a new memory is treated as an update of an existing one.
 const DEDUPE_THRESHOLD: f32 = 0.88;
 /// Facts from these sources were written by other people or inferred, not stated by the user.
-pub const OUTSIDE_SOURCES: &[&str] = &["email", "calendar", "documents", "observed", "computer"];
+pub const OUTSIDE_SOURCES: &[&str] = &["email", "calendar", "documents", "observed", "computer", "outside"];
 
 #[derive(Clone)]
 pub struct Memory {
@@ -150,6 +150,22 @@ impl Memory {
         (local_embed(text), crate::embed::HASH_TAG)
     }
 
+    /// Stored vectors made by `embedder`. One of a different size than today's (`dims`) was made by an
+    /// earlier model under the same name, for example after the embedding model was changed in
+    /// Settings. It cannot be compared with anything, so it is left out and queued for re-indexing.
+    fn vectors(&self, embedder: &str, dims: usize) -> Result<Vec<(i64, Vec<f32>)>> {
+        let mut out = vec![];
+        for (id, blob) in self.store.memory_embeddings(embedder)? {
+            let v = from_blob(&blob);
+            if v.len() == dims {
+                out.push((id, v));
+            } else {
+                let _ = self.store.mark_embedding_stale(id);
+            }
+        }
+        Ok(out)
+    }
+
     /// Bring older memories into the current embedder's space, a few at a time. Until a memory is
     /// re-indexed it is still found by keyword. Returns how many were updated.
     pub async fn reindex(&self, limit: usize) -> Result<usize> {
@@ -182,8 +198,8 @@ impl Memory {
         // Meaning-based vectors put paraphrases close together, so "same fact" needs a stricter bar there.
         let threshold = if embedder == crate::embed::HASH_TAG { DEDUPE_THRESHOLD } else { 0.93 };
         let mut best: Option<(i64, f32)> = None;
-        for (id, blob) in self.store.memory_embeddings(embedder)? {
-            let sim = cosine(&emb, &from_blob(&blob));
+        for (id, stored) in self.vectors(embedder, emb.len())? {
+            let sim = cosine(&emb, &stored);
             if sim >= threshold && best.map(|b| sim > b.1).unwrap_or(true) {
                 best = Some((id, sim));
             }
@@ -228,10 +244,9 @@ impl Memory {
         // Unrelated sentences score near zero with hashed vectors but around 0.1-0.2 with a neural model.
         let floor = if embedder == crate::embed::HASH_TAG { 0.12 } else { 0.25 };
         let mut sims: Vec<(i64, f32)> = self
-            .store
-            .memory_embeddings(embedder)?
+            .vectors(embedder, q.len())?
             .into_iter()
-            .map(|(id, blob)| (id, cosine(&q, &from_blob(&blob))))
+            .map(|(id, stored)| (id, cosine(&q, &stored)))
             .filter(|(_, s)| *s > floor)
             .collect();
         sims.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -270,10 +285,9 @@ impl Memory {
 
     /// Memories that should always be in context: who the user is and how they like things done.
     pub fn core(&self, limit: usize) -> Result<Vec<MemoryItem>> {
-        let mut v = self.store.list_memories(Some("profile"), limit)?;
-        v.extend(self.store.list_memories(Some("preference"), limit)?);
-        v.extend(self.store.list_memories(Some("workflow"), limit)?);
-        v.retain(|m| m.confirmed); // unconfirmed facts never become part of who the user "is"
+        // Unconfirmed facts never become part of who the user "is". They are left out before counting,
+        // so a pile of them cannot crowd the user's own facts out of the result.
+        let mut v = self.store.list_confirmed_memories(&["profile", "preference", "workflow"], limit)?;
         v.truncate(limit);
         Ok(v)
     }

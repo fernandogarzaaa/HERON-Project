@@ -265,7 +265,7 @@ async fn mcp_client_talks_to_a_real_server_and_detects_changed_tools() {
     let store = Store::in_memory().unwrap();
     let mut cfg = Config::default();
     cfg.home = dir.path().join("client-home");
-    let ctx = ToolCtx { workspace: dir.path().to_path_buf(), memory: heron::memory::Memory::new(store.clone(), None), store, session_id: "t".into(), cfg: Arc::new(cfg), tainted: Default::default() };
+    let ctx = ToolCtx { workspace: dir.path().to_path_buf(), memory: heron::memory::Memory::new(store.clone(), None), store, session_id: "t".into(), cfg: Arc::new(cfg), tainted: Default::default(), seen_urls: Default::default() };
     let remember = registry.get("mcp__other-heron__remember").unwrap();
     assert_eq!(remember.risk(&json!({}), &ctx), heron::permissions::Risk::Exec, "an unknown app's tool needs approval");
     assert!(remember.untrusted_output());
@@ -313,7 +313,7 @@ async fn telegram_gateway_pairs_one_chat_ignores_strangers_and_asks_before_actin
     cfg.home = dir.path().join("home");
     cfg.agent.auto_memory = false;
     cfg.agent.ambient_context = false;
-    let llm = Arc::new(ScriptedLlm::new(vec![ScriptedLlm::tool_call("write_file", json!({"path": "phone.txt", "content": "from my phone"})), Message::assistant("Saved it.")]));
+    let llm = Arc::new(ScriptedLlm::new(vec![ScriptedLlm::tool_call("write_file", json!({"path": "phone.txt", "content": "from my phone"})), Message::assistant("Saved it."), ScriptedLlm::tool_call("write_file", json!({"path": "second.txt", "content": "never written"})), Message::assistant("This reply must never be sent.")]));
     let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap());
     let code = heron::telegram::pairing_code(&app);
     tokio::spawn(heron::telegram::run(app.clone(), base, "TESTTOKEN".into()));
@@ -360,6 +360,16 @@ async fn telegram_gateway_pairs_one_chat_ignores_strangers_and_asks_before_actin
     // Results of scheduled work are forwarded to the phone.
     app.store.add_inbox("Morning briefing", "Two tasks due today.").unwrap();
     wait_for("forwarded inbox item", Box::new(|s| s.iter().any(|(_, t)| t.contains("Morning briefing") && t.contains("Two tasks")))).await;
+
+    // "/stop" while Heron is waiting for a yes or no halts the whole reply; it is not just a "no".
+    say(42, "save another note", "private");
+    wait_for("second permission question", Box::new(|s| s.iter().filter(|(_, t)| t.contains("Reply yes or no")).count() == 2)).await;
+    say(42, "/stop", "private");
+    wait_for("stop confirmation", Box::new(|s| s.iter().any(|(_, t)| t == "Stopped."))).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!app.workspace.join("second.txt").exists());
+    assert_eq!(llm.requests.lock().unwrap().len(), 3, "the stopped reply made no further request to the model");
+    assert!(!mock.sent.lock().unwrap().iter().any(|(_, t)| t.contains("must never be sent")));
 }
 
 /// The interface is one HTML file with inline script; a syntax error there breaks the whole app silently.

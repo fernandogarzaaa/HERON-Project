@@ -24,6 +24,17 @@ The first public beta of Heron, a personal AI agent that runs on your own comput
 - Automations: recurring jobs made of fixed steps (tool, ask, agent, if, for_each, set, notify, stop) that run without the AI model unless a step needs it, with templates, per-step retry, a step-by-step run record and "Run now". Heron builds them on request and you approve the outline.
 - Optional neural memory search (build feature `neural`): finds facts by meaning, fused with the typo-tolerant built-in method. In the built-in test the right fact is in the top three for 33 of 34 questions (30 of 34 without it), and ranked first for 31 (28 without it).
 - Memory takes a fixed share of the prompt however large it grows; sub-agents get a smaller step allowance; a provider's Retry-After is respected; model calls can be recorded and replayed for tests.
+- Hardening from code review before release:
+  - After outside content is read, fetching any web address that was not already in the conversation needs approval (not only addresses with a query), as do connected apps' tools and scheduling a job; this now applies in read-only mode too. Facts saved in such a conversation are unconfirmed, and automatic learning uses only your own words.
+  - Web requests refuse internal addresses at the moment of connecting, which closes DNS rebinding and redirects to internal names; NAT64, 6to4 and other IPv4-in-IPv6 addresses are recognised.
+  - "Read-only" commands are checked by their arguments as well as their name (`sort -o`, `rg --pre`, `git branch NAME`, `/proc/.../environ`, variables that may hold secrets), and a standing "always allow" for one command no longer covers anything chained after it. "Always" is not offered for risky actions.
+  - Command output is capped while it is read, so a command that prints without end cannot exhaust memory.
+  - Telegram pairing uses a longer code, locks after five wrong guesses until you look at the new code in the app, and `/stop` halts a reply that is waiting on a yes or no. Reconnecting or replacing the bot token restarts the single gateway.
+  - The fallback secrets file is written atomically, never overwritten when damaged, and saves are serialised; a failed removal from the credential store is reported.
+  - The model client reads non-streamed replies, bounds line length and tool-call positions, rejects replies cut off before their end, and no longer switches to a fallback model after part of a reply has been shown.
+  - Work Heron starts on its own re-checks the daily allowance before each piece, stops when it is used up, and takes fewer steps.
+  - Calendar repeats keep their local time across clock changes and honour COUNT and EXDATE; cron times in the repeated autumn hour are always in the future.
+  - Smaller fixes: MCP tool fingerprints use SHA-256; `heron chat --continue` skips empty conversations; links open in the browser on Windows; installers replace running files safely and keep the Windows uninstaller.
 
 **Known limits of this beta**
 

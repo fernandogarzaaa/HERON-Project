@@ -289,6 +289,10 @@ pub fn body_text(content_type: &str, encoding: &str, body: &[u8]) -> String {
             let decoded = decode_part(&ct, &header_value(head, "Content-Transfer-Encoding"), content.as_bytes());
             let plain = !lower.contains("html");
             // Prefer the plain-text alternative over HTML.
+            // (An empty part is no alternative at all: some senders include a blank text/plain next to the real HTML.)
+            if decoded.trim().is_empty() {
+                continue;
+            }
             if best.as_ref().map(|(was_plain, _)| plain && !was_plain).unwrap_or(true) {
                 best = Some((plain, decoded));
             }

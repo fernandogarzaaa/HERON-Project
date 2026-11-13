@@ -13,6 +13,13 @@ fn safe(_: &Value, _: &ToolCtx) -> Risk {
     Risk::Safe
 }
 
+/// Harmless in itself, but it outlives the conversation: a job scheduled now runs later, on its own,
+/// with nothing to show it was asked for by a web page or an email rather than the user. So once
+/// outside content is in the conversation, the user is asked first.
+fn lasting(_: &Value, ctx: &ToolCtx) -> Risk {
+    if ctx.tainted.load(std::sync::atomic::Ordering::SeqCst) { Risk::Write } else { Risk::Safe }
+}
+
 fn field(key: &'static str) -> impl Fn(&Value) -> String {
     move |a| a.get(key).map(|v| v.as_str().map(|s| s.to_string()).unwrap_or_else(|| v.to_string())).unwrap_or_default()
 }
@@ -24,7 +31,10 @@ async fn remember(args: &Value, ctx: &ToolCtx) -> Result<String> {
     }
     let kind = opt_str(args, "kind").unwrap_or("fact");
     let replaces = opt_i64(args, "replaces");
-    let out = ctx.memory.save_replacing(content, kind, opt_str(args, "tags").unwrap_or(""), opt_f64(args, "importance").unwrap_or(0.6), "agent", replaces).await?;
+    // A fact saved after outside content was read may have come from that content, so it is kept as
+    // unconfirmed: usable when relevant, never part of what Heron takes as settled about the user.
+    let source = if ctx.tainted.load(std::sync::atomic::Ordering::SeqCst) { "outside" } else { "agent" };
+    let out = ctx.memory.save_replacing(content, kind, opt_str(args, "tags").unwrap_or(""), opt_f64(args, "importance").unwrap_or(0.6), source, replaces).await?;
     Ok(match out {
         SaveOutcome::Created(id) => format!("remembered (memory #{id})"),
         SaveOutcome::Updated(id) if replaces.is_some() => format!("remembered as memory #{id}; the earlier version is kept as history and no longer used"),
@@ -281,7 +291,7 @@ pub fn tools() -> Vec<FnTool> {
             description: "Schedule a reminder or a recurring job. At the scheduled time, `prompt` is given to you as a new task and the result is delivered to the user's inbox. `when` accepts a time ('in 30m', 'tomorrow 9:00', 'daily 08:00', 'every 2h', '2026-12-01 14:00', or a 5-field cron expression) or an event ('when notes/*.md changes', 'when a file changes in Drafts', 'when an email arrives from Maria'). For standing watches ('keep an eye on...') set only_if_needed so the user hears from you only when something needs them. Write `prompt` so it is fully self-contained.",
             parameters: schema(json!({"when": {"type": "string"}, "prompt": {"type": "string"}, "name": {"type": "string"}, "only_if_needed": {"type": "boolean", "description": "Stay silent when there is nothing worth the user's attention"}}), &["when", "prompt"]),
             summary: |a| format!("{} — {}", field("when")(a), field("prompt")(a)),
-            risk: safe,
+            risk: lasting,
             detail: None,
             untrusted: false,
             run: |a, c| Box::pin(schedule_add(a, c)),

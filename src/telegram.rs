@@ -45,7 +45,17 @@ impl Bot {
 struct Shared {
     /// A question waiting for the owner's yes/no.
     pending: Mutex<Option<oneshot::Sender<bool>>>,
-    running: Mutex<Option<tokio::task::AbortHandle>>,
+    /// The reply in progress, with a number so a finished reply can only clear its own entry.
+    running: Mutex<Option<(u64, tokio::task::AbortHandle)>>,
+    next_run: std::sync::atomic::AtomicU64,
+}
+
+impl Shared {
+    /// Halt the reply in progress, including a question it is waiting on. True if there was one.
+    fn stop(&self) -> bool {
+        self.pending.lock().unwrap().take();
+        self.running.lock().unwrap().take().map(|(_, h)| h.abort()).is_some()
+    }
 }
 
 struct TelegramApprover {
@@ -75,14 +85,57 @@ impl Approver for TelegramApprover {
     }
 }
 
-/// The six-digit code a new chat must send to become the owner's chat. Created on first use.
+/// Wrong codes allowed before pairing locks and the code is replaced.
+const MAX_WRONG_CODES: i64 = 5;
+
+fn new_code() -> String {
+    // Letters and digits that cannot be mistaken for one another; about 8.5e11 possibilities.
+    const ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    let random = uuid::Uuid::new_v4();
+    random.as_bytes().iter().take(8).map(|b| ALPHABET[*b as usize % ALPHABET.len()] as char).collect()
+}
+
+fn same_code(sent: &str, code: &str) -> bool {
+    let tidy = |s: &str| s.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_uppercase()).collect::<String>();
+    !code.is_empty() && tidy(sent) == tidy(code)
+}
+
+/// The code a new chat must send to become the owner's chat. Created on first use.
 pub fn pairing_code(app: &App) -> String {
-    if let Some(code) = app.store.kv_get("telegram_code") {
+    if let Some(code) = app.store.kv_get("telegram_code").filter(|c| !c.is_empty()) {
         return code;
     }
-    let code = format!("{:06}", uuid::Uuid::new_v4().as_u128() % 1_000_000);
+    let code = new_code();
     let _ = app.store.kv_set("telegram_code", &code);
     code
+}
+
+/// The code, for showing in the app. Looking at it there is what re-opens pairing after too many
+/// wrong guesses: only someone at the computer can do that.
+pub fn show_pairing_code(app: &App) -> String {
+    if pairing_locked(app) {
+        let _ = app.store.kv_set("telegram_locked", "");
+        let _ = app.store.kv_set("telegram_wrong", "0");
+    }
+    pairing_code(app)
+}
+
+pub fn pairing_locked(app: &App) -> bool {
+    app.store.kv_get("telegram_locked").map(|v| v == "1").unwrap_or(false)
+}
+
+/// A chat sent something that was not the code. Anyone can find a bot and guess, so guesses are
+/// counted: after a few, the code is replaced and no more are accepted until the owner looks at the
+/// new one in the app. Returns true when this guess caused the lock.
+fn wrong_code(app: &App) -> bool {
+    let wrong = app.store.kv_get("telegram_wrong").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) + 1;
+    let _ = app.store.kv_set("telegram_wrong", &wrong.to_string());
+    if wrong < MAX_WRONG_CODES {
+        return false;
+    }
+    let _ = app.store.kv_set("telegram_code", &new_code());
+    let _ = app.store.kv_set("telegram_locked", "1");
+    true
 }
 
 pub fn paired_chat(app: &App) -> Option<i64> {
@@ -91,7 +144,9 @@ pub fn paired_chat(app: &App) -> Option<i64> {
 
 pub fn unpair(app: &App) {
     let _ = app.store.kv_set("telegram_chat", "");
-    let _ = app.store.kv_set("telegram_code", &format!("{:06}", uuid::Uuid::new_v4().as_u128() % 1_000_000));
+    let _ = app.store.kv_set("telegram_code", &new_code());
+    let _ = app.store.kv_set("telegram_wrong", "0");
+    let _ = app.store.kv_set("telegram_locked", "");
 }
 
 fn session_for(app: &App, fresh: bool) -> Result<Session> {
@@ -107,28 +162,28 @@ fn session_for(app: &App, fresh: bool) -> Result<Session> {
 
 async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i64, text: String) {
     let lower = text.trim().to_lowercase();
+    // Stopping comes first: "/stop" while a question is waiting must halt the whole reply, not merely
+    // answer the question with "no" and let the work carry on.
+    if lower == "/stop" {
+        let stopped = shared.stop();
+        bot.send(chat, if stopped { "Stopped." } else { "Nothing is running." }).await;
+        return;
+    }
+    if lower == "/pause" {
+        app.set_paused(true);
+        shared.stop();
+        bot.send(chat, "Paused. Heron will start nothing on its own (reminders, triggers, suggestions) until you send /resume.").await;
+        return;
+    }
     // A pending yes/no question takes the next message.
     if let Some(tx) = shared.pending.lock().unwrap().take() {
         let _ = tx.send(matches!(lower.as_str(), "yes" | "y" | "ok" | "allow"));
         return;
     }
     match lower.as_str() {
-        "/stop" => {
-            let stopped = shared.running.lock().unwrap().take().map(|h| h.abort()).is_some();
-            bot.send(chat, if stopped { "Stopped." } else { "Nothing is running." }).await;
-            return;
-        }
         "/new" => {
             let _ = session_for(app, true);
             bot.send(chat, "Started a new conversation.").await;
-            return;
-        }
-        "/pause" => {
-            app.set_paused(true);
-            if let Some(h) = shared.running.lock().unwrap().take() {
-                h.abort();
-            }
-            bot.send(chat, "Paused. Heron will start nothing on its own (reminders, triggers, suggestions) until you send /resume.").await;
             return;
         }
         "/resume" => {
@@ -142,29 +197,40 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
         }
         _ => {}
     }
-    if shared.running.lock().unwrap().is_some() {
-        bot.send(chat, "Still working on your last message. Send /stop to halt it.").await;
-        return;
+    {
+        // The entry is written while the lock is held, so even a reply that finishes instantly finds
+        // its own entry to clear instead of leaving a stale one behind.
+        let mut running = shared.running.lock().unwrap();
+        if running.is_none() {
+            let run_id = shared.next_run.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let (app2, bot2, shared2) = (app.clone(), bot.clone(), shared.clone());
+            let task = tokio::spawn(async move {
+                let reply = async {
+                    let mut session = session_for(&app2, false)?;
+                    let agent = app2.agent(Arc::new(TelegramApprover { bot: bot2.clone(), chat, shared: shared2.clone() }));
+                    let text_out = agent.run_turn(&mut session, &text, &null_sink()).await?;
+                    app2.persist_rules();
+                    agent.learn(&session, &text, &text_out).await;
+                    Ok::<_, anyhow::Error>(text_out)
+                }
+                .await;
+                {
+                    let mut running = shared2.running.lock().unwrap();
+                    if running.as_ref().map(|(id, _)| *id == run_id).unwrap_or(false) {
+                        running.take();
+                    }
+                }
+                match reply {
+                    Ok(t) if t.trim().is_empty() => bot2.send(chat, "(done)").await,
+                    Ok(t) => bot2.send(chat, &t).await,
+                    Err(e) => bot2.send(chat, &format!("Heron could not finish: {e:#}")).await,
+                }
+            });
+            *running = Some((run_id, task.abort_handle()));
+            return;
+        }
     }
-    let (app2, bot2, shared2) = (app.clone(), bot.clone(), shared.clone());
-    let task = tokio::spawn(async move {
-        let reply = async {
-            let mut session = session_for(&app2, false)?;
-            let agent = app2.agent(Arc::new(TelegramApprover { bot: bot2.clone(), chat, shared: shared2.clone() }));
-            let text_out = agent.run_turn(&mut session, &text, &null_sink()).await?;
-            app2.persist_rules();
-            agent.learn(&text, &text_out).await;
-            Ok::<_, anyhow::Error>(text_out)
-        }
-        .await;
-        shared2.running.lock().unwrap().take();
-        match reply {
-            Ok(t) if t.trim().is_empty() => bot2.send(chat, "(done)").await,
-            Ok(t) => bot2.send(chat, &t).await,
-            Err(e) => bot2.send(chat, &format!("Heron could not finish: {e:#}")).await,
-        }
-    });
-    *shared.running.lock().unwrap() = Some(task.abort_handle());
+    bot.send(chat, "Still working on your last message. Send /stop to halt it.").await;
 }
 
 /// Forward results of scheduled and self-started work to the paired chat.
@@ -209,13 +275,19 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
                 },
                 Some(_) => {} // someone else: say nothing, do nothing
                 None => {
-                    if text.as_deref().map(str::trim) == Some(pairing_code(&app).as_str()) {
+                    let sent = text.as_deref().map(str::trim).unwrap_or("");
+                    if sent == "/start" {
+                        bot.send(chat, "This Heron is not paired yet. If it is yours, send the pairing code shown in the Heron app under Settings.").await;
+                    } else if pairing_locked(&app) {
+                        // Guesses are not even looked at until the owner has seen the new code in the app.
+                    } else if same_code(sent, &pairing_code(&app)) {
+                        let _ = app.store.kv_set("telegram_wrong", "0");
                         let _ = app.store.kv_set("telegram_chat", &chat.to_string());
                         let last_inbox = app.store.inbox(false, 1).ok().and_then(|i| i.first().map(|m| m.id)).unwrap_or(0);
                         let _ = app.store.kv_set("telegram_inbox_last", &last_inbox.to_string());
                         bot.send(chat, "Paired. This chat now talks to your Heron, and nobody else's messages will be answered.").await;
-                    } else if text.as_deref() == Some("/start") {
-                        bot.send(chat, "This Heron is not paired yet. If it is yours, send the six-digit pairing code shown in the Heron app under Settings.").await;
+                    } else if wrong_code(&app) {
+                        bot.send(chat, "Too many wrong codes. Pairing is locked and the code has been replaced. If this Heron is yours, open it on your computer (Settings) to see the new code.").await;
                     }
                 }
             }
@@ -229,14 +301,59 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
     }
 }
 
-/// Start the gateway in the background if a bot token has been saved.
+/// Start the gateway in the background if a bot token has been saved. Any gateway already running
+/// is stopped first, so there is never more than one reader of the bot's messages and a replaced token
+/// takes effect at once.
 pub fn spawn_if_configured(app: &Arc<App>) -> bool {
+    stop(app);
     let cfg = app.cfg();
     match cfg.secret("telegram_token") {
         Some(token) => {
-            tokio::spawn(run(app.clone(), cfg.telegram.api_base.clone(), token));
+            let task = tokio::spawn(run(app.clone(), cfg.telegram.api_base.clone(), token));
+            *app.telegram_task.lock().unwrap() = Some(task.abort_handle());
             true
         }
         None => false,
+    }
+}
+
+/// Stop the gateway, if it is running.
+pub fn stop(app: &App) {
+    if let Some(task) = app.telegram_task.lock().unwrap().take() {
+        task.abort();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::llm::ScriptedLlm;
+    use crate::store::Store;
+
+    #[tokio::test]
+    async fn guessing_the_pairing_code_locks_pairing_until_the_owner_looks_at_the_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        let app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
+        let code = pairing_code(&app);
+        assert_eq!(code.len(), 8);
+        assert_eq!(pairing_code(&app), code, "the code is stable until it is used or replaced");
+        assert!(same_code(&format!(" {}-{} ", code[..4].to_lowercase(), &code[4..]), &code), "spacing and case do not matter");
+        assert!(!same_code("", &code) && !same_code(&code[..7], &code));
+
+        for _ in 0..MAX_WRONG_CODES - 1 {
+            assert!(!wrong_code(&app));
+        }
+        assert!(!pairing_locked(&app));
+        assert!(wrong_code(&app), "the last allowed guess locks pairing");
+        assert!(pairing_locked(&app));
+        let replaced = pairing_code(&app);
+        assert_ne!(replaced, code, "the code a guesser was closing in on is gone");
+        // Only showing the code in the app (which needs the computer) opens pairing again.
+        assert_eq!(show_pairing_code(&app), replaced);
+        assert!(!pairing_locked(&app));
+        assert!(!wrong_code(&app), "and the count starts again");
     }
 }

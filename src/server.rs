@@ -32,7 +32,10 @@ pub struct ServerState {
     /// True unless the user deliberately bound the server to a non-loopback address.
     pub loopback_only: bool,
     approvals: Mutex<HashMap<String, (String, oneshot::Sender<Approval>)>>,
-    running: Mutex<HashMap<String, (tokio::task::AbortHandle, Tx)>>,
+    /// Replies in progress, by conversation. The number tells one reply from the next in the same
+    /// conversation, so a reply that is finishing can never clear the entry of the one that followed it.
+    running: Mutex<HashMap<String, (u64, tokio::task::AbortHandle, Tx)>>,
+    next_run: std::sync::atomic::AtomicU64,
 }
 
 type S = State<Arc<ServerState>>;
@@ -107,7 +110,7 @@ async fn auth(State(st): S, headers: HeaderMap, req: Request, next: Next) -> Res
 pub fn router(app: Arc<App>, token: String) -> Router {
     let bind = app.cfg().server.bind.clone();
     let loopback_only = matches!(bind.as_str(), "127.0.0.1" | "localhost" | "::1");
-    let state = Arc::new(ServerState { app, token, loopback_only, approvals: Default::default(), running: Default::default() });
+    let state = Arc::new(ServerState { app, token, loopback_only, approvals: Default::default(), running: Default::default(), next_run: Default::default() });
     let api = Router::new()
         .route("/state", get(get_state))
         .route("/sessions", get(list_sessions).post(new_session))
@@ -357,6 +360,13 @@ async fn chat(State(st): S, Json(body): Json<ChatBody>) -> std::result::Result<R
             return Err(ApiError(StatusCode::CONFLICT, "Heron is still replying in this conversation. Stop it first, or wait.".into()));
         }
         let _ = tx.send(json!({"type": "session", "id": sid}));
+        let run_id = st.next_run.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let finished = move |state: &ServerState, sid: &str| {
+            let mut running = state.running.lock().unwrap();
+            if running.get(sid).map(|(id, _, _)| *id == run_id).unwrap_or(false) {
+                running.remove(sid);
+            }
+        };
         let state = st.clone();
         let task_tx = tx.clone();
         let task_sid = sid.clone();
@@ -371,8 +381,8 @@ async fn chat(State(st): S, Json(body): Json<ChatBody>) -> std::result::Result<R
                     let _ = task_tx.send(json!({"type": "done", "text": text, "title": state.app.store.session_title(&task_sid)}));
                     state.app.persist_rules();
                     // Free the conversation before the (slower) background learning step.
-                    state.running.lock().unwrap().remove(&task_sid);
-                    let learned = agent.learn(&message, &text).await;
+                    finished(&state, &task_sid);
+                    let learned = agent.learn(&session, &message, &text).await;
                     if !learned.is_empty() {
                         let _ = task_tx.send(json!({"type": "learned", "items": learned}));
                     }
@@ -381,9 +391,9 @@ async fn chat(State(st): S, Json(body): Json<ChatBody>) -> std::result::Result<R
                     let _ = task_tx.send(json!({"type": "error", "message": format!("{e:#}")}));
                 }
             }
-            state.running.lock().unwrap().remove(&task_sid);
+            finished(&state, &task_sid);
         });
-        running.insert(sid, (handle.abort_handle(), tx));
+        running.insert(sid, (run_id, handle.abort_handle(), tx));
     }
     let stream = UnboundedReceiverStream::new(rx).map(|v| Ok::<_, std::convert::Infallible>(SseEvent::default().data(v.to_string())));
     Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))).into_response())
@@ -415,7 +425,7 @@ struct SessionBody {
 async fn cancel(State(st): S, Json(b): Json<SessionBody>) -> ApiResult {
     let entry = st.running.lock().unwrap().remove(&b.session_id);
     st.approvals.lock().unwrap().retain(|_, (sid, _)| *sid != b.session_id);
-    if let Some((handle, tx)) = entry {
+    if let Some((_, handle, tx)) = entry {
         handle.abort();
         let _ = tx.send(json!({"type": "cancelled"}));
     }
@@ -732,7 +742,7 @@ async fn get_today(State(st): S) -> ApiResult {
 async fn get_telegram(State(st): S) -> ApiResult {
     let configured = st.app.cfg().secret("telegram_token").is_some();
     let paired = crate::telegram::paired_chat(&st.app).is_some();
-    Ok(Json(json!({"configured": configured, "paired": paired, "code": if configured && !paired { Some(crate::telegram::pairing_code(&st.app)) } else { None }})))
+    Ok(Json(json!({"configured": configured, "paired": paired, "code": if configured && !paired { Some(crate::telegram::show_pairing_code(&st.app)) } else { None }})))
 }
 
 async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
@@ -742,18 +752,17 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
     if !valid {
         return Err(bad("That does not look like a bot token. Create a bot with @BotFather in Telegram and paste the token it gives you."));
     }
-    let already = st.app.cfg().secret("telegram_token").is_some();
     st.app.cfg().store_secret("telegram_token", token)?;
-    if !already {
-        crate::telegram::spawn_if_configured(&st.app);
-    }
+    // Restarts the connection, so a replaced token is the one in use and there is only ever one reader.
+    crate::telegram::spawn_if_configured(&st.app);
     get_telegram(State(st)).await
 }
 
 async fn remove_telegram(State(st): S) -> ApiResult {
     st.app.cfg().store_secret("telegram_token", "")?;
+    crate::telegram::stop(&st.app);
     crate::telegram::unpair(&st.app);
-    Ok(Json(json!({"configured": false, "paired": false, "note": "Restart Heron to stop the phone connection completely."})))
+    Ok(Json(json!({"configured": false, "paired": false})))
 }
 
 // ---------- onboarding & context sources ----------

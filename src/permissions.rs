@@ -138,7 +138,7 @@ impl Policy {
     }
 
     pub fn decide(&self, tool: &str, summary: &str, risk: Risk) -> Verdict {
-        self.decide_in(tool, summary, risk, false)
+        self.decide_in(tool, summary, risk, false, false)
     }
 
     /// Decide with knowledge of the conversation's state. `tainted` means content from outside the user's
@@ -146,7 +146,10 @@ impl Policy {
     /// agent. From then on anything that changes state, or could carry data out, needs the user's approval —
     /// whatever the mode or allow rules say. Instructions that tell the model to ignore injected text are
     /// not a defence; restricting what it can do afterwards is.
-    pub fn decide_in(&self, tool: &str, summary: &str, risk: Risk, tainted: bool) -> Verdict {
+    ///
+    /// `destination_known` says the address being contacted was already in the conversation, word for
+    /// word, before the model asked for it (see `SeenUrls`), so it cannot have been built from private data.
+    pub fn decide_in(&self, tool: &str, summary: &str, risk: Risk, tainted: bool, destination_known: bool) -> Verdict {
         let key = format!("{tool}:{summary}");
         if risk == Risk::Forbidden {
             return Verdict::Deny("this action is blocked in every mode because it is catastrophic or irreversible".into());
@@ -158,14 +161,17 @@ impl Policy {
             return Verdict::Allow;
         }
         let mode = self.mode();
-        if tainted && mode != Mode::Yolo && mode != Mode::ReadOnly {
-            let carries_data_out = risk == Risk::Network && tool == "web_fetch" && (summary.contains('?') || summary.len() > 150);
-            if matches!(risk, Risk::Write | Risk::Exec) || carries_data_out {
+        if tainted && mode != Mode::Yolo {
+            // Read-only mode still reads from the network, so the leak it must stop is the same one.
+            if carries_data_out(tool, risk, destination_known) {
+                return Verdict::Ask;
+            }
+            if mode != Mode::ReadOnly && matches!(risk, Risk::Write | Risk::Exec) {
                 return Verdict::Ask;
             }
         }
         // Allow rules never cover dangerous actions, and never widen read-only mode.
-        if risk < Risk::Danger && mode != Mode::ReadOnly && self.allow.read().unwrap().iter().any(|(_, g)| g.is_match(&key)) {
+        if risk < Risk::Danger && mode != Mode::ReadOnly && self.allow.read().unwrap().iter().any(|(rule, g)| allow_rule_covers(rule, g, tool, summary, &key)) {
             return Verdict::Allow;
         }
         match (mode, risk) {
@@ -176,6 +182,31 @@ impl Policy {
             _ => Verdict::Ask,
         }
     }
+}
+
+/// Could this call hand data to someone outside? Searching goes to the search provider, and fetching an
+/// address that was already in the conversation sends nothing new. Anything else that talks to the
+/// network (an address the model composed, a connected app's tool) can carry whatever the model puts in it.
+fn carries_data_out(tool: &str, risk: Risk, destination_known: bool) -> bool {
+    risk == Risk::Network && tool != "web_search" && !(tool == "web_fetch" && destination_known)
+}
+
+/// Does a standing "always allow" rule cover this request? A rule for one command (`shell:cargo *`) was
+/// given for that command alone: it must not also wave through whatever is chained, piped or substituted
+/// after it. Only the user's blanket choice for the whole tool (`shell:*`) covers compound commands.
+fn allow_rule_covers(rule: &str, glob: &GlobMatcher, tool: &str, summary: &str, key: &str) -> bool {
+    if !glob.is_match(key) {
+        return false;
+    }
+    if tool == "shell" && rule != "shell:*" {
+        return !is_compound(summary);
+    }
+    true
+}
+
+/// More than one simple command: chaining, pipes, redirection, substitution or several lines.
+fn is_compound(cmd: &str) -> bool {
+    cmd.contains([';', '&', '|', '`', '\n', '\r', '>', '<']) || cmd.contains("$(") || cmd.contains("${")
 }
 
 #[derive(Debug, Clone)]
@@ -317,11 +348,72 @@ fn danger_patterns() -> &'static Vec<Regex> {
 
 const SAFE_COMMANDS: &[&str] = &[
     "ls", "pwd", "cat", "head", "tail", "wc", "echo", "date", "whoami", "uname", "which", "file", "stat", "du", "df", "tree", "grep", "rg", "sort", "uniq",
-    "cut", "tr", "diff", "basename", "dirname", "realpath", "env", "printenv", "hostname", "uptime", "ps", "id", "cal", "true",
+    "cut", "tr", "diff", "basename", "dirname", "realpath", "hostname", "uptime", "id", "cal", "true",
     // PowerShell / cmd read-only equivalents
-    "dir", "type", "where", "Get-ChildItem", "Get-Content", "Get-Location", "Get-Date", "Get-Item", "Select-String", "Measure-Object", "Test-Path", "Resolve-Path",
+    "dir", "type", "Get-ChildItem", "Get-Content", "Get-Location", "Get-Date", "Get-Item", "Select-String", "Measure-Object", "Test-Path", "Resolve-Path",
 ];
 const SAFE_GIT: &[&str] = &["status", "log", "diff", "show", "branch", "remote", "blame", "ls-files", "rev-parse", "describe", "tag"];
+
+/// Is this one command (no pipes) something that can only read and print? A known command name is not
+/// enough: several "read-only" tools can write a file, start another program or print secrets depending
+/// on their arguments, so those arguments are checked too. Anything unsure is not safe.
+fn simple_command_is_readonly(part: &str) -> bool {
+    let words: Vec<&str> = part.split_whitespace().collect();
+    let Some((&name, args)) = words.split_first() else { return false };
+    let has_long = |prefixes: &[&str]| args.iter().any(|a| prefixes.iter().any(|p| a.starts_with(p)));
+    let has_short = |letter: char| args.iter().any(|a| a.starts_with('-') && !a.starts_with("--") && a.contains(letter));
+    let positional = || args.iter().filter(|a| !a.starts_with('-')).count();
+    if name == "git" {
+        let Some(at) = args.iter().position(|w| !w.starts_with('-')) else { return false };
+        let (sub, rest) = (args[at], &args[at + 1..]);
+        // Options before the subcommand (`-c`, `-C`, `--exec-path`) can change what git runs.
+        if at > 0 || !SAFE_GIT.contains(&sub) {
+            return false;
+        }
+        if rest.iter().any(|w| w.starts_with("--output") || w.starts_with("--ext-diff") || w.starts_with("--exec") || w.starts_with("--upload-pack") || w.starts_with("--textconv")) {
+            return false;
+        }
+        let named = rest.iter().filter(|w| !w.starts_with('-')).count();
+        let flags_within = |ok: &[&str]| rest.iter().filter(|w| w.starts_with('-')).all(|w| ok.contains(w));
+        return match sub {
+            // With a name these create, move or delete; only plain listing is read-only.
+            "branch" | "tag" => flags_within(&["-a", "-r", "-v", "-vv", "-l", "-n", "--list", "--all", "--remotes", "--show-current", "--verbose"]) && (named == 0 || rest.iter().any(|w| *w == "-l" || *w == "--list")),
+            "remote" => flags_within(&["-v", "--verbose"]) && rest.iter().find(|w| !w.starts_with('-')).map(|first| *first == "get-url").unwrap_or(true),
+            _ => true,
+        };
+    }
+    if !SAFE_COMMANDS.contains(&name) {
+        return false;
+    }
+    match name {
+        // `-o FILE` writes; `--compress-program` runs a program.
+        "sort" => !(has_short('o') || has_short('T') || has_long(&["--output", "--compress-program", "--temporary-directory", "--files0-from"])),
+        "tree" => !(has_short('o') || has_long(&["--output", "--fromfile"])),
+        // `--pre` runs a program on every file searched.
+        "rg" => !has_long(&["--pre", "--hostname-bin"]),
+        // The second file name is where the output goes.
+        "uniq" => positional() <= 1,
+        // Anything but a `+FORMAT` sets the clock.
+        "date" => !(has_short('s') || has_long(&["--set"])) && args.iter().all(|a| a.starts_with('-') || a.starts_with('+')),
+        // With a name, this renames the computer.
+        "hostname" => args.iter().all(|a| ["-f", "-s", "-i", "-I", "-d", "-A", "--fqdn", "--short", "--ip-address", "--all-ip-addresses", "--domain", "--long"].contains(a)),
+        "file" => !(has_short('C') || has_long(&["--compile"])),
+        _ => true,
+    }
+}
+
+/// A file name on the command line that should not be shown to the model without the user agreeing.
+fn names_sensitive_path(cmd: &str) -> bool {
+    cmd.split(|c: char| c.is_whitespace() || c == '|' || c == '=').any(|w| {
+        let w = w.trim_matches(['"', '\'']);
+        if w.is_empty() || w.starts_with('-') || w == "/dev/null" {
+            return false;
+        }
+        let w = w.replace('\\', "/");
+        let w = w.strip_prefix("~/").map(|rest| format!("/home/_/{rest}")).unwrap_or(w);
+        sensitive_path().is_match(&w)
+    })
+}
 
 /// Classify a shell command. Conservative: anything not provably read-only is at least `Exec`.
 pub fn classify_shell(cmd: &str) -> Risk {
@@ -337,25 +429,16 @@ pub fn classify_shell(cmd: &str) -> Risk {
     if c.len() > 1500 || links > 10 {
         return Risk::Danger;
     }
-    // Provably read-only: a pipeline of known-safe commands with no redirection, substitution or chaining.
-    if c.contains(['>', '<', ';', '&', '`', '\n']) || c.contains("$(") {
+    // Keys, credentials, other programs' memory and devices: the same files `read_file` asks about.
+    if names_sensitive_path(c) {
+        return Risk::Danger;
+    }
+    // Provably read-only: a pipeline of known-safe commands with no redirection, substitution, chaining,
+    // variables (which can hold secrets) or script blocks.
+    if c.contains(['>', '<', ';', '&', '`', '\n', '\r', '$', '{', '(', '%']) || c.to_lowercase().contains("env:") {
         return Risk::Exec;
     }
-    let all_safe = c.split('|').all(|part| {
-        let mut words = part.split_whitespace();
-        match words.next() {
-            Some("git") => {
-                let sub = words.find(|w| !w.starts_with('-'));
-                let rest: Vec<&str> = part.split_whitespace().collect();
-                sub.map(|s| SAFE_GIT.contains(&s)).unwrap_or(false)
-                    && !rest.iter().any(|w| ["-d", "-D", "-m", "-M", "--delete", "add", "remove", "set-url", "-f"].contains(w))
-            }
-            Some("env") | Some("printenv") => false, // may reveal secrets held in the environment
-            Some(w) => SAFE_COMMANDS.contains(&w),
-            None => false,
-        }
-    });
-    if all_safe { Risk::Safe } else { Risk::Exec }
+    if c.split('|').all(simple_command_is_readonly) { Risk::Safe } else { Risk::Exec }
 }
 
 // ---------------- path sandbox ----------------
@@ -443,15 +526,66 @@ pub fn is_private_ip(ip: &IpAddr) -> bool {
                 || v4.is_multicast()
                 || (o[0] == 100 && (64..128).contains(&o[1])) // CGNAT
                 || o[0] == 0
+                || (o[0] == 192 && o[1] == 0 && o[2] == 0) // protocol assignments
+                || (o[0] == 198 && (18..20).contains(&o[1])) // benchmarking
+                || o[0] >= 240 // reserved
         }
         IpAddr::V6(v6) => {
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return is_private_ip(&IpAddr::V4(v4));
             }
             let seg = v6.segments();
-            v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || (seg[0] & 0xfe00) == 0xfc00 || (seg[0] & 0xffc0) == 0xfe80
+            let embedded = |hi: u16, lo: u16| is_private_ip(&IpAddr::V4(std::net::Ipv4Addr::new((hi >> 8) as u8, hi as u8, (lo >> 8) as u8, lo as u8)));
+            // Addresses that are really an IPv4 address in disguise: check the one inside.
+            if seg[0] == 0x64 && seg[1] == 0xff9b && seg[2..6] == [0, 0, 0, 0] {
+                return embedded(seg[6], seg[7]); // NAT64 (64:ff9b::/96)
+            }
+            if seg[0] == 0x2002 {
+                return embedded(seg[1], seg[2]); // 6to4 (2002::/16)
+            }
+            if seg[..6] == [0, 0, 0, 0, 0, 0] && (seg[6], seg[7]) != (0, 0) && (seg[6], seg[7]) != (0, 1) {
+                return embedded(seg[6], seg[7]); // IPv4-compatible (::a.b.c.d)
+            }
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (seg[0] & 0xfe00) == 0xfc00 // unique local
+                || (seg[0] & 0xffc0) == 0xfe80 // link local
+                || (seg[0] & 0xffc0) == 0xfec0 // site local (deprecated)
+                || (seg[0] == 0x64 && seg[1] == 0xff9b && seg[2] == 1) // local-use NAT64 (64:ff9b:1::/48)
+                || (seg[0] == 0x2001 && seg[1] == 0) // Teredo: tunnels to an IPv4 host
         }
     }
+}
+
+/// Name lookup for web requests that refuses internal addresses at the moment of connecting.
+///
+/// Checking a name before the request is not enough: the name can answer differently a moment later
+/// (DNS rebinding), and a public page can redirect to a name that points inside the network. Whatever
+/// the HTTP client is about to connect to goes through here, redirects included, so the address that was
+/// checked is the address that is used.
+pub struct PublicOnlyResolver;
+
+impl reqwest::dns::Resolve for PublicOnlyResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        Box::pin(async move {
+            let host = name.as_str().to_string();
+            let found: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), 0)).await?.collect();
+            if found.is_empty() {
+                return Err(format!("{host} has no address").into());
+            }
+            if let Some(bad) = found.iter().find(|a| is_private_ip(&a.ip())) {
+                return Err(format!("refusing to connect to {host}: it resolves to an internal address ({})", bad.ip()).into());
+            }
+            Ok(Box::new(found.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+/// True when web requests leave through a proxy. The proxy then looks names up, not this program, so
+/// the connect-time check above cannot apply (and would wrongly reject a proxy on the local network).
+pub fn web_goes_through_proxy() -> bool {
+    ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"].iter().any(|v| std::env::var(v).map(|p| !p.trim().is_empty()).unwrap_or(false))
 }
 
 /// Cheap synchronous check used for redirect targets.
@@ -485,7 +619,8 @@ pub async fn check_url(raw: &str) -> Result<url::Url> {
     }
     if let Some(url::Host::Domain(d)) = url.host() {
         let port = url.port_or_known_default().unwrap_or(443);
-        // If DNS fails here (e.g. resolution happens at an egress proxy) the request itself will report it.
+        // An early, readable refusal. The check that counts is made again when connecting (see
+        // `PublicOnlyResolver`); a lookup that fails here is reported by the request itself.
         if let Ok(addrs) = tokio::net::lookup_host((d, port)).await {
             for a in addrs {
                 if is_private_ip(&a.ip()) {
@@ -521,8 +656,9 @@ mod tests {
         ] {
             assert_eq!(classify_shell(c), Risk::Danger, "{c}");
         }
-        for c in ["ls -la", "git status", "cat README.md | head -5", "rg TODO src | wc -l", "git log --oneline -5", "pwd"] {
-            assert_eq!(classify_shell(c), Risk::Safe, "{c}");
+        for c in ["ls -la", "git status", "cat README.md | head -5", "rg TODO src | wc -l", "git log --oneline -5", "pwd", "git branch", "git branch -a", "git tag --list v*", "git remote -v", "grep -o TODO src/main.rs", "sort -u names.txt | uniq -c", "date +%F"] {
+            let expect = if c.contains('%') { Risk::Exec } else { Risk::Safe };
+            assert_eq!(classify_shell(c), expect, "{c}");
         }
         for c in ["cargo build", "python script.py", "ls; touch x", "echo hi > file", "cat $(which ls)", "git commit -m x", "git branch -D main2 x", "env", "npm install"] {
             let r = classify_shell(c);
@@ -531,21 +667,59 @@ mod tests {
     }
 
     #[test]
+    fn read_only_commands_that_can_write_run_or_reveal_are_not_safe() {
+        // Each of these starts with a "read-only" command name.
+        for c in [
+            "sort -o out.txt in.txt", "sort --output=out.txt in.txt", "sort --compress-program=sh big.txt", "tree -o listing.txt", "rg --pre ./run.sh TODO", "uniq in.txt out.txt",
+            "git branch new-branch", "git tag v9", "git remote rename origin old", "git log --output=log.txt", "git -c core.pager=less log", "git branch --unset-upstream",
+            "date -s 2020-01-01", "hostname other-name", "file -C -m magic", "ps aux", "ps e", "echo $OPENAI_API_KEY", "cat $HOME/notes.txt", "Get-ChildItem Env:", "dir env:", "where { $_ }",
+        ] {
+            assert_ne!(classify_shell(c), Risk::Safe, "{c}");
+        }
+        // Files that hold secrets, other programs' memory, and devices need the user's say-so.
+        for c in ["cat /proc/self/environ", "head -c 100 /proc/1/environ", "cat /dev/zero", "cat ~/.npmrc", "cat deploy/credentials.json", "tail server.pem", "grep token ~/.git-credentials", "cat C:\\Users\\me\\.aws\\credentials"] {
+            assert_eq!(classify_shell(c), Risk::Danger, "{c}");
+        }
+    }
+
+    #[test]
+    fn a_standing_rule_for_one_command_does_not_cover_what_is_chained_after_it() {
+        let p = Policy::new(Mode::Ask, &["shell:cargo *".into()], &[]);
+        assert_eq!(p.decide("shell", "cargo test --all", Risk::Exec), Verdict::Allow);
+        for c in ["cargo test; python upload.py", "cargo test && ./x", "cargo test | sh", "cargo test > /tmp/x", "cargo run -- $(cat notes)", "cargo test\npython x.py"] {
+            assert_eq!(p.decide("shell", c, Risk::Exec), Verdict::Ask, "{c}");
+        }
+        // The blanket choice for the whole tool still means what it says.
+        p.set_tool_setting("shell", "allow").unwrap();
+        assert_eq!(p.decide("shell", "cargo test && ./x", Risk::Exec), Verdict::Allow);
+    }
+
+    #[test]
     fn outside_content_restricts_what_happens_next() {
         let p = Policy::new(Mode::Auto, &["shell:cargo *".into()], &[]);
         // untainted: auto mode and allow rules apply
-        assert_eq!(p.decide_in("write_file", "a.txt", Risk::Write, false), Verdict::Allow);
-        assert_eq!(p.decide_in("web_fetch", "https://example.com/?q=secret", Risk::Network, false), Verdict::Allow);
+        assert_eq!(p.decide_in("write_file", "a.txt", Risk::Write, false, false), Verdict::Allow);
+        assert_eq!(p.decide_in("web_fetch", "https://example.com/?q=secret", Risk::Network, false, false), Verdict::Allow);
         // tainted: state changes need approval even in auto mode and even when an allow rule matches
-        assert_eq!(p.decide_in("write_file", "a.txt", Risk::Write, true), Verdict::Ask);
-        assert_eq!(p.decide_in("shell", "cargo test", Risk::Exec, true), Verdict::Ask);
-        // ...and so does a fetch that could carry data out in its URL; plain reading stays free
-        assert_eq!(p.decide_in("web_fetch", "https://evil.example/log?d=the-users-notes", Risk::Network, true), Verdict::Ask);
-        assert_eq!(p.decide_in("web_fetch", "https://example.com/article", Risk::Network, true), Verdict::Allow);
-        assert_eq!(p.decide_in("read_file", "notes.md", Risk::Safe, true), Verdict::Allow);
-        assert_eq!(p.decide_in("web_search", "weather in lisbon", Risk::Network, true), Verdict::Allow);
+        assert_eq!(p.decide_in("write_file", "a.txt", Risk::Write, true, false), Verdict::Ask);
+        assert_eq!(p.decide_in("shell", "cargo test", Risk::Exec, true, false), Verdict::Ask);
+        // ...and so does fetching any address that was not already in the conversation, because the
+        // data can ride in the query, the path or the host name alike
+        for u in ["https://evil.example/log?d=the-users-notes", "https://evil.example/log/the-users-notes", "https://the-users-notes.evil.example/"] {
+            assert_eq!(p.decide_in("web_fetch", u, Risk::Network, true, false), Verdict::Ask, "{u}");
+        }
+        // an address that was already there (a search result, a link the user gave) is plain reading
+        assert_eq!(p.decide_in("web_fetch", "https://example.com/article", Risk::Network, true, true), Verdict::Allow);
+        assert_eq!(p.decide_in("read_file", "notes.md", Risk::Safe, true, false), Verdict::Allow);
+        assert_eq!(p.decide_in("web_search", "weather in lisbon", Risk::Network, true, false), Verdict::Allow);
+        // a connected app the user trusts can still be handed data, so it asks too
+        assert_eq!(p.decide_in("mcp__chat__send", "{\"text\":\"...\"}", Risk::Network, false, false), Verdict::Allow);
+        assert_eq!(p.decide_in("mcp__chat__send", "{\"text\":\"...\"}", Risk::Network, true, false), Verdict::Ask);
+        // read-only mode reads the web too, so the same leak is stopped there; changes stay refused
         p.set_mode(Mode::ReadOnly);
-        assert!(matches!(p.decide_in("write_file", "a.txt", Risk::Write, true), Verdict::Deny(_)));
+        assert_eq!(p.decide_in("web_fetch", "https://evil.example/log/the-users-notes", Risk::Network, true, false), Verdict::Ask);
+        assert_eq!(p.decide_in("web_fetch", "https://example.com/article", Risk::Network, true, true), Verdict::Allow);
+        assert!(matches!(p.decide_in("write_file", "a.txt", Risk::Write, true, false), Verdict::Deny(_)));
     }
 
     #[test]
@@ -615,6 +789,20 @@ mod tests {
             assert!(check_url(u).await.is_err(), "{u} should be blocked");
         }
         assert!(!url_host_obviously_local(&url::Url::parse("https://example.com/").unwrap()));
+        // IPv4 addresses wrapped in IPv6 are judged by the address inside
+        for ip in ["64:ff9b::7f00:1", "64:ff9b::a9fe:a9fe", "2002:7f00:1::", "2002:c0a8:101::1", "::127.0.0.1", "fec0::1", "64:ff9b:1::1"] {
+            assert!(is_private_ip(&ip.parse().unwrap()), "{ip}");
+        }
+        for ip in ["64:ff9b::808:808", "2002:808:808::1", "2606:4700:4700::1111", "8.8.8.8"] {
+            assert!(!is_private_ip(&ip.parse().unwrap()), "{ip}");
+        }
+
+        // The check made when connecting: a name that points inside the network is refused there, which
+        // is what stops DNS rebinding and redirects to such a name.
+        use reqwest::dns::Resolve;
+        let lookup = |host: &'static str| async move { PublicOnlyResolver.resolve(host.parse().unwrap()).await.map(|a| a.count()) };
+        let refused = lookup("localhost").await.unwrap_err().to_string();
+        assert!(refused.contains("internal address"), "{refused}");
     }
 
     #[test]

@@ -420,6 +420,12 @@ impl Store {
         Ok(v)
     }
 
+    /// Flag a vector that no longer fits the current model, so it is made again.
+    pub fn mark_embedding_stale(&self, id: i64) -> Result<()> {
+        self.db().execute("UPDATE memories SET embedder='stale' WHERE id=?", [id])?;
+        Ok(())
+    }
+
     /// Replace only the vector of a memory (re-indexing leaves its text, date and standing untouched).
     pub fn set_memory_embedding(&self, id: i64, embedding: &[u8], embedder: &str) -> Result<()> {
         self.db().execute("UPDATE memories SET embedding=?, embedder=? WHERE id=?", params![embedding, embedder, id])?;
@@ -468,6 +474,16 @@ impl Store {
         let sql = format!("SELECT {MEM_COLS} FROM memories WHERE invalid_at IS NULL AND (?1 IS NULL OR kind=?1) ORDER BY importance DESC, updated_at DESC LIMIT ?2");
         let mut st = db.prepare(&sql)?;
         let v = st.query_map(params![kind, limit as i64], row_to_memory)?.collect::<rusqlite::Result<_>>()?;
+        Ok(v)
+    }
+
+    /// The user's own (confirmed) facts of the given kinds, most important first across all of them.
+    pub fn list_confirmed_memories(&self, kinds: &[&str], limit: usize) -> Result<Vec<MemoryItem>> {
+        let db = self.db();
+        let marks = vec!["?"; kinds.len()].join(",");
+        let sql = format!("SELECT {MEM_COLS} FROM memories WHERE invalid_at IS NULL AND confirmed=1 AND kind IN ({marks}) ORDER BY importance DESC, updated_at DESC LIMIT {}", limit as i64);
+        let mut st = db.prepare(&sql)?;
+        let v = st.query_map(rusqlite::params_from_iter(kinds.iter()), row_to_memory)?.collect::<rusqlite::Result<_>>()?;
         Ok(v)
     }
 
@@ -820,7 +836,12 @@ impl Store {
         let existing: Option<(i64, String, String)> =
             db.query_row("SELECT id, title, body FROM knowledge WHERE source=? AND ref=?", params![source, reference], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
         match existing {
-            Some((_, t, b)) if t == title && b == body => Ok(false),
+            Some((id, t, b)) if t == title && b == body => {
+                // Same text, but the date may have moved (a rescheduled event): keep it current
+                // without sending the text to be read again.
+                db.execute("UPDATE knowledge SET ts=? WHERE id=? AND ts<>?", params![ts, id, ts])?;
+                Ok(false)
+            }
             Some((id, _, _)) => {
                 db.execute("UPDATE knowledge SET title=?, body=?, ts=?, digested=0 WHERE id=?", params![title, body, ts, id])?;
                 Ok(true)
@@ -916,7 +937,16 @@ impl Store {
     }
 
     pub fn get_suggestion(&self, id: i64) -> Option<Suggestion> {
-        self.list_suggestions(false, 500).ok()?.into_iter().find(|s| s.id == id)
+        self.db()
+            .query_row("SELECT id, ts, title, why, prompt, status, result, session_id FROM suggestions WHERE id=?", [id], |r| {
+                Ok(Suggestion { id: r.get(0)?, ts: r.get(1)?, title: r.get(2)?, why: r.get(3)?, prompt: r.get(4)?, status: r.get(5)?, result: r.get(6)?, session_id: r.get(7)? })
+            })
+            .ok()
+    }
+
+    /// The conversation the user last said something in (empty ones, opened and closed, do not count).
+    pub fn last_conversation(&self) -> Option<String> {
+        self.db().query_row("SELECT s.id FROM sessions s WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id=s.id) ORDER BY s.updated_at DESC LIMIT 1", [], |r| r.get(0)).ok()
     }
 
     /// Files Heron itself changed since `since` (absolute paths).

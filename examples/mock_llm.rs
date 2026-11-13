@@ -18,7 +18,12 @@ fn text_stream(text: &str) -> String {
 
 fn tool_stream(name: &str, args: Value) -> String {
     let a = args.to_string();
-    let (first, second) = a.split_at(a.len() / 2);
+    // Split between two characters, never inside one.
+    let mut middle = a.len() / 2;
+    while !a.is_char_boundary(middle) {
+        middle -= 1;
+    }
+    let (first, second) = a.split_at(middle);
     chunk(json!({"tool_calls": [{"index": 0, "id": format!("call_{}", name), "type": "function", "function": {"name": name, "arguments": first}}]}))
         + &chunk(json!({"tool_calls": [{"index": 0, "function": {"arguments": second}}]}))
 }

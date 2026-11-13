@@ -25,7 +25,9 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
     #[cfg(not(windows))]
     let candidates: [(&str, &[&str]); 2] = [("/bin/bash", &["-c"]), ("sh", &["-c"])];
     let chosen = std::env::var("HERON_SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| ctx.cfg.agent.shell.clone());
-    let chosen_flags: &[&str] = match chosen.to_lowercase().trim_end_matches(".exe") {
+    // Decide by the program's own name, so a full path (C:\Windows\System32\cmd.exe, /usr/bin/pwsh) works too.
+    let chosen_name = chosen.rsplit(['/', '\\']).next().unwrap_or("").to_lowercase();
+    let chosen_flags: &[&str] = match chosen_name.trim_end_matches(".exe") {
         "cmd" => &["/C"],
         "powershell" | "pwsh" => &["-NoProfile", "-NonInteractive", "-Command"],
         _ => &["-c"],
@@ -55,25 +57,39 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
             Err(e) => last_err = Some(e),
         }
     }
-    let child = match spawned {
+    let mut child = match spawned {
         Some(c) => c,
         None => return Err(last_err.map(anyhow::Error::from).unwrap_or_else(|| anyhow::anyhow!("no shell available"))).context("could not start a shell"),
     };
     let pid = child.id();
-    let out = match tokio::time::timeout(Duration::from_secs(timeout), child.wait_with_output()).await {
+    // Keep only as much output as could ever be shown, and throw the rest away as it arrives: a command
+    // that prints without end (`cat /dev/zero`) must not be able to fill the computer's memory.
+    let keep = (ctx.cfg.agent.max_tool_output_chars * 4).clamp(64 * 1024, 4 * 1024 * 1024);
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+    let collect = async {
+        let (out, err, status) = tokio::join!(read_capped(stdout_pipe, keep), read_capped(stderr_pipe, keep), child.wait());
+        status.map(|status| (out, err, status))
+    };
+    let waited = tokio::time::timeout(Duration::from_secs(timeout), collect).await;
+    let ((stdout, stdout_cut), (stderr, stderr_cut), status) = match waited {
         Ok(r) => r?,
         Err(_) => {
+            // Kill the whole tree while the shell is still there to be found. (On Windows the tree is
+            // looked up through the shell's process id, so this has to happen before the shell is gone.)
             if let Some(pid) = pid {
                 #[cfg(unix)]
                 let _ = std::process::Command::new("kill").args(["-9", &format!("-{pid}")]).status();
                 #[cfg(windows)]
                 let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
             }
+            let _ = child.kill().await;
             return Ok(format!("[timed out after {timeout}s and was killed. For long-running work, raise timeout_secs or run it in the background.]"));
         }
     };
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let stderr = String::from_utf8_lossy(&out.stderr);
+    let cut_note = |cut: bool| if cut { "\n[more output than can be kept; the rest was discarded]" } else { "" };
+    let stdout = format!("{}{}", String::from_utf8_lossy(&stdout), cut_note(stdout_cut));
+    let stderr = format!("{}{}", String::from_utf8_lossy(&stderr), cut_note(stderr_cut));
     let mut text = String::new();
     if !stdout.trim().is_empty() {
         text.push_str(stdout.trim_end());
@@ -85,7 +101,7 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
         text.push_str("[stderr]\n");
         text.push_str(stderr.trim_end());
     }
-    let code = out.status.code().unwrap_or(-1);
+    let code = status.code().unwrap_or(-1);
     if code != 0 {
         text.push_str(&format!("\n[exit code {code}]"));
         if sandbox.is_some() && crate::sandbox::looks_denied(&text) {
@@ -96,6 +112,28 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
         text.push_str("(no output, exit code 0)");
     }
     Ok(text)
+}
+
+/// Read a pipe to its end, keeping at most `keep` bytes. Reading continues past that point (the bytes
+/// are dropped) so the command is never left blocked on a full pipe. Returns what was kept and whether
+/// anything was dropped.
+async fn read_capped<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>, keep: usize) -> (Vec<u8>, bool) {
+    use tokio::io::AsyncReadExt;
+    let mut kept = Vec::new();
+    let mut dropped = false;
+    let Some(mut pipe) = pipe else { return (kept, dropped) };
+    let mut chunk = vec![0u8; 16 * 1024];
+    loop {
+        match pipe.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                let room = keep.saturating_sub(kept.len());
+                kept.extend_from_slice(&chunk[..n.min(room)]);
+                dropped |= n > room;
+            }
+        }
+    }
+    (kept, dropped)
 }
 
 pub fn tools() -> Vec<FnTool> {
@@ -120,6 +158,24 @@ mod tests {
     use std::sync::Arc;
 
     #[tokio::test]
+    async fn endless_output_is_cut_off_instead_of_filling_memory() {
+        let ws = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.agent.sandbox = "off".into();
+        let store = Store::in_memory().unwrap();
+        let ctx = ToolCtx { workspace: dunce::canonicalize(ws.path()).unwrap(), memory: Memory::new(store.clone(), None), store, session_id: "t".into(), cfg: Arc::new(cfg), tainted: Default::default(), seen_urls: Default::default() };
+        // About 50 MB of output; only a bounded part is kept, and the command still finishes normally.
+        let out = run(&json!({"command": "head -c 50000000 /dev/zero | tr '\\0' 'x'; echo; echo finished"}), &ctx).await.unwrap();
+        assert!(out.len() < 5 * 1024 * 1024, "kept {} bytes", out.len());
+        assert!(out.contains("the rest was discarded"), "{}", &out[out.len().saturating_sub(200)..]);
+        // A full path to the shell picks the right way to pass the command.
+        let mut named = (*ctx.cfg).clone();
+        named.agent.shell = "/bin/sh".into();
+        let out = run(&json!({"command": "echo by-path"}), &ToolCtx { cfg: Arc::new(named), ..ctx.clone() }).await.unwrap();
+        assert!(out.contains("by-path"), "{out}");
+    }
+
+    #[tokio::test]
     async fn sandboxed_commands_cannot_write_outside_the_folder_or_read_secrets() {
         if crate::sandbox::available() == crate::sandbox::Kind::None {
             eprintln!("no sandbox on this machine; skipping");
@@ -135,7 +191,7 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         let store = Store::in_memory().unwrap();
         let workspace = dunce::canonicalize(ws.path()).unwrap();
-        let ctx = ToolCtx { workspace: workspace.clone(), memory: Memory::new(store.clone(), None), store, session_id: "t".into(), cfg: Arc::new(cfg.clone()), tainted: Default::default() };
+        let ctx = ToolCtx { workspace: workspace.clone(), memory: Memory::new(store.clone(), None), store, session_id: "t".into(), cfg: Arc::new(cfg.clone()), tainted: Default::default(), seen_urls: Default::default() };
         let sh = |command: String| {
             let ctx = ctx.clone();
             async move { run(&json!({"command": command}), &ctx).await.unwrap() }

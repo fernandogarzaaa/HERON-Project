@@ -2,7 +2,7 @@
 //! All web content is returned wrapped as untrusted data.
 
 use super::{arg_str, opt_i64, schema, FnTool, ToolCtx};
-use crate::permissions::{check_url, url_host_obviously_local, Risk};
+use crate::permissions::{check_url, url_host_obviously_local, web_goes_through_proxy, PublicOnlyResolver, Risk};
 use anyhow::{anyhow, bail, Result};
 use futures_util::StreamExt;
 use regex::Regex;
@@ -16,7 +16,12 @@ fn client() -> &'static reqwest::Client {
     static C: OnceLock<reqwest::Client> = OnceLock::new();
     C.get_or_init(|| {
         let allow_local = std::env::var("HERON_ALLOW_LOCAL_FETCH").is_ok();
-        reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder();
+        if !allow_local && !web_goes_through_proxy() {
+            // Refuse internal addresses at the moment of connecting, for the first request and every redirect.
+            builder = builder.dns_resolver(std::sync::Arc::new(PublicOnlyResolver));
+        }
+        builder
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .user_agent("Mozilla/5.0 (compatible; HeronAgent/0.1)")

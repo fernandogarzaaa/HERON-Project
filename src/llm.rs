@@ -153,31 +153,58 @@ impl HttpLlm {
             });
         }
 
+        // Some servers ignore `stream` and answer with one plain JSON document instead of events.
+        let plain_json = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).map(|c| c.to_lowercase().contains("application/json")).unwrap_or(false);
         let mut acc = StreamAccumulator::default();
         let mut stream = resp.bytes_stream();
         let mut buf: Vec<u8> = Vec::new();
+        let cut_off = |acc: &StreamAccumulator, what: String| {
+            // A dropped stream after partial output is not safely retryable (text already shown).
+            if acc.is_empty() { CallError::retryable(what) } else { CallError::fatal(what, 0) }
+        };
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| {
-                // A dropped stream after partial output is not safely retryable (text already shown).
-                if acc.is_empty() { CallError::retryable(format!("stream error: {e}")) } else { CallError::fatal(format!("stream interrupted: {e}"), 0) }
-            })?;
+            let chunk = chunk.map_err(|e| cut_off(&acc, format!("stream interrupted: {e}")))?;
             buf.extend_from_slice(&chunk);
+            if plain_json {
+                if buf.len() > MAX_PLAIN_BODY {
+                    return Err(CallError::fatal("the model's reply was too large to read".into(), 0));
+                }
+                continue;
+            }
             while let Some(pos) = buf.iter().position(|b| *b == b'\n') {
                 let line: Vec<u8> = buf.drain(..=pos).collect();
                 let line = String::from_utf8_lossy(&line);
                 acc.feed_line(line.trim_end(), on_delta).map_err(|e| CallError::fatal(e.to_string(), 0))?;
             }
+            // A "line" that never ends is a broken or hostile server, not a reply: stop reading it.
+            if buf.len() > MAX_EVENT_LINE {
+                return Err(cut_off(&acc, "the model's server sent a line too long to be a reply".into()));
+            }
         }
-        if !buf.is_empty() {
+        if plain_json {
+            let v: Value = serde_json::from_slice(&buf).map_err(|e| CallError::retryable(format!("unreadable reply from model: {e}")))?;
+            acc.feed_value(&v, on_delta).map_err(|e| CallError::fatal(e.to_string(), 0))?;
+        } else if !buf.is_empty() {
             let line = String::from_utf8_lossy(&buf).to_string();
             acc.feed_line(line.trim_end(), on_delta).map_err(|e| CallError::fatal(e.to_string(), 0))?;
         }
         if acc.is_empty() {
             return Err(CallError::retryable("empty response from model".into()));
         }
+        // The connection closing is not the same as the reply being finished. Without the end marker,
+        // a tool call may be missing half its arguments, so it must not be carried out.
+        if !acc.is_complete() {
+            return Err(CallError::fatal("the model's reply was cut off before it finished".into(), 0));
+        }
         Ok(acc.finish(model))
     }
 }
+
+/// Longest single event line accepted from a model server, and largest non-streamed reply.
+const MAX_EVENT_LINE: usize = 8 * 1024 * 1024;
+const MAX_PLAIN_BODY: usize = 32 * 1024 * 1024;
+/// More parallel tool calls than this in one reply is a malformed stream, not a plan.
+const MAX_TOOL_CALLS: usize = 64;
 
 #[derive(Debug)]
 struct CallError {
@@ -213,6 +240,8 @@ pub struct StreamAccumulator {
     calls: Vec<ToolCall>,
     usage: Usage,
     saw_any: bool,
+    /// The provider said the reply is finished (`[DONE]`, a finish reason, or a whole non-streamed message).
+    done: bool,
 }
 
 impl StreamAccumulator {
@@ -220,18 +249,30 @@ impl StreamAccumulator {
         !self.saw_any
     }
 
+    pub fn is_complete(&self) -> bool {
+        self.done
+    }
+
     pub fn feed_line(&mut self, line: &str, on_delta: DeltaFn<'_>) -> Result<()> {
         let Some(data) = line.strip_prefix("data:") else { return Ok(()) };
         let data = data.trim();
+        if data == "[DONE]" {
+            self.done = true;
+        }
         if data.is_empty() || data == "[DONE]" {
             return Ok(());
         }
-        let v: Value = match serde_json::from_str(data) {
-            Ok(v) => v,
-            Err(_) => return Ok(()), // tolerate keep-alives / provider comments
-        };
-        if let Some(err) = v.get("error") {
-            bail!("provider error: {}", err.get("message").and_then(|m| m.as_str()).unwrap_or(&err.to_string()));
+        match serde_json::from_str::<Value>(data) {
+            Ok(v) => self.feed_value(&v, on_delta),
+            Err(_) => Ok(()), // tolerate keep-alives / provider comments
+        }
+    }
+
+    /// Take in one decoded event (or a whole non-streamed reply).
+    pub fn feed_value(&mut self, v: &Value, on_delta: DeltaFn<'_>) -> Result<()> {
+        if let Some(err) = v.get("error").filter(|e| !e.is_null()) {
+            let text = err.get("message").and_then(|m| m.as_str()).map(|m| m.to_string()).unwrap_or_else(|| err.to_string());
+            bail!("provider error: {}", crate::util::preview(&text, 400));
         }
         if let Some(u) = v.get("usage").filter(|u| u.is_object()) {
             self.usage.prompt_tokens = u["prompt_tokens"].as_u64().unwrap_or(0);
@@ -239,6 +280,9 @@ impl StreamAccumulator {
         }
         let Some(choice) = v.get("choices").and_then(|c| c.get(0)) else { return Ok(()) };
         // Non-streaming shape (some servers ignore `stream`): choices[0].message
+        if choice.get("finish_reason").map(|f| !f.is_null()).unwrap_or(false) || choice.get("message").is_some() {
+            self.done = true;
+        }
         let delta = choice.get("delta").or_else(|| choice.get("message"));
         let Some(delta) = delta else { return Ok(()) };
         if let Some(text) = delta.get("content").and_then(|c| c.as_str()) {
@@ -251,7 +295,12 @@ impl StreamAccumulator {
         if let Some(tcs) = delta.get("tool_calls").and_then(|t| t.as_array()) {
             for (pos, tc) in tcs.iter().enumerate() {
                 self.saw_any = true;
-                let idx = tc.get("index").and_then(|i| i.as_u64()).map(|i| i as usize).unwrap_or(pos);
+                // The position comes from the server: never let it decide how much memory to set aside.
+                let idx = tc.get("index").and_then(|i| i.as_u64()).unwrap_or(pos as u64);
+                if idx >= MAX_TOOL_CALLS as u64 {
+                    bail!("the model's server sent a malformed tool call (position {idx})");
+                }
+                let idx = idx as usize;
                 while self.calls.len() <= idx {
                     self.calls.push(ToolCall { id: String::new(), kind: "function".into(), function: FunctionCall { name: String::new(), arguments: String::new() } });
                 }
@@ -307,15 +356,25 @@ impl Llm for HttpLlm {
             None => self.models.clone(),
         };
         let mut last_err = String::new();
+        // Once any of the reply has been shown, starting again (or on another model) would put a second,
+        // different answer after the first half of this one. Report the failure instead.
+        let shown = std::sync::atomic::AtomicBool::new(false);
+        let forward = |text: &str| {
+            shown.store(true, std::sync::atomic::Ordering::Relaxed);
+            on_delta(text);
+        };
         for model in &models {
             for attempt in 0..=self.max_retries {
-                match self.chat_once(model, &req, on_delta).await {
+                match self.chat_once(model, &req, &forward).await {
                     Ok(r) => return Ok(r),
                     Err(e) => {
                         last_err = format!("[{model}] {}", e.msg);
                         // Auth errors will fail identically on every model: stop immediately.
                         if e.status == 401 || e.status == 403 {
                             return Err(anyhow!("{last_err}\nCheck your API key (see `heron doctor`)."));
+                        }
+                        if shown.load(std::sync::atomic::Ordering::Relaxed) {
+                            return Err(anyhow!("{last_err}"));
                         }
                         if !e.retryable {
                             break; // try the next fallback model
@@ -624,6 +683,34 @@ mod tests {
         // A conversation that was never recorded is an error, not a made-up answer.
         let err = replay.chat(ask("something else entirely", None), &|_| {}).await.unwrap_err();
         assert!(err.to_string().contains("no answer for this request"));
+    }
+
+    #[test]
+    fn a_reply_is_only_complete_when_the_provider_says_so() {
+        let mut acc = StreamAccumulator::default();
+        acc.feed_line(r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"write_file","arguments":"{\"pa"}}]}}]}"#, &|_| {}).unwrap();
+        assert!(!acc.is_empty() && !acc.is_complete(), "half a tool call is not a reply");
+        acc.feed_line(r#"data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#, &|_| {}).unwrap();
+        assert!(acc.is_complete());
+
+        // A server that ignores `stream` sends the whole message at once.
+        let mut whole = StreamAccumulator::default();
+        let v: Value = serde_json::from_str(r#"{"choices":[{"message":{"role":"assistant","content":"All at once."}}],"usage":{"prompt_tokens":3,"completion_tokens":4}}"#).unwrap();
+        whole.feed_value(&v, &|_| {}).unwrap();
+        assert!(whole.is_complete());
+        let r = whole.finish("m");
+        assert_eq!(r.message.content.as_deref(), Some("All at once."));
+        assert_eq!(r.usage.completion_tokens, 4);
+    }
+
+    #[test]
+    fn a_server_cannot_make_us_allocate_by_naming_a_huge_position() {
+        let mut acc = StreamAccumulator::default();
+        let e = acc.feed_line(r#"data: {"choices":[{"delta":{"tool_calls":[{"index":4000000000,"function":{"name":"x"}}]}}]}"#, &|_| {}).unwrap_err();
+        assert!(e.to_string().contains("malformed"));
+        let long = "x".repeat(5000);
+        let e = acc.feed_line(&format!(r#"data: {{"error":{{"message":"{long}"}}}}"#), &|_| {}).unwrap_err();
+        assert!(e.to_string().len() < 600, "long provider errors are shortened");
     }
 
     #[test]

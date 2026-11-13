@@ -22,8 +22,19 @@ try {
     if (-not $expected -or $expected -ne $actual) { throw "The download does not match the published checksum, so nothing was installed." }
 
     $dest = Join-Path $env:LOCALAPPDATA "Programs\Heron"
-    Get-Process -Name "Heron" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+    # Close any copy of Heron running from this folder (the app and the command-line tool) and wait
+    # until it has really gone: Windows will not replace a program that is still running.
+    $prefix = $dest.TrimEnd('\') + '\'
+    $findRunning = { Get-Process -Name "Heron", "heron-cli" -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase) } }
+    $running = @(& $findRunning)
+    if ($running.Count -gt 0) {
+        $running | Stop-Process -Force -ErrorAction SilentlyContinue
+        $running | Wait-Process -Timeout 20 -ErrorAction SilentlyContinue
+        if (@(& $findRunning).Count -gt 0) { throw "Heron is still running and could not be closed. Close it, then run this again. Nothing was changed." }
+    }
+    # Remove the old version, but keep the uninstaller left by the setup program (unins000.exe and
+    # its record), so "Uninstall" in Windows Settings keeps working if Heron was first installed that way.
+    if (Test-Path $dest) { Get-ChildItem -LiteralPath $dest -Force | Where-Object { $_.Name -notlike "unins*" } | Remove-Item -Recurse -Force }
     New-Item -ItemType Directory -Force $dest | Out-Null
     Expand-Archive -Path (Join-Path $tmp $asset) -DestinationPath $dest -Force
 

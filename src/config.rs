@@ -269,34 +269,67 @@ impl Config {
     }
 
     pub fn api_key(&self) -> Option<String> {
-        std::env::var("HERON_API_KEY")
-            .ok()
-            .or_else(|| std::env::var(&self.llm.api_key_env).ok())
-            .filter(|k| !k.is_empty())
-            .or_else(|| self.stored_api_key())
+        // An empty variable counts as unset, so it cannot hide the next source.
+        let env = |name: &str| std::env::var(name).ok().filter(|k| !k.trim().is_empty());
+        env("HERON_API_KEY").or_else(|| env(&self.llm.api_key_env)).or_else(|| self.stored_api_key())
     }
 
     fn secrets_path(&self) -> PathBuf {
         self.home.join("secrets.json")
     }
 
-    fn file_secrets(&self) -> serde_json::Map<String, serde_json::Value> {
-        std::fs::read_to_string(self.secrets_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    /// The fallback secrets file. A file that is there but cannot be read or understood is an error,
+    /// never "no secrets": treating it as empty would let the next save wipe every other key in it.
+    fn read_file_secrets(&self) -> Result<serde_json::Map<String, serde_json::Value>> {
+        let path = self.secrets_path();
+        match std::fs::read_to_string(&path) {
+            Ok(t) if t.trim().is_empty() => Ok(Default::default()),
+            Ok(t) => serde_json::from_str(&t).with_context(|| format!("{} is damaged; fix or remove it before saving a key", path.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
+            Err(e) => Err(e).with_context(|| format!("could not read {}", path.display())),
+        }
     }
 
+    fn file_secrets(&self) -> serde_json::Map<String, serde_json::Value> {
+        self.read_file_secrets().unwrap_or_default()
+    }
+
+    /// Replace the file in one step (write a private temporary file, then rename it over the old one),
+    /// so a crash or a second writer can never leave half a file behind.
     fn write_file_secrets(&self, all: &serde_json::Map<String, serde_json::Value>) -> Result<()> {
         let path = self.secrets_path();
         if all.is_empty() {
-            let _ = std::fs::remove_file(&path);
-            return Ok(());
+            return match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e).with_context(|| format!("could not remove {}", path.display())),
+                _ => Ok(()),
+            };
         }
-        std::fs::write(&path, serde_json::Value::Object(all.clone()).to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        let tmp = self.home.join(format!("secrets.json.tmp-{}", std::process::id()));
+        let written = (|| -> Result<()> {
+            use std::io::Write;
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.mode(0o600);
+            }
+            let mut f = opts.open(&tmp)?;
+            f.write_all(serde_json::Value::Object(all.clone()).to_string().as_bytes())?;
+            f.sync_all()?;
+            drop(f);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+            }
+            std::fs::rename(&tmp, &path)?;
+            Ok(())
+        })();
+        if written.is_err() {
+            let _ = std::fs::remove_file(&tmp);
         }
-        Ok(())
+        written.with_context(|| format!("could not save {}", path.display()))
     }
 
     /// A secret saved from the app. Kept in the operating system's credential store (macOS Keychain,
@@ -307,11 +340,14 @@ impl Config {
 
     /// Save (or with an empty value, remove) a secret.
     pub fn store_secret(&self, name: &str, value: &str) -> Result<()> {
+        // One writer at a time: two saves must not each read the file and then overwrite the other's key.
+        static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _one_at_a_time = WRITING.lock().unwrap_or_else(|e| e.into_inner());
         self.ensure_home()?;
         let value = value.trim();
-        let mut file = self.file_secrets();
+        let mut file = self.read_file_secrets()?;
         if value.is_empty() {
-            vault::delete(&self.home, name);
+            vault::delete(&self.home, name).map_err(|e| anyhow::anyhow!("could not remove '{name}' from {}: {e}", vault::NAME))?;
             file.remove(name);
         } else if vault::set(&self.home, name, value) {
             file.remove(name); // never keep a second copy on disk
@@ -367,7 +403,13 @@ impl Config {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
+            // Keys, memories and conversations live here. If the folder cannot be made private
+            // (and is not already), stop rather than keep them where other accounts can read them.
             let _ = std::fs::set_permissions(&self.home, std::fs::Permissions::from_mode(0o700));
+            let mode = std::fs::metadata(&self.home)?.permissions().mode();
+            if mode & 0o077 != 0 {
+                anyhow::bail!("{} is readable by other accounts on this computer and could not be made private (mode {:o}). Move it to a disk that supports file permissions, or set HERON_HOME.", self.home.display(), mode & 0o777);
+            }
         }
         Ok(())
     }
@@ -405,9 +447,11 @@ mod vault {
         // Only report success if the value really reads back, so a broken store falls back to the file.
         entry(home, name).map(|e| e.set_password(value).is_ok() && e.get_password().map(|v| v == value).unwrap_or(false)).unwrap_or(false)
     }
-    pub fn delete(home: &Path, name: &str) {
-        if let Some(e) = entry(home, name) {
-            let _ = e.delete_credential();
+    pub fn delete(home: &Path, name: &str) -> Result<(), String> {
+        match entry(home, name).map(|e| e.delete_credential()) {
+            // Nothing saved under that name is what the caller wanted anyway.
+            None | Some(Ok(())) | Some(Err(keyring::Error::NoEntry)) => Ok(()),
+            Some(Err(e)) => Err(e.to_string()),
         }
     }
 }
@@ -424,7 +468,9 @@ mod vault {
     pub fn set(_: &Path, _: &str, _: &str) -> bool {
         false
     }
-    pub fn delete(_: &Path, _: &str) {}
+    pub fn delete(_: &Path, _: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub const DEFAULT_CONFIG: &str = r#"# Heron configuration. Every value is optional; these are the defaults.
@@ -517,5 +563,42 @@ mod tests {
     fn mcp_servers_parse() {
         let c: Config = toml::from_str("[mcp.servers.fs]\ncommand='x'\nargs=['a']\ntrust=true\n").unwrap();
         assert!(c.mcp.servers["fs"].trust);
+    }
+
+    #[test]
+    fn a_damaged_secrets_file_is_never_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        cfg.ensure_home().unwrap();
+        let path = cfg.home.join("secrets.json");
+        std::fs::write(&path, "{\"email_password\": \"keep me\", ").unwrap(); // cut off mid-write
+        if cfg!(not(any(target_os = "macos", windows))) {
+            let err = cfg.store_secret("api_key", "sk-new").unwrap_err();
+            assert!(format!("{err:#}").contains("damaged"), "{err:#}");
+        } else {
+            let _ = cfg.store_secret("api_key", "sk-new");
+        }
+        assert!(std::fs::read_to_string(&path).unwrap().contains("keep me"), "the old contents are still there to recover");
+        // nothing temporary is left lying around either
+        let stray: Vec<_> = std::fs::read_dir(&cfg.home).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".tmp-")).collect();
+        assert!(stray.is_empty());
+    }
+
+    #[test]
+    fn an_empty_key_variable_does_not_hide_the_configured_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        cfg.llm.api_key_env = "HERON_TEST_CONFIGURED_KEY".into();
+        std::env::set_var("HERON_TEST_CONFIGURED_KEY", "sk-configured");
+        let had = std::env::var("HERON_API_KEY").ok();
+        std::env::set_var("HERON_API_KEY", "");
+        let got = cfg.api_key();
+        match had {
+            Some(v) => std::env::set_var("HERON_API_KEY", v),
+            None => std::env::remove_var("HERON_API_KEY"),
+        }
+        assert_eq!(got.as_deref(), Some("sk-configured"));
     }
 }

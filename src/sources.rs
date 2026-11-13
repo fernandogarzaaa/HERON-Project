@@ -63,8 +63,11 @@ pub fn parse_ics(text: &str, now: i64) -> Vec<Event> {
     let mut events = vec![];
     let mut cur: Option<Event> = None;
     let mut rule = String::new();
+    // Single occurrences of a repeating event that were cancelled (EXDATE).
+    let mut cancelled: Vec<i64> = vec![];
     for line in lines {
         if line == "BEGIN:VEVENT" {
+            cancelled.clear();
             cur = Some(Event { uid: String::new(), title: String::new(), start: 0, end: None, all_day: false, location: String::new(), repeats: String::new() });
             rule.clear();
             continue;
@@ -76,31 +79,64 @@ pub fn parse_ics(text: &str, now: i64) -> Vec<Event> {
                 }
                 let get = |k: &str| rule.split(';').find_map(|p| p.strip_prefix(k).and_then(|v| v.strip_prefix('=')));
                 if let Some(freq) = get("FREQ") {
-                    let interval: i64 = get("INTERVAL").and_then(|v| v.parse().ok()).unwrap_or(1).max(1);
+                    let interval: i64 = get("INTERVAL").and_then(|v| v.parse().ok()).unwrap_or(1).clamp(1, 1000);
                     let until = get("UNTIL").and_then(ics_time).map(|(t, _)| t).unwrap_or(i64::MAX);
-                    let step = match freq {
-                        "DAILY" => Some(DAY * interval),
-                        "WEEKLY" => Some(7 * DAY * interval),
-                        _ => None,
-                    };
+                    // A series can also end after a number of occurrences.
+                    let count: Option<i64> = get("COUNT").and_then(|v| v.parse().ok());
                     e.repeats = freq.to_lowercase();
                     let duration = e.end.map(|end| end - e.start);
-                    if let Some(step) = step {
-                        if e.start < now {
-                            e.start += ((now - e.start) / step + 1) * step;
+                    let first = e.start;
+                    // The n-th occurrence, counted in calendar days and months on the local clock, so a
+                    // 14:00 meeting stays at 14:00 when the clocks change. (Adding 86,400 seconds per day
+                    // would move it by an hour for half the year.)
+                    let occurrence = |n: i64| -> Option<i64> {
+                        let local = Local.timestamp_opt(first, 0).single()?;
+                        match freq {
+                            "DAILY" | "WEEKLY" => {
+                                let days = n * interval * if freq == "DAILY" { 1 } else { 7 };
+                                let moved = local.naive_local().checked_add_days(chrono::Days::new(days as u64))?;
+                                // A time skipped that day by the clocks going forward happens an hour later.
+                                Local.from_local_datetime(&moved).earliest().or_else(|| Local.from_local_datetime(&(moved + chrono::Duration::hours(1))).earliest()).map(|t| t.timestamp())
+                            }
+                            "MONTHLY" | "YEARLY" => {
+                                let months = n * interval * if freq == "MONTHLY" { 1 } else { 12 };
+                                local.checked_add_months(chrono::Months::new(u32::try_from(months).ok()?)).map(|t| t.timestamp())
+                            }
+                            _ => None,
                         }
-                    } else if matches!(freq, "MONTHLY" | "YEARLY") {
-                        let months = if freq == "MONTHLY" { interval as u32 } else { 12 * interval as u32 };
-                        let mut t = Local.timestamp_opt(e.start, 0).single();
-                        while let Some(cur_t) = t.filter(|t| t.timestamp() < now) {
-                            t = cur_t.checked_add_months(chrono::Months::new(months));
+                    };
+                    let longest_step = interval * match freq {
+                        "DAILY" => DAY,
+                        "WEEKLY" => 7 * DAY,
+                        "MONTHLY" => 31 * DAY,
+                        "YEARLY" => 366 * DAY,
+                        _ => 0,
+                    };
+                    if longest_step > 0 {
+                        // Start a little before where "now" must fall and walk forward to the first
+                        // occurrence that is still to come, has not been cancelled, and is within the series.
+                        let mut n = if first < now { ((now - first) / longest_step - 1).max(0) } else { 0 };
+                        let mut next = None;
+                        for _ in 0..2000 {
+                            if count.map(|c| n >= c).unwrap_or(false) {
+                                break;
+                            }
+                            let Some(t) = occurrence(n) else { break };
+                            if t > until {
+                                break;
+                            }
+                            if t >= now && !cancelled.contains(&t) {
+                                next = Some(t);
+                                break;
+                            }
+                            n += 1;
                         }
-                        e.start = t.map(|t| t.timestamp()).unwrap_or(e.start);
+                        let Some(t) = next else { continue }; // the series has ended
+                        e.start = t;
+                        e.end = duration.map(|d| t + d);
+                    } else if e.start > until {
+                        continue;
                     }
-                    if e.start > until {
-                        continue; // the series has ended
-                    }
-                    e.end = duration.map(|d| e.start + d);
                 }
                 events.push(e);
             }
@@ -113,6 +149,7 @@ pub fn parse_ics(text: &str, now: i64) -> Vec<Event> {
             "LOCATION" => e.location = ics_text(value),
             "UID" => e.uid = value.trim().to_string(),
             "RRULE" => rule = value.trim().to_string(),
+            "EXDATE" => cancelled.extend(value.split(',').filter_map(ics_time).map(|(t, _)| t)),
             "DTSTART" => {
                 if let Some((t, all_day)) = ics_time(value) {
                     e.start = t;
@@ -491,6 +528,24 @@ mod tests {
         assert_eq!(ev[2].start, ts("2026-11-20 00:00"));
         assert!(ev[2].all_day);
         assert_eq!(normalize_calendar_url("webcal://example.com/a.ics"), "https://example.com/a.ics");
+    }
+
+    #[test]
+    fn repeating_events_keep_their_local_time_and_know_when_they_end() {
+        let ics = |extra: &str| format!("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:1\r\nSUMMARY:Team sync\r\nDTSTART:20260105T140000\r\nDTEND:20260105T150000\r\n{extra}\r\nEND:VEVENT\r\nEND:VCALENDAR");
+        // A meeting first held in winter is still at 14:00 by the clock in summer.
+        let summer = parse_ics(&ics("RRULE:FREQ=WEEKLY"), ts("2026-07-01 10:00"));
+        assert_eq!(summer[0].start, ts("2026-07-06 14:00"));
+        assert_eq!(summer[0].end, Some(ts("2026-07-06 15:00")));
+        // Six weekly meetings: the last is on 9 February, and after that there is nothing to show.
+        assert_eq!(parse_ics(&ics("RRULE:FREQ=WEEKLY;COUNT=6"), ts("2026-02-03 10:00"))[0].start, ts("2026-02-09 14:00"));
+        assert!(parse_ics(&ics("RRULE:FREQ=WEEKLY;COUNT=6"), ts("2026-02-10 10:00")).is_empty());
+        // A cancelled week is skipped.
+        let skipping = parse_ics(&ics("RRULE:FREQ=WEEKLY\r\nEXDATE:20260112T140000,20260119T140000"), ts("2026-01-06 10:00"));
+        assert_eq!(skipping[0].start, ts("2026-01-26 14:00"));
+        // Month ends do not drift: the 31st stays the 31st in months that have one.
+        let monthly = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:2\r\nSUMMARY:Rent\r\nDTSTART:20260131T090000\r\nRRULE:FREQ=MONTHLY\r\nEND:VEVENT\r\nEND:VCALENDAR";
+        assert_eq!(parse_ics(monthly, ts("2026-03-05 10:00"))[0].start, ts("2026-03-31 09:00"));
     }
 
     async fn app_with(llm: ScriptedLlm, dir: &Path) -> (App, Arc<ScriptedLlm>) {

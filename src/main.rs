@@ -212,7 +212,7 @@ async fn turn(app: &App, agent: &Agent, session: &mut Session, input: &str) -> R
     println!();
     app.persist_rules();
     let text = result?;
-    let learned = agent.learn(input, &text).await;
+    let learned = agent.learn(session, input, &text).await;
     for l in learned {
         println!("{}", style().dim(&format!("  remembered: {l}")));
     }
@@ -462,8 +462,8 @@ async fn real_main() -> Result<()> {
         Cmd::Chat { cont, session } => {
             let session = match (session, cont) {
                 (Some(id), _) => Session::load(&app.store, &id)?,
-                (None, true) => match app.store.list_sessions(1)?.first() {
-                    Some(s) => Session::load(&app.store, &s.id)?,
+                (None, true) => match app.store.last_conversation() {
+                    Some(id) => Session::load(&app.store, &id)?,
                     None => Session::create(&app.store, "")?,
                 },
                 _ => Session::create(&app.store, "")?,

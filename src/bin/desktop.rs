@@ -126,6 +126,14 @@ fn main() {
                     false
                 }
             })
+            // Links that ask for a new window (target="_blank") never reach the handler above on
+            // Windows. Open them in the default browser too, and never open a second app window.
+            .with_new_window_req_handler(|target: String, _features| {
+                if target.starts_with("http://") || target.starts_with("https://") {
+                    let _ = open::that(&target);
+                }
+                wry::NewWindowResponse::Deny
+            })
         }
         Err(message) => WebViewBuilder::new().with_html(error_page(message)),
     };

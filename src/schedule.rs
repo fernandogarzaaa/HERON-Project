@@ -39,7 +39,11 @@ fn parse_field(field: &str, min: u32, max: u32) -> Result<Vec<bool>> {
         let mut v = lo;
         while v <= hi {
             set[v as usize] = true;
-            v += step;
+            // A step larger than the range (even one near the largest number) just means "once".
+            match v.checked_add(step) {
+                Some(next) => v = next,
+                None => break,
+            }
         }
     }
     Ok(set)
@@ -99,8 +103,16 @@ impl Cron {
                         if day == 0 && cand < start {
                             continue;
                         }
-                        // Skips times that do not exist locally (DST spring-forward).
-                        if let Some(t) = Local.from_local_datetime(&cand).earliest() {
+                        // A local time can exist twice (the hour repeated when clocks go back) or not at
+                        // all (the hour skipped when they go forward). Take the first real moment that is
+                        // truly later than `after`; otherwise a job in the repeated hour would be given a
+                        // time already past and run again on every check.
+                        let moment = match Local.from_local_datetime(&cand) {
+                            chrono::LocalResult::Single(t) => Some(t).filter(|t| *t > after),
+                            chrono::LocalResult::Ambiguous(first, second) => [first, second].into_iter().find(|t| *t > after),
+                            chrono::LocalResult::None => None,
+                        };
+                        if let Some(t) = moment {
                             return Some(t);
                         }
                     }
@@ -350,5 +362,20 @@ mod tests {
         assert!(parse_when("2020-01-01 00:00", now).is_err());
         assert!(parse_when("every 7m", now).is_err());
         assert!(parse_when("whenever", now).is_err());
+    }
+
+    #[test]
+    fn odd_steps_and_the_next_time_is_always_later() {
+        // A step far larger than the range is accepted as "once" instead of overflowing.
+        let c = Cron::parse("1/4294967295 * * * *").unwrap();
+        assert!(c.minutes[1] && c.minutes.iter().filter(|m| **m).count() == 1);
+        // Whatever the local clock is doing, the next run is strictly after the moment asked about.
+        let every = Cron::parse("*/15 * * * *").unwrap();
+        let mut t = Local::now();
+        for _ in 0..200 {
+            let next = every.next_after(t).unwrap();
+            assert!(next > t, "{next} is not after {t}");
+            t = next;
+        }
     }
 }

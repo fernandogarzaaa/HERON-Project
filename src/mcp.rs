@@ -185,14 +185,18 @@ pub struct Attached {
     pub changed: bool,
 }
 
+/// A server that wants to change its tools unnoticed is exactly who would try to forge this, so it is
+/// a cryptographic hash (SHA-256), with every part length-prefixed so parts cannot be shifted about.
 fn fingerprint(tools: &[Value]) -> String {
-    let mut parts: Vec<String> = tools.iter().map(|t| format!("{}\u{0}{}\u{0}{}", t["name"], t["description"], t["inputSchema"])).collect();
+    use sha2::{Digest, Sha256};
+    let mut parts: Vec<[String; 3]> = tools.iter().map(|t| [t["name"].to_string(), t["description"].to_string(), t["inputSchema"].to_string()]).collect();
     parts.sort();
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in parts.join("\u{1}").as_bytes() {
-        h = (h ^ *b as u64).wrapping_mul(0x100000001b3);
+    let mut h = Sha256::new();
+    for part in parts.iter().flatten() {
+        h.update((part.len() as u64).to_le_bytes());
+        h.update(part.as_bytes());
     }
-    format!("{h:016x}")
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Connect to a server and register all of its tools. `pinned` is the fingerprint recorded when the user
@@ -280,7 +284,7 @@ mod tests {
     #[tokio::test]
     async fn server_speaks_mcp() {
         let store = Store::in_memory().unwrap();
-        let ctx = ToolCtx { workspace: ".".into(), memory: Memory::new(store.clone(), None), store, session_id: "mcp".into(), cfg: Arc::new(Config::default()), tainted: Default::default() };
+        let ctx = ToolCtx { workspace: ".".into(), memory: Memory::new(store.clone(), None), store, session_id: "mcp".into(), cfg: Arc::new(Config::default()), tainted: Default::default(), seen_urls: Default::default() };
         let input = [
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
             json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
