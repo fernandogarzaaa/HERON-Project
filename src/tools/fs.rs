@@ -96,19 +96,41 @@ fn stage_new_version(path: &Path, bytes: &[u8]) -> Result<PathBuf> {
 /// again immediately before a plain rename, which is the narrowed check undo used before (T11).
 /// If the verification fails, the rollback puts the displaced content back only while the target
 /// still holds the staged version, and restores any save that landed in between, so an
-/// intervening save is never deleted. A writer holding the file open and writing in place
-/// between the verification and the cleanup can still lose that one write; editors save by
-/// renaming, so they are not affected.
+/// intervening save is never deleted. If the verification itself errors after the exchange, the
+/// rollback runs and the error is reported; if the rollback also fails, the displaced file is
+/// left in place (never deleted) so the version survives on disk. A writer holding the file
+/// open and writing in place between the verification and the cleanup can still lose that one
+/// write; editors save by renaming, so they are not affected.
 fn replace_if_unchanged(path: &Path, bytes: &[u8], expected: &Option<Vec<u8>>) -> Result<bool> {
     let tmp = stage_new_version(path, bytes)?;
     let dir = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
+    // After a successful exchange, `tmp` holds the displaced content on Unix (the staged
+    // version moved into the target). Deleting it on an error after that point would destroy
+    // the user's version, so the exchange paths set `retain_displaced` when the displaced
+    // file must survive, and the cleanup below respects it.
+    let mut retain_displaced = false;
     let done = (|| -> Result<bool> {
         match atomic_replace(path, &tmp)? {
             Some(displaced) => {
-                let was = read_if_there(&displaced)?;
+                let was = match read_if_there(&displaced) {
+                    Ok(was) => was,
+                    Err(e) => {
+                        // The new version is installed but the displaced content cannot be
+                        // read to verify it. Roll back so the file is as it was, and report
+                        // the error. If the rollback fails, the displaced file is left in
+                        // place (not deleted) so the version survives on disk.
+                        if let Err(restore_err) = atomic_restore(path, &displaced, bytes) {
+                            retain_displaced = true;
+                            return Err(restore_err).with_context(|| {
+                                format!("the displaced version was kept at {}", displaced.display())
+                            });
+                        }
+                        return Err(e);
+                    }
+                };
                 if was == *expected {
                     // The exchange displaced exactly what was expected: the new version is in
                     // place and the displaced copy is no longer needed.
@@ -117,8 +139,14 @@ fn replace_if_unchanged(path: &Path, bytes: &[u8], expected: &Option<Vec<u8>>) -
                     Ok(true)
                 } else {
                     // The file changed before the exchange: put it back and report that
-                    // nothing was replaced.
-                    atomic_restore(path, &displaced, bytes)?;
+                    // nothing was replaced. If the rollback fails, the displaced file is
+                    // left in place so the version survives on disk.
+                    if let Err(restore_err) = atomic_restore(path, &displaced, bytes) {
+                        retain_displaced = true;
+                        return Err(restore_err).with_context(|| {
+                            format!("the displaced version was kept at {}", displaced.display())
+                        });
+                    }
                     let _ = std::fs::remove_file(&tmp);
                     Ok(false)
                 }
@@ -137,7 +165,7 @@ fn replace_if_unchanged(path: &Path, bytes: &[u8], expected: &Option<Vec<u8>>) -
             }
         }
     })();
-    if done.is_err() {
+    if done.is_err() && !retain_displaced {
         let _ = std::fs::remove_file(&tmp);
     }
     done.with_context(|| format!("cannot write {}", path.display()))
@@ -1102,6 +1130,23 @@ mod undo_tests {
             "the editor's newest save"
         );
         assert!(!displaced.exists());
+    }
+
+    #[tokio::test]
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    async fn atomic_restore_failure_keeps_the_displaced_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("notes.md");
+        let displaced = dir.path().join("notes.md.displaced");
+
+        // The target cannot be read (it is a folder, not a file), so the rollback
+        // reports an error and the displaced content is left in place, not deleted,
+        // and the target is untouched.
+        std::fs::create_dir(&file).unwrap();
+        std::fs::write(&displaced, "old").unwrap();
+        assert!(atomic_restore(&file, &displaced, b"staged").is_err());
+        assert!(file.is_dir());
+        assert_eq!(std::fs::read_to_string(&displaced).unwrap(), "old");
     }
 
     #[tokio::test]
