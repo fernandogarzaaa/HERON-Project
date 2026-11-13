@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron — a personal AI agent that runs on your computer</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; color: #1a1a1a; background: #fff; line-height: 1.6; }
+  main { max-width: 720px; margin: 0 auto; padding: 64px 24px 80px; }
+  h1 { font-size: 40px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .tagline { font-size: 20px; color: #555; margin: 0 0 32px; }
+  p { margin: 0 0 16px; }
+  .downloads { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin: 32px 0; }
+  .dl { display: block; border: 1px solid #ddd; border-radius: 12px; padding: 18px; text-decoration: none; color: inherit; }
+  .dl:hover { border-color: #111; }
+  .dl strong { display: block; font-size: 17px; }
+  .dl span { color: #555; font-size: 14px; }
+  h2 { font-size: 22px; margin: 40px 0 12px; letter-spacing: -0.01em; }
+  code { background: #f2f2f2; padding: 2px 6px; border-radius: 6px; font-size: 14px; }
+  pre { background: #f6f6f6; padding: 16px; border-radius: 10px; overflow-x: auto; font-size: 14px; }
+  pre code { background: none; padding: 0; }
+  ul { padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  footer { margin-top: 48px; color: #777; font-size: 14px; }
+  footer a { color: #555; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Heron</h1>
+  <p class="tagline">A local-first, private, proactive personal AI agent that runs on your own computer.</p>
+
+  <p>Heron is a desktop app and command-line tool. It keeps your notes, calendar, email and tasks in one place, remembers what you tell it, works while you are away, and asks before it changes anything. Your data stays on your machine, and your keys stay in your operating system&rsquo;s credential store.</p>
+
+  <h2>Download</h2>
+  <div class="downloads">
+    <a class="dl" href="https://github.com/fernandogarzaaa/HERON-Project/releases/latest/download/Heron-macos-universal.dmg">
+      <strong>macOS</strong>
+      <span>Universal app, Apple silicon and Intel (.dmg)</span>
+    </a>
+    <a class="dl" href="https://github.com/fernandogarzaaa/HERON-Project/releases/latest/download/Heron-Setup-windows-x64.exe">
+      <strong>Windows</strong>
+      <span>Installer (.exe)</span>
+    </a>
+    <a class="dl" href="https://github.com/fernandogarzaaa/HERON-Project/releases/latest/download/Heron-linux-x64.tar.gz">
+      <strong>Linux</strong>
+      <span>Tarball with an install script (.tar.gz)</span>
+    </a>
+  </div>
+  <p>These links always point at the latest release. Checksums are in <code>SHA256SUMS.txt</code> on the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases/latest">release page</a>.</p>
+
+  <h2>Install</h2>
+  <ul>
+    <li><strong>macOS:</strong> open the .dmg and drag Heron into Applications. The app is not code-signed yet, so macOS shows a warning on first launch.</li>
+    <li><strong>Windows:</strong> run the installer, or unzip the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases/latest/download/Heron-windows-x64.zip">portable build</a> and run <code>Heron.exe</code>.</li>
+    <li><strong>Linux:</strong> extract the tarball and run <code>./install.sh</code> inside it.</li>
+  </ul>
+
+  <h2>Use your subscription instead of an API key</h2>
+  <p>Heron can drive the AI CLIs you already pay for, such as Claude Code, Codex, OpenCode, Cursor, Grok, Gemini, Cline, Copilot, Qwen and Antigravity, instead of needing an API key. Log in with the CLI itself, set the provider in Settings or with <code>HERON_PROVIDER</code>, and Heron uses your subscription. Heron never sees or stores the CLI&rsquo;s login.</p>
+
+  <h2>From source</h2>
+  <pre><code>git clone https://github.com/fernandogarzaaa/HERON-Project.git
+cd HERON-Project
+cargo run --release</code></pre>
+
+  <footer>
+    <p>Heron is in beta. See the <a href="https://github.com/fernandogarzaaa/HERON-Project">GitHub repo</a> for the README, the changelog and the source, and the <a href="https://github.com/fernandogarzaaa/HERON-Project/releases">releases page</a> for every version.</p>
+  </footer>
+</main>
+</body>
+</html>
