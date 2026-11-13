@@ -645,8 +645,8 @@ fn bind_onboarding(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
         let onb = driver.onboarding.clone();
         let bridge = bridge.clone();
         let weak = window.as_weak();
-        let install = move |kind: String| {
-            let Some(kind) = SourceKind::parse(&kind) else {
+        let install = move |kind: slint::SharedString| {
+            let Some(kind) = SourceKind::parse(kind.as_str()) else {
                 return;
             };
             let Some(w) = weak.upgrade() else { return };
