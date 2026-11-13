@@ -149,7 +149,6 @@ export component MainWindow inherits Window {
             title: "Edit";
             MenuItem {
                 title: "Copy";
-                role: MenuItemRole.copy;
             }
         }
         Menu {
@@ -324,7 +323,6 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 opacity: root.current-view == "chat" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                enabled: root.current-view == "chat";
 
                 Text {
                     text: root.session-title == "" ? "Heron" : root.session-title;
@@ -351,7 +349,6 @@ export component MainWindow inherits Window {
                             horizontal-stretch: 1;
                             StyledText {
                                 text: msg.body;
-                                wrap: word-wrap;
                             }
                         }
                     }
@@ -362,7 +359,7 @@ export component MainWindow inherits Window {
                     input := LineEdit {
                         placeholder-text: "Message Heron…";
                         horizontal-stretch: 1;
-                        enabled: !root.busy;
+                        enabled: root.current-view == "chat" && !root.busy;
                         accepted(text) => {
                             root.send-message(text);
                             input.text = "";
@@ -370,7 +367,7 @@ export component MainWindow inherits Window {
                     }
                     Button {
                         text: "Send";
-                        enabled: !root.busy && input.text != "";
+                        enabled: root.current-view == "chat" && !root.busy && input.text != "";
                         clicked => {
                             root.send-message(input.text);
                             input.text = "";
@@ -379,10 +376,12 @@ export component MainWindow inherits Window {
                     Button {
                         text: "Stop";
                         visible: root.busy;
+                        enabled: root.current-view == "chat";
                         clicked => { root.cancel-reply(); }
                     }
                     Button {
                         text: "New";
+                        enabled: root.current-view == "chat";
                         clicked => { root.new-session(); }
                     }
                 }
@@ -396,7 +395,6 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 opacity: root.current-view == "onboarding" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                enabled: root.current-view == "onboarding";
                 Text {
                     text: "Getting to know you";
                     font-family: Theme.heading-font;
@@ -418,7 +416,6 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 opacity: root.current-view == "awareness" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                enabled: root.current-view == "awareness";
                 Text {
                     text: "Awareness";
                     font-family: Theme.heading-font;
@@ -440,7 +437,6 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 opacity: root.current-view == "memory" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                enabled: root.current-view == "memory";
                 Text {
                     text: "Memory";
                     font-family: Theme.heading-font;
@@ -462,7 +458,6 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 opacity: root.current-view == "tasks" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                enabled: root.current-view == "tasks";
                 Text {
                     text: "Tasks";
                     font-family: Theme.heading-font;
@@ -484,7 +479,6 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 opacity: root.current-view == "reminders" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                enabled: root.current-view == "reminders";
                 Text {
                     text: "Reminders";
                     font-family: Theme.heading-font;
@@ -506,7 +500,6 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 opacity: root.current-view == "usage" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                enabled: root.current-view == "usage";
                 Text {
                     text: "Usage";
                     font-family: Theme.heading-font;
@@ -528,7 +521,6 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 opacity: root.current-view == "activity" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                enabled: root.current-view == "activity";
                 Text {
                     text: "Activity log";
                     font-family: Theme.heading-font;
@@ -550,7 +542,6 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 opacity: root.current-view == "settings" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                enabled: root.current-view == "settings";
                 Text {
                     text: "Settings";
                     font-family: Theme.heading-font;

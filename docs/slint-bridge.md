@@ -217,7 +217,13 @@ How the shell carries it, concretely (anti-slop guidance from the
   hover and focus, and inverts on press. The current view is unmistakable:
   slate-soft fill, semibold label, and a slate bar on the left edge. View
   switching fades the content (opacity, 180ms) instead of swapping it
-  instantly; only the current branch takes input.
+  instantly. Input is gated at the control level, not the layout level:
+  layouts have no `enabled` property in Slint, and opacity alone does not
+  block input (only `visible: false` does that, per the Slint docs on common
+  properties). So the chat branch's four interactive controls (LineEdit,
+  Send, Stop, New) each carry `enabled: root.current-view == "chat"` in
+  their own binding, on top of their busy conditions. The placeholder
+  branches have no interactive elements, so nothing else needs gating.
 - **Rail rules.** New conversation is the first and loudest thing in the
   rail: full-width slate button, above the views. Badges read at a glance
   (talon pill, dark text): waiting approvals onto Conversation, unread inbox
@@ -314,6 +320,34 @@ Errors are `{"error": "..."}` with a non-2xx status.
 | `POST /suggestions/{id}` | `{action}` where action is `accept` or `dismiss`. Returns `{prompt, session_id}`. |
 | `GET /settings` | `{name, base_url, model, fast_model, fallback_models, key_source, provider, cli_command, cli_model, cli_config_dir, cli_allow_agent_tools, cli_allow_api_key, providers, mode, daemon_mode, auto_memory, neural_memory, neural_available, browser, browser_visible, workspace, home, allow_rules, secret_storage, mcp, mcp_changed}` |
 | `POST /settings` | Same fields, all optional. `base_url: "demo"` selects the demo model. Returns the settings object. |
+
+## Slint API notes (verified against the 1.18.1 compiler and the docs)
+
+- **MenuItem roles.** `MenuItem` has no `role` property in the pinned Slint
+  1.18.1: the compiler rejects both the property and the `MenuItemRole`
+  identifier. The role API exists in the current master docs (`MenuItem.role`,
+  enum `MenuItemRole`, for placing About, Settings, and Quit in the macOS
+  application menu), so it arrived after 1.18.1. The Copy item carries no
+  role; revisiting roles needs a Slint version bump, a separate decision.
+- **StyledText wrapping.** `StyledText` has no `wrap` property (its property
+  list is default-color, default-font-family, default-font-size,
+  horizontal-alignment, link-color, max-lines, text, vertical-alignment).
+  The `wrap` property and the `TextWrap` enum belong to the plain `Text`
+  element only. `StyledText` wraps within its width without one: its
+  `max-lines` doc says "Wrapped lines count towards the limit". The
+  `wrap: word-wrap;` line was deleted from the chat bubble's `StyledText`;
+  the three `wrap` lines on plain `Text` elements stay, and they compile.
+- **Layouts have no `enabled`.** `VerticalLayout` and the other layouts take
+  no `enabled` property. Input gating lives on the controls themselves
+  (`Button`, `LineEdit`), which do have it. See the design-bar section.
+- **Stream errors reach the UI.** `stream_chat` errors used to die silently
+  (the send-message handler dropped the `Result`), leaving the pushed empty
+  assistant row live and `busy` true forever. The handler now holds a clone
+  of the sender and maps any `Err` into a `ChatEvent::Error`, which the
+  forwarder turns into an error line and clears `busy`.
+- **Learn returns an array.** `POST /sources/{name}/learn` returns
+  `{learned: [string]}`, not `{learned: n}`: `learn()` in `src/sources.rs`
+  returns `Result<Vec<String>>` and the route wraps it as an array.
 
 ## Open items (Shell lane)
 
