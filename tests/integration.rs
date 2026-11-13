@@ -553,5 +553,14 @@ async fn usage_is_recorded_and_shapes_model_choice_and_effort() {
     assert_eq!(last.max_tokens, Some(2048));
     assert!(last.messages[0].text().contains("token allowance for this period is used up"), "the model is told to be brief");
     assert!(events.lock().unwrap().iter().any(|l| l.contains("Your token allowance is used up")));
-    assert!(agent.learn(&session, "I always take the train to work", "Noted").await.is_empty(), "no extra model call for learning when the allowance is spent");
+    let calls_so_far = requests.len();
+    drop(requests);
+    // Learning is switched on here, so it is the allowance (not the setting) that stops it.
+    let mut learning = (*app.cfg()).clone();
+    learning.agent.auto_memory = true;
+    app.update_config(learning).unwrap();
+    app.llm.swap(llm.clone());
+    let agent = app.agent(Arc::new(heron::permissions::DenyAll));
+    assert!(agent.learn(&session, "I always take the train to work", "Noted").await.is_empty());
+    assert_eq!(llm.requests.lock().unwrap().len(), calls_so_far, "no extra model call for learning when the allowance is spent");
 }

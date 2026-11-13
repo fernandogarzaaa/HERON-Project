@@ -372,7 +372,7 @@ impl Agent {
             } else if choosing && route.model.is_some() && route.escalate_after == Some(step) {
                 sink(Event::Model { name: self.cfg.llm.model.clone(), why: "this turned out to need more work".into() });
             }
-            let resp = self.llm.chat(ChatRequest { messages, tools: tools.clone(), model, max_tokens: budget.reply_tokens() }, &move |t| s(Event::Text(t.to_string()))).await?;
+            let resp = self.llm.chat(ChatRequest { messages, tools: tools.clone(), model, max_tokens: budget.reply_tokens(self.cfg.llm.max_tokens) }, &move |t| s(Event::Text(t.to_string()))).await?;
             {
                 let mut u = self.usage.lock().unwrap();
                 u.prompt_tokens += resp.usage.prompt_tokens;
@@ -421,7 +421,10 @@ impl Agent {
         let mut messages = vec![Message::system(system)];
         messages.extend(session.messages.iter().cloned());
         let s = sink.clone();
-        let resp = self.llm.chat(ChatRequest { messages, tools: vec![], model: None, max_tokens: None }, &move |t| s(Event::Text(t.to_string()))).await?;
+        // The closing report is subject to the same economy as the rest of the turn: the cheaper model
+        // when the allowance is nearly gone, and the reduced reply allowance.
+        let closing_model = route.model.clone().filter(|_| route.escalate_after.is_none());
+        let resp = self.llm.chat(ChatRequest { messages, tools: vec![], model: closing_model, max_tokens: budget.reply_tokens(self.cfg.llm.max_tokens) }, &move |t| s(Event::Text(t.to_string()))).await?;
         let text = resp.message.text().to_string();
         self.push(session, Message::assistant(text.clone()));
         Ok(text)

@@ -101,7 +101,8 @@ impl Budget {
         let projected_month = month_used + daily_average * days_left;
         let limit_reached_on = match (month_w.left, daily_average) {
             (Some(left), avg) if avg > 0 && left > 0 => {
-                let days = left / avg + 1;
+                // 200,000 left at 20,000 a day is used up on the tenth day, not the eleventh.
+                let days = left.div_ceil(avg);
                 (days <= days_left).then(|| day_key(today + Duration::days(days as i64)))
             }
             (Some(0), _) => Some(day_key(today)),
@@ -134,12 +135,13 @@ impl Budget {
         }
     }
 
-    /// Largest reply to ask the model for at this level (`None` = whatever is configured).
-    pub fn reply_tokens(&self) -> Option<u32> {
+    /// Largest reply to ask the model for at this level (`None` = whatever is configured). Economy
+    /// only ever lowers the allowance: it is never more than the configured maximum.
+    pub fn reply_tokens(&self, configured: u32) -> Option<u32> {
         match self.level {
             Level::Normal => None,
-            Level::Careful => Some(4096),
-            Level::Minimal | Level::Spent => Some(2048),
+            Level::Careful => Some(4096.min(configured)),
+            Level::Minimal | Level::Spent => Some(2048.min(configured)),
         }
     }
 
@@ -204,11 +206,12 @@ pub fn route(cfg: &Config, level: Level, input: &str) -> Route {
     if !has_fast {
         return Route { model: None, escalate_after: None, why: "one model is configured" };
     }
-    if level >= Level::Minimal {
-        return Route { model: Some(fast.to_string()), escalate_after: None, why: "the token allowance is nearly used up" };
-    }
+    // "Off" means the main model, always: the user's explicit choice outranks economy.
     if cfg.agent.routing.eq_ignore_ascii_case("off") {
         return Route { model: None, escalate_after: None, why: "routing is switched off" };
+    }
+    if level >= Level::Minimal {
+        return Route { model: Some(fast.to_string()), escalate_after: None, why: "the token allowance is nearly used up" };
     }
     if looks_simple(input) {
         // A wrong guess corrects itself: real work shows up as steps, and then the main model takes over.
@@ -285,7 +288,7 @@ mod tests {
         // With a tighter monthly limit the same pace runs out on the 21st, and effort drops as it nears.
         cfg.agent.monthly_token_limit = 400_000;
         let b = Budget::on(&store, &cfg, day("2026-11-10"));
-        assert_eq!(b.limit_reached_on.as_deref(), Some("2026-11-21"));
+        assert_eq!(b.limit_reached_on.as_deref(), Some("2026-11-20"));
         cfg.agent.monthly_token_limit = 250_000; // 20% left
         assert_eq!(Budget::on(&store, &cfg, day("2026-11-10")).level, Level::Careful);
         cfg.agent.monthly_token_limit = 210_000; // under 5% left
@@ -293,7 +296,7 @@ mod tests {
         cfg.agent.monthly_token_limit = 200_000;
         let spent = Budget::on(&store, &cfg, day("2026-11-10"));
         assert_eq!((spent.level, spent.month.left), (Level::Spent, Some(0)));
-        assert!(!spent.background_allowed() && spent.max_steps(40) == 8 && spent.reply_tokens() == Some(2048));
+        assert!(!spent.background_allowed() && spent.max_steps(40) == 8 && spent.reply_tokens(8192) == Some(2048) && spent.reply_tokens(1024) == Some(1024));
 
         // No limits: figures are still reported, and nothing is restricted.
         let free = Budget::on(&store, &Config::default(), day("2026-11-10"));
@@ -330,9 +333,9 @@ mod tests {
         // When the allowance is nearly gone everything goes to the cheaper model, and stays there.
         let r = route(&cfg, Level::Minimal, "refactor the parser module");
         assert_eq!((r.model.as_deref(), r.escalate_after), (Some("small"), None));
-        // The user can switch routing off; economy still applies at the very end.
+        // The user can switch routing off, and then it stays off even when the allowance is spent.
         cfg.agent.routing = "off".into();
         assert_eq!(route(&cfg, Level::Normal, "hi").model, None);
-        assert_eq!(route(&cfg, Level::Spent, "hi").model.as_deref(), Some("small"));
+        assert_eq!(route(&cfg, Level::Spent, "hi").model, None);
     }
 }
