@@ -30,6 +30,8 @@ jobs:
           HERON_TEST_BROWSER: "1"
       - name: Build the desktop app
         run: cargo build --features desktop --bins
+      - name: Desktop bridge and SSE tests
+        run: cargo test --features desktop --bin heron-desktop
   neural:
     # The optional neural memory model. Informational for now: it tells us on which systems the
     # ONNX runtime builds and the model loads, without holding up everything else.
