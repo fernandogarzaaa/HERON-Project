@@ -1,0 +1,33 @@
+// Shared Theme for the HERON Slint rebuild. Chat lane.
+// This file mirrors the Shell lane's ui/components/theme.slint
+// property for property, so the integration keeps one copy with no
+// conflicts. The Shell lane owns the canonical copy; this lane only
+// mirrors it. Do not add properties here without coordinating with
+// the Shell lane: main.slint compiles against this exact shape.
+//
+// The Theme is flat and dark-only. Values are measured from
+// assets/index.html, dark media query. The brand hexes slate #2F6690
+// and talon #C98F00 are the light-mode values. In dark mode they
+// lighten to #7DB3D8 and #EDB92B for contrast on dark surfaces.
+// Headings use the web UI serif stack. Light-mode values stay
+// documented in ui/CHAT_MAP.md for a future light mode; they are not
+// in this file.
+// Slint =1.18.1, per ~/workspace/HERON-Slint-Plan.md.
+
+export global Theme {
+    in-out property <color> slate: #7DB3D8;
+    in-out property <color> slate-ink: #0D1B26;
+    in-out property <color> slate-soft: #1D3040;
+    in-out property <color> talon: #EDB92B;
+    in-out property <color> talon-soft: #352C0F;
+    in-out property <color> talon-ink: #F6E3A6;
+    in-out property <color> surface: #17212A;
+    in-out property <color> paper: #10181F;
+    in-out property <color> ink: #E3EAF0;
+    in-out property <color> muted: #93A4B3;
+    in-out property <color> line: #293642;
+    in-out property <color> danger: #EC7A6F;
+    in-out property <color> danger-soft: #3A1D1A;
+    in-out property <color> ok: #6EC49C;
+    in-out property <string> heading-font: "Iowan Old Style, Sitka Display, Sitka Text, Constantia, Charter, Georgia, serif";
+}

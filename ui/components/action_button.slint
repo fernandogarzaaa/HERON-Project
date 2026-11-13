@@ -1,0 +1,51 @@
+// A crafted button with a clear hierarchy. Chat lane.
+// Standard chrome (Undo, mode buttons, banner actions) keeps the
+// native std-widgets Button and the pinned widget style. This button
+// is for actions whose meaning is product-specific: Send / Stop in the
+// composer, Allow / Deny on an approval card. kind is "primary"
+// (slate), "secondary" (surface with a line border), or "danger"
+// (red). Hover and press follow the shell's own button pattern in
+// ui/main.slint: a talon border on hover, a softer background with the
+// accent text color on press. Disabled is a muted state, not an
+// invisible one. The user always sees what the next action is.
+// Colors come from the shared flat Theme (dark values). reduce-motion
+// arrives as a property from the window, the shell's pattern, and
+// zeroes the transition. Durations match the shell: 150ms feedback.
+// Slint =1.18.1, per ~/workspace/HERON-Slint-Plan.md.
+
+import { Theme } from "theme.slint";
+
+export component ActionButton inherits Rectangle {
+    in property <string> label;
+    in property <string> kind: "secondary";
+    in property <bool> enabled: true;
+    in property <bool> pill: false;
+    in property <bool> reduce-motion: false;
+    callback clicked();
+
+    property <color> base: kind == "primary" ? Theme.slate : kind == "danger" ? Theme.danger : Theme.surface;
+    property <color> press-bg: kind == "primary" ? Theme.slate-soft : kind == "danger" ? Theme.danger-soft : Theme.slate-soft;
+    property <color> press-text: kind == "primary" ? Theme.slate : kind == "danger" ? Theme.danger : Theme.ink;
+
+    height: 36px;
+    border-radius: pill ? 18px : 8px;
+    border-width: touch.has-hover || !enabled ? 1px : 0px;
+    border-color: touch.has-hover ? Theme.talon : Theme.line;
+    background: !enabled ? Theme.line : touch.pressed ? press-bg : base;
+    animate background { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+    animate border-color { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+
+    Text {
+        text: label;
+        font-size: 14px;
+        font-weight: kind == "primary" || kind == "danger" ? 600 : 400;
+        color: !enabled ? Theme.muted : touch.pressed ? press-text : kind == "secondary" ? Theme.ink : Theme.slate-ink;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}

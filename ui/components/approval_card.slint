@@ -1,0 +1,68 @@
+// One inline approval card. Chat lane.
+// Renders inside the chat thread, as in the web UI. Approval prompts
+// stay inline. They are never a dialog.
+// Design: the choice must read at a glance. Allow once is the primary
+// action. The session and always options are secondary. Don't allow is
+// destructive red. The risk is visible twice: the card tint and a left
+// accent bar in the risk color. The card fades in when it appears.
+// Reduced motion arrives as a property from the window, the shell's
+// pattern, and zeroes the fade.
+// Slint =1.18.1, per ~/workspace/HERON-Slint-Plan.md.
+
+import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { ActionButton } from "action_button.slint";
+
+// One inline approval card.
+export struct ApprovalRow {
+    id: string,
+    tool: string,
+    title: string,
+    warning: string,
+    detail: string,
+    danger: bool,
+    can-session: bool,
+    can-always: bool,
+    session-label: string,
+    always-label: string,
+}
+
+export component ApprovalCardView inherits VerticalBox {
+    in property <ApprovalRow> card;
+    in property <bool> reduce-motion;
+    callback answered(string, string);
+
+    property <float> appear: 0;
+    init => { appear = 1; }
+    animate appear { duration: reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+
+    Rectangle {
+        opacity: appear;
+        background: card.danger ? Theme.danger-soft : Theme.talon-soft;
+        border-color: card.danger ? Theme.danger : Theme.talon;
+        border-width: 1px; border-radius: 10px;
+        HorizontalBox {
+            Rectangle {
+                width: 4px;
+                background: card.danger ? Theme.danger : Theme.talon;
+                border-top-left-radius: 10px; border-bottom-left-radius: 10px;
+            }
+            VerticalBox {
+                Text { text: card.title; font-size: 16px; font-weight: 600; color: Theme.ink; wrap: word-wrap; }
+                if card.warning != "": Text { text: card.warning; font-size: 14px; font-weight: 600; color: Theme.danger; wrap: word-wrap; }
+                if card.detail != "": Rectangle {
+                    background: Theme.surface; border-color: Theme.line; border-width: 1px; border-radius: 6px;
+                    Text { text: card.detail; font-family: "monospace"; font-size: 13px; color: Theme.ink; wrap: word-wrap; }
+                }
+                HorizontalBox {
+                    alignment: start;
+                    spacing: 8px;
+                    ActionButton { label: "Allow once"; kind: "primary"; reduce-motion: reduce-motion; clicked => { root.answered(card.id, "once"); } }
+                    if card.can-session: ActionButton { label: card.session-label; kind: "secondary"; reduce-motion: reduce-motion; clicked => { root.answered(card.id, "session"); } }
+                    if card.can-always: ActionButton { label: card.always-label; kind: "secondary"; reduce-motion: reduce-motion; clicked => { root.answered(card.id, "always"); } }
+                    ActionButton { label: "Don't allow"; kind: "danger"; reduce-motion: reduce-motion; clicked => { root.answered(card.id, "deny"); } }
+                }
+            }
+        }
+    }
+}

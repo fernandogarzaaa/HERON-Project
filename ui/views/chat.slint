@@ -1,0 +1,282 @@
+// Chat view: header, thread, composer, empty state. Chat lane.
+// Wired to the Shell bridge contract in
+// ~/workspace/HERON-Slint-Shell/docs/slint-bridge.md. The window
+// (ui/main.slint, Shell lane) embeds this ChatView in its chat branch
+// and binds the properties and callbacks below to the window surface.
+// See ui/WIRING.md for the exact embedding and the Shell-side changes.
+// Callback names match the window's where they correspond:
+// send-message, cancel-reply, new-session, approve, copy-requested.
+// The rail, the session list and the view switcher live in
+// ui/main.slint, Shell lane.
+// Design: Inan's bar is "beautiful, more interactive, more intuitive".
+// The composer is the obvious place to type: it takes focus when the
+// view appears and its border turns slate while focused. Send is slate
+// and Stop is red, so the action is unmistakable. Starter prompts are
+// tappable cards, not plain buttons, so the empty state invites the
+// user in. Standard chrome (Undo, mode buttons, banner actions) keeps
+// the native std-widgets Button and the pinned widget style.
+// Keyboard: Cmd/Ctrl+N starts a new conversation, Esc stops a running
+// reply, Enter sends, Shift+Enter inserts a newline. The key handling
+// follows the shell's FocusScope pattern in ui/main.slint. It is
+// uncompiled: the first Mac or CI build is the check, and the Send and
+// Stop buttons already cover both actions if a key guess is wrong.
+// Slint =1.18.1, per ~/workspace/HERON-Slint-Plan.md.
+
+import { Button, TextEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+import { ActionButton } from "../components/action_button.slint";
+import { ChatMsg, MessageView } from "../components/message.slint";
+
+component ModeButton inherits Button {
+    in property <string> mode;
+    in property <string> current-mode;
+    callback clicked-mode(string);
+    text: mode == "readonly" ? "Read only" : mode == "ask" ? "Ask first" : mode == "auto" ? "Auto" : "Unrestricted";
+    checkable: true;
+    checked: mode == current-mode;
+    clicked => { root.clicked-mode(mode); }
+}
+
+component ComposerView inherits FocusScope {
+    in property <bool> busy;
+    in property <string> hint;
+    in property <bool> reduce-motion;
+    callback send-message(string);
+    callback cancel-reply();
+    // Enter sends, Shift+Enter inserts a newline. Other keys bubble up
+    // to the ChatView scope (Esc stops, Cmd/Ctrl+N starts a new
+    // conversation). If the TextEdit consumes Return before this scope
+    // sees it, the Send button still works; see ui/WIRING.md.
+    key-pressed(event) => {
+        if (event.text == "\n" && !event.modifiers.shift) {
+            if (input.text != "") { root.send-message(input.text); input.text = ""; }
+            accept
+        } else {
+            reject
+        }
+    }
+    // The composer is the obvious place to type. It takes focus when
+    // the view appears.
+    init => { input.focus(); }
+    VerticalBox {
+        HorizontalBox {
+            alignment: stretch;
+            spacing: 8px;
+            Rectangle {
+                border-color: input.has-focus ? Theme.slate : Theme.line;
+                border-width: 1px; border-radius: 10px;
+                background: Theme.surface;
+                animate border-color { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+                input := TextEdit {
+                    placeholder-text: "Ask Heron to do something";
+                    wrap: word-wrap;
+                    min-height: 46px;
+                }
+            }
+            ActionButton {
+                label: busy ? "Stop" : "Send";
+                kind: busy ? "danger" : "primary";
+                enabled: busy || input.text != "";
+                reduce-motion: reduce-motion;
+                clicked => {
+                    if (busy) { root.cancel-reply(); } else if (input.text != "") { root.send-message(input.text); input.text = ""; }
+                }
+            }
+        }
+        Text { text: hint; font-size: 12px; color: Theme.muted; }
+    }
+}
+
+component StarterCard inherits TouchArea {
+    in property <string> prompt;
+    in property <bool> reduce-motion;
+    callback picked(string);
+    clicked => { root.picked(prompt); }
+    Rectangle {
+        background: root.pressed ? Theme.slate-soft : root.has-hover ? Theme.surface : Theme.paper;
+        border-color: root.has-hover ? Theme.slate : Theme.line;
+        border-width: 1px; border-radius: 10px;
+        animate background { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+        animate border-color { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+        HorizontalBox {
+            spacing: 10px;
+            Rectangle { width: 4px; background: Theme.talon; border-radius: 2px; }
+            Text { text: prompt; font-size: 14px; color: Theme.ink; wrap: word-wrap; }
+        }
+    }
+}
+
+component EmptyStateView inherits VerticalBox {
+    in property <bool> has-key;
+    in property <bool> demo;
+    in property <bool> paused;
+    in property <string> workspace-short;
+    in property <string> workspace-full;
+    in property <[string]> starters;
+    in property <bool> reduce-motion;
+    callback open-settings();
+    callback try-demo();
+    callback resume();
+    callback use-starter(string);
+    if !has-key: Rectangle {
+        background: Theme.talon-soft; border-color: Theme.talon; border-width: 1px; border-radius: 10px;
+        VerticalBox {
+            Text { text: "Heron needs an AI model before it can reply. Add an API key, or point it at a model running on this computer."; wrap: word-wrap; }
+            HorizontalBox {
+                Button { text: "Connect a model"; clicked => { root.open-settings(); } }
+                Button { text: "Try the demo first"; clicked => { root.try-demo(); } }
+            }
+        }
+    }
+    if demo: Rectangle {
+        background: Theme.talon-soft; border-color: Theme.talon; border-width: 1px; border-radius: 10px;
+        VerticalBox {
+            Text { text: "Demo mode: replies are canned, but the actions are real, so you can try approvals, memory and reminders. Connect a model for real answers."; wrap: word-wrap; }
+            Button { text: "Connect a model"; clicked => { root.open-settings(); } }
+        }
+    }
+    if paused: Rectangle {
+        background: Theme.surface; border-color: Theme.line; border-width: 1px; border-radius: 10px;
+        VerticalBox {
+            Text { text: "Heron is paused: it starts nothing on its own until you resume it. You can still ask it for things here."; wrap: word-wrap; }
+            Button { text: "Resume"; clicked => { root.resume(); } }
+        }
+    }
+    Text { text: "What should we get done?"; font-size: 30px; font-weight: 600; font-family: Theme.heading-font; wrap: word-wrap; }
+    Text { text: "Heron works in " + workspace-short + ". It can read and write files there, run commands, search the web, remember what matters to you, and remind you of things."; color: Theme.muted; wrap: word-wrap; }
+    for starter in starters: StarterCard {
+        prompt: starter;
+        reduce-motion: reduce-motion;
+        picked(s) => { root.use-starter(s); }
+    }
+}
+
+export component ChatView inherits FocusScope {
+    in property <string> title;
+    in property <string> mode;
+    in property <bool> busy;
+    in property <bool> can-undo;
+    in property <[ChatMsg]> thread;
+    in property <bool> show-empty;
+    in property <bool> has-key;
+    in property <bool> demo;
+    in property <bool> paused;
+    in property <string> workspace-short;
+    in property <string> workspace-full;
+    in property <[string]> starters;
+    in property <string> hint: busy ? "Heron is working. Press Esc or Stop to halt it." : "Enter to send, Shift+Enter for a new line";
+    in property <bool> reduce-motion;
+    // Bumped by Rust on every thread mutation. The view follows it to
+    // the bottom while the reader is at the bottom. Row mutations do
+    // not fire a model's changed handler, so the counter is the
+    // trigger. See ui/WIRING.md.
+    in property <int> thread-version;
+    // Inline confirm row for the Unrestricted mode switch. The plan
+    // turns web confirm() calls into small Slint dialogs or inline
+    // confirm rows. This lane uses an inline row.
+    in-out property <bool> confirm-yolo;
+
+    // Follow-scroll: true while the reader is within 240px of the
+    // bottom. The view owns this, not the bridge.
+    property <bool> follow: thread-scroll.viewport-y <= thread-scroll.height - thread-box.height + 240;
+    property <bool> show-latest: !follow;
+    changed thread-version => {
+        if (follow) { thread-scroll.viewport-y = thread-scroll.height - thread-box.height; }
+    }
+
+    // Cmd/Ctrl+N starts a new conversation. Esc stops a running reply.
+    // Anything else bubbles on. The Key.Escape spelling is the
+    // riskiest uncompiled guess here; the Stop button already covers
+    // the action if it is wrong.
+    key-pressed(event) => {
+        if (event.text == "n" && (event.modifiers.control || event.modifiers.meta)) {
+            root.new-session();
+            accept
+        } else if (event.key == Key.Escape && busy) {
+            root.cancel-reply();
+            accept
+        } else {
+            reject
+        }
+    }
+
+    callback send-message(string);
+    callback cancel-reply();
+    callback undo();
+    callback set-mode(string);
+    callback approve(string, string);
+    callback toggle-step(string);
+    callback copy-requested(string);
+    callback open-link(string);
+    callback open-settings();
+    callback new-session();
+    callback continue-turn();
+    callback use-starter(string);
+    callback try-demo();
+    callback resume();
+
+    VerticalBox {
+        // Header: title, Undo, mode group.
+        HorizontalBox {
+            alignment: space-between;
+            Text { text: title; font-size: 20px; font-weight: 600; font-family: Theme.heading-font; }
+            if can-undo: Button { text: "Undo last file change"; clicked => { root.undo(); } }
+            HorizontalBox {
+                ModeButton { mode: "readonly"; current-mode: mode; clicked-mode(m) => { root.set-mode(m); } }
+                ModeButton { mode: "ask"; current-mode: mode; clicked-mode(m) => { root.set-mode(m); } }
+                ModeButton { mode: "auto"; current-mode: mode; clicked-mode(m) => { root.set-mode(m); } }
+                ModeButton {
+                    mode: "yolo"; current-mode: mode;
+                    clicked-mode(m) => {
+                        if (mode == "yolo") { root.set-mode(m); } else { confirm-yolo = true; }
+                    }
+                }
+            }
+        }
+        if confirm-yolo: Rectangle {
+            background: Theme.danger-soft; border-color: Theme.danger; border-width: 1px; border-radius: 10px;
+            VerticalBox {
+                Text { text: "Unrestricted means Heron changes files and runs commands without asking. Continue?"; wrap: word-wrap; }
+                HorizontalBox {
+                    Button { text: "Continue"; clicked => { confirm-yolo = false; root.set-mode("yolo"); } }
+                    Button { text: "Cancel"; clicked => { confirm-yolo = false; } }
+                }
+            }
+        }
+
+        // Thread.
+        thread-scroll := ScrollView {
+            thread-box := VerticalBox {
+                if show-empty: EmptyStateView {
+                    has-key: has-key; demo: demo; paused: paused;
+                    workspace-short: workspace-short; workspace-full: workspace-full;
+                    starters: starters;
+                    reduce-motion: reduce-motion;
+                    open-settings => { root.open-settings(); }
+                    try-demo => { root.try-demo(); }
+                    resume => { root.resume(); }
+                    use-starter(s) => { root.use-starter(s); }
+                }
+                for msg in thread: MessageView {
+                    msg: msg;
+                    reduce-motion: reduce-motion;
+                    toggled-step(id) => { root.toggle-step(id); }
+                    answered-approval(id, decision) => { root.approve(id, decision); }
+                    copy-requested(t) => { root.copy-requested(t); }
+                    open-link(url) => { root.open-link(url); }
+                }
+            }
+        }
+        if show-latest: HorizontalBox {
+            alignment: center;
+            ActionButton { label: "↓ Newest message"; kind: "primary"; pill: true; reduce-motion: reduce-motion; clicked => { thread-scroll.viewport-y = thread-scroll.height - thread-box.height; } }
+        }
+
+        // Composer.
+        ComposerView {
+            busy: busy; hint: hint; reduce-motion: reduce-motion;
+            send-message(t) => { root.send-message(t); }
+            cancel-reply => { root.cancel-reply(); }
+        }
+    }
+}
