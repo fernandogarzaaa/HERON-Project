@@ -890,9 +890,17 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
     window.on_sidebar_navigate(move |view| {
         let name = view.to_string();
         (c.on_navigate)(name.clone());
-        // Loading at app startup is not a visit. Entering Reminders is.
-        if name == "reminders" {
-            refresh_reminders(weak.clone(), &c);
+        // Reload visible data after agent-side changes, not only local form
+        // submissions. Startup fetching is independent and does not mark
+        // reminders read until their view actually becomes visible.
+        match name.as_str() {
+            "memory" => refresh_memory(weak.clone(), &c),
+            "tasks" => refresh_tasks(weak.clone(), &c),
+            "reminders" => refresh_reminders(weak.clone(), &c),
+            "awareness" => refresh_awareness(weak.clone(), &c),
+            "usage" => refresh_usage(weak.clone(), &c),
+            "activity" => refresh_activity(weak.clone(), &c),
+            _ => {}
         }
     });
     let c = ctrl.clone();

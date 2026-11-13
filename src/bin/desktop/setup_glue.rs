@@ -479,6 +479,27 @@ impl SettingsFormInput {
         }
     }
 
+    /// Restore the user's unsaved form draft after a tool/persona/backup
+    /// operation reloads server state. These operations do not modify the
+    /// model connection form, and the user may have continued typing while
+    /// the background request ran.
+    fn restore_to(&self, window: &MainWindow) {
+        window.set_settings_base_url(self.base_url.clone().into());
+        window.set_settings_model(self.model.clone().into());
+        window.set_settings_fallback_models(self.fallback_models.clone().into());
+        window.set_settings_fast_model(self.fast_model.clone().into());
+        window.set_settings_provider_index(self.provider_index);
+        window.set_settings_cli_command(self.cli_command.clone().into());
+        window.set_settings_cli_model(self.cli_model.clone().into());
+        window.set_settings_api_key(self.api_key.clone().into());
+        window.set_settings_mode(self.mode.clone().into());
+        window.set_settings_daemon_mode(self.daemon_mode.clone().into());
+        window.set_settings_auto_memory(self.auto_memory);
+        window.set_settings_neural_memory(self.neural_memory);
+        window.set_settings_browser_visible(self.browser_visible);
+        window.set_settings_workspace(self.workspace.clone().into());
+    }
+
     fn apply_to(&self, st: &mut SettingsState<HeronSetupBridge>) {
         st.form.base_url = self.base_url.clone();
         st.form.model = self.model.clone();
@@ -872,7 +893,6 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
             let Some(w) = weak.upgrade() else { return };
             let name = w.get_settings_agent_name().to_string();
             let text = w.get_settings_persona_text().to_string();
-            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
             let set_task = set.clone();
@@ -885,8 +905,9 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
+                    let draft = SettingsFormInput::read(&window);
                     snap.apply(&window);
-                    restore_api_key(&window, &api_key);
+                    draft.restore_to(&window);
                     window.set_settings_busy(false);
                 });
             });
@@ -898,7 +919,6 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
         let weak = window.as_weak();
         window.on_settings_reset_persona(move || {
             let Some(w) = weak.upgrade() else { return };
-            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
             let set_task = set.clone();
@@ -909,8 +929,9 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
+                    let draft = SettingsFormInput::read(&window);
                     snap.apply(&window);
-                    restore_api_key(&window, &api_key);
+                    draft.restore_to(&window);
                     window.set_settings_busy(false);
                 });
             });
@@ -932,7 +953,6 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                 _ => return,
             };
             let Some(w) = weak.upgrade() else { return };
-            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
             let set_task = set.clone();
@@ -943,8 +963,9 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
+                    let draft = SettingsFormInput::read(&window);
                     snap.apply(&window);
-                    restore_api_key(&window, &api_key);
+                    draft.restore_to(&window);
                     window.set_settings_busy(false);
                 });
             });
@@ -959,7 +980,6 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
         let weak = window.as_weak();
         window.on_settings_accept_mcp(move |name| {
             let Some(w) = weak.upgrade() else { return };
-            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
             let set_task = set.clone();
@@ -970,8 +990,9 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
+                    let draft = SettingsFormInput::read(&window);
                     snap.apply(&window);
-                    restore_api_key(&window, &api_key);
+                    draft.restore_to(&window);
                     window.set_settings_busy(false);
                 });
             });
@@ -988,7 +1009,6 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
         window.on_settings_connect_telegram(move || {
             let Some(w) = weak.upgrade() else { return };
             let token = w.get_settings_telegram_token().to_string();
-            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
             let set_task = set.clone();
@@ -1000,8 +1020,9 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
+                    let draft = SettingsFormInput::read(&window);
                     snap.apply(&window);
-                    restore_api_key(&window, &api_key);
+                    draft.restore_to(&window);
                     window.set_settings_busy(false);
                 });
             });
@@ -1013,7 +1034,6 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
         let weak = window.as_weak();
         window.on_settings_disconnect_telegram(move || {
             let Some(w) = weak.upgrade() else { return };
-            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
             let set_task = set.clone();
@@ -1024,8 +1044,9 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
+                    let draft = SettingsFormInput::read(&window);
                     snap.apply(&window);
-                    restore_api_key(&window, &api_key);
+                    draft.restore_to(&window);
                     window.set_settings_busy(false);
                 });
             });
@@ -1040,7 +1061,6 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
         let weak = window.as_weak();
         window.on_settings_make_backup(move || {
             let Some(w) = weak.upgrade() else { return };
-            let api_key = w.get_settings_api_key().to_string();
             w.set_settings_busy(true);
             let weak_task = weak.clone();
             let set_task = set.clone();
@@ -1051,8 +1071,9 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                     SettingsSync::from(&st)
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
+                    let draft = SettingsFormInput::read(&window);
                     snap.apply(&window);
-                    restore_api_key(&window, &api_key);
+                    draft.restore_to(&window);
                     window.set_settings_busy(false);
                 });
             });

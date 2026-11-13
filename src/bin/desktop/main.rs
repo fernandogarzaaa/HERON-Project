@@ -435,12 +435,25 @@ fn main() {
             });
         }
 
-        // Copy a message's text. The button already shows "Copied"; a
-        // clipboard failure is logged, since the view has no signal for it.
+        // Retain the platform clipboard object for the window's lifetime.
+        // Some clipboard backends transfer ownership on drop, so creating
+        // and immediately dropping it can make copied text disappear.
+        let clipboard = std::cell::RefCell::new(None::<arboard::Clipboard>);
         window.on_copy_requested(move |text| {
-            let text = text.to_string();
-            if let Err(e) = arboard::Clipboard::new().and_then(|mut cb| cb.set_text(text)) {
-                eprintln!("could not copy to the clipboard: {e}");
+            let mut slot = clipboard.borrow_mut();
+            if slot.is_none() {
+                match arboard::Clipboard::new() {
+                    Ok(cb) => *slot = Some(cb),
+                    Err(e) => {
+                        eprintln!("could not open the clipboard: {e}");
+                        return;
+                    }
+                }
+            }
+            if let Some(cb) = slot.as_mut() {
+                if let Err(e) = cb.set_text(text.to_string()) {
+                    eprintln!("could not copy to the clipboard: {e}");
+                }
             }
         });
 
