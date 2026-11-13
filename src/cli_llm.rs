@@ -419,6 +419,37 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
     None
 }
 
+/// A configured account directory must resolve the same way for the probe
+/// and for the request: the probe runs in Heron's working directory, the
+/// request in a fresh temp dir, so a relative path would point at two
+/// different accounts. Expand `~` (no shell runs here) and make a relative
+/// path absolute, so both sides inspect the same account.
+fn normalize_config_dir(dir: &str) -> String {
+    if dir.is_empty() {
+        return String::new();
+    }
+    let expanded = if dir == "~" {
+        dirs::home_dir()
+            .map(|h| h.to_string_lossy().into_owned())
+            .unwrap_or_else(|| dir.to_string())
+    } else if let Some(rest) = dir.strip_prefix("~/") {
+        match dirs::home_dir() {
+            Some(home) => home.join(rest).to_string_lossy().into_owned(),
+            None => dir.to_string(),
+        }
+    } else {
+        dir.to_string()
+    };
+    let p = PathBuf::from(&expanded);
+    if p.is_absolute() {
+        expanded
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(p).to_string_lossy().into_owned())
+            .unwrap_or(expanded)
+    }
+}
+
 /// A resolved executable must be absolute. chat() spawns with the working
 /// directory set to the per-request temp dir, so a relative path (from a
 /// relative PATH entry, or a relative command override) would resolve
@@ -541,7 +572,9 @@ pub async fn probe_status(
     };
     // The same account-directory override the request path applies in
     // child_env: without it the probe inspects the default account
-    // while requests use the configured one.
+    // while requests use the configured one. Normalized first, so a
+    // relative path means the same directory here as in a request.
+    let config_dir = normalize_config_dir(config_dir);
     let config_env: Option<(String, String)> = if !config_dir.is_empty() {
         spec.config_dir_env
             .map(|var| (var.to_string(), config_dir.to_string()))
@@ -1073,7 +1106,7 @@ impl CliLlm {
             spec,
             command_override: cfg.llm.cli_command.clone(),
             model: cfg.llm.cli_model.clone(),
-            config_dir: cfg.llm.cli_config_dir.clone(),
+            config_dir: normalize_config_dir(&cfg.llm.cli_config_dir),
             allow_agent_tools: cfg.llm.cli_allow_agent_tools,
             allow_api_key: cfg.llm.cli_allow_api_key,
             custom_args: cfg.llm.cli_args.clone(),
@@ -2644,6 +2677,56 @@ mod tests {
         // A relative command override goes through the same lookup.
         let via_override = resolve_binary("", "mycli").expect("fake via override");
         assert!(via_override.is_absolute(), "{via_override:?}");
+    }
+
+    #[test]
+    fn normalize_config_dir_expands_tilde_and_relative_paths() {
+        assert_eq!(normalize_config_dir(""), "");
+        assert_eq!(normalize_config_dir("/tmp/acct"), "/tmp/acct");
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(
+            normalize_config_dir("accounts/work"),
+            cwd.join("accounts/work").to_string_lossy()
+        );
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(
+            normalize_config_dir("~/x"),
+            home.join("x").to_string_lossy()
+        );
+        assert_eq!(normalize_config_dir("~"), home.to_string_lossy());
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn probe_and_request_agree_on_a_relative_config_dir() {
+        // The probe runs in Heron's working directory, the request in a
+        // fresh temp dir: a relative cli_config_dir used to point at two
+        // different accounts, and the request's copy was deleted with it.
+        let dir = tempfile::tempdir().unwrap();
+        let record = dir.path().join("cfgdir.txt");
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"1.2.3\"\n  exit 0\nfi\necho \"$CLAUDE_CONFIG_DIR\" > \"{}\"\necho \"Logged in as test@example.com (Pro)\"\n",
+            record.display()
+        );
+        let bin = fake_bin(dir.path(), "claude", &script);
+        let spec = spec_for("claude-cli").unwrap();
+        let probed = probe_status(&spec, &bin.to_string_lossy(), "relacct").await;
+        assert_eq!(probed.logged_in, Some(true));
+        let want = std::env::current_dir().unwrap().join("relacct");
+        assert_eq!(
+            std::fs::read_to_string(&record).unwrap().trim(),
+            want.to_string_lossy()
+        );
+        let mut cfg = test_cfg(dir.path(), "claude-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        cfg.llm.cli_config_dir = "relacct".to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let env = llm.child_env();
+        let got = env
+            .iter()
+            .find(|(k, _)| k == "CLAUDE_CONFIG_DIR")
+            .map(|(_, v)| v.clone());
+        assert_eq!(got.as_deref(), Some(want.to_string_lossy().as_ref()));
     }
 
     #[tokio::test]

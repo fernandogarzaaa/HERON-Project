@@ -131,6 +131,10 @@ cli_model = "sonnet"   # sonnet | haiku | opus | fable, or a full model id; empt
 # cli_config_dir = "~/.claude_personal"      # a second account, isolated from the first
 ```
 
+A relative `cli_config_dir` resolves against Heron's working directory, and a
+leading `~/` expands to the home directory, so the login probe and the
+requests always inspect the same account.
+
 Or per run:
 
 ```sh
