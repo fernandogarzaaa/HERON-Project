@@ -306,13 +306,27 @@ impl HeronClient {
         }
         let mut parser = SseParser::new();
         let mut stream = resp.bytes_stream();
+        let mut saw_terminal_event = false;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.context("the chat stream broke")?;
             for event in parser.feed(&chunk) {
+                // A clean HTTP EOF is not necessarily a completed turn. Without
+                // a terminal event, the UI would keep its busy flag indefinitely.
+                if matches!(
+                    event,
+                    ChatEvent::Done { .. } | ChatEvent::Error { .. } | ChatEvent::Cancelled
+                ) {
+                    saw_terminal_event = true;
+                }
                 if tx.send(event).is_err() {
                     return Ok(()); // the UI went away; stop reading
                 }
             }
+        }
+        if !saw_terminal_event {
+            return Err(anyhow!(
+                "the chat connection closed before Heron finished replying"
+            ));
         }
         Ok(())
     }
