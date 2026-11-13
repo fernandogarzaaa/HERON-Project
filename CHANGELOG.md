@@ -19,6 +19,7 @@ Durability and isolation:
 
 - **Undo will not overwrite your edits.** If a file has been changed, replaced or removed since Heron edited it, undo says so and touches nothing. You can restore anyway; the version that was there is saved beside the file first. A saved copy never replaces an earlier one, and keeps the file's own permissions. "Restore anyway" applies only to the change you were asked about: if Heron has changed something else in the meantime, nothing is restored and you are asked again.
 - File changes are written in one step, so a crash or a full disk cannot leave half a file.
+- Only one Heron on the computer runs reminders and scheduled jobs. A second one waits and takes over if the first stops, and running a terminal command such as `heron inbox` while the app is open no longer reports the app's running jobs as interrupted.
 - A scheduled job can no longer be started twice for the same time, and a job that was running when Heron stopped is reported in the inbox as "not known whether it finished" instead of disappearing. It is not repeated automatically.
 - **Commands Heron runs no longer see your whole environment.** They get paths, language settings and toolchain locations; tokens and cloud keys are withheld. If a command needs one, add its name to `shell_env` under `[agent]`. The variable that holds the model's key is never passed, even if listed. This applies to commands Heron runs itself; your own `notify_command` and connected MCP programs still start with the full environment.
 
