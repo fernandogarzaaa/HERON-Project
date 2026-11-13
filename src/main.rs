@@ -397,6 +397,11 @@ async fn doctor(cfg: &Config) -> Result<()> {
     let has_key = cfg.api_key().is_some();
     let demo = heron::llm::is_demo(cfg);
     println!("{} api key     {}", ok(has_key || local || demo), if demo { "not needed in demo mode".to_string() } else if has_key { "found".to_string() } else if local { "not needed for a local endpoint".into() } else { format!("missing — set {} or save one in the app's Settings", cfg.llm.api_key_env) });
+    match heron::browser::find(cfg) {
+        Some(path) => println!("{} browser     {} (Heron can open pages, click and fill in forms)", ok(true), path.display()),
+        None if cfg.agent.browser.eq_ignore_ascii_case("off") => println!("     browser     switched off in the config file"),
+        None => println!("     browser     none found — install Chrome, Edge, Chromium or Brave to let Heron use websites"),
+    }
     use heron::llm::{ChatRequest, Message};
     let mut quick = cfg.clone();
     quick.llm.max_retries = 0;
@@ -411,7 +416,9 @@ async fn doctor(cfg: &Config) -> Result<()> {
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = real_main().await {
+    let outcome = real_main().await;
+    heron::browser::shutdown().await; // never leave a browser running behind us
+    if let Err(e) = outcome {
         eprintln!("{}", style().red(&format!("error: {e:#}")));
         std::process::exit(1);
     }

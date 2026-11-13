@@ -24,6 +24,7 @@ The first public beta of Heron, a personal AI agent that runs on your own comput
 - Automations: recurring jobs made of fixed steps (tool, ask, agent, if, for_each, set, notify, stop) that run without the AI model unless a step needs it, with templates, per-step retry, a step-by-step run record and "Run now". Heron builds them on request and you approve the outline.
 - Optional neural memory search (build feature `neural`): finds facts by meaning, fused with the typo-tolerant built-in method. In the built-in test the right fact is in the top three for 33 of 34 questions (30 of 34 without it), and ranked first for 31 (28 without it).
 - Memory takes a fixed share of the prompt however large it grows; sub-agents get a smaller step allowance; a provider's Retry-After is respected; model calls can be recorded and replayed for tests.
+- Browser control: Heron can open pages in a real browser on your computer (Chrome, Edge, Chromium or Brave), follow links, fill in forms and press buttons, using its own separate profile. Typing and pressing buttons ask first.
 - Hardening from code review before release:
   - After outside content is read, fetching any web address that was not already in the conversation needs approval (not only addresses with a query), as do connected apps' tools and scheduling a job; this now applies in read-only mode too. Facts saved in such a conversation are unconfirmed, and automatic learning uses only your own words.
   - Web requests refuse internal addresses at the moment of connecting, which closes DNS rebinding and redirects to internal names; NAT64, 6to4 and other IPv4-in-IPv6 addresses are recognised.
@@ -40,7 +41,7 @@ The first public beta of Heron, a personal AI agent that runs on your own comput
 
 - Not yet tested with real users. It has been exercised with automated tests and stand-ins for model, mail, calendar and Telegram services.
 - The apps are not code-signed, so macOS and Windows show a warning on first launch.
-- No command sandbox on Windows; no browser automation, voice, mobile app, email sending or calendar writing.
+- No command sandbox on Windows; no voice, mobile app, email sending or calendar writing. Browser control reads pages as text, without screenshots.
 - Outlook.com and Microsoft 365 mail cannot be connected.
 
 See the README for the full list.

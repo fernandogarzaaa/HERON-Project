@@ -98,6 +98,11 @@ pub struct AgentConfig {
     /// "auto" (default): run commands inside the operating system's sandbox where one is available
     /// (bubblewrap on Linux, Seatbelt on macOS). "off": run them directly.
     pub sandbox: String,
+    /// Browser Heron may drive to read pages and fill in forms. Empty = find Chrome, Edge, Chromium or
+    /// Brave automatically; a path = use that program; "off" = no browser control. HERON_BROWSER overrides it.
+    pub browser: String,
+    /// Show the browser's window while Heron uses it (default: it works out of sight).
+    pub browser_visible: bool,
     /// Default working folder for the desktop app / web UI. Empty = ~/Heron.
     pub workspace: String,
     /// Understand meaning, not just shared words, when searching memory: runs a small model locally.
@@ -205,6 +210,8 @@ impl Default for AgentConfig {
             notify_command: String::new(),
             shell: String::new(),
             sandbox: "auto".into(),
+            browser: String::new(),
+            browser_visible: false,
             workspace: String::new(),
             neural_memory: false,
             ambient_context: true,
@@ -495,6 +502,8 @@ max_steps = 40
 context_tokens = 100000
 auto_memory = true
 notify_command = ""                  # e.g. 'notify-send Heron "$HERON_MESSAGE"'
+browser = ""                         # empty = find Chrome/Edge/Chromium/Brave; a path; or "off"
+browser_visible = false              # true = show the browser window while Heron uses it
 
 [permissions]
 mode = "ask"                         # readonly | ask | auto | yolo

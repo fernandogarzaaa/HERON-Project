@@ -387,3 +387,84 @@ fn interface_script_parses() {
         Err(_) => eprintln!("node not found; skipping the interface syntax check"),
     }
 }
+
+/// Drives a real browser against a local site. Runs only when HERON_TEST_BROWSER is set: to "1" to use
+/// whichever browser is installed, or to the path of one.
+#[tokio::test(flavor = "multi_thread")]
+async fn browser_reads_pages_follows_links_and_fills_in_forms() {
+    let Ok(which) = std::env::var("HERON_TEST_BROWSER") else {
+        eprintln!("HERON_TEST_BROWSER is not set; skipping the browser test");
+        return;
+    };
+    if which != "1" {
+        std::env::set_var("HERON_BROWSER", &which);
+    }
+    std::env::set_var("HERON_ALLOW_LOCAL_FETCH", "1"); // the test site is on this machine
+    use axum::response::Html;
+    use axum::routing::get;
+    let first = r#"<!doctype html><title>Test site</title><h1>Welcome</h1><p id="js"></p>
+        <a href="/second">Second page</a>
+        <form onsubmit="return false"><input name="name" placeholder="Your name"><input type="password" name="pw" value="hunter2">
+        <select name="when"><option>Morning</option><option>Evening</option></select>
+        <button id="go" type="button">Greet</button></form><p id="out"></p>
+        <input type="hidden" name="token" value="do-not-list"><button style="display:none">Hidden</button>
+        <script>document.getElementById('js').textContent = 'Rendered by script';
+        document.getElementById('go').onclick = () => { const f = document.forms[0]; document.getElementById('out').textContent = 'Good ' + f.when.value.toLowerCase() + ', ' + f.name.value; };</script>"#;
+    let router = Router::new().route("/", get(move || async move { Html(first) })).route("/second", get(|| async { Html("<title>Second</title><p>Second page here</p><a href=\"/\">Back</a>") }));
+    let base = spawn(router).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = Config::default();
+    cfg.home = dir.path().join("home");
+    cfg.agent.auto_memory = false;
+    cfg.agent.ambient_context = false;
+    cfg.permissions.mode = "ask".into();
+    assert!(heron::browser::find(&cfg).is_some(), "no browser found for the test");
+    // The model's part: open the page, try to press a button, then follow a link.
+    let llm = Arc::new(ScriptedLlm::new(vec![
+        ScriptedLlm::tool_call("browser_open", json!({"url": format!("{base}/")})),
+        ScriptedLlm::tool_call("browser_click", json!({"id": 5})),
+        ScriptedLlm::tool_call("browser_click", json!({"id": 1})),
+        Message::assistant("done"),
+    ]));
+    let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap());
+    assert!(app.tools.names().iter().any(|n| n == "browser_open"), "browser tools are offered when a browser exists");
+
+    // Nobody is there to approve anything.
+    let agent = app.agent(Arc::new(heron::permissions::DenyAll));
+    let mut session = heron::agent::Session::create(&app.store, "").unwrap();
+    agent.run_turn(&mut session, &format!("look at {base}/"), &heron::agent::null_sink()).await.unwrap();
+    let page = session.messages[2].text().to_string();
+    assert!(page.contains("Rendered by script"), "scripts ran: {page}");
+    assert!(page.contains(&format!("[1] link \"Second page\" -> {base}/second")), "{page}");
+    assert!(page.contains("[2] field \"Your name\"") && page.contains("[3] password field") && page.contains("[4] choice") && page.contains("[5] button \"Greet\""), "{page}");
+    assert!(!page.contains("hunter2") && !page.contains("do-not-list") && !page.contains("Hidden"), "passwords and hidden things are not shown: {page}");
+    // Pressing a button acts on the site, and the page is outside content: not done without the user.
+    assert!(session.messages[4].text().starts_with("Permission denied"), "{}", session.messages[4].text());
+    // Following a link that was on the page is just reading.
+    assert!(session.messages[6].text().contains("Second page here"), "{}", session.messages[6].text());
+    assert!(session.messages[6].text().contains(&format!("Address: {base}/second")));
+
+    // With the user's go-ahead, the form can be filled in and used.
+    let ctx = agent.tool_ctx(&session.id);
+    let run = |name: &'static str, args: Value| {
+        let (tools, ctx) = (app.tools.clone(), ctx.clone());
+        async move { tools.get(name).unwrap().call(&args, &ctx).await }
+    };
+    run("browser_open", json!({"url": format!("{base}/")})).await.unwrap();
+    let typed = run("browser_type", json!({"id": 2, "text": "Ada"})).await.unwrap();
+    assert!(typed.contains("(now: Ada)"), "{typed}");
+    let chosen = run("browser_type", json!({"id": 4, "text": "evening"})).await.unwrap();
+    assert!(chosen.contains("[4] choice") && chosen.contains("(now: Evening)"), "{chosen}");
+    assert!(run("browser_type", json!({"id": 4, "text": "Midnight"})).await.unwrap_err().to_string().contains("no such choice"));
+    let greeted = run("browser_click", json!({"id": 5})).await.unwrap();
+    assert!(greeted.contains("Good evening, Ada"), "{greeted}");
+    let again = run("browser_read", json!({})).await.unwrap();
+    assert!(again.contains("Good evening, Ada"));
+    assert!(run("browser_click", json!({"id": 99})).await.is_err());
+    // Addresses that are not web pages are refused.
+    assert!(run("browser_open", json!({"url": "file:///etc/passwd"})).await.is_err());
+
+    heron::browser::shutdown().await;
+    assert!(dir.path().join("home/browser").is_dir(), "the browser used its own profile inside the Heron folder");
+}

@@ -188,7 +188,7 @@ impl Policy {
 /// address that was already in the conversation sends nothing new. Anything else that talks to the
 /// network (an address the model composed, a connected app's tool) can carry whatever the model puts in it.
 fn carries_data_out(tool: &str, risk: Risk, destination_known: bool) -> bool {
-    risk == Risk::Network && tool != "web_search" && !(tool == "web_fetch" && destination_known)
+    risk == Risk::Network && tool != "web_search" && !(matches!(tool, "web_fetch" | "browser_open" | "browser_click") && destination_known)
 }
 
 /// Does a standing "always allow" rule cover this request? A rule for one command (`shell:cargo *`) was

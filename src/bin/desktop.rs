@@ -150,6 +150,7 @@ fn main() {
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         if let Event::WindowEvent { event: WindowEvent::CloseRequested, .. } = event {
+            heron::browser::kill_now(); // the browser Heron was driving closes with the app
             *control_flow = ControlFlow::Exit;
         }
     });

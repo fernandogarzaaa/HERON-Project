@@ -412,7 +412,13 @@ impl Agent {
             let risk = tool.risk(&args, ctx);
             let audit_args = redact_secrets(&preview(&call.function.arguments, 600));
             let tainted = ctx.tainted.load(std::sync::atomic::Ordering::SeqCst);
-            let destination_known = name == "web_fetch" && args.get("url").and_then(|u| u.as_str()).map(|u| ctx.seen_urls.contains(u)).unwrap_or(false);
+            // Where this call would send the browser or a request, when that is a single address.
+            let destination = match name {
+                "web_fetch" | "browser_open" => args.get("url").and_then(|u| u.as_str()).map(str::to_string),
+                "browser_click" => crate::browser::link_target(&args),
+                _ => None,
+            };
+            let destination_known = destination.map(|u| ctx.seen_urls.contains(&u)).unwrap_or(false);
             let verdict = self.policy.decide_in(name, &summary, risk, tainted, destination_known);
             let decision = match verdict {
                 Verdict::Allow => "allowed",

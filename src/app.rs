@@ -52,6 +52,12 @@ impl App {
         }
 
         let mut registry = ToolRegistry::builtin();
+        // Browser control is offered only where there is a browser to control.
+        if crate::browser::find(&cfg).is_some() {
+            for tool in crate::browser::tools() {
+                registry.register(Arc::new(tool));
+            }
+        }
         let mut mcp_status = vec![];
         let mut mcp_pending = std::collections::BTreeMap::new();
         for (name, server) in &cfg.mcp.servers {

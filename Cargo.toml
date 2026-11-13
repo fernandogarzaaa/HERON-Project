@@ -50,6 +50,7 @@ base64 = "0.22"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 rustls-native-certs = "0.8"
 sha2 = "0.10"
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "handshake"] }
 fastembed = { version = "7", default-features = false, features = ["ort-download-binaries-rustls-tls", "hf-hub-rustls-tls"], optional = true }
 
 [dev-dependencies]
