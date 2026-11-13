@@ -137,9 +137,14 @@ current shell behavior is the placeholder; replace each arm:
   not push a new row.
 - `Model { name, why }`: append `"Using {name}: {why}."` to the live
   turn's `notes`.
-- `Learned { items }`: append `"Saved to memory: {a / b}"` to the
-  live turn's `notes`. Stringify each item first: the shell's items
-  are `Value`, the view's are `String`.
+- `Learned { items }`: attach the note to the **originating** reply
+  even after Done, rather than checking only whether it is live.
+  `ChatView::start_send` returns a monotonic id; each SSE forwarder
+  must capture that id and use `apply_event_for_turn(id, event)`.
+  This prevents late learning from attaching to a newer reply or from
+  mutating a new conversation after the old one was cleared.
+  Stringify each item first: the shell carries `Value`, the view
+  carries `String`.
 - `Usage { .. }`: ignore. Unchanged.
 - `Done { text, title }`: set the live turn's `body` with
   `from_markdown` once, set `text` to the full reply, set

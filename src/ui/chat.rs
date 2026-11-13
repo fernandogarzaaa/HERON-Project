@@ -103,6 +103,8 @@ pub struct ApprovalCard {
 /// as markdown by the `.slint` side once the turn completes.
 #[derive(Debug, Clone, Default)]
 pub struct Turn {
+    /// Monotonic stream identity; the forwarder must retain this id.
+    pub turn_id: u64,
     pub raw_text: String,
     pub steps: Vec<ToolStep>,
     pub approvals: Vec<ApprovalCard>,
@@ -516,6 +518,7 @@ pub struct ChatView {
     pub mode: Mode,
     pub busy: bool,
     pub thread: Vec<ThreadItem>,
+    next_turn_id: u64,
     /// True unless the reader scrolled more than 240px from the bottom.
     pub following: bool,
     /// Expanded tool result rows, by step id.
@@ -550,15 +553,19 @@ impl ChatView {
 
     /// Send a message. Adds the user bubble and an empty live turn.
     /// The bridge then opens the SSE stream.
-    pub fn start_send(&mut self, text: &str) {
+    pub fn start_send(&mut self, text: &str) -> u64 {
+        self.next_turn_id = self.next_turn_id.checked_add(1).expect("turn id overflow");
+        let turn_id = self.next_turn_id;
         self.thread.push(ThreadItem::User(text.to_string()));
         self.thread.push(ThreadItem::Turn(Turn {
+            turn_id,
             live: true,
             ..Default::default()
         }));
         self.busy = true;
         self.thinking = Some("Thinking…".to_string());
         self.following = true;
+        turn_id
     }
 
     /// The live turn, if the last item is one.
@@ -569,25 +576,60 @@ impl ChatView {
         }
     }
 
-    /// Apply one SSE event, in arrival order. Mirrors the web `send()`
-    /// event loop. Text deltas only append to the raw text. No parsing
-    /// happens here. The `.slint` side renders plain text while the
-    /// turn is live and markdown once it completes.
+    /// A specific stream's live turn, if it still belongs to this view.
+    fn live_turn_for(&mut self, turn_id: u64) -> Option<&mut Turn> {
+        self.thread.iter_mut().find_map(|item| match item {
+            ThreadItem::Turn(t) if t.turn_id == turn_id && t.live => Some(t),
+            _ => None,
+        })
+    }
+
+    /// Unlike live_turn_for, accepts a completed turn for late learning.
+    fn turn_for(&mut self, turn_id: u64) -> Option<&mut Turn> {
+        self.thread.iter_mut().find_map(|item| match item {
+            ThreadItem::Turn(t) if t.turn_id == turn_id => Some(t),
+            _ => None,
+        })
+    }
+
+    /// Convenience for single-stream callers and unit tests. Integration
+    /// forwarders MUST use apply_event_for_turn to preserve origin identity.
     pub fn apply_event(&mut self, ev: ChatEvent) {
+        if let Some(turn_id) = self.thread.iter().rev().find_map(|item| match item {
+            ThreadItem::Turn(t) if t.turn_id != 0 => Some(t.turn_id),
+            _ => None,
+        }) {
+            self.apply_event_for_turn(turn_id, ev);
+        }
+    }
+
+    /// Keep streamed events tied to the originating turn across Done and
+    /// subsequent sends. A cleared thread cannot receive old events because
+    /// its monotonically increasing turn id is never reused.
+    pub fn apply_event_for_turn(&mut self, turn_id: u64, ev: ChatEvent) {
+        let current = self.thread.iter().rev().find_map(|item| match item {
+            ThreadItem::Turn(t) if t.turn_id != 0 => Some(t.turn_id),
+            _ => None,
+        }) == Some(turn_id);
+        if self.turn_for(turn_id).is_none() {
+            return;
+        }
         match ev {
             ChatEvent::Session { id } => {
-                self.session_id = Some(id);
-                self.can_undo = true;
-                self.thinking = Some("Thinking…".to_string());
+                if current {
+                    self.session_id = Some(id);
+                    self.can_undo = true;
+                    self.thinking = Some("Thinking…".to_string());
+                }
             }
             ChatEvent::Text { text } => {
-                if let Some(turn) = self.live_turn() {
+                if let Some(turn) = self.live_turn_for(turn_id) {
                     turn.raw_text.push_str(&text);
-                    self.thinking = None;
+                    if current { self.thinking = None; }
                 }
             }
             ChatEvent::ToolStart { id, name, summary, risk } => {
-                if let Some(turn) = self.live_turn() {
+                if let Some(turn) = self.live_turn_for(turn_id) {
                     turn.steps.push(ToolStep {
                         id,
                         label: tool_label(&name),
@@ -601,7 +643,7 @@ impl ChatView {
                 }
             }
             ChatEvent::ToolEnd { id, name, ok, preview } => {
-                if let Some(turn) = self.live_turn() {
+                if let Some(turn) = self.live_turn_for(turn_id) {
                     if let Some(step) = turn.steps.iter_mut().find(|s| s.id == id) {
                         step.status = if ok { StepStatus::Ok } else { StepStatus::Error };
                         step.preview = preview.chars().take(1500).collect();
@@ -618,7 +660,7 @@ impl ChatView {
                             expanded: !ok,
                         });
                     }
-                    self.thinking = Some("Working out the next step…".to_string());
+                    if current { self.thinking = Some("Working out the next step…".to_string()); }
                 }
             }
             ChatEvent::Approval {
@@ -632,7 +674,7 @@ impl ChatView {
                 can_session,
                 tainted,
             } => {
-                if let Some(turn) = self.live_turn() {
+                if let Some(turn) = self.live_turn_for(turn_id) {
                     let detail = if detail.is_empty() { summary } else { detail };
                     turn.approvals.push(ApprovalCard {
                         title: ask_title(&tool),
@@ -650,18 +692,18 @@ impl ChatView {
                 }
             }
             ChatEvent::Notice { text } => {
-                if let Some(turn) = self.live_turn() {
+                if let Some(turn) = self.live_turn_for(turn_id) {
                     turn.notes.push(text);
-                    self.thinking = Some("Thinking…".to_string());
+                    if current { self.thinking = Some("Thinking…".to_string()); }
                 }
             }
             ChatEvent::Model { name, why } => {
-                if let Some(turn) = self.live_turn() {
+                if let Some(turn) = self.live_turn_for(turn_id) {
                     turn.notes.push(format!("Using {name}: {why}."));
                 }
             }
             ChatEvent::Learned { items } => {
-                if let Some(turn) = self.live_turn() {
+                if let Some(turn) = self.turn_for(turn_id) {
                     turn.notes.push(format!("Saved to memory: {}", items.join(" / ")));
                 }
             }
@@ -670,33 +712,39 @@ impl ChatView {
                 // a state refresh.
             }
             ChatEvent::Error { message } => {
-                if let Some(turn) = self.live_turn() {
+                if let Some(turn) = self.live_turn_for(turn_id) {
                     turn.failure = Some(message);
                     turn.live = false;
                     turn.complete = true;
                 }
-                self.busy = false;
-                self.thinking = None;
+                if current {
+                    self.busy = false;
+                    self.thinking = None;
+                }
             }
             ChatEvent::Cancelled => {
-                if let Some(turn) = self.live_turn() {
+                if let Some(turn) = self.live_turn_for(turn_id) {
                     turn.notes.push("Stopped.".to_string());
                     turn.live = false;
                     turn.complete = true;
                 }
-                self.busy = false;
-                self.thinking = None;
+                if current {
+                    self.busy = false;
+                    self.thinking = None;
+                }
             }
             ChatEvent::Done { title, .. } => {
-                if let Some(turn) = self.live_turn() {
+                if let Some(turn) = self.live_turn_for(turn_id) {
                     turn.live = false;
                     turn.complete = true;
                 }
-                if !title.is_empty() {
+                if current && !title.is_empty() {
                     self.title = title;
                 }
-                self.busy = false;
-                self.thinking = None;
+                if current {
+                    self.busy = false;
+                    self.thinking = None;
+                }
             }
         }
     }
@@ -933,6 +981,33 @@ mod tests {
         assert_eq!(turn.steps[0].status, StepStatus::Ok);
         assert_eq!(turn.steps[0].label, "Ran");
         assert_eq!(turn.steps[0].risk, "normal");
+    }
+
+    #[test]
+    fn learned_after_done_stays_with_origin_even_during_next_turn() {
+        let mut view = ChatView::new();
+        let first = view.start_send("first");
+        view.apply_event_for_turn(first, ChatEvent::Done {
+            text: "First reply".into(),
+            title: "First".into(),
+        });
+        let second = view.start_send("second");
+        view.apply_event_for_turn(first, ChatEvent::Learned {
+            items: vec!["first memory".into()],
+        });
+        assert!(view.busy);
+        let ThreadItem::Turn(first_turn) = &view.thread[1] else { panic!("first turn") };
+        assert!(first_turn.notes.iter().any(|n| n.contains("first memory")));
+        let ThreadItem::Turn(second_turn) = &view.thread[3] else { panic!("second turn") };
+        assert!(second_turn.notes.is_empty());
+        view.apply_event_for_turn(second, ChatEvent::Text { text: "Hi".into() });
+        view.start_new();
+        let third = view.start_send("third");
+        assert_ne!(first, third);
+        view.apply_event_for_turn(first, ChatEvent::Error { message: "stale".into() });
+        assert!(view.busy, "a stale stream must not stop the current reply");
+        let ThreadItem::Turn(turn) = view.thread.last().unwrap() else { panic!("third turn") };
+        assert!(turn.failure.is_none());
     }
 
     #[test]
