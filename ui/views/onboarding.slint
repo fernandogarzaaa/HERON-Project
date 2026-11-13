@@ -123,6 +123,7 @@ component OnboardingView inherits VerticalBox {
             spacing: 10px;
             Button { text: "Back"; clicked => { root.goto_step(0); } }
             Button { text: "Save and continue"; enabled: !busy; clicked => { root.save_about(); } }
+            Button { text: "Skip for now"; enabled: !busy; clicked => { root.goto_step(2); } }
             Text {
                 visible: about_message != "";
                 text: about_message;
