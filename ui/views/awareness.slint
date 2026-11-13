@@ -1,0 +1,210 @@
+// Heron awareness view. One file per view: the Slint compiler generates
+// Rust code only for the last exported component of a file, so the
+// five views cannot share one file and still be driven from Rust.
+
+import { Button, CheckBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Theme, SuggestionRow, SimpleRow, MemoryRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer } from "common.slint";
+
+export component AwarenessView inherits Rectangle {
+    background: Theme.paper;
+    in property <bool> paused: false;
+    in property <bool> watching: false;
+    in property <bool> reflecting: false;
+    in property <string> workspace: "";
+    in property <string> proactive: "off";
+    in property <string> proactive-note: "";
+    in property <[SuggestionRow]> suggestions;
+    in property <string> suggestions-empty-text: "";
+    in property <[SimpleRow]> right-now;
+    in property <string> right-now-empty-text: "";
+    in property <[MemoryRow]> insights;
+    in property <string> insights-empty-text: "";
+    in property <[SimpleRow]> journal;
+    in property <string> journal-empty-text: "";
+    callback set-paused(bool);
+    callback set-watching(bool);
+    callback set-reflecting(bool);
+    callback set-proactive(string);
+    callback clear-observations();
+    callback forget-insight(int);
+    callback answer-suggestion(int, string);
+    callback open-suggestion-session(int);
+
+    ScrollView {
+        width: parent.width;
+        height: parent.height;
+        VerticalBox {
+            width: parent.width;
+            padding: 28px;
+            spacing: 14px;
+            SectionTitle { title: "Awareness"; }
+            SectionIntro { body: "While Heron is open, it quietly watches your working folder so it already knows what you are in the middle of. It sees file names and times, never what is inside, and never passwords or key files. Everything it notices stays on this computer."; }
+            CheckBox {
+                text: "Pause everything Heron does on its own";
+                checked: root.paused;
+                toggled => { root.set-paused(self.checked); }
+            }
+            Text {
+                text: "Reminders, watches, suggestions and background checks all stop until you switch this off. From your phone, send /pause or /resume.";
+                font-size: 14px;
+                color: Theme.muted;
+                wrap: TextWrap.word-wrap;
+            }
+            CheckBox {
+                text: "Watch my folder in the background";
+                checked: root.watching;
+                toggled => { root.set-watching(self.checked); }
+            }
+            Text {
+                text: "Watching " + root.workspace;
+                font-size: 14px;
+                color: Theme.muted;
+                wrap: TextWrap.word-wrap;
+                visible: root.workspace != "";
+            }
+            CheckBox {
+                text: "Think about what it notices";
+                checked: root.reflecting;
+                enabled: root.watching;
+                toggled => { root.set-reflecting(self.checked); }
+            }
+            Spacer { height: 16px; }
+            Text {
+                text: "How much Heron does on its own";
+                font-size: 17px;
+                font-weight: 600;
+                color: Theme.ink;
+            }
+            HorizontalBox {
+                spacing: 6px;
+                Button { text: "Only when I ask"; checkable: true; checked: root.proactive == "off"; enabled: root.watching; clicked => { root.set-proactive("off"); } }
+                Button { text: "Suggest work"; checkable: true; checked: root.proactive == "suggest"; enabled: root.watching; clicked => { root.set-proactive("suggest"); } }
+                Button { text: "Prepare ahead"; checkable: true; checked: root.proactive == "prepare"; enabled: root.watching; clicked => { root.set-proactive("prepare"); } }
+                Button { text: "Take over"; checkable: true; checked: root.proactive == "takeover"; enabled: root.watching; clicked => { root.set-proactive("takeover"); } }
+            }
+            Text {
+                text: root.proactive-note;
+                font-size: 13px;
+                color: Theme.muted;
+                wrap: TextWrap.word-wrap;
+                visible: root.proactive-note != "";
+            }
+            Spacer { height: 16px; }
+            Text {
+                text: "Heron suggests";
+                font-size: 17px;
+                font-weight: 600;
+                color: Theme.ink;
+            }
+            EmptyNote { body: root.suggestions-empty-text; visible: root.suggestions-empty-text != ""; }
+            for s in root.suggestions: Rectangle {
+                background: Theme.surface;
+                border-color: Theme.line;
+                border-width: 1px;
+                border-radius: 8px;
+                VerticalBox {
+                    width: parent.width;
+                    padding: 12px;
+                    spacing: 4px;
+                    Text {
+                        text: s.title;
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: Theme.ink;
+                        wrap: TextWrap.word-wrap;
+                    }
+                    Text {
+                        text: s.why;
+                        font-size: 14px;
+                        color: Theme.muted;
+                        wrap: TextWrap.word-wrap;
+                        visible: s.why != "";
+                    }
+                    Text {
+                        text: s.result;
+                        font-size: 14px;
+                        color: Theme.ink;
+                        wrap: TextWrap.word-wrap;
+                        visible: s.result != "";
+                    }
+                    HorizontalBox {
+                        spacing: 8px;
+                        Button {
+                            text: "Do it";
+                            visible: s.status == "new";
+                            clicked => { root.answer-suggestion(s.id, "accept"); }
+                        }
+                        Button {
+                            text: s.status == "done" ? "Review what changed" : "Continue in a conversation";
+                            visible: s.has-session;
+                            clicked => { root.open-suggestion-session(s.id); }
+                        }
+                        Button {
+                            text: s.status == "new" ? "Not now" : s.status == "done" ? "Got it" : "Dismiss";
+                            clicked => { root.answer-suggestion(s.id, "dismiss"); }
+                        }
+                    }
+                }
+            }
+            Spacer { height: 16px; }
+            Text {
+                text: "Right now";
+                font-size: 17px;
+                font-weight: 600;
+                color: Theme.ink;
+            }
+            EmptyNote { body: root.right-now-empty-text; visible: root.right-now-empty-text != ""; }
+            for row in root.right-now: HorizontalBox {
+                spacing: 12px;
+                Text { text: row.text; font-size: 15px; color: Theme.ink; wrap: TextWrap.word-wrap; horizontal-stretch: 1; }
+                RowMeta { body: row.meta; visible: row.meta != ""; }
+            }
+            Spacer { height: 16px; }
+            Text {
+                text: "What Heron has concluded";
+                font-size: 17px;
+                font-weight: 600;
+                color: Theme.ink;
+            }
+            EmptyNote { body: root.insights-empty-text; visible: root.insights-empty-text != ""; }
+            for row in root.insights: Rectangle {
+                background: Theme.surface;
+                border-color: Theme.line;
+                border-width: 1px;
+                border-radius: 8px;
+                HorizontalBox {
+                    width: parent.width;
+                    padding: 10px;
+                    spacing: 10px;
+                    VerticalBox {
+                        horizontal-stretch: 1;
+                        spacing: 2px;
+                        Text { text: row.content; font-size: 15px; color: Theme.ink; wrap: TextWrap.word-wrap; }
+                        RowMeta { body: row.meta; }
+                    }
+                    Button {
+                        text: "Forget";
+                        clicked => { root.forget-insight(row.id); }
+                    }
+                }
+            }
+            Spacer { height: 16px; }
+            Text {
+                text: "Recently noticed";
+                font-size: 17px;
+                font-weight: 600;
+                color: Theme.ink;
+            }
+            EmptyNote { body: root.journal-empty-text; visible: root.journal-empty-text != ""; }
+            for row in root.journal: HorizontalBox {
+                spacing: 12px;
+                Text { text: row.text; font-size: 15px; color: Theme.ink; wrap: TextWrap.word-wrap; horizontal-stretch: 1; }
+                RowMeta { body: row.meta; }
+            }
+            Button {
+                text: "Forget everything observed";
+                clicked => { root.clear-observations(); }
+            }
+        }
+    }
+}

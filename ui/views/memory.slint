@@ -1,0 +1,95 @@
+// Heron memory view. One file per view: the Slint compiler generates
+// Rust code only for the last exported component of a file, so the
+// five views cannot share one file and still be driven from Rust.
+
+import { Button, ComboBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Theme, MemoryRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, KindTag } from "common.slint";
+
+export component MemoryView inherits Rectangle {
+    background: Theme.paper;
+    in property <[MemoryRow]> rows;
+    in-out property <string> search-text: "";
+    in-out property <string> new-content: "";
+    in-out property <string> new-kind: "fact";
+    in property <[string]> kinds: ["About me", "Preference", "How I like things done", "Project", "Person", "Fact"];
+    in property <string> empty-text: "";
+    callback add-memory(string, string);
+    callback delete-memory(int);
+    callback confirm-memory(int);
+    callback search-changed(string);
+
+    ScrollView {
+        width: parent.width;
+        height: parent.height;
+        VerticalBox {
+            width: parent.width;
+            padding: 28px;
+            spacing: 14px;
+            SectionTitle { title: "Memory"; }
+            SectionIntro { body: "What Heron knows about you. It stays in a file on this computer, and you can remove anything."; }
+            HorizontalBox {
+                spacing: 8px;
+                LineEdit {
+                    placeholder-text: "e.g. I'm vegetarian and allergic to peanuts";
+                    text <=> root.new-content;
+                    accepted => { root.add-memory(root.new-content, root.new-kind); }
+                }
+                ComboBox {
+                    model: root.kinds;
+                    current-value: "Fact";
+                    selected(value) => {
+                        root.new-kind = value == "About me" ? "profile" : value == "Preference" ? "preference" : value == "How I like things done" ? "workflow" : value == "Project" ? "project" : value == "Person" ? "person" : "fact";
+                    }
+                }
+                Button {
+                    text: "Remember this";
+                    primary: true;
+                    clicked => { root.add-memory(root.new-content, root.new-kind); }
+                }
+            }
+            LineEdit {
+                placeholder-text: "Search memory";
+                text <=> root.search-text;
+                edited(text) => { root.search-changed(text); }
+            }
+            EmptyNote { body: root.empty-text; visible: root.empty-text != ""; }
+            for row in root.rows: Rectangle {
+                background: Theme.surface;
+                border-color: Theme.line;
+                border-width: 1px;
+                border-radius: 8px;
+                VerticalBox {
+                    width: parent.width;
+                    padding: 10px;
+                    spacing: 4px;
+                    HorizontalBox {
+                        spacing: 6px;
+                        KindTag { label: row.kind-label; }
+                        Text {
+                            text: row.content;
+                            font-size: 15px;
+                            color: Theme.ink;
+                            wrap: TextWrap.word-wrap;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    RowMeta { body: row.meta; }
+                    HorizontalBox {
+                        spacing: 8px;
+                        alignment: end;
+                        Button {
+                            text: "Confirm";
+                            visible: !row.confirmed;
+                            clicked => { root.confirm-memory(row.id); }
+                        }
+                        Button {
+                            text: "Forget";
+                            clicked => { root.delete-memory(row.id); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
