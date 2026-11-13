@@ -1,0 +1,161 @@
+// One chat message: role, body, tool track, copy. Chat lane.
+// Plan model type is ChatMsg { role, text, body: StyledText, ... }.
+// `text` is the plain source text and `body` is the rendered
+// styled-text, set by the bridge: from_plain_text while the reply
+// streams, from_markdown once it completes. That is the plan's
+// streaming rule: never re-parse the whole reply on every delta.
+// `text` is also what the Copy button copies, since there is no public
+// Slint copy API and the .slint side fires copy-requested(string).
+// The struct is a superset of the shell's ChatMsg { role, text, body }:
+// the shell's models.rs constructs the three shared fields, and the
+// richer fields below default to empty. See ui/WIRING.md.
+// Design: Inan's bar is "beautiful, more interactive, more intuitive".
+// The tool rows and the thinking indicator carry the motion. State
+// changes animate. Every click gives visible feedback. Reduced motion
+// arrives as a property from the window, the shell's pattern, and
+// zeroes every duration.
+// Slint =1.18.1, per ~/workspace/HERON-Slint-Plan.md.
+
+import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { ActionButton } from "action_button.slint";
+import { ApprovalRow, ApprovalCardView } from "approval_card.slint";
+
+// One tool call row. state is "run", "ok", or "err". risk is kept
+// from the server even though the row does not display it.
+export struct ToolStep {
+    id: string,
+    name: string,
+    label: string,
+    summary: string,
+    risk: string,
+    state: string,
+    preview: string,
+    expanded: bool,
+}
+
+// One thread row. role is "user", "assistant", or "note". For an
+// assistant row, body is the reply as styled text and text is the raw
+// reply. steps, approvals, notes and failure belong to that turn. live
+// is true while the reply streams. complete is true once a terminal
+// event landed.
+export struct ChatMsg {
+    role: string,
+    text: string,
+    body: styled-text,
+    steps: [ToolStep],
+    approvals: [ApprovalRow],
+    notes: [string],
+    failure: string,
+    complete: bool,
+    live: bool,
+}
+
+component StepRowView inherits TouchArea {
+    in property <ToolStep> step;
+    in property <bool> reduce-motion;
+    callback toggled(string);
+    clicked => { root.toggled(step.id); }
+    Rectangle {
+        background: root.pressed ? Theme.slate-soft : root.has-hover ? Theme.surface : transparent;
+        border-radius: 6px;
+        animate background { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+        VerticalBox {
+            HorizontalBox {
+                alignment: start;
+                spacing: 8px;
+                Rectangle {
+                    width: 10px; height: 10px; border-radius: 5px;
+                    background: step.state == "ok" ? Theme.slate : step.state == "err" ? Theme.danger : Theme.talon;
+                    border-color: step.state == "run" ? Theme.talon : step.state == "ok" ? Theme.slate : Theme.danger;
+                    border-width: 2px;
+                    animate background { duration: reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                    animate border-color { duration: reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                }
+                Text { text: step.label; font-weight: 600; font-size: 14px; color: Theme.ink; }
+                Text { text: step.summary; font-family: "monospace"; font-size: 12px; color: Theme.muted; wrap: word-wrap; }
+            }
+            if step.expanded || step.state == "err": Rectangle {
+                background: step.state == "err" ? Theme.danger-soft : Theme.surface;
+                border-color: Theme.line; border-width: 1px; border-radius: 6px;
+                animate opacity { duration: reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                Text { text: step.preview; font-family: "monospace"; font-size: 12px; color: step.state == "err" ? Theme.danger : Theme.ink; wrap: word-wrap; }
+            }
+        }
+    }
+}
+
+export component MessageView inherits VerticalBox {
+    in property <ChatMsg> msg;
+    in property <bool> reduce-motion;
+    callback toggled-step(string);
+    callback answered-approval(string, string);
+    // Per the plan, the .slint side fires copy-requested(string) and
+    // Rust copies with arboard. There is no public Slint copy API.
+    callback copy-requested(string);
+    // Fallback if the Phase 0 spike finds StyledText has no
+    // link-activated callback. Rust opens the link with the open crate.
+    callback open-link(string);
+
+    // The Copy button shows "Copied" for 1.6s after a click. That
+    // label is optimistic: a clipboard failure still needs a bridge
+    // signal, which is an open item in the map.
+    property <bool> copied: false;
+    copy-timer := Timer {
+        interval: 1600ms;
+        running: copied;
+        triggered() => { copied = false; }
+    }
+
+    // Thinking indicator phase. The timer only runs while a reply
+    // streams and motion is allowed. Under reduced motion the dots
+    // sit still at one opacity.
+    property <int> think-phase: 0;
+    think-timer := Timer {
+        interval: 320ms;
+        running: msg.live && !reduce-motion;
+        triggered() => { think-phase = (think-phase + 1) % 3; }
+    }
+
+    if msg.role == "user": Rectangle {
+        background: Theme.slate-soft;
+        border-radius: 12px; border-bottom-right-radius: 3px;
+        StyledText { text: msg.body; }
+    }
+    if msg.role == "note": Text { text: msg.text; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+    if msg.role == "assistant": VerticalBox {
+        // The bridge sets body with from_plain_text while streaming
+        // and from_markdown at done. Whether StyledText renders fenced
+        // code blocks, headings, lists and tables acceptably is the
+        // Phase 0 spike's open question. Fallback, if it does not: the
+        // message delegate splits the reply into segments, text as
+        // StyledText and code as monospace Text in a bordered box.
+        StyledText { text: msg.body; }
+        if msg.steps.length > 0: VerticalBox {
+            for step in msg.steps: StepRowView { step: step; reduce-motion: reduce-motion; toggled(id) => { root.toggled-step(id); } }
+        }
+        for approval in msg.approvals: ApprovalCardView {
+            card: approval;
+            reduce-motion: reduce-motion;
+            answered(id, decision) => { root.answered-approval(id, decision); }
+        }
+        for note in msg.notes: Text { text: note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+        if msg.live: HorizontalBox {
+            spacing: 4px;
+            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.muted; opacity: reduce-motion ? 0.6 : think-phase == 0 ? 1 : 0.35; animate opacity { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; } }
+            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.muted; opacity: reduce-motion ? 0.6 : think-phase == 1 ? 1 : 0.35; animate opacity { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; } }
+            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.muted; opacity: reduce-motion ? 0.6 : think-phase == 2 ? 1 : 0.35; animate opacity { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; } }
+            Text { text: "Thinking…"; color: Theme.muted; font-size: 13px; }
+        }
+        if msg.failure != "": Rectangle {
+            background: Theme.danger-soft; border-color: Theme.danger; border-width: 1px; border-radius: 10px;
+            Text { text: "Heron could not finish. " + msg.failure; font-size: 14px; color: Theme.ink; wrap: word-wrap; }
+        }
+        if msg.complete: ActionButton {
+            label: copied ? "Copied" : "Copy";
+            kind: "secondary";
+            reduce-motion: reduce-motion;
+            clicked => { copied = true; root.copy-requested(msg.text); }
+        }
+    }
+}
