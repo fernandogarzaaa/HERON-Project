@@ -176,12 +176,16 @@ export component ChatView inherits FocusScope {
     // confirm rows. This lane uses an inline row.
     in-out property <bool> confirm-yolo;
 
-    // Follow-scroll: true while the reader is within 240px of the
-    // bottom. The view owns this, not the bridge.
-    property <bool> follow: thread-scroll.viewport-y <= thread-scroll.height - thread-box.height + 240;
+    // Keep a user scroll preference, not a reactive content-height test.
+    // Otherwise a large streamed delta disables following before the
+    // thread-version handler can move the viewport to the new bottom.
+    in-out property <bool> follow: true;
     property <bool> show-latest: !follow;
+    changed thread-scroll.viewport-y => {
+        root.follow = thread-scroll.viewport-y <= thread-scroll.height - thread-box.height + 240;
+    }
     changed thread-version => {
-        if (follow) { thread-scroll.viewport-y = thread-scroll.height - thread-box.height; }
+        if (root.follow) { thread-scroll.viewport-y = thread-scroll.height - thread-box.height; }
     }
 
     // Cmd/Ctrl+N starts a new conversation. Esc stops a running reply.
@@ -222,13 +226,13 @@ export component ChatView inherits FocusScope {
             Text { text: title; font-size: 20px; font-weight: 600; font-family: Theme.heading-font; }
             if can-undo: Button { text: "Undo last file change"; clicked => { root.undo(); } }
             HorizontalBox {
-                ModeButton { mode: "readonly"; current-mode: mode; clicked-mode(m) => { root.set-mode(m); } }
-                ModeButton { mode: "ask"; current-mode: mode; clicked-mode(m) => { root.set-mode(m); } }
-                ModeButton { mode: "auto"; current-mode: mode; clicked-mode(m) => { root.set-mode(m); } }
+                ModeButton { mode: "readonly"; current-mode: root.mode; clicked-mode(m) => { root.set-mode(m); } }
+                ModeButton { mode: "ask"; current-mode: root.mode; clicked-mode(m) => { root.set-mode(m); } }
+                ModeButton { mode: "auto"; current-mode: root.mode; clicked-mode(m) => { root.set-mode(m); } }
                 ModeButton {
-                    mode: "yolo"; current-mode: mode;
+                    mode: "yolo"; current-mode: root.mode;
                     clicked-mode(m) => {
-                        if (mode == "yolo") { root.set-mode(m); } else { confirm-yolo = true; }
+                        if (root.mode == "yolo") { root.set-mode(m); } else { root.confirm-yolo = true; }
                     }
                 }
             }
