@@ -1,0 +1,1619 @@
+//! Model providers that run on the user's own subscriptions through the official
+//! agent CLIs, instead of an API key.
+//!
+//! How this works, and where the design comes from:
+//!
+//! * Hermes (`NousResearch/hermes-plugin-claude-subscription-directsdk`): the
+//!   unmodified official `claude` binary is driven as a request-scoped model
+//!   client. Hermes keeps its own agent loop, tools, approvals and compaction.
+//!   The plugin holds no credentials of its own, never opens, copies, refreshes
+//!   or prints the CLI's credential files, and rejects inherited API-key or
+//!   custom-endpoint overrides before spawning. Each request runs in a private
+//!   temporary directory, native tools are disabled, and cancellation kills the
+//!   whole process tree. This module copies that shape for Claude, in the
+//!   simpler `claude -p --output-format stream-json` form: one turn, tools off,
+//!   no session persistence, Heron's own loop on top. It does not copy Hermes'
+//!   loopback admission relay, which exists to keep the CLI to exactly one
+//!   upstream request and to keep prompt-cache prefixes stable. If a CLI
+//!   version ever retries a turn on its own, the extra turn still runs in the
+//!   same throwaway directory with no tools, so the blast radius stays small.
+//! * T3 Code (`pingdotgg/t3code`): a control surface over the CLIs you already
+//!   pay for. It never reads a harness credential at all: it resolves the
+//!   binary, points the CLI at a config directory with an environment variable,
+//!   and asks the CLI who it is logged in as (`claude --version` plus an SDK
+//!   probe, `codex app-server` `account/read`, `opencode --version` plus the
+//!   server's provider inventory). Provider drivers are per-instance, so two
+//!   accounts using the same driver do not share state, and setup never happens
+//!   as a health-check side effect. This module copies the provider list and
+//!   the same three rules: resolve, do not read credentials, ask the CLI.
+//!
+//! Safety invariants, enforced here and in the tests below:
+//!
+//! 1. Heron never reads, copies, or prints a CLI token. Login happens in the
+//!    CLI itself (`claude auth login`, `codex login`, ...), on the user's own
+//!    machine, before Heron ever spawns it.
+//! 2. The CLI runs in a fresh, empty, private temporary directory, never in
+//!    the workspace. Even a CLI that ignores the no-tools instruction can only
+//!    touch throwaway files there.
+//! 3. No provider is ever spawned with an auto-approve flag (`--yolo`,
+//!    `--force`, `--dangerously-skip-permissions`, `--allow-all-tools`, ...).
+//!    The CLI is a text model for Heron, not a second agent. Heron owns the
+//!    tool loop, permissions, sandbox, audit log and taint tracking, exactly
+//!    as it does for the HTTP path.
+//! 4. Subscription billing is never silently flipped to metered API billing:
+//!    for subscription providers the child environment has the API-key
+//!    variables removed, so a stray `OPENAI_API_KEY` cannot turn a ChatGPT
+//!    subscription turn into a metered API call.
+//! 5. A provider whose headless mode cannot disable its own tools (Cline
+//!    one-shot defaults to yolo, Goose runs its own loop) refuses to run
+//!    unless the user sets `cli_allow_agent_tools = true` explicitly in the
+//!    config. That flag is a deliberate, visible choice, not a default.
+//!
+//! The model answers with a JSON envelope in its text, which Heron parses into
+//! a reply plus tool calls:
+//!
+//! ```json
+//! {"text": "I found two files.", "tool_calls": [{"name": "list_dir", "arguments": {"path": "."}}]}
+//! ```
+//!
+//! Plain text with no envelope is a reply with no tool calls. Tool names not
+//! in the request are dropped, so a CLI that invents a tool cannot reach one.
+
+use crate::config::Config;
+use crate::llm::{ChatRequest, ChatResponse, DeltaFn, FunctionCall, Llm, Message, ToolCall, Usage};
+use anyhow::{anyhow, bail, Result};
+use async_trait::async_trait;
+use serde_json::Value;
+use std::path::PathBuf;
+use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::Command;
+
+/// How the prompt reaches the CLI.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PromptInput {
+    /// Prompt on stdin (`claude -p`, `codex exec`).
+    Stdin,
+    /// Prompt as a positional argument (`opencode run "<prompt>"`, `cline "<prompt>"`).
+    Arg,
+    /// Prompt as the value of `-p` / `--prompt` (`copilot -p "<prompt>"`).
+    Flag,
+}
+
+/// How the CLI's answer is shaped.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OutputKind {
+    /// Claude `stream-json`: one JSON event per line.
+    ClaudeStreamJson,
+    /// One JSON event per line, text in various shapes (Codex, OpenCode, Cline, Copilot).
+    JsonLines,
+    /// One JSON object on stdout (Cursor, Gemini, Qwen, Antigravity).
+    JsonSingle,
+    /// Try a single object first, then fall back to lines (Qwen, Gemini).
+    JsonAuto,
+    /// Plain text (generic / custom CLIs).
+    Text,
+}
+
+/// One provider in the registry. Data, not code: adding a provider is a new
+/// row here plus a row in the docs, not a new code path.
+#[derive(Debug, Clone)]
+pub struct CliSpec {
+    /// Config value for `[llm] provider`, e.g. `claude-cli`.
+    pub id: &'static str,
+    pub display_name: &'static str,
+    /// Binary to resolve on PATH (or in the usual install dirs).
+    pub binary: &'static str,
+    /// How the user logs in, shown in errors and `heron providers`.
+    pub login_command: &'static str,
+    /// Where to send the user when the binary is missing.
+    pub install_hint: &'static str,
+    /// Subscription, API key via the CLI's own config, free local model, or router.
+    pub auth_kind: &'static str,
+    pub cost_note: &'static str,
+    /// Flags are unverified against a live binary; check `binary --help` first.
+    pub experimental: bool,
+    /// Headless mode cannot turn its own tools off; needs `cli_allow_agent_tools`.
+    pub needs_allow_agent_tools: bool,
+    /// Env var that points the CLI at a config directory (T3 Code pattern).
+    pub config_dir_env: Option<&'static str>,
+    /// Env var for the per-provider login probe, if any.
+    pub input: PromptInput,
+    pub output: OutputKind,
+}
+
+impl CliSpec {
+    /// Fixed argv for the provider, without the prompt and without `--model`.
+    /// Never contains an auto-approve flag; the test below asserts that.
+    fn base_args(&self, model: Option<&str>) -> Vec<String> {
+        let mut args: Vec<String> = Vec::new();
+        let model_arg = |flag: &str, args: &mut Vec<String>| {
+            if let Some(m) = model.filter(|m| !m.is_empty()) {
+                args.push(flag.to_string());
+                args.push(m.to_string());
+            }
+        };
+        match self.id {
+            // Hermes argv, print-mode form: --tools '' turns native tools off,
+            // --max-turns 1 is one turn, dontAsk never waits on a human, and
+            // --no-session-persistence leaves no parked native session.
+            "claude-cli" => {
+                args.push("-p".into());
+                model_arg("--model", &mut args);
+                args.extend([
+                    "--output-format".into(),
+                    "stream-json".into(),
+                    "--verbose".into(),
+                    "--include-partial-messages".into(),
+                    "--tools".into(),
+                    String::new(),
+                    "--max-turns".into(),
+                    "1".into(),
+                    "--permission-mode".into(),
+                    "dontAsk".into(),
+                    "--no-session-persistence".into(),
+                    "--setting-sources".into(),
+                    String::new(),
+                    "--disable-slash-commands".into(),
+                ]);
+            }
+            // Codex: --sandbox read-only plus approval never. Note the sharp
+            // edge T3 Code and the R-project helper both hit: Codex 0.164 keeps
+            // its shell tool even under read-only, so the temp-dir cwd (never
+            // the workspace) is what actually bounds it here.
+            "codex-cli" => {
+                args.extend([
+                    "exec".into(),
+                    "--json".into(),
+                    "--sandbox".into(),
+                    "read-only".into(),
+                    "-a".into(),
+                    "never".into(),
+                    "--skip-git-repo-check".into(),
+                ]);
+                model_arg("--model", &mut args);
+            }
+            // Cursor: --mode ask is the read-only mode; --trust is required
+            // headless so it does not stop on a trust prompt. No --force.
+            "cursor-cli" => {
+                args.push("-p".into());
+                model_arg("--model", &mut args);
+                args.extend([
+                    "--output-format".into(),
+                    "json".into(),
+                    "--mode".into(),
+                    "ask".into(),
+                    "--trust".into(),
+                ]);
+            }
+            // Grok Build, via the `grok` binary (T3 Code drives it over ACP;
+            // the print flags here are best effort and marked experimental).
+            "grok-cli" => {
+                args.push("-p".into());
+                model_arg("--model", &mut args);
+                args.extend(["--output-format".into(), "json".into()]);
+            }
+            // OpenCode: the plan agent is the read-only one. OpenCode routes
+            // to whatever the user configured in opencode.json: a Claude Pro
+            // OAuth login, OpenRouter free models, or a local Ollama model.
+            "opencode-cli" => {
+                args.extend([
+                    "run".into(),
+                    "--format".into(),
+                    "json".into(),
+                    "--agent".into(),
+                    "plan".into(),
+                ]);
+                model_arg("--model", &mut args);
+            }
+            // Antigravity is the successor to Gemini CLI for Google logins
+            // (Gemini CLI stopped serving free and Pro/Ultra users 2026-06-18).
+            "antigravity-cli" => {
+                args.push("-p".into());
+                model_arg("--model", &mut args);
+                args.extend(["--output-format".into(), "json".into()]);
+            }
+            // Cline one-shot defaults to yolo, so this provider is gated by
+            // cli_allow_agent_tools and runs in a throwaway directory.
+            "cline-cli" => {
+                args.push("--json".into());
+                model_arg("--model", &mut args);
+            }
+            // Copilot: -s prints only the answer; --no-ask-user suppresses
+            // clarifying questions. No --allow-all-tools.
+            "copilot-cli" => {
+                args.push("-p".into());
+                model_arg("--model", &mut args);
+                args.extend([
+                    "--output-format".into(),
+                    "json".into(),
+                    "-s".into(),
+                    "--no-ask-user".into(),
+                ]);
+            }
+            // Qwen Code: free OAuth tier ended 2026-04-15; now a paid key or
+            // a local Ollama/vLLM model. The CLI itself is free and open.
+            "qwen-cli" => {
+                args.push("-p".into());
+                model_arg("--model", &mut args);
+                args.extend(["--output-format".into(), "json".into()]);
+            }
+            // Gemini CLI: Google OAuth free tier is gone (see Antigravity
+            // above); the API-key path still has a free tier via GEMINI_API_KEY.
+            "gemini-cli" => {
+                args.push("-p".into());
+                model_arg("--model", &mut args);
+                args.extend(["--output-format".into(), "json".into()]);
+            }
+            // ACP agents (Pi, fx, Kiro, Muse): T3 Code drives these over the
+            // Agent Client Protocol, not print mode. The flags here are best
+            // effort and marked experimental until verified against the binary.
+            "pi-cli" | "fx-cli" | "kiro-cli" | "muse-cli" => {
+                args.push("-p".into());
+                model_arg("--model", &mut args);
+                args.extend(["--output-format".into(), "json".into()]);
+            }
+            // Goose runs its own tool loop, so it is gated like Cline.
+            "goose-cli" => {
+                args.extend([
+                    "run".into(),
+                    "--output-format".into(),
+                    "json".into(),
+                    "--max-turns".into(),
+                    "1".into(),
+                ]);
+                model_arg("--model", &mut args);
+            }
+            _ => {}
+        }
+        args
+    }
+}
+
+/// The provider registry. T3 Code's list (Claude, Codex, Cursor, Grok,
+/// OpenCode, Antigravity, Kiro, Pi, Muse, fx, ACP) plus the free-model
+/// routers the user asked for (Cline, Copilot, Qwen, Gemini, Goose) and a
+/// generic escape hatch for anything else (Crush, Amp, Kimi, Droid, `llm`).
+pub fn providers() -> Vec<CliSpec> {
+    vec![
+        CliSpec { id: "claude-cli", display_name: "Claude Code (subscription)", binary: "claude", login_command: "claude auth login", install_hint: "npm install -g @anthropic-ai/claude-code", auth_kind: "Claude Pro/Max subscription", cost_note: "Draws on the plan's usage window; Agent SDK use drains it faster than the CLI directly.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CLAUDE_CONFIG_DIR"), input: PromptInput::Stdin, output: OutputKind::ClaudeStreamJson },
+        CliSpec { id: "codex-cli", display_name: "Codex (ChatGPT subscription)", binary: "codex", login_command: "codex login", install_hint: "npm install -g @openai/codex", auth_kind: "ChatGPT Plus/Pro/Team subscription", cost_note: "Draws on the ChatGPT plan. A stray OPENAI_API_KEY would flip billing to metered API; Heron removes it from the child env.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CODEX_HOME"), input: PromptInput::Stdin, output: OutputKind::JsonLines },
+        CliSpec { id: "cursor-cli", display_name: "Cursor (subscription)", binary: "cursor-agent", login_command: "agent login", install_hint: "curl https://cursor.com/install -fsS | bash", auth_kind: "Cursor subscription", cost_note: "Draws on the Cursor plan's usage pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "grok-cli", display_name: "Grok Build (subscription)", binary: "grok", login_command: "grok login", install_hint: "brew install --cask grok-build (macOS) or the Grok Build installer", auth_kind: "Grok Build subscription", cost_note: "Draws on the Grok plan.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "cline-cli", display_name: "Cline (router, free models)", binary: "cline", login_command: "cline auth <provider>", install_hint: "npm install -g cline", auth_kind: "Whatever Cline is configured with: cline / openai-codex / oca OAuth, API keys, Ollama", cost_note: "Free when routed to a free or local model. One-shot defaults to yolo, so this provider needs cli_allow_agent_tools = true.", experimental: false, needs_allow_agent_tools: true, config_dir_env: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonLines },
+        CliSpec { id: "qwen-cli", display_name: "Qwen Code (paid key or local)", binary: "qwen", login_command: "qwen (then /auth)", install_hint: "npm install -g @qwen-code/qwen-code", auth_kind: "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.", cost_note: "Free with a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonAuto },
+        CliSpec { id: "gemini-cli", display_name: "Gemini CLI (API key)", binary: "gemini", login_command: "gemini (then pick Gemini API Key)", install_hint: "npm install -g @google/gemini-cli", auth_kind: "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.", cost_note: "Free tier on the API key; otherwise Google's pricing.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonAuto },
+        CliSpec { id: "pi-cli", display_name: "Pi (ACP agent)", binary: "pi", login_command: "pi (then sign in)", install_hint: "Install Pi from https://github.com/badlogic/pi", auth_kind: "Pi's own providers", cost_note: "Whatever Pi is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "fx-cli", display_name: "fx (ACP agent)", binary: "fx", login_command: "fx login", install_hint: "Install fx from its releases", auth_kind: "fx's own providers", cost_note: "Whatever fx is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "kiro-cli", display_name: "Kiro (ACP agent)", binary: "kiro-cli", login_command: "kiro-cli (then sign in)", install_hint: "Install Kiro CLI", auth_kind: "Kiro's own providers", cost_note: "Whatever Kiro is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "muse-cli", display_name: "Muse Code (ACP agent)", binary: "muse", login_command: "muse (then sign in)", install_hint: "Install Muse Code CLI", auth_kind: "Muse's own providers", cost_note: "Whatever Muse is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "goose-cli", display_name: "Goose (open source, local/BYOK)", binary: "goose", login_command: "goose configure", install_hint: "Install Goose from https://github.com/block/goose", auth_kind: "Local model or any provider Goose is configured with", cost_note: "Free with a local model. Runs its own tool loop, so this provider needs cli_allow_agent_tools = true.", experimental: true, needs_allow_agent_tools: true, config_dir_env: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "custom-cli", display_name: "Custom CLI", binary: "", login_command: "See the CLI's own docs", install_hint: "Set [llm] cli_command to the binary", auth_kind: "Whatever the custom CLI uses", cost_note: "Whatever the custom CLI uses. Use for Crush, Amp, Kimi, Droid, llm, or anything else not listed.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Arg, output: OutputKind::Text },
+    ]
+}
+
+pub fn spec_for(id: &str) -> Option<CliSpec> {
+    providers().into_iter().find(|s| s.id == id)
+}
+
+pub fn is_cli_provider(id: &str) -> bool {
+    spec_for(id).is_some()
+}
+
+/// Claude model catalog, copied from the Hermes plugin's `model_catalog.py`.
+/// Aliases move when Anthropic moves them; the `[1m]` suffix selects the 1M
+/// window explicitly, because the CLI defaults to 200K otherwise.
+pub fn claude_native_model(model: &str) -> String {
+    let base = model
+        .trim()
+        .strip_prefix("anthropic/")
+        .unwrap_or(model.trim());
+    let canonical = match base {
+        "sonnet" => "claude-sonnet-5-5",
+        "haiku" => "claude-haiku-5-5",
+        "opus" => "claude-opus-5-5",
+        "fable" => "claude-fable-5-1",
+        "claude-haiku-4-5" => "claude-haiku-4-5-20251001",
+        other => other,
+    };
+    // The 1M window check runs on a dash-normalized id, so the dot form
+    // users actually type (`claude-sonnet-5.5`, or `anthropic/claude-sonnet-5.5`)
+    // matches the dash-form catalog. The returned name keeps the user's
+    // spelling and just gains the `[1m]` suffix.
+    let dashed = canonical.replace('.', "-");
+    match dashed.as_str() {
+        "claude-sonnet-5-5" | "claude-sonnet-5" | "claude-haiku-5-5" | "claude-opus-5-5"
+        | "claude-opus-5" | "claude-opus-4-8" | "claude-fable-5-1" => format!("{canonical}[1m]"),
+        _ => canonical.to_string(),
+    }
+}
+
+/// Resolve a CLI binary the Hermes way: PATH first, then the usual install
+/// directories, so a backend started with a minimal PATH still finds it. An
+/// explicit command is the user's choice and is never second-guessed.
+pub fn resolve_binary(binary: &str, command_override: &str) -> Option<PathBuf> {
+    if !command_override.is_empty() {
+        let p = PathBuf::from(command_override);
+        if p.is_absolute() {
+            return if is_executable(&p) { Some(p) } else { None };
+        }
+        return find_on_path(command_override);
+    }
+    if binary.is_empty() {
+        return None;
+    }
+    if let Some(p) = find_on_path(binary) {
+        return Some(p);
+    }
+    let home = dirs::home_dir()?;
+    for prefix in [
+        ".local/bin",
+        ".claude/local",
+        "bin",
+        ".npm-global/bin",
+        ".bun/bin",
+        ".volta/bin",
+    ] {
+        let p = home.join(prefix).join(binary);
+        if is_executable(&p) {
+            return Some(p);
+        }
+    }
+    for prefix in ["/opt/homebrew/bin", "/usr/local/bin"] {
+        let p = PathBuf::from(prefix).join(binary);
+        if is_executable(&p) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn is_executable(p: &PathBuf) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        p.is_file()
+            && p.metadata()
+                .map(|m| m.permissions().mode() & 0o111 != 0)
+                .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        p.is_file()
+    }
+}
+
+fn find_on_path(name: &str) -> Option<PathBuf> {
+    let path = std::env::var("PATH").unwrap_or_default();
+    for dir in path.split(':') {
+        if dir.is_empty() {
+            continue;
+        }
+        let p = PathBuf::from(dir).join(name);
+        if is_executable(&p) {
+            return Some(p);
+        }
+        #[cfg(windows)]
+        {
+            for ext in ["exe", "cmd", "bat"] {
+                let p = PathBuf::from(dir).join(format!("{name}.{ext}"));
+                if p.is_file() {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    None
+}
+
+pub struct ProviderStatus {
+    pub id: String,
+    pub display_name: String,
+    pub installed: bool,
+    pub version: Option<String>,
+    /// None = no cheap login probe exists for this provider.
+    pub logged_in: Option<bool>,
+    pub plan: Option<String>,
+    pub hint: String,
+}
+
+/// Ask the CLI who it is logged in as, the T3 Code way. The probe never
+/// sends a model request and never starts a session: `claude auth status`
+/// reads the local credential store, `codex login status` reads the cached
+/// login token. Anything unexpected returns unknown, never a failure.
+/// Whole-word match on lowercased output, so "pro" does not match
+/// "profile" and "max" does not match "maximum".
+fn words_contain(lower: &str, word: &str) -> bool {
+    lower
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|w| w == word)
+}
+
+/// Parse a CLI's login-status output into (logged_in, plan). Pure, so the
+/// negation edge cases are unit-tested without spawning a real CLI.
+fn parse_login_output(spec_id: &str, out: &str) -> (Option<bool>, Option<String>) {
+    let lower = out.to_lowercase();
+    match spec_id {
+        "claude-cli" => {
+            // "Not logged in" contains "logged in", so the negation check
+            // must come first.
+            let logged = (lower.contains("logged in")
+                || lower.contains("active account")
+                || lower.contains("authenticated"))
+                && !lower.contains("not logged in")
+                && !lower.contains("not authenticated")
+                && !lower.contains("no active account");
+            let plan = logged
+                .then(|| {
+                    ["max", "pro", "team", "enterprise"]
+                        .iter()
+                        .find(|p| words_contain(&lower, p))
+                        .map(|p| format!("Claude {p}"))
+                })
+                .flatten();
+            (Some(logged), plan)
+        }
+        "codex-cli" => {
+            let logged = (lower.contains("logged in using chatgpt") || lower.contains("logged in"))
+                && !lower.contains("not logged in");
+            let plan = logged
+                .then(|| {
+                    ["plus", "pro", "team", "enterprise"]
+                        .iter()
+                        .find(|p| words_contain(&lower, p))
+                        .map(|p| format!("ChatGPT {p}"))
+                })
+                .flatten();
+            (Some(logged), plan)
+        }
+        _ => (None, None),
+    }
+}
+
+pub async fn probe_status(spec: &CliSpec, command_override: &str) -> ProviderStatus {
+    let hint = if spec.experimental {
+        format!(
+            "Experimental: verify the flags with `{}` --help before relying on it. {}",
+            spec.binary, spec.install_hint
+        )
+    } else {
+        spec.install_hint.to_string()
+    };
+    let Some(path) = resolve_binary(spec.binary, command_override) else {
+        let hint = if spec.binary.is_empty() {
+            format!(
+                "No binary configured. {} Then run `{}`.",
+                spec.install_hint, spec.login_command
+            )
+        } else {
+            format!(
+                "{} is not installed. {} Then run `{}`.",
+                spec.binary, spec.install_hint, spec.login_command
+            )
+        };
+        return ProviderStatus {
+            id: spec.id.to_string(),
+            display_name: spec.display_name.to_string(),
+            installed: false,
+            version: None,
+            logged_in: None,
+            plan: None,
+            hint,
+        };
+    };
+    let version = run_capture(&path, &["--version"], 10)
+        .await
+        .ok()
+        .map(|o| o.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let (logged_in, plan) = match spec.id {
+        "claude-cli" => match run_capture(&path, &["auth", "status"], 20).await {
+            Ok(out) => parse_login_output("claude-cli", &out),
+            Err(_) => (None, None),
+        },
+        "codex-cli" => match run_capture(&path, &["login", "status"], 20).await {
+            Ok(out) => parse_login_output("codex-cli", &out),
+            Err(_) => (None, None),
+        },
+        _ => (None, None),
+    };
+    ProviderStatus {
+        id: spec.id.to_string(),
+        display_name: spec.display_name.to_string(),
+        installed: true,
+        version,
+        logged_in,
+        plan,
+        hint: if logged_in == Some(false) {
+            format!("Installed but not logged in. Run `{}`.", spec.login_command)
+        } else {
+            hint
+        },
+    }
+}
+
+async fn run_capture(path: &PathBuf, args: &[&str], timeout_secs: u64) -> Result<String> {
+    let out = tokio::time::timeout(
+        Duration::from_secs(timeout_secs),
+        Command::new(path).args(args).output(),
+    )
+    .await
+    .map_err(|_| anyhow!("timed out"))??;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    } else {
+        Ok(String::from_utf8_lossy(&out.stderr).to_string())
+    }
+}
+
+/// Render a chat request as one prompt. The CLI gets the full conversation
+/// and the tool inventory, and is told to answer with the JSON envelope and
+/// to use no tools of its own: Heron is the agent, the CLI is the model.
+pub fn render_prompt(req: &ChatRequest) -> String {
+    let mut out = String::new();
+    for m in &req.messages {
+        match m.role.as_str() {
+            "system" => out.push_str(&format!("System instructions:\n{}\n\n", m.text())),
+            "user" => out.push_str(&format!("User:\n{}\n\n", m.text())),
+            "assistant" => {
+                out.push_str(&format!("Assistant:\n{}\n\n", m.text()));
+                for c in &m.tool_calls {
+                    out.push_str(&format!(
+                        "Assistant called {} with {}\n\n",
+                        c.function.name, c.function.arguments
+                    ));
+                }
+            }
+            "tool" => out.push_str(&format!(
+                "Tool result for {}:\n{}\n\n",
+                m.tool_call_id.as_deref().unwrap_or(""),
+                m.text()
+            )),
+            _ => out.push_str(&format!("{}:\n{}\n\n", m.role, m.text())),
+        }
+    }
+    if !req.tools.is_empty() {
+        out.push_str("Tools you may call, as JSON schemas. Call them only by listing them in your reply envelope; do not run anything yourself:\n");
+        for t in &req.tools {
+            out.push_str(&format!("{}\n", t));
+        }
+        out.push('\n');
+    }
+    out.push_str("Reply with ONLY a JSON object, no other text, no markdown fence:\n{\"text\": \"your reply\", \"tool_calls\": [{\"name\": \"<one of the tools above>\", \"arguments\": { ... }}]}\nUse an empty tool_calls list when no tool is needed. Do not run commands, edit files, or use any of your own tools. You are the language model; the host program runs the tools.");
+    out
+}
+
+/// Parse the JSON envelope out of model text. Accepts a bare object, a
+/// fenced ```json block, or an object embedded in surrounding text. Tool
+/// names not in the request are dropped; malformed arguments drop that call.
+pub fn extract_envelope(text: &str, valid_tools: &[String]) -> (String, Vec<ToolCall>) {
+    let mut candidates: Vec<&str> = vec![text.trim()];
+    if let Some(start) = text.find("```json") {
+        if let Some(end) = text[start + 7..].find("```") {
+            candidates.push(text[start + 7..start + 7 + end].trim());
+        }
+    } else if let Some(start) = text.find("```") {
+        if let Some(end) = text[start + 3..].find("```") {
+            candidates.push(text[start + 3..start + 3 + end].trim());
+        }
+    }
+    if let Some(start) = text.find('{') {
+        if let Some(end) = text.rfind('}') {
+            if end > start {
+                candidates.push(&text[start..=end]);
+            }
+        }
+    }
+    for cand in candidates {
+        if let Ok(v) = serde_json::from_str::<Value>(cand) {
+            if v.get("text").and_then(|t| t.as_str()).is_some() || v.get("tool_calls").is_some() {
+                let reply = v
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let mut calls = vec![];
+                if let Some(list) = v.get("tool_calls").and_then(|t| t.as_array()) {
+                    for (i, c) in list.iter().enumerate() {
+                        let Some(name) = c.get("name").and_then(|n| n.as_str()) else {
+                            continue;
+                        };
+                        if !valid_tools.is_empty() && !valid_tools.contains(&name.to_string()) {
+                            continue;
+                        }
+                        let args = match c.get("arguments") {
+                            Some(Value::Object(_)) | Some(Value::Array(_)) => {
+                                c["arguments"].to_string()
+                            }
+                            Some(Value::String(s)) => {
+                                if serde_json::from_str::<Value>(s).is_ok() {
+                                    s.clone()
+                                } else {
+                                    continue;
+                                }
+                            }
+                            _ => continue,
+                        };
+                        calls.push(ToolCall {
+                            id: format!("cli_{}", uuid::Uuid::new_v4().simple()),
+                            kind: "function".into(),
+                            function: FunctionCall {
+                                name: name.to_string(),
+                                arguments: args,
+                            },
+                        });
+                        let _ = i;
+                    }
+                }
+                return (reply, calls);
+            }
+        }
+    }
+    (text.trim().to_string(), vec![])
+}
+
+fn valid_tool_names(req: &ChatRequest) -> Vec<String> {
+    req.tools
+        .iter()
+        .filter_map(|t| {
+            t.get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(|n| n.as_str())
+                .map(|s| s.to_string())
+        })
+        .collect()
+}
+
+/// Pull a text fragment out of one provider JSON event, trying the shapes
+/// the CLIs in the registry actually emit.
+fn event_text(v: &Value) -> Option<String> {
+    if let Some(t) = v.get("text").and_then(|t| t.as_str()) {
+        return Some(t.to_string());
+    }
+    if let Some(t) = v.get("result").and_then(|t| t.as_str()) {
+        return Some(t.to_string());
+    }
+    if let Some(t) = v.get("response").and_then(|t| t.as_str()) {
+        return Some(t.to_string());
+    }
+    if let Some(t) = v.get("output").and_then(|t| t.as_str()) {
+        return Some(t.to_string());
+    }
+    if let Some(t) = v
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+    {
+        return Some(t.to_string());
+    }
+    if let Some(t) = v
+        .get("part")
+        .and_then(|p| p.get("text"))
+        .and_then(|t| t.as_str())
+    {
+        return Some(t.to_string());
+    }
+    if v.get("type").and_then(|t| t.as_str()) == Some("agent_message") {
+        if let Some(t) = v.get("text").and_then(|t| t.as_str()) {
+            return Some(t.to_string());
+        }
+    }
+    if let Some(item) = v.get("item") {
+        if item.get("type").and_then(|t| t.as_str()) == Some("agent_message") {
+            if let Some(t) = item.get("text").and_then(|t| t.as_str()) {
+                return Some(t.to_string());
+            }
+        }
+        if let Some(t) = item.get("text").and_then(|t| t.as_str()) {
+            return Some(t.to_string());
+        }
+    }
+    if let Some(delta) = v.get("delta") {
+        if let Some(t) = delta.as_str() {
+            return Some(t.to_string());
+        }
+        if let Some(t) = delta.get("text").and_then(|t| t.as_str()) {
+            return Some(t.to_string());
+        }
+    }
+    if let Some(ev) = v.get("event") {
+        return event_text(ev);
+    }
+    None
+}
+
+fn event_usage(v: &Value) -> Usage {
+    let mut usage = Usage::default();
+    for key in ["usage", "tokens", "stats"] {
+        if let Some(u) = v.get(key) {
+            usage.prompt_tokens = u
+                .get("input_tokens")
+                .and_then(|n| n.as_u64())
+                .or_else(|| u.get("prompt_tokens").and_then(|n| n.as_u64()))
+                .or_else(|| u.get("input").and_then(|n| n.as_u64()))
+                .unwrap_or(usage.prompt_tokens);
+            usage.completion_tokens = u
+                .get("output_tokens")
+                .and_then(|n| n.as_u64())
+                .or_else(|| u.get("completion_tokens").and_then(|n| n.as_u64()))
+                .or_else(|| u.get("output").and_then(|n| n.as_u64()))
+                .unwrap_or(usage.completion_tokens);
+        }
+    }
+    if usage.prompt_tokens == 0 {
+        usage.prompt_tokens = v.get("input_tokens").and_then(|n| n.as_u64()).unwrap_or(0);
+    }
+    if usage.completion_tokens == 0 {
+        usage.completion_tokens = v.get("output_tokens").and_then(|n| n.as_u64()).unwrap_or(0);
+    }
+    usage
+}
+
+fn merge_usage(a: &mut Usage, b: Usage) {
+    a.prompt_tokens = a.prompt_tokens.max(b.prompt_tokens);
+    a.completion_tokens = a.completion_tokens.max(b.completion_tokens);
+}
+
+/// One spawned CLI, treated as a text model. Every request gets a fresh
+/// process in a fresh empty directory, and the process is killed on timeout.
+#[derive(Debug)]
+pub struct CliLlm {
+    pub spec: CliSpec,
+    pub command_override: String,
+    pub model: String,
+    pub config_dir: String,
+    pub allow_agent_tools: bool,
+    pub allow_api_key: bool,
+    pub custom_args: Vec<String>,
+    pub timeout_secs: u64,
+    pub home: PathBuf,
+}
+
+impl CliLlm {
+    pub fn from_config(cfg: &Config) -> Result<Self> {
+        let id = cfg.llm.provider.trim();
+        if id.is_empty() || id == "http" {
+            bail!("no CLI provider selected: set [llm] provider to one of the ids listed by `heron providers`");
+        }
+        let Some(spec) = spec_for(id) else {
+            bail!("unknown CLI provider `{id}`: run `heron providers` for the list");
+        };
+        if spec.needs_allow_agent_tools && !cfg.llm.cli_allow_agent_tools {
+            bail!("{0} runs its own tool loop in headless mode and cannot be used as a plain text model. Set [llm] cli_allow_agent_tools = true to accept that, knowing the CLI may act on its own inside a throwaway directory, or pick another provider.", spec.display_name);
+        }
+        if id == "custom-cli" && cfg.llm.cli_command.trim().is_empty() {
+            bail!("custom-cli needs [llm] cli_command set to the binary to run");
+        }
+        Ok(CliLlm {
+            spec,
+            command_override: cfg.llm.cli_command.clone(),
+            model: cfg.llm.cli_model.clone(),
+            config_dir: cfg.llm.cli_config_dir.clone(),
+            allow_agent_tools: cfg.llm.cli_allow_agent_tools,
+            allow_api_key: cfg.llm.cli_allow_api_key,
+            custom_args: cfg.llm.cli_args.clone(),
+            timeout_secs: cfg.llm.request_timeout_secs,
+            home: cfg.home.clone(),
+        })
+    }
+
+    fn binary_path(&self) -> Result<PathBuf> {
+        let binary = if self.spec.id == "custom-cli" {
+            self.command_override.as_str()
+        } else {
+            self.spec.binary
+        };
+        resolve_binary(binary, &self.command_override).ok_or_else(|| {
+            anyhow!(
+                "{} is not installed (no `{}` on PATH or in the usual install directories). {} Then run `{}`.",
+                self.spec.display_name, binary, self.spec.install_hint, self.spec.login_command
+            )
+        })
+    }
+
+    /// Child environment: pass the parent env through (T3 Code pattern, so
+    /// the CLI does its own routing), except the API-key variables that
+    /// would flip a subscription turn into metered API billing, and except
+    /// a per-provider config directory override.
+    fn child_env(&self) -> Vec<(String, String)> {
+        let mut env: Vec<(String, String)> = std::env::vars().collect();
+        if !self.allow_api_key {
+            let scrub: &[&str] = match self.spec.id {
+                "claude-cli" => &[
+                    "ANTHROPIC_API_KEY",
+                    "ANTHROPIC_AUTH_TOKEN",
+                    "ANTHROPIC_BASE_URL",
+                    "ANTHROPIC_CUSTOM_HEADERS",
+                ],
+                "codex-cli" => &["OPENAI_API_KEY", "CODEX_API_KEY"],
+                "gemini-cli" => &["GEMINI_API_KEY"],
+                _ => &[],
+            };
+            env.retain(|(k, _)| !scrub.contains(&k.as_str()));
+        }
+        if !self.config_dir.is_empty() {
+            if let Some(var) = self.spec.config_dir_env {
+                env.retain(|(k, _)| k != var);
+                env.push((var.to_string(), self.config_dir.clone()));
+            }
+        }
+        if self.spec.id == "claude-cli" {
+            // Never let the CLI update itself or upload feedback mid-session.
+            env.push(("DISABLE_AUTOUPDATER".into(), "1".into()));
+            env.push(("DISABLE_FEEDBACK_COMMAND".into(), "1".into()));
+        }
+        env
+    }
+
+    fn argv(&self, prompt: &str) -> Result<(PathBuf, Vec<String>)> {
+        let path = self.binary_path()?;
+        let model = if self.spec.id == "claude-cli" {
+            let base = if !self.model.is_empty() {
+                self.model.clone()
+            } else {
+                "sonnet".to_string()
+            };
+            Some(claude_native_model(&base))
+        } else if self.model.is_empty() {
+            None
+        } else {
+            Some(self.model.clone())
+        };
+        let template_has_prompt =
+            self.spec.id == "custom-cli" && self.custom_args.iter().any(|a| a.contains("{prompt}"));
+        let mut args = if self.spec.id == "custom-cli" {
+            self.custom_args
+                .iter()
+                .map(|a| {
+                    a.replace("{model}", model.as_deref().unwrap_or(""))
+                        .replace("{prompt}", prompt)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            self.spec.base_args(model.as_deref())
+        };
+        match self.spec.input {
+            PromptInput::Arg | PromptInput::Flag if !template_has_prompt => {
+                args.push(prompt.to_string())
+            }
+            _ => {}
+        }
+        Ok((path, args))
+    }
+}
+
+struct Accumulator {
+    text: String,
+    usage: Usage,
+    tool_calls: Vec<ToolCall>,
+    streamed: bool,
+}
+
+impl Accumulator {
+    fn new() -> Self {
+        Accumulator {
+            text: String::new(),
+            usage: Usage::default(),
+            tool_calls: vec![],
+            streamed: false,
+        }
+    }
+
+    /// One line of the CLI's stdout. Returns text to stream to the caller.
+    fn line(&mut self, line: &str, spec: &CliSpec, on_delta: DeltaFn<'_>) -> Option<String> {
+        let line = line.trim();
+        if line.is_empty() {
+            return None;
+        }
+        match spec.output {
+            OutputKind::ClaudeStreamJson => self.claude_line(line, on_delta),
+            OutputKind::JsonLines => self.jsonl_line(line, on_delta),
+            OutputKind::JsonSingle | OutputKind::JsonAuto => self.json_auto_line(line, on_delta),
+            OutputKind::Text => {
+                self.text.push_str(line);
+                self.text.push('\n');
+                on_delta(line);
+                self.streamed = true;
+                Some(line.to_string())
+            }
+        }
+    }
+
+    fn claude_line(&mut self, line: &str, on_delta: DeltaFn<'_>) -> Option<String> {
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            self.text.push_str(line);
+            return None;
+        };
+        merge_usage(&mut self.usage, event_usage(&v));
+        match v.get("type").and_then(|t| t.as_str()) {
+            Some("stream_event") => {
+                if let Some(ev) = v.get("event") {
+                    if ev.get("type").and_then(|t| t.as_str()) == Some("content_block_delta") {
+                        if let Some(t) = ev
+                            .get("delta")
+                            .and_then(|d| d.get("text"))
+                            .and_then(|t| t.as_str())
+                        {
+                            self.text.push_str(t);
+                            on_delta(t);
+                            self.streamed = true;
+                            return Some(t.to_string());
+                        }
+                    }
+                }
+                None
+            }
+            Some("assistant") => {
+                if let Some(content) = v
+                    .get("message")
+                    .and_then(|m| m.get("content"))
+                    .and_then(|c| c.as_array())
+                {
+                    for block in content {
+                        match block.get("type").and_then(|t| t.as_str()) {
+                            Some("text") => {
+                                if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
+                                    // Text blocks repeat what stream events already
+                                    // streamed; only keep them if nothing streamed.
+                                    if !self.streamed {
+                                        self.text.push_str(t);
+                                    }
+                                }
+                            }
+                            Some("tool_use") => {
+                                // Defensive: --tools '' should make this
+                                // impossible, but map it if a CLI version
+                                // emits one anyway.
+                                if let (Some(name), Some(input)) = (
+                                    block.get("name").and_then(|n| n.as_str()),
+                                    block.get("input"),
+                                ) {
+                                    let name = name.strip_prefix("mcp__heron__").unwrap_or(name);
+                                    self.tool_calls.push(ToolCall {
+                                        id: block
+                                            .get("id")
+                                            .and_then(|i| i.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        kind: "function".into(),
+                                        function: FunctionCall {
+                                            name: name.to_string(),
+                                            arguments: input.to_string(),
+                                        },
+                                    });
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                None
+            }
+            Some("result") => {
+                if let Some(t) = v.get("result").and_then(|t| t.as_str()) {
+                    if !self.streamed {
+                        self.text = t.to_string();
+                    } else if self.text.is_empty() {
+                        self.text = t.to_string();
+                    }
+                }
+                if let Some(err) = v.get("is_error").and_then(|e| e.as_bool()) {
+                    if err && self.text.is_empty() {
+                        self.text = v
+                            .get("result")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("the CLI reported an error")
+                            .to_string();
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn jsonl_line(&mut self, line: &str, on_delta: DeltaFn<'_>) -> Option<String> {
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            self.text.push_str(line);
+            self.text.push('\n');
+            return None;
+        };
+        merge_usage(&mut self.usage, event_usage(&v));
+        // Started/updated items are partials of the completed item that
+        // follows; counting them would duplicate the message.
+        if let Some(t) = v.get("type").and_then(|t| t.as_str()) {
+            if t == "item.started" || t == "item.updated" || t == "reasoning" {
+                return None;
+            }
+            if let Some(item) = v.get("item") {
+                if item.get("type").and_then(|t| t.as_str()) == Some("reasoning") {
+                    return None;
+                }
+            }
+        }
+        // Codex completes one agent message per item; OpenCode/Cline/Copilot
+        // emit text events. Completed items are the unit, not starts, so a
+        // message is not counted twice.
+        let is_complete = v
+            .get("type")
+            .and_then(|t| t.as_str())
+            .map(|t| t == "item.completed" || t == "text" || t == "agent_message" || t == "message")
+            .unwrap_or(false);
+        let is_turn_end = v.get("type").and_then(|t| t.as_str()) == Some("turn.completed");
+        if is_turn_end {
+            return None;
+        }
+        if let Some(t) = event_text(&v) {
+            if is_complete || v.get("type").and_then(|t| t.as_str()) == Some("text") {
+                self.text.push_str(&t);
+                on_delta(&t);
+                self.streamed = true;
+                return Some(t);
+            }
+            // A text fragment inside a larger event: keep it, stream it once.
+            if !t.is_empty() && !self.text.ends_with(&t) {
+                self.text.push_str(&t);
+                on_delta(&t);
+                self.streamed = true;
+                return Some(t);
+            }
+        }
+        None
+    }
+
+    fn json_auto_line(&mut self, line: &str, on_delta: DeltaFn<'_>) -> Option<String> {
+        if let Ok(v) = serde_json::from_str::<Value>(line) {
+            merge_usage(&mut self.usage, event_usage(&v));
+            if let Some(t) = event_text(&v) {
+                self.text.push_str(&t);
+                on_delta(&t);
+                self.streamed = true;
+                return Some(t);
+            }
+            return None;
+        }
+        self.text.push_str(line);
+        self.text.push('\n');
+        None
+    }
+
+    fn finish(self, req: &ChatRequest, on_delta: DeltaFn<'_>) -> ChatResponse {
+        let text = self.text.trim().to_string();
+        let valid = valid_tool_names(req);
+        let (reply, mut calls) = extract_envelope(&text, &valid);
+        // Native tool_use blocks (Claude only) win over envelope parsing
+        // when the envelope carried none; otherwise the envelope is the
+        // contract and native calls are dropped as duplicates.
+        if calls.is_empty() && !self.tool_calls.is_empty() {
+            calls = self
+                .tool_calls
+                .iter()
+                .filter(|c| valid.is_empty() || valid.contains(&c.function.name))
+                .cloned()
+                .collect();
+        }
+        if !self.streamed && !reply.is_empty() {
+            on_delta(&reply);
+        }
+        let message = Message {
+            role: "assistant".into(),
+            content: Some(reply),
+            tool_calls: calls,
+            tool_call_id: None,
+        };
+        ChatResponse {
+            message,
+            usage: self.usage,
+            model: String::new(),
+        }
+    }
+}
+
+#[async_trait]
+impl Llm for CliLlm {
+    async fn chat(&self, req: ChatRequest, on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
+        let prompt = render_prompt(&req);
+        let (path, args) = self.argv(&prompt)?;
+        let run_dir = make_private_temp_dir(&self.home)?;
+        let mut cmd = Command::new(&path);
+        cmd.args(&args)
+            .current_dir(&run_dir)
+            .env_clear()
+            .envs(self.child_env());
+        match self.spec.input {
+            PromptInput::Stdin => {
+                cmd.stdin(std::process::Stdio::piped());
+            }
+            _ => {
+                cmd.stdin(std::process::Stdio::null());
+            }
+        }
+        cmd.stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        let mut child = cmd.spawn().map_err(|e| {
+            anyhow!(
+                "could not start `{}` ({}): {e}. {}",
+                path.display(),
+                self.spec.display_name,
+                self.spec.install_hint
+            )
+        })?;
+        // Write the prompt on a separate task so a long prompt cannot
+        // deadlock against the child's stdout pipe.
+        if self.spec.input == PromptInput::Stdin {
+            if let Some(mut stdin) = child.stdin.take() {
+                let prompt = prompt.clone();
+                tokio::spawn(async move {
+                    let _ = stdin.write_all(prompt.as_bytes()).await;
+                    let _ = stdin.shutdown().await;
+                });
+            }
+        }
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow!("could not read {} stdout", self.spec.binary))?;
+        let mut lines = BufReader::new(stdout).lines();
+        let timeout = Duration::from_secs(self.timeout_secs.max(10));
+        let spec = self.spec.clone();
+        let mut acc = Accumulator::new();
+        let read = async {
+            while let Some(line) = lines.next_line().await? {
+                acc.line(&line, &spec, on_delta);
+            }
+            Result::<_, anyhow::Error>::Ok(())
+        };
+        match tokio::time::timeout(timeout, read).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                let _ = child.kill().await;
+                let _ = remove_temp_dir(&run_dir);
+                return Err(e);
+            }
+            Err(_) => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                let _ = remove_temp_dir(&run_dir);
+                bail!("{} took longer than {}s and was killed. The prompt may be too long for this CLI, or the CLI may be waiting on a login or approval. Run `{}` to check.", self.spec.display_name, self.timeout_secs, self.spec.login_command);
+            }
+        }
+        let status = child.wait().await?;
+        let mut stderr = String::new();
+        if let Some(mut err) = child.stderr.take() {
+            use tokio::io::AsyncReadExt;
+            let _ = err.read_to_string(&mut stderr).await;
+        }
+        let _ = remove_temp_dir(&run_dir);
+        let text_len = acc.text.trim().len();
+        if !status.success() {
+            let err = stderr.trim();
+            let preview = if err.len() > 600 {
+                format!("{}...", &err[..600])
+            } else {
+                err.to_string()
+            };
+            // Hermes accepts error_max_turns with a complete batch; the same
+            // applies here: a finished answer survives a non-zero exit.
+            if text_len > 0
+                && (preview.contains("max_turns")
+                    || preview.contains("max turns")
+                    || status.code() == Some(1))
+                && !preview.to_lowercase().contains("auth")
+                && !preview.to_lowercase().contains("login")
+            {
+                // Fall through and return the answer we have.
+            } else if text_len == 0 {
+                if preview.to_lowercase().contains("auth")
+                    || preview.to_lowercase().contains("not logged in")
+                    || preview.to_lowercase().contains("login")
+                    || preview.to_lowercase().contains("unauthorized")
+                {
+                    bail!("{} is not logged in. Run `{}` on this machine, then try again. (CLI said: {})", self.spec.display_name, self.spec.login_command, preview);
+                }
+                if preview.to_lowercase().contains("rate limit")
+                    || preview.to_lowercase().contains("limit")
+                        && preview.to_lowercase().contains("usage")
+                {
+                    bail!("{} refused the request: {}. The subscription's usage window may be exhausted; wait or check the plan.", self.spec.display_name, preview);
+                }
+                bail!("{} failed (exit {}): {}. Check `{}` and run `heron providers` to re-check the install.", self.spec.display_name, status.code().unwrap_or(-1), preview, self.spec.login_command);
+            }
+        }
+        if text_len == 0 {
+            let preview = stderr.trim();
+            bail!(
+                "{} returned no text. {}",
+                self.spec.display_name,
+                if preview.is_empty() {
+                    "It may need a login; run the login command and try again.".to_string()
+                } else {
+                    format!("CLI said: {}", &preview[..preview.len().min(300)])
+                }
+            );
+        }
+        let mut resp = acc.finish(&req, on_delta);
+        resp.model = if self.model.is_empty() {
+            self.spec.id.to_string()
+        } else {
+            self.model.clone()
+        };
+        Ok(resp)
+    }
+}
+
+/// A fresh empty directory under the Heron home's temp area, mode 0700 on
+/// Unix, so the CLI's working directory holds nothing it can read or change.
+fn make_private_temp_dir(home: &PathBuf) -> Result<PathBuf> {
+    let base = home.join("tmp");
+    std::fs::create_dir_all(&base)?;
+    let dir = base.join(format!("cli-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir(&dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+    Ok(dir)
+}
+
+fn remove_temp_dir(dir: &PathBuf) -> Result<()> {
+    if dir.exists() {
+        std::fs::remove_dir_all(dir)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn fake_bin(dir: &std::path::Path, name: &str, script: &str) -> PathBuf {
+        let path = dir.join(name);
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(script.as_bytes()).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
+        }
+        path
+    }
+
+    fn test_cfg(home: &std::path::Path, provider: &str) -> Config {
+        let mut cfg = Config::default();
+        cfg.home = home.to_path_buf();
+        cfg.llm.provider = provider.to_string();
+        cfg.llm.request_timeout_secs = 30;
+        cfg
+    }
+
+    #[test]
+    fn registry_has_no_auto_approve_flags() {
+        let mut ids = vec![];
+        for spec in providers() {
+            assert!(!spec.id.is_empty());
+            assert!(!ids.contains(&spec.id), "duplicate provider id {}", spec.id);
+            ids.push(spec.id);
+            if spec.id != "custom-cli" {
+                assert!(!spec.binary.is_empty(), "{} has no binary", spec.id);
+                assert!(
+                    !spec.login_command.is_empty(),
+                    "{} has no login command",
+                    spec.id
+                );
+            }
+            for arg in spec.base_args(Some("test-model")) {
+                let lower = arg.to_lowercase();
+                for banned in [
+                    "--yolo",
+                    "--force",
+                    "--dangerously-skip-permissions",
+                    "--allow-all-tools",
+                    "--allow-all",
+                    "auto-approve",
+                    "--auto-approve",
+                ] {
+                    assert!(
+                        !lower.contains(banned),
+                        "{} passes banned flag {arg}",
+                        spec.id
+                    );
+                }
+            }
+        }
+        assert!(
+            ids.contains(&"claude-cli")
+                && ids.contains(&"codex-cli")
+                && ids.contains(&"opencode-cli")
+                && ids.contains(&"cline-cli")
+                && ids.contains(&"cursor-cli")
+                && ids.contains(&"grok-cli")
+                && ids.contains(&"antigravity-cli")
+                && ids.contains(&"copilot-cli")
+                && ids.contains(&"qwen-cli")
+                && ids.contains(&"gemini-cli")
+                && ids.contains(&"pi-cli")
+                && ids.contains(&"custom-cli")
+        );
+    }
+
+    #[test]
+    fn claude_model_catalog_maps_aliases_and_1m() {
+        assert_eq!(claude_native_model("sonnet"), "claude-sonnet-5-5[1m]");
+        assert_eq!(claude_native_model("haiku"), "claude-haiku-5-5[1m]");
+        assert_eq!(claude_native_model("opus"), "claude-opus-5-5[1m]");
+        assert_eq!(claude_native_model("fable"), "claude-fable-5-1[1m]");
+        assert_eq!(
+            claude_native_model("anthropic/claude-sonnet-5.5"),
+            "claude-sonnet-5.5[1m]"
+        );
+        assert_eq!(
+            claude_native_model("claude-haiku-4-5"),
+            "claude-haiku-4-5-20251001"
+        );
+        assert_eq!(
+            claude_native_model("some-future-model"),
+            "some-future-model"
+        );
+    }
+
+    #[test]
+    fn login_status_parsing_rejects_negations() {
+        // Caught live: `codex login status` prints "Not logged in", which
+        // contains "logged in" and was reported as logged in (ChatGPT pro).
+        assert_eq!(
+            parse_login_output("codex-cli", "Not logged in"),
+            (Some(false), None)
+        );
+        assert_eq!(
+            parse_login_output("codex-cli", "Logged in using ChatGPT\nPlan: Pro"),
+            (Some(true), Some("ChatGPT pro".to_string()))
+        );
+        assert_eq!(
+            parse_login_output("claude-cli", "Not logged in"),
+            (Some(false), None)
+        );
+        assert_eq!(
+            parse_login_output("claude-cli", "Logged in as fernando@example.com\nPlan: Max"),
+            (Some(true), Some("Claude max".to_string()))
+        );
+        // "profile" must not read as the Pro plan.
+        assert_eq!(
+            parse_login_output("codex-cli", "Logged in using ChatGPT\nProfile: default"),
+            (Some(true), None)
+        );
+    }
+
+    #[test]
+    fn envelope_parsing_accepts_bare_fenced_and_embedded() {
+        let tools = vec!["list_dir".to_string(), "read_file".to_string()];
+        let (text, calls) = extract_envelope(
+            r#"{"text": "two files", "tool_calls": [{"name": "list_dir", "arguments": {"path": "."}}]}"#,
+            &tools,
+        );
+        assert_eq!(text, "two files");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "list_dir");
+        assert_eq!(calls[0].function.arguments, "{\"path\":\".\"}");
+        let (text, calls) = extract_envelope(
+            "here is the answer\n```json\n{\"text\": \"done\", \"tool_calls\": []}\n```\n",
+            &tools,
+        );
+        assert_eq!(text, "done");
+        assert!(calls.is_empty());
+        let (text, calls) = extract_envelope(
+            "prefix {\"text\": \"ok\", \"tool_calls\": []} suffix",
+            &tools,
+        );
+        assert_eq!(text, "ok");
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn envelope_drops_unknown_tools_and_bad_arguments() {
+        let tools = vec!["list_dir".to_string()];
+        let (_, calls) = extract_envelope(
+            r#"{"text": "x", "tool_calls": [{"name": "shell", "arguments": {"cmd": "rm -rf /"}}, {"name": "list_dir", "arguments": "not json"}]}"#,
+            &tools,
+        );
+        assert!(
+            calls.is_empty(),
+            "unknown tool and malformed arguments must not reach the agent: {calls:?}"
+        );
+    }
+
+    #[test]
+    fn envelope_plain_text_is_a_reply_with_no_calls() {
+        let (text, calls) =
+            extract_envelope("just words, no json at all", &["list_dir".to_string()]);
+        assert_eq!(text, "just words, no json at all");
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn prompt_names_the_envelope_and_forbids_cli_tools() {
+        let req = ChatRequest {
+            messages: vec![Message::user("hi")],
+            tools: vec![
+                serde_json::json!({"type": "function", "function": {"name": "list_dir", "parameters": {}}}),
+            ],
+            ..Default::default()
+        };
+        let prompt = render_prompt(&req);
+        assert!(prompt.contains("list_dir"));
+        assert!(prompt.contains("tool_calls"));
+        assert!(prompt.contains("Do not run commands"));
+    }
+
+    #[test]
+    fn cline_and_goose_refuse_without_an_explicit_allow_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        for id in ["cline-cli", "goose-cli"] {
+            let cfg = test_cfg(dir.path(), id);
+            let err = CliLlm::from_config(&cfg).unwrap_err();
+            assert!(
+                err.to_string().contains("cli_allow_agent_tools"),
+                "{id}: {err}"
+            );
+        }
+        let mut cfg = test_cfg(dir.path(), "cline-cli");
+        cfg.llm.cli_allow_agent_tools = true;
+        assert!(CliLlm::from_config(&cfg).is_ok());
+    }
+
+    #[test]
+    fn unknown_provider_is_an_error_naming_providers() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = test_cfg(dir.path(), "nope-cli");
+        let err = CliLlm::from_config(&cfg).unwrap_err();
+        assert!(err.to_string().contains("heron providers"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn claude_fake_binary_parses_stream_json_and_tool_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let envelope = r#"{\"text\": \"two files\", \"tool_calls\": [{\"name\": \"list_dir\", \"arguments\": {\"path\": \".\"}}]}"#;
+        let script = format!(
+            "#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' '{{\"type\":\"system\",\"subtype\":\"init\"}}' '{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"{envelope}\"}}]}}}}' '{{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"{envelope}\",\"usage\":{{\"input_tokens\":11,\"output_tokens\":4}}}}'\n"
+        );
+        let bin = fake_bin(dir.path(), "claude", &script);
+        let mut cfg = test_cfg(dir.path(), "claude-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let seen = std::sync::Mutex::new(String::new());
+        let req = ChatRequest {
+            messages: vec![Message::user("hi")],
+            tools: vec![
+                serde_json::json!({"type": "function", "function": {"name": "list_dir", "parameters": {}}}),
+            ],
+            ..Default::default()
+        };
+        let r = llm
+            .chat(req, &|t| seen.lock().unwrap().push_str(t))
+            .await
+            .unwrap();
+        assert_eq!(r.message.text(), "two files");
+        assert_eq!(r.message.tool_calls.len(), 1);
+        assert_eq!(
+            r.message.tool_calls[0].function.arguments,
+            "{\"path\":\".\"}"
+        );
+        assert_eq!(r.usage.prompt_tokens, 11);
+        assert_eq!(r.usage.completion_tokens, 4);
+    }
+
+    #[tokio::test]
+    async fn codex_fake_binary_parses_jsonl_and_scrubs_api_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("env-check.txt");
+        let script = format!(
+            "#!/bin/sh\nif [ -z \"$OPENAI_API_KEY\" ]; then echo scrubbed > '{}'; else echo leaked > '{}'; fi\ncat > /dev/null\nprintf '%s\\n' '{{\"type\":\"thread.started\"}}' '{{\"type\":\"item.completed\",\"item\":{{\"type\":\"agent_message\",\"text\":\"{{\\\"text\\\":\\\"hi there\\\",\\\"tool_calls\\\":[]}}\"}}}}' '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\"output_tokens\":2}}}}'\n",
+            out.display(), out.display()
+        );
+        let bin = fake_bin(dir.path(), "codex", &script);
+        let mut cfg = test_cfg(dir.path(), "codex-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        std::env::set_var("OPENAI_API_KEY", "sk-test-should-be-scrubbed");
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let r = llm
+            .chat(
+                ChatRequest {
+                    messages: vec![Message::user("hi")],
+                    ..Default::default()
+                },
+                &|_| {},
+            )
+            .await
+            .unwrap();
+        std::env::remove_var("OPENAI_API_KEY");
+        assert_eq!(r.message.text(), "hi there");
+        assert_eq!(std::fs::read_to_string(&out).unwrap().trim(), "scrubbed");
+    }
+
+    #[tokio::test]
+    async fn opencode_fake_binary_parses_text_events_and_runs_in_temp_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("cwd.txt");
+        let script = format!(
+            "#!/bin/sh\npwd > '{}'\nprintf '%s\\n' '{{\"type\":\"text\",\"part\":{{\"text\":\"{{\\\"text\\\":\\\"listed\\\",\\\"tool_calls\\\":[]}}\"}}}}' '{{\"type\":\"step_finish\",\"tokens\":{{\"input\":5,\"output\":6}}}}'\n",
+            out.display()
+        );
+        let bin = fake_bin(dir.path(), "opencode", &script);
+        let mut cfg = test_cfg(dir.path(), "opencode-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let r = llm
+            .chat(
+                ChatRequest {
+                    messages: vec![Message::user("hi")],
+                    ..Default::default()
+                },
+                &|_| {},
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.message.text(), "listed");
+        let cwd = std::fs::read_to_string(&out).unwrap();
+        let cwd = cwd.trim();
+        assert!(
+            cwd.contains("cli-"),
+            "CLI must run in a temp dir, ran in {cwd}"
+        );
+        assert!(
+            cwd.starts_with(dir.path().join("tmp").to_str().unwrap()),
+            "CLI must run under the private temp dir, ran in {cwd}"
+        );
+        assert!(
+            !cwd.starts_with(std::env::current_dir().unwrap().to_str().unwrap()),
+            "CLI must not run in the test workspace, ran in {cwd}"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_binary_errors_with_install_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = test_cfg(dir.path(), "claude-cli");
+        cfg.llm.cli_command = "/definitely/not/a/real/claude".to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let err = llm
+            .chat(
+                ChatRequest {
+                    messages: vec![Message::user("hi")],
+                    ..Default::default()
+                },
+                &|_| {},
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("claude auth login"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn not_logged_in_error_names_the_login_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_bin(
+            dir.path(),
+            "codex",
+            "#!/bin/sh\necho 'not logged in, run codex login' >&2\nexit 1\n",
+        );
+        let mut cfg = test_cfg(dir.path(), "codex-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let err = llm
+            .chat(
+                ChatRequest {
+                    messages: vec![Message::user("hi")],
+                    ..Default::default()
+                },
+                &|_| {},
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("codex login"), "{err}");
+    }
+}

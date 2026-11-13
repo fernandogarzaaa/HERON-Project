@@ -176,6 +176,21 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Documents"]
 
 The API key is read from the environment, or from the OS credential store when saved from the app (macOS Keychain, Windows Credential Manager; an owner-only `~/.heron/secrets.json` on Linux). It is never written to the config, the database, the logs, or passed to commands the agent runs.
 
+### Subscription CLIs instead of an API key
+
+Heron can also run on a subscription you already pay for, through that
+subscription's official CLI: Claude Code, Codex, Cursor, Grok Build,
+OpenCode, Antigravity, Cline, Copilot, Qwen, Gemini, Pi, fx, Kiro, Muse,
+Goose, or a custom CLI. Run `heron providers` to check install and login
+status, then set `[llm] provider` in the config (for example
+`provider = "claude-cli"`) or `HERON_PROVIDER=codex-cli`. Login happens in
+the CLI itself (`claude auth login`, `codex login`, ...); Heron never reads
+a CLI token, runs the CLI in a throwaway directory with its own tools off,
+and keeps its own tool loop, permissions, and audit on top. Full list,
+login steps, and safety rules: `docs/cli-providers.md`. The design copies
+the Hermes `claude-subscription-directsdk` plugin and T3 Code's provider
+drivers.
+
 ### Skills
 
 Put `~/.heron/skills/<name>.md` (or `<name>/SKILL.md`) with an optional first block:

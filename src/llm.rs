@@ -432,14 +432,22 @@ impl Llm for SwappableLlm {
 }
 
 /// Build the model client for a configuration. `base_url = "demo"` selects the built-in demo model.
-/// With HERON_CASSETTE set, model calls are recorded to (or replayed from) that file.
+/// `[llm] provider` selects a subscription CLI instead of the HTTP endpoint
+/// (see `cli_llm`); "http" is the default. With HERON_CASSETTE set, model calls
+/// are recorded to (or replayed from) that file.
 pub fn build(cfg: &Config) -> Result<std::sync::Arc<dyn Llm>> {
     let cassette = std::env::var("HERON_CASSETTE").ok().filter(|p| !p.is_empty()).map(std::path::PathBuf::from);
     let replay = std::env::var("HERON_CASSETTE_MODE").map(|m| m.eq_ignore_ascii_case("replay")).unwrap_or(false);
     if let (Some(path), true) = (&cassette, replay) {
         return Ok(std::sync::Arc::new(Cassette::replay(path)?));
     }
-    let inner: std::sync::Arc<dyn Llm> = if is_demo(cfg) { std::sync::Arc::new(DemoLlm) } else { std::sync::Arc::new(HttpLlm::from_config(cfg)?) };
+    let inner: std::sync::Arc<dyn Llm> = if is_demo(cfg) {
+        std::sync::Arc::new(DemoLlm)
+    } else if crate::cli_llm::is_cli_provider(cfg.llm.provider.trim()) {
+        std::sync::Arc::new(crate::cli_llm::CliLlm::from_config(cfg)?)
+    } else {
+        std::sync::Arc::new(HttpLlm::from_config(cfg)?)
+    };
     Ok(match cassette {
         Some(path) => std::sync::Arc::new(Cassette::record(inner, &path)),
         None => inner,
