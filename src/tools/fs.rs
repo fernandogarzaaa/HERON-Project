@@ -94,8 +94,11 @@ fn stage_new_version(path: &Path, bytes: &[u8]) -> Result<PathBuf> {
 /// exchange is undone, so it is never overwritten; a save after it replaces the new version
 /// normally. When the platform or filesystem cannot exchange, it falls back to reading the file
 /// again immediately before a plain rename, which is the narrowed check undo used before (T11).
-/// A writer holding the file open and writing in place between the verification and the cleanup
-/// can still lose that one write; editors save by renaming, so they are not affected.
+/// If the verification fails, the rollback puts the displaced content back only while the target
+/// still holds the staged version, and restores any save that landed in between, so an
+/// intervening save is never deleted. A writer holding the file open and writing in place
+/// between the verification and the cleanup can still lose that one write; editors save by
+/// renaming, so they are not affected.
 fn replace_if_unchanged(path: &Path, bytes: &[u8], expected: &Option<Vec<u8>>) -> Result<bool> {
     let tmp = stage_new_version(path, bytes)?;
     let dir = path
@@ -207,20 +210,40 @@ fn atomic_replace(path: &Path, tmp: &Path) -> Result<Option<PathBuf>> {
 }
 
 /// Put the displaced content back at `path` after a failed verification, so the file is exactly
-/// as it was before the exchange. On Unix the two files change places again and the staged file
-/// is removed; on Windows the displaced backup is moved back over the target, unless the target
-/// no longer holds what was installed, in which case a writer has saved over it and the
+/// as it was before the exchange. The rollback only happens while the target still holds what
+/// the first exchange installed: a save that landed since is never moved into the displaced
+/// path and deleted. On Unix the two files change places again and the staged file is removed,
+/// and a save that landed between the check and the swap is put back at the target instead of
+/// being deleted; on Windows the displaced backup is moved back over the target, unless the
+/// target no longer holds what was installed, in which case a writer has saved over it and the
 /// writer's version is left standing.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn atomic_restore(path: &Path, displaced: &Path, _installed: &[u8]) -> Result<()> {
+fn atomic_restore(path: &Path, displaced: &Path, installed: &[u8]) -> Result<()> {
+    // Roll back only while the target still holds what the first exchange installed. A save
+    // that landed since would be moved into the displaced path by the swap and deleted with
+    // it, so the writer's version stands instead and the displaced copy is discarded.
+    if read_if_there(path)? != Some(installed.to_vec()) {
+        let _ = std::fs::remove_file(displaced);
+        if let Some(dir) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            sync_dir(dir);
+        }
+        return Ok(());
+    }
     if !swap_files(path, displaced)? {
         bail!(
             "could not put back {} after a changed restore",
             path.display()
         );
     }
-    // The exchange put the staged version back at the displaced path; it is no longer needed.
-    let _ = std::fs::remove_file(displaced);
+    // The swap put what was at the target into the displaced path. It should be the staged
+    // version, which is no longer needed. If a save landed between the check above and the
+    // swap, it is there instead: put it back at the target rather than deleting it.
+    if read_if_there(displaced)? != Some(installed.to_vec()) {
+        std::fs::rename(displaced, path)
+            .with_context(|| format!("could not put back {}", path.display()))?;
+    } else {
+        let _ = std::fs::remove_file(displaced);
+    }
     if let Some(dir) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         sync_dir(dir);
     }
@@ -1052,6 +1075,33 @@ mod undo_tests {
         assert!(replace_if_unchanged(&file, b"old version", &None).unwrap());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "old version");
         assert_eq!(stray(), 0);
+    }
+
+    #[tokio::test]
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    async fn atomic_restore_keeps_a_save_that_landed_after_the_exchange() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("notes.md");
+        let displaced = dir.path().join("notes.md.displaced");
+
+        // The target still holds what the exchange installed: the rollback puts the old
+        // version back and the staged file is gone.
+        std::fs::write(&file, "staged").unwrap();
+        std::fs::write(&displaced, "old").unwrap();
+        atomic_restore(&file, &displaced, b"staged").unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "old");
+        assert!(!displaced.exists());
+
+        // The target was saved over after the exchange: the writer's version stands, and
+        // the displaced copy is discarded, not the writer's save.
+        std::fs::write(&file, "the editor's newest save").unwrap();
+        std::fs::write(&displaced, "old").unwrap();
+        atomic_restore(&file, &displaced, b"staged").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "the editor's newest save"
+        );
+        assert!(!displaced.exists());
     }
 
     #[tokio::test]

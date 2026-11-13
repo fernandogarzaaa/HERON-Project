@@ -50,7 +50,9 @@ replacement is now an atomic exchange (`renameat2` with `RENAME_EXCHANGE` on Lin
 with `RENAME_SWAP` on macOS, `ReplaceFileW` on Windows): the new version and the old one change
 places in one operating-system step, and what was displaced is read back and compared with what
 undo expected to find. A save that landed before the exchange is caught and the exchange is
-undone, so it is never overwritten. The exchange is the crate's first `unsafe` code; the macOS
+undone, so it is never overwritten. The rollback after a mismatch verifies the target still
+holds the staged version before swapping back, and restores any save that landed in between,
+so an intervening save is never deleted (Codex review 5890235470). The exchange is the crate's first `unsafe` code; the macOS
 and Windows paths are exercised by the test suite in CI, not by hand here. Removing a file has
 no such primitive and keeps the narrowed check-then-remove gap (see T11).
 
