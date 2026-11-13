@@ -635,9 +635,76 @@ async fn run_capture(
         cmd.env_remove(k);
         cmd.env(k, v);
     }
-    let out = tokio::time::timeout(Duration::from_secs(timeout_secs), cmd.output())
-        .await
-        .map_err(|_| anyhow!("timed out"))??;
+    // Spawn explicitly instead of cmd.output(): wait_with_output takes
+    // ownership of the child, so a timeout would leave a hung probe
+    // running after the future is dropped. The chat path already kills
+    // its tree; probes get the same treatment, so a stuck --version or
+    // login-status command cannot pile up orphans.
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    let mut child = cmd.spawn()?;
+    let pgid = child.id();
+    // Kills the group if this future is dropped (for example by a
+    // cancelled probe). Lives until run_capture returns.
+    #[cfg(unix)]
+    let _tree_guard = pgid.map(|pid| KillTreeOnDrop { pgid: pid });
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("could not read {} stdout", path.display()))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("could not read {} stderr", path.display()))?;
+    let stdout_task = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut buf = Vec::new();
+        let _ = stdout.read_to_end(&mut buf).await;
+        buf
+    });
+    let stderr_task = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut buf = Vec::new();
+        let _ = stderr.read_to_end(&mut buf).await;
+        buf
+    });
+    let out = match tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait()).await {
+        Ok(Ok(status)) => {
+            // A descendant that outlived the child still holds the pipes
+            // open; kill the group before awaiting the drain tasks, or
+            // those awaits never return.
+            if let Some(pid) = pgid {
+                kill_group(pid);
+            }
+            let stdout = stdout_task.await.unwrap_or_default();
+            let stderr = stderr_task.await.unwrap_or_default();
+            std::process::Output {
+                status,
+                stdout,
+                stderr,
+            }
+        }
+        Ok(Err(e)) => {
+            stdout_task.abort();
+            stderr_task.abort();
+            kill_process_tree(&mut child).await;
+            return Err(e.into());
+        }
+        Err(_) => {
+            stdout_task.abort();
+            stderr_task.abort();
+            kill_process_tree(&mut child).await;
+            let _ = child.wait().await;
+            return Err(anyhow!("timed out"));
+        }
+    };
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     } else {
@@ -2728,6 +2795,27 @@ mod tests {
         assert_eq!(probed.plan.as_deref(), Some("Claude pro"));
         let unprobed = probe_status(&spec, &bin.to_string_lossy(), "").await;
         assert_eq!(unprobed.logged_in, Some(false));
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn timed_out_probe_leaves_no_orphan_behind() {
+        // A probe that hangs must be killed when its timeout expires, not
+        // left running after run_capture stops awaiting it.
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("probe.pid");
+        let script = format!("#!/bin/sh\necho $$ > '{}'\nsleep 30\n", pid_file.display());
+        let bin = fake_bin(dir.path(), "claude", &script);
+        let result = run_capture(&bin, &["--version"], 1, None).await;
+        assert!(result.is_err());
+        let pid: u32 = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        // The child was reaped by run_capture, so the pid is gone, not
+        // a zombie and not a live orphan.
+        assert_ne!(unsafe { libc::kill(pid as libc::pid_t, 0) }, 0);
     }
 
     #[test]
