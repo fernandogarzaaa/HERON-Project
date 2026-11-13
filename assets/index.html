@@ -430,6 +430,9 @@ td,.meta,.note,#hint,.usage{font-variant-numeric:tabular-nums}
         <button type="button" class="ghost" data-url="demo" data-model="demo">Demo, no key needed</button>
       </div>
       <label class="field"><span>Model</span><input id="s-model"></label>
+      <label class="field"><span>Provider</span><select id="s-provider"><option value="http">API key (endpoint above)</option></select><small>Or run on a subscription you already pay for, through that CLI. Heron never reads the CLI's login; sign in in the CLI itself first. Run <code>heron providers</code> to check install and login status.</small></label>
+      <label class="field"><span>CLI command</span><input id="s-cli-command" placeholder="empty = resolve the provider's binary"><small>Only for a CLI provider. A path if the binary lives elsewhere.</small></label>
+      <label class="field"><span>CLI model</span><input id="s-cli-model" placeholder="empty = the CLI's subscription default"><small>Only for a CLI provider. For Claude, sonnet / haiku / opus / fable, or a full model id.</small></label>
       <label class="field"><span>API key</span><input id="s-key" type="password" autocomplete="off"><small id="s-keynote"></small></label>
       <label class="field"><span>Backup models</span><input id="s-fallback" placeholder="none"><small>Used in order if the main model is unavailable. Separate with commas.</small></label>
       <label class="field"><span>Model for background work</span><input id="s-fast" placeholder="same as main model"><small>A cheaper model for summaries and learning about you.</small></label>
@@ -1014,6 +1017,8 @@ async function loadActivity() {
 async function loadSettings() {
   const s = await api('/settings');
   $('#s-base').value = s.base_url; $('#s-model').value = s.model; $('#s-fallback').value = s.fallback_models; $('#s-fast').value = s.fast_model; $('#s-key').value = '';
+  const prov = $('#s-provider'); if (prov.options.length === 1 && s.providers) { for (const p of s.providers) { const o = document.createElement('option'); o.value = p.id; o.textContent = `${p.name} — ${p.auth}`; prov.append(o); } }
+  prov.value = s.provider || 'http'; $('#s-cli-command').value = s.cli_command || ''; $('#s-cli-model').value = s.cli_model || '';
   $('#s-key').placeholder = s.key_source === 'none' ? 'Paste your key' : 'Leave empty to keep the current key';
   const where = s.secret_storage;
   $('#s-keynote').textContent = s.base_url === 'demo' ? 'Demo mode needs no key.' : { environment: 'A key is already set through an environment variable on this computer.', saved: `A key is saved in ${where}. It is never shown again or sent anywhere except to the service above.`, none: `Kept in ${where}. Not needed for models running locally, like Ollama.` }[s.key_source];
@@ -1048,7 +1053,7 @@ $('#s-persona-save').onclick = async () => { const out = $('#s-persona-saved'); 
 $('#s-persona-reset').onclick = async () => { if (!confirm('Put Heron back to its original personality?')) return; const p = await api('/persona', { method: 'DELETE' }); $('#s-persona').value = p.text; $('#s-persona-reset').hidden = true; $('#s-persona-saved').textContent = 'Back to the original'; };
 $('#presets').onclick = e => { const b = e.target.closest('button'); if (!b) return; $('#s-base').value = b.dataset.url; $('#s-model').value = b.dataset.model; };
 $('#settings').onsubmit = async e => { e.preventDefault(); const err = $('#s-err'); err.hidden = true; $('#s-saved').textContent = '';
-  try { await api('/settings', { method: 'POST', body: { base_url: $('#s-base').value, model: $('#s-model').value, fallback_models: $('#s-fallback').value, fast_model: $('#s-fast').value, api_key: $('#s-key').value, mode: $('#s-mode input:checked')?.value, daemon_mode: $('#s-daemon').value, auto_memory: $('#s-auto').checked, neural_memory: $('#s-neural').checked, browser_visible: $('#s-browser').checked, workspace: $('#s-ws').value } });
+  try { await api('/settings', { method: 'POST', body: { base_url: $('#s-base').value, model: $('#s-model').value, fallback_models: $('#s-fallback').value, fast_model: $('#s-fast').value, provider: $('#s-provider').value, cli_command: $('#s-cli-command').value, cli_model: $('#s-cli-model').value, api_key: $('#s-key').value, mode: $('#s-mode input:checked')?.value, daemon_mode: $('#s-daemon').value, auto_memory: $('#s-auto').checked, neural_memory: $('#s-neural').checked, browser_visible: $('#s-browser').checked, workspace: $('#s-ws').value } });
     $('#s-saved').textContent = 'Settings saved'; await refreshState(); loadSettings(); }
   catch (er) { err.textContent = er.message; err.hidden = false; } };
 

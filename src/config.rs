@@ -76,6 +76,34 @@ pub struct LlmConfig {
     pub max_tokens: u32,
     pub request_timeout_secs: u64,
     pub max_retries: u32,
+    /// Model provider: "http" (an OpenAI-compatible endpoint, the default),
+    /// or one of the CLI providers from `heron providers` (e.g. "claude-cli",
+    /// "codex-cli", "opencode-cli"). CLI providers run on the user's own
+    /// subscription through the official CLI; Heron never reads its tokens.
+    /// See docs/cli-providers.md for the full list and the safety rules.
+    pub provider: String,
+    /// Binary (or absolute path) for the CLI provider. Empty = resolve the
+    /// provider's default binary on PATH and in the usual install dirs.
+    pub cli_command: String,
+    /// Model for the CLI provider. Empty = the CLI's subscription default
+    /// (for Claude, "sonnet" unless set). For HTTP providers use `model`.
+    pub cli_model: String,
+    /// Config directory for the CLI (e.g. a second CLAUDE_CONFIG_DIR), so
+    /// one account does not share state with another. Empty = the CLI default.
+    pub cli_config_dir: String,
+    /// Allow providers whose headless mode cannot disable their own tools
+    /// (Cline, Goose) to run. Off by default; setting it is a deliberate
+    /// choice, and the CLI still runs in a throwaway directory, never the
+    /// workspace.
+    pub cli_allow_agent_tools: bool,
+    /// Allow API-key variables into the CLI child's environment. Off by
+    /// default: for subscription providers they are removed, so a stray
+    /// OPENAI_API_KEY cannot flip a ChatGPT subscription turn into metered
+    /// API billing.
+    pub cli_allow_api_key: bool,
+    /// Extra argv for "custom-cli", with {prompt} and {model} placeholders.
+    /// If no arg contains {prompt}, the prompt is appended as the last arg.
+    pub cli_args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,6 +234,13 @@ impl Default for LlmConfig {
             max_tokens: 8192,
             request_timeout_secs: 300,
             max_retries: 3,
+            provider: "http".into(),
+            cli_command: String::new(),
+            cli_model: String::new(),
+            cli_config_dir: String::new(),
+            cli_allow_agent_tools: false,
+            cli_allow_api_key: false,
+            cli_args: vec![],
         }
     }
 }
@@ -285,6 +320,15 @@ impl Config {
         }
         if let Ok(v) = std::env::var("HERON_BASE_URL") {
             cfg.llm.base_url = v;
+        }
+        if let Ok(v) = std::env::var("HERON_PROVIDER") {
+            cfg.llm.provider = v;
+        }
+        if let Ok(v) = std::env::var("HERON_CLI_COMMAND") {
+            cfg.llm.cli_command = v;
+        }
+        if let Ok(v) = std::env::var("HERON_CLI_MODEL") {
+            cfg.llm.cli_model = v;
         }
         if let Ok(v) = std::env::var("HERON_MODE") {
             cfg.permissions.mode = v;
@@ -512,6 +556,18 @@ fallback_models = []                 # tried in order if the primary fails
 fast_model = ""                      # cheap model for background work; empty = same as model
 embedding_model = ""                 # empty = built-in offline embeddings
 max_tokens = 8192
+# Use a subscription CLI instead of an API key: provider = "claude-cli",
+# "codex-cli", "cursor-cli", "grok-cli", "opencode-cli", "antigravity-cli",
+# "cline-cli", "copilot-cli", "qwen-cli", "gemini-cli", "pi-cli", "fx-cli",
+# "kiro-cli", "muse-cli", "goose-cli", or "custom-cli". Run `heron providers`
+# to see install status. Full list, login steps and safety rules are in
+# docs/cli-providers.md. Login happens in the CLI itself, never in Heron.
+provider = "http"                    # "http" = the endpoint above
+cli_command = ""                     # empty = resolve the provider's binary
+cli_model = ""                       # empty = the CLI's subscription default
+cli_config_dir = ""                  # e.g. a second CLAUDE_CONFIG_DIR
+cli_allow_agent_tools = false        # only for Cline / Goose, which cannot disable their own tools
+cli_args = []                        # extra argv for "custom-cli"; {prompt} and {model} placeholders
 
 [agent]
 name = "Heron"

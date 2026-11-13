@@ -61,6 +61,8 @@ enum Cmd {
     Init,
     /// Check configuration and connectivity
     Doctor,
+    /// List model providers (HTTP and subscription CLIs) with install and login status
+    Providers,
     /// Measure memory retrieval quality with the built-in test set
     Eval {
         /// Use the local neural model (needs a build with the `neural` feature; downloads it on first use)
@@ -397,6 +399,69 @@ async fn memory_cmd(app: &App, cmd: MemoryCmd) -> Result<()> {
     Ok(())
 }
 
+async fn providers(cfg: &Config) -> Result<()> {
+    println!("Model providers. Heron never reads a CLI token: login happens in the CLI itself, on this machine.");
+    println!(
+        "Set one with [llm] provider in the config file, or HERON_PROVIDER in the environment."
+    );
+    println!();
+    println!("  http            API key via an OpenAI-compatible endpoint (the default)");
+    for spec in heron::cli_llm::providers() {
+        let st = heron::cli_llm::probe_status(
+            &spec,
+            heron::cli_llm::override_for_provider(&spec.id, &cfg.llm.provider, &cfg.llm.cli_command),
+            heron::cli_llm::override_for_provider(&spec.id, &cfg.llm.provider, &cfg.llm.cli_config_dir),
+        )
+        .await;
+        let mark = if cfg.llm.provider == spec.id {
+            "*"
+        } else {
+            " "
+        };
+        let status = if !st.installed {
+            "not installed".to_string()
+        } else {
+            let login = match st.logged_in {
+                Some(true) => format!(
+                    "logged in{}",
+                    st.plan
+                        .as_ref()
+                        .map(|p| format!(" ({p})"))
+                        .unwrap_or_default()
+                ),
+                Some(false) => "not logged in".to_string(),
+                None => "installed".to_string(),
+            };
+            format!(
+                "{} — version {}",
+                login,
+                st.version.as_deref().unwrap_or("unknown")
+            )
+        };
+        println!(
+            "{mark} {:<16} {} — {}{}",
+            spec.id,
+            spec.display_name,
+            status,
+            if spec.experimental {
+                " (experimental)"
+            } else {
+                ""
+            }
+        );
+        println!(
+            "                  {} — login: `{}`",
+            spec.cost_note, spec.login_command
+        );
+        if !st.installed || st.logged_in == Some(false) {
+            println!("                  {}", st.hint);
+        }
+    }
+    println!();
+    println!("* = selected in the current config. Full list, login steps and safety rules: docs/cli-providers.md");
+    Ok(())
+}
+
 async fn doctor(cfg: &Config) -> Result<()> {
     let st = style();
     let ok = |b: bool| if b { st.paint("32", "ok  ") } else { st.red("FAIL") };
@@ -407,6 +472,30 @@ async fn doctor(cfg: &Config) -> Result<()> {
     println!("{} database    {}", ok(heron::store::Store::open(&cfg.db_path()).is_ok()), cfg.db_path().display());
     println!("     endpoint    {}", cfg.llm.base_url);
     println!("     model       {}", cfg.llm.model);
+    println!("     provider    {}", cfg.llm.provider);
+    if heron::cli_llm::is_cli_provider(cfg.llm.provider.trim()) {
+        let spec = heron::cli_llm::spec_for(cfg.llm.provider.trim()).unwrap();
+        let st = heron::cli_llm::probe_status(&spec, &cfg.llm.cli_command, &cfg.llm.cli_config_dir).await;
+        let login = match st.logged_in {
+            Some(true) => format!(
+                "logged in{}",
+                st.plan
+                    .as_ref()
+                    .map(|p| format!(" ({p})"))
+                    .unwrap_or_default()
+            ),
+            Some(false) => "not logged in".to_string(),
+            None => "login status not probed for this provider".to_string(),
+        };
+        println!(
+            "{} cli         {} — {} — version {}, {}",
+            ok(st.installed),
+            spec.binary,
+            login,
+            st.version.as_deref().unwrap_or("unknown"),
+            st.hint
+        );
+    }
     let local = cfg.llm.base_url.contains("localhost") || cfg.llm.base_url.contains("127.0.0.1");
     let has_key = cfg.api_key().is_some();
     let demo = heron::llm::is_demo(cfg);
@@ -457,6 +546,7 @@ async fn real_main() -> Result<()> {
             return Ok(());
         }
         Cmd::Doctor => return doctor(&cfg).await,
+        Cmd::Providers => return providers(&cfg).await,
         Cmd::Eval { neural } => {
             if *neural && !heron::embed::neural_built_in() {
                 bail!("this build does not include the neural memory model; build with `cargo build --features neural`");
@@ -589,6 +679,6 @@ async fn real_main() -> Result<()> {
             let ctx = agent.tool_ctx("mcp");
             heron::mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app.tools, &ctx, &app.policy).await
         }
-        Cmd::Init | Cmd::Doctor | Cmd::Eval { .. } => unreachable!(),
+        Cmd::Init | Cmd::Doctor | Cmd::Providers | Cmd::Eval { .. } => unreachable!(),
     }
 }
