@@ -77,23 +77,26 @@ fn main() {
     let window = MainWindow::new().expect("could not create the Heron window");
     window.set_messages(ModelRc::new(VecModel::<ChatMsg>::default()));
 
-    // About dialog: a separate native window, opened from the Help menu. It
-    // is its own exported Dialog component in ui/main.slint: a Dialog nested
-    // in MainWindow stays embedded in the parent window instead of opening
-    // a separate window.
-    window.on_show_about(move || {
-        let Ok(dialog) = AboutDialog::new() else {
-            return;
-        };
-        dialog.set_app_version(SharedString::from(env!("CARGO_PKG_VERSION")));
-        let weak_dialog = dialog.as_weak();
-        dialog.on_ok_clicked(move || {
-            if let Some(dialog) = weak_dialog.upgrade() {
-                let _ = dialog.hide();
-            }
-        });
-        let _ = dialog.show();
-    });
+    // Keep the separate About window alive in the Help callback. Creating it
+    // inside the callback and immediately dropping its last strong handle after
+    // show() can destroy the window before the user can dismiss it.
+    match AboutDialog::new() {
+        Ok(dialog) => {
+            dialog.set_app_version(SharedString::from(env!("CARGO_PKG_VERSION")));
+            let weak_dialog = dialog.as_weak();
+            dialog.on_ok_clicked(move || {
+                if let Some(dialog) = weak_dialog.upgrade() {
+                    let _ = dialog.hide();
+                }
+            });
+            window.on_show_about(move || {
+                if let Err(e) = dialog.show() {
+                    eprintln!("could not open the About window: {e}");
+                }
+            });
+        }
+        Err(e) => eprintln!("could not create the About window: {e}"),
+    }
 
     let bridge = match start_backend() {
         Ok(url) => match HeronClient::from_launch_url(&url) {
@@ -156,11 +159,14 @@ fn main() {
                 } else {
                     Some(session_id.to_string())
                 };
+                // Snapshot the generation on the UI thread before spawning the
+                // forwarder. A delayed spawn must not capture the generation
+                // AFTER New conversation has invalidated this turn.
+                let my_turn = turn.load(Ordering::SeqCst);
                 let (tx, mut rx) = mpsc::unbounded_channel::<ChatEvent>();
                 let weak_events = weak.clone();
                 let turn = turn.clone();
                 bridge.spawn(async move {
-                    let my_turn = turn.load(Ordering::SeqCst);
                     while let Some(event) = rx.recv().await {
                         if turn.load(Ordering::SeqCst) != my_turn {
                             break;

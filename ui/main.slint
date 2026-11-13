@@ -98,10 +98,9 @@ export struct ChatMsg {
 // About dialog. A separate exported Dialog component: a Dialog nested in
 // MainWindow stays embedded in the parent window instead of opening a
 // separate native window. Shown from Rust (on_show_about in main.rs).
-// The StandardButton has no explicit handler, so the Dialog adds the
-// ok_clicked callback and Rust hides the dialog from it. The AboutSlint
-// widget is the royalty-free Slint license attribution; Heron ships
-// binaries, so it stays.
+// StandardButton must be a direct child of Dialog, not inside the main
+// layout: only then does Slint generate the ok_clicked callback for Rust.
+// AboutSlint is the royalty-free Slint license attribution for binaries.
 export component AboutDialog inherits Dialog {
     title: "About Heron";
     in-out property <string> app-version: "";
@@ -126,9 +125,11 @@ export component AboutDialog inherits Dialog {
             wrap: word-wrap;
         }
         AboutSlint { }
-        StandardButton {
-            kind: ok;
-        }
+    }
+
+    // Dialog buttons must be direct children to generate on_ok_clicked.
+    StandardButton {
+        kind: ok;
     }
 }
 
