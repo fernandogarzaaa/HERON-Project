@@ -114,7 +114,7 @@ export component MessageView inherits VerticalBox {
     think-timer := Timer {
         interval: 320ms;
         running: msg.live && !reduce-motion;
-        triggered() => { think-phase = (think-phase + 1) % 3; }
+        triggered() => { think-phase = Math.mod(think-phase + 1, 3); }
     }
 
     if msg.role == "user": Rectangle {
