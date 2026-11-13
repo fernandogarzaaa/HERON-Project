@@ -130,26 +130,31 @@ different module, and the two `MainWindow` types would not match.
   to the Chat lane. The run-step label in the glue ports only the fallback
   (strip `mcp__`, turn `__` into ` → `). One shared label table would serve
   both. That is a Shell or Chat decision.
-- Palette: the `.slint` carries the light palette only. The web UI has a
-  dark palette via media query. Dark is unbuilt here.
+- Palette: the `.slint` Theme carries Heron's dark palette, measured
+  from the web UI's dark media query (assets/index.html lines 22-25)
+  and identical to the Shell's `ui/components/theme.slint`. The
+  integration keeps one copy of the Theme; until then this lane carries
+  the same values so the views render dark on their own.
 - Layout (CORRECTED Nov 13, measured): the brief's single `ui/views.slint`
   cannot work. The Slint 1.18 compiler generates Rust code only for the
   last exported component of a file, so six of the seven views had no Rust
   types and the glue failed with 54 errors. The per-view layout
   `ui/views/*.slint` (common, sidebar, memory, tasks, reminders,
-  awareness) is REQUIRED by the compiler, not a preference. The old
+  awareness, activity, usage) is REQUIRED by the compiler, not a
+  preference. The old
   single file was deleted Nov 13 after the split verified in the harness
   (15/15 logic tests plus the behavioral glue test green). The logic in `views.rs` has no Slint dependency, so it can
   live in the library without dragging Slint in. The glue cannot. It
   belongs in the desktop binary crate next to the generated `main` module.
-- Scope: the plan's Phase 2 assigns the Activity log and Usage views to the
-  Views lane. The lane brief lists only sidebar, sessions, memory, reminders,
-  and awareness. Activity and Usage are mapped as pointers in
-  `docs/slint-views-map.md` and are not built here. Cookie decides whether
-  they join this lane.
+- Scope: the plan's Phase 2 assigns the Activity log and Usage views to
+  the Views lane. They joined the lane and are built (commit e675871):
+  mapped in `docs/slint-views-map.md` sections 7 and 8, drafted as
+  `ui/views/activity.slint` and `ui/views/usage.slint`, wired through the
+  glue, and covered by the harness behavioral test.
 - Widget style per OS is SETTLED (Nov 13, Inan delegated the call to
   Cookie): cupertino on macOS, fluent on Windows and Linux, pinned per
-  target in build.rs, with Heron's dark palette (slate #2F6690, talon
-  #C98F00, serif headings) as custom theme properties. The `.slint` Theme
-  currently carries the light palette values from the web UI. The Shell
-  applies the settled dark palette values and the style pin when wiring.
+  target in the Shell's build.rs, with Heron's dark palette (slate
+  #7DB3D8, talon #EDB92B, serif headings) as custom theme properties.
+  The `.slint` Theme carries those dark values. Headings use Georgia,
+  the last family in the heading stack: Slint takes one family string,
+  so the full comma list cannot be used here.
