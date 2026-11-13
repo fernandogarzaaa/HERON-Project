@@ -1,0 +1,30 @@
+// Theme: named colors and fonts for the Setup views.
+//
+// All three plan decisions are settled. Widget style per OS: cupertino
+// on macOS, fluent on Windows and Linux, pinned per target in build.rs
+// by the Shell lane. The style is a compile-time choice in build.rs, not
+// a property here. This file carries Heron's dark palette as custom
+// theme properties, per the plan recommendation (section 8, item 2).
+//
+// Values are measured from assets/index.html, dark media query
+// (lines 21-25). The brand hexes slate #2F6690 and talon #C98F00 are the
+// light-mode values. In dark mode they lighten to #7DB3D8 and #EDB92B
+// for contrast on dark surfaces. Headings use the web UI serif stack.
+
+export global Theme {
+    in-out property <color> slate: #7DB3D8;
+    in-out property <color> slate-ink: #0D1B26;
+    in-out property <color> slate-soft: #1D3040;
+    in-out property <color> talon: #EDB92B;
+    in-out property <color> talon-soft: #352C0F;
+    in-out property <color> talon-ink: #F6E3A6;
+    in-out property <color> surface: #17212A;
+    in-out property <color> paper: #10181F;
+    in-out property <color> ink: #E3EAF0;
+    in-out property <color> muted: #93A4B3;
+    in-out property <color> line: #293642;
+    in-out property <color> danger: #EC7A6F;
+    in-out property <color> danger-soft: #3A1D1A;
+    in-out property <color> ok: #6EC49C;
+    in-out property <string> heading-font: "Iowan Old Style, Sitka Display, Sitka Text, Constantia, Charter, Georgia, serif";
+}

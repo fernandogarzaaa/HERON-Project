@@ -30,6 +30,8 @@ jobs:
           HERON_TEST_BROWSER: "1"
       - name: Build the desktop app
         run: cargo build --features desktop --bins
+      - name: Desktop bridge and SSE tests
+        run: cargo test --features desktop --bin heron-desktop
       - name: Linux installer smoke test
         if: runner.os == 'Linux'
         run: bash tests/linux-install-smoke.sh

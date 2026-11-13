@@ -1,0 +1,611 @@
+// Heron native shell. Phase 0: the window, the rail, the view switcher, and
+// the chat view the Chat lane builds on. Later lanes fill the other views
+// beside the chat; they share the MainWindow properties and the bridge
+// contract in docs/slint-bridge.md.
+//
+// Design bar (Inan, 2026-11-13): "make it beautiful, more interactive, more
+// intuitive to use." The shell carries it: Heron's dark palette as the
+// Theme global (ui/components/theme.slint, copied from the Setup lane's
+// worktree with one word added: `export`, which Slint requires for a global
+// another file imports; the integration keeps one copy), serif headings,
+// animated feedback on every interactive element, and a rail that makes the
+// next action obvious. Animation budget: 150ms for rail feedback, 180ms for
+// view fades, 0ms when reduce-motion is on. See docs/slint-bridge.md.
+
+import { AboutSlint, Button, LineEdit, ListView, StandardButton } from "std-widgets.slint";
+import { Theme } from "components/theme.slint";
+
+// One rail item: label, optional count badge, current-view indicator.
+// Hover and press fade the background; focus draws a talon ring; Enter or
+// Space activates it. The current view is unmistakable: slate-soft fill,
+// semibold label, and a slate bar on the left edge.
+component RailItem inherits Rectangle {
+    in property <string> item-view;
+    in property <string> label;
+    in property <string> badge: "";
+    in property <bool> current: false;
+    in property <bool> reduce-motion: false;
+    callback activated();
+
+    height: 34px;
+    border-radius: 6px;
+    border-width: focus.has-focus ? 2px : touch.has-hover ? 1px : 0px;
+    border-color: Theme.talon;
+    background: touch.pressed ? Theme.slate-soft : touch.has-hover ? Theme.slate-soft : transparent;
+    animate background { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+
+    if current : Rectangle {
+        width: 3px;
+        height: parent.height;
+        background: Theme.slate;
+        border-radius: 2px;
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 8px;
+        Text {
+            text: label;
+            color: Theme.ink;
+            font-weight: current ? 600 : 400;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        if badge != "" : Rectangle {
+            background: Theme.talon;
+            border-radius: 9px;
+            HorizontalLayout {
+                padding-left: 7px;
+                padding-right: 7px;
+                Text {
+                    text: badge;
+                    // Dark text on the bright talon badge, mirroring the web
+                    // UI .count rule (talon background, near-black text).
+                    color: Theme.slate-ink;
+                    font-size: 12px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == "\n" || event.text == " ") {
+                root.activated();
+                accept
+            } else {
+                reject
+            }
+        }
+    }
+    touch := TouchArea {
+        clicked => {
+            focus.focus();
+            root.activated();
+        }
+    }
+}
+
+export struct ChatMsg {
+    role: string,
+    text: string,
+    body: styled-text,
+}
+
+// About dialog. A separate exported Dialog component: a Dialog nested in
+// MainWindow stays embedded in the parent window instead of opening a
+// separate native window. Shown from Rust (on_show_about in main.rs).
+// StandardButton must be a direct child of Dialog, not inside the main
+// layout: only then does Slint generate the ok_clicked callback for Rust.
+// AboutSlint is the royalty-free Slint license attribution for binaries.
+export component AboutDialog inherits Dialog {
+    title: "About Heron";
+    in-out property <string> app-version: "";
+
+    VerticalLayout {
+        spacing: 8px;
+        padding: 16px;
+        Text {
+            text: "Heron";
+            font-family: Theme.heading-font;
+            font-size: 20px;
+            font-weight: 700;
+            color: Theme.ink;
+        }
+        Text {
+            text: "Version " + root.app-version;
+            color: Theme.ink;
+        }
+        Text {
+            text: "A local-first, private, proactive personal AI agent.";
+            color: Theme.ink;
+            wrap: word-wrap;
+        }
+        AboutSlint { }
+    }
+
+    // Dialog buttons must be direct children to generate on_ok_clicked.
+    StandardButton {
+        kind: ok;
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Heron";
+    background: Theme.paper;
+    min-width: 880px;
+    min-height: 560px;
+    preferred-width: 1100px;
+    preferred-height: 700px;
+
+    // Server connection. backend-status is the status line the shell polls
+    // every 30 seconds; error-message is set once when the backend fails to
+    // start, and stays empty in normal use.
+    in-out property <string> backend-status: "Starting…";
+    in-out property <string> error-message: "";
+    // Current conversation id, owned by Rust. Empty means "no session yet";
+    // the server creates one lazily on the first message sent.
+    in-out property <string> session-id: "";
+    in-out property <string> session-title: "";
+    in-out property <[ChatMsg]> messages: [];
+    in-out property <bool> busy: false;
+    // This turn's reply row, by index. Streamed text and Done both target
+    // this row, never "the last assistant row": Notice and Approval rows
+    // also use that role. -1 means no live reply. Set by Rust when a reply
+    // starts, cleared when the turn ends (Done, Error, Cancelled) or the
+    // conversation is cleared.
+    in-out property <int> reply-row: -1;
+    // View switching. current-view is the active view id; the content area
+    // fades between views. Badges are strings set from Rust: empty means no
+    // badge, so the .slint side never formats a number.
+    in-out property <string> current-view: "chat";
+    in-out property <string> waiting-badge: "";
+    in-out property <string> unread-badge: "";
+    in-out property <string> suggestions-badge: "";
+    // Reduced motion: animations run at 0ms while this is on. Default off.
+    // Wiring it to the OS setting (or a Settings toggle) is still open.
+    in-out property <bool> reduce-motion: false;
+
+    callback send-message(string);
+    callback new-session();
+    callback cancel-reply();
+    callback approve(string, string);
+    // Opens the About dialog (a separate native window, shown from Rust).
+    callback show-about();
+    // Programmatic copy: the shell has no Slint copy API, so Rust copies
+    // through the arboard crate (see the bridge contract).
+    callback copy-requested(string);
+
+    MenuBar {
+        Menu {
+            title: "File";
+            MenuItem {
+                title: "New conversation";
+                activated => { root.new-session(); }
+            }
+        }
+        Menu {
+            title: "Edit";
+            MenuItem {
+                title: "Copy";
+            }
+        }
+        Menu {
+            title: "Help";
+            MenuItem {
+                title: "About Heron";
+                activated => { root.show-about(); }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        // Rail: brand, New conversation, views, status. New conversation is
+        // the first and loudest thing in it: full-width slate button.
+        rail := Rectangle {
+            width: 240px;
+            background: Theme.surface;
+            VerticalLayout {
+                padding-top: 18px;
+                padding-left: 12px;
+                padding-right: 12px;
+                padding-bottom: 12px;
+                spacing: 0px;
+
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-bottom: 16px;
+                    Text {
+                        text: "Heron";
+                        font-family: Theme.heading-font;
+                        font-size: 21px;
+                        font-weight: 600;
+                        color: Theme.ink;
+                    }
+                }
+
+                new-btn := Rectangle {
+                    height: 38px;
+                    border-radius: 8px;
+                    background: new-touch.pressed ? Theme.slate-soft : Theme.slate;
+                    border-width: new-focus.has-focus ? 2px : 1px;
+                    border-color: new-touch.has-hover || new-focus.has-focus ? Theme.talon : transparent;
+                    animate background { duration: root.reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+                    Text {
+                        text: "New conversation";
+                        color: new-touch.pressed ? Theme.slate : Theme.slate-ink;
+                        font-weight: 600;
+                        x: 12px;
+                        y: (parent.height - self.height) / 2;
+                    }
+                    new-focus := FocusScope {
+                        key-pressed(event) => {
+                            if (event.text == "\n" || event.text == " ") {
+                                root.new-session();
+                                accept
+                            } else {
+                                reject
+                            }
+                        }
+                    }
+                    new-touch := TouchArea {
+                        clicked => {
+                            new-focus.focus();
+                            root.new-session();
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 1px;
+                    padding-top: 14px;
+                    padding-bottom: 6px;
+                    RailItem {
+                        item-view: "chat";
+                        label: "Conversation";
+                        badge: root.waiting-badge;
+                        current: root.current-view == "chat";
+                        reduce-motion: root.reduce-motion;
+                        activated => { root.current-view = "chat"; }
+                    }
+                    RailItem {
+                        item-view: "onboarding";
+                        label: "Getting to know you";
+                        current: root.current-view == "onboarding";
+                        reduce-motion: root.reduce-motion;
+                        activated => { root.current-view = "onboarding"; }
+                    }
+                    RailItem {
+                        item-view: "awareness";
+                        label: "Awareness";
+                        badge: root.suggestions-badge;
+                        current: root.current-view == "awareness";
+                        reduce-motion: root.reduce-motion;
+                        activated => { root.current-view = "awareness"; }
+                    }
+                    RailItem {
+                        item-view: "memory";
+                        label: "Memory";
+                        current: root.current-view == "memory";
+                        reduce-motion: root.reduce-motion;
+                        activated => { root.current-view = "memory"; }
+                    }
+                    RailItem {
+                        item-view: "tasks";
+                        label: "Tasks";
+                        current: root.current-view == "tasks";
+                        reduce-motion: root.reduce-motion;
+                        activated => { root.current-view = "tasks"; }
+                    }
+                    RailItem {
+                        item-view: "reminders";
+                        label: "Reminders";
+                        badge: root.unread-badge;
+                        current: root.current-view == "reminders";
+                        reduce-motion: root.reduce-motion;
+                        activated => { root.current-view = "reminders"; }
+                    }
+                    RailItem {
+                        item-view: "usage";
+                        label: "Usage";
+                        current: root.current-view == "usage";
+                        reduce-motion: root.reduce-motion;
+                        activated => { root.current-view = "usage"; }
+                    }
+                    RailItem {
+                        item-view: "activity";
+                        label: "Activity log";
+                        current: root.current-view == "activity";
+                        reduce-motion: root.reduce-motion;
+                        activated => { root.current-view = "activity"; }
+                    }
+                    RailItem {
+                        item-view: "settings";
+                        label: "Settings";
+                        current: root.current-view == "settings";
+                        reduce-motion: root.reduce-motion;
+                        activated => { root.current-view = "settings"; }
+                    }
+                }
+
+                // The Views lane fills the session list here (Phase 1).
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-top: 10px;
+                    Text {
+                        text: root.backend-status;
+                        color: Theme.muted;
+                        font-size: 12px;
+                        horizontal-stretch: 1;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+            Rectangle {
+                x: parent.width - 1px;
+                width: 1px;
+                height: parent.height;
+                background: Theme.line;
+            }
+        }
+
+        // Content area. One branch per view, all present at once so the
+        // opacity fade can run on switch; only the current branch takes
+        // input. The chat branch is real. The other branches are scaffolding
+        // the owning lanes replace with their views (see the note in each).
+        content := Rectangle {
+            horizontal-stretch: 1;
+
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                padding: 16px;
+                spacing: 8px;
+                opacity: root.current-view == "chat" ? 1 : 0;
+                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+
+                Text {
+                    text: root.session-title == "" ? "Heron" : root.session-title;
+                    font-family: Theme.heading-font;
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Theme.ink;
+                }
+
+                if root.error-message != "" : Text {
+                    text: root.error-message;
+                    color: Theme.danger;
+                    wrap: word-wrap;
+                }
+
+                if root.error-message == "" : ListView {
+                    for msg in root.messages : HorizontalLayout {
+                        padding-left: msg.role == "user" ? 120px : 0px;
+                        padding-right: msg.role == "user" ? 0px : 120px;
+                        Rectangle {
+                            background: msg.role == "user" ? Theme.slate-soft : Theme.surface;
+                            border-radius: 8px;
+                            horizontal-stretch: 1;
+                            VerticalLayout {
+                                padding: 10px;
+                                StyledText {
+                                    text: msg.body;
+                                    default-color: Theme.ink;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    input := LineEdit {
+                        placeholder-text: "Message Heron…";
+                        horizontal-stretch: 1;
+                        enabled: root.current-view == "chat" && root.error-message == "" && !root.busy;
+                        accepted(text) => {
+                            root.send-message(text);
+                            input.text = "";
+                        }
+                    }
+                    Button {
+                        text: "Send";
+                        enabled: root.current-view == "chat" && root.error-message == "" && !root.busy && input.text != "";
+                        clicked => {
+                            root.send-message(input.text);
+                            input.text = "";
+                        }
+                    }
+                    Button {
+                        text: "Stop";
+                        visible: root.busy;
+                        enabled: root.current-view == "chat";
+                        clicked => { root.cancel-reply(); }
+                    }
+                    Button {
+                        text: "New";
+                        enabled: root.current-view == "chat";
+                        clicked => { root.new-session(); }
+                    }
+                }
+            }
+
+            // Scaffolding: the owning lane replaces each branch with its view.
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                alignment: center;
+                spacing: 8px;
+                opacity: root.current-view == "onboarding" ? 1 : 0;
+                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                Text {
+                    text: "Getting to know you";
+                    font-family: Theme.heading-font;
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: Theme.ink;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Onboarding arrives with the Setup lane (Phase 3).";
+                    color: Theme.muted;
+                    horizontal-alignment: center;
+                }
+            }
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                alignment: center;
+                spacing: 8px;
+                opacity: root.current-view == "awareness" ? 1 : 0;
+                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                Text {
+                    text: "Awareness";
+                    font-family: Theme.heading-font;
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: Theme.ink;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Awareness arrives with the Views lane (Phase 2).";
+                    color: Theme.muted;
+                    horizontal-alignment: center;
+                }
+            }
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                alignment: center;
+                spacing: 8px;
+                opacity: root.current-view == "memory" ? 1 : 0;
+                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                Text {
+                    text: "Memory";
+                    font-family: Theme.heading-font;
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: Theme.ink;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Memory arrives with the Views lane (Phase 2).";
+                    color: Theme.muted;
+                    horizontal-alignment: center;
+                }
+            }
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                alignment: center;
+                spacing: 8px;
+                opacity: root.current-view == "tasks" ? 1 : 0;
+                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                Text {
+                    text: "Tasks";
+                    font-family: Theme.heading-font;
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: Theme.ink;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Tasks arrive with the Views lane (Phase 2).";
+                    color: Theme.muted;
+                    horizontal-alignment: center;
+                }
+            }
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                alignment: center;
+                spacing: 8px;
+                opacity: root.current-view == "reminders" ? 1 : 0;
+                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                Text {
+                    text: "Reminders";
+                    font-family: Theme.heading-font;
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: Theme.ink;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Reminders arrive with the Views lane (Phase 2).";
+                    color: Theme.muted;
+                    horizontal-alignment: center;
+                }
+            }
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                alignment: center;
+                spacing: 8px;
+                opacity: root.current-view == "usage" ? 1 : 0;
+                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                Text {
+                    text: "Usage";
+                    font-family: Theme.heading-font;
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: Theme.ink;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Usage arrives with the Views lane (Phase 2).";
+                    color: Theme.muted;
+                    horizontal-alignment: center;
+                }
+            }
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                alignment: center;
+                spacing: 8px;
+                opacity: root.current-view == "activity" ? 1 : 0;
+                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                Text {
+                    text: "Activity log";
+                    font-family: Theme.heading-font;
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: Theme.ink;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Activity arrives with the Views lane (Phase 2).";
+                    color: Theme.muted;
+                    horizontal-alignment: center;
+                }
+            }
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                alignment: center;
+                spacing: 8px;
+                opacity: root.current-view == "settings" ? 1 : 0;
+                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                Text {
+                    text: "Settings";
+                    font-family: Theme.heading-font;
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: Theme.ink;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Settings arrive with the Setup lane (Phase 3).";
+                    color: Theme.muted;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+    }
+}
