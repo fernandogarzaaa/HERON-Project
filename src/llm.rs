@@ -468,15 +468,43 @@ impl Llm for SwappableLlm {
     }
 }
 
-/// Build the model client for a configuration. `base_url = "demo"` selects the built-in demo model.
-/// With HERON_CASSETTE set, model calls are recorded to (or replayed from) that file.
+/// Build the model client for a configuration. `base_url = "demo"` selects the built-in demo model,
+/// unless a subscription CLI provider is explicitly selected: the provider
+/// choice wins over the demo sentinel, so picking a provider in Settings
+/// (or via HERON_PROVIDER) never silently returns canned answers.
+/// `[llm] provider` selects a subscription CLI instead of the HTTP endpoint
+/// (see `cli_llm`); "http" is the default. With HERON_CASSETTE set, model calls
+/// are recorded to (or replayed from) that file.
 pub fn build(cfg: &Config) -> Result<std::sync::Arc<dyn Llm>> {
     let cassette = std::env::var("HERON_CASSETTE").ok().filter(|p| !p.is_empty()).map(std::path::PathBuf::from);
     let replay = std::env::var("HERON_CASSETTE_MODE").map(|m| m.eq_ignore_ascii_case("replay")).unwrap_or(false);
     if let (Some(path), true) = (&cassette, replay) {
         return Ok(std::sync::Arc::new(Cassette::replay(path)?));
     }
-    let inner: std::sync::Arc<dyn Llm> = if is_demo(cfg) { std::sync::Arc::new(DemoLlm) } else { std::sync::Arc::new(HttpLlm::from_config(cfg)?) };
+    // A misspelled provider must fail loudly here, not fall through to
+    // HTTP: the user asked for a subscription CLI and would otherwise
+    // be charged on the previous endpoint, or get canned demo answers
+    // when the demo sentinel is set. This runs before the demo check
+    // for exactly that reason.
+    let provider = cfg.llm.provider.trim();
+    if !provider.is_empty() && provider != "http" && !crate::cli_llm::is_cli_provider(provider) {
+        let mut ids = crate::cli_llm::providers()
+            .into_iter()
+            .map(|s| s.id)
+            .collect::<Vec<_>>();
+        ids.insert(0, "http");
+        bail!(
+            "unknown [llm] provider \"{provider}\". Set provider to one of: {}.",
+            ids.join(", ")
+        );
+    }
+    let inner: std::sync::Arc<dyn Llm> = if is_demo(cfg) {
+        std::sync::Arc::new(DemoLlm)
+    } else if crate::cli_llm::is_cli_provider(cfg.llm.provider.trim()) {
+        std::sync::Arc::new(crate::cli_llm::CliLlm::from_config(cfg)?)
+    } else {
+        std::sync::Arc::new(HttpLlm::from_config(cfg)?)
+    };
     Ok(match cassette {
         Some(path) => std::sync::Arc::new(Cassette::record(inner, &path)),
         None => inner,
@@ -557,7 +585,11 @@ impl Llm for Cassette {
 }
 
 pub fn is_demo(cfg: &Config) -> bool {
+    // A CLI provider is an explicit model choice: it wins over the demo
+    // sentinel, so every demo check (doctor, settings, background work)
+    // agrees with what build() actually constructs.
     cfg.llm.base_url.trim().eq_ignore_ascii_case("demo")
+        && !crate::cli_llm::is_cli_provider(cfg.llm.provider.trim())
 }
 
 /// Offline demo model: no key, no network. Replies are canned, but it issues real tool calls,
@@ -695,6 +727,29 @@ mod tests {
         assert_eq!(retry_delay(0, Some(Duration::ZERO)), Duration::from_millis(200));
     }
 
+    #[test]
+    fn misspelled_provider_is_an_error_not_a_silent_http_fallback() {
+        let mut cfg = Config::default();
+        cfg.llm.provider = "claude-cl".to_string();
+        let err = match build(&cfg) {
+            Ok(_) => panic!("a misspelled provider must fail, not fall back to HTTP"),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("unknown [llm] provider"),
+            "a misspelled provider must fail loudly: {err}"
+        );
+        assert!(err.to_string().contains("claude-cl"), "{err}");
+        // The same holds with the demo sentinel set: a typo must not
+        // silently return canned answers.
+        cfg.llm.base_url = "demo".to_string();
+        let err = match build(&cfg) {
+            Ok(_) => panic!("a misspelled provider must fail even with the demo sentinel set"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("unknown [llm] provider"), "{err}");
+    }
+
     #[tokio::test]
     async fn recorded_runs_replay_exactly_and_refuse_a_different_conversation() {
         let dir = tempfile::tempdir().unwrap();
@@ -774,5 +829,17 @@ mod tests {
         let m = Message::tool("c1", "ok");
         let v = serde_json::to_value(&m).unwrap();
         assert_eq!(v, json!({"role":"tool","content":"ok","tool_call_id":"c1"}));
+    }
+
+    #[test]
+    fn demo_mode_yields_to_an_explicit_cli_provider() {
+        let mut cfg = Config::default();
+        cfg.llm.base_url = "demo".to_string();
+        assert!(is_demo(&cfg));
+        cfg.llm.provider = "claude-cli".to_string();
+        assert!(
+            !is_demo(&cfg),
+            "selecting a CLI provider must not silently return canned demo answers"
+        );
     }
 }
