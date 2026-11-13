@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Heron</title>
+<meta name="theme-color" content="#EDF1F4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#10181F" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232F6690'/%3E%3Cpath d='M4 13c5-1 8 0 12 4 4-4 7-5 12-4-3 2-6 4-8 8l-4 5-4-5c-2-4-5-6-8-8z' fill='%23fff'/%3E%3C/svg%3E">
 <style>
 :root{
@@ -210,6 +212,36 @@ td.m{font:12.5px/1.5 var(--mono)}
   .starters{grid-template-columns:1fr}
   .modes button{padding:5px 8px;font-size:12.5px}
 }
+/* small things that make it feel right */
+html{-webkit-text-size-adjust:100%}
+body{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+h1,h2,h3{text-wrap:balance}
+.prose p,.prose li,.note,.empty p{text-wrap:pretty}
+td,.meta,.note,#hint,.usage{font-variant-numeric:tabular-nums}
+.rail,#v-chat{overscroll-behavior:contain}
+.btn,.ghost,.modes button,.rail button,.starters button{transition:background-color .15s ease,border-color .15s ease,color .15s ease,transform .1s ease}
+.btn:active:not(:disabled),.ghost:active,.starters button:active{transform:scale(.97)}
+.composer{padding-bottom:max(16px,env(safe-area-inset-bottom))}
+/* new things arrive gently instead of popping in */
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.you,.prose,.step,.ask,.fail,.turn>.note,.acts{animation:rise .2s ease-out both}
+/* waiting for the model */
+.thinking{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13.5px;margin:6px 0 10px;min-height:22px}
+.thinking i{width:6px;height:6px;border-radius:50%;background:var(--slate);opacity:.35;animation:pulse 1.2s ease-in-out infinite}
+.thinking i:nth-child(2){animation-delay:.15s}.thinking i:nth-child(3){animation-delay:.3s}
+@keyframes pulse{0%,80%,100%{opacity:.25;transform:scale(.85)}40%{opacity:1;transform:scale(1)}}
+/* the reply while it is still being written */
+.prose.live>:last-child::after{content:"";display:inline-block;width:.5em;height:1.05em;margin-left:2px;vertical-align:-.18em;background:var(--slate);border-radius:1px;animation:blink 1s steps(2,start) infinite}
+@keyframes blink{to{visibility:hidden}}
+/* what you can do with a finished reply */
+.acts{display:flex;gap:6px;margin:-2px 0 14px}
+.acts button{border:1px solid transparent;background:none;color:var(--muted);border-radius:7px;padding:5px 10px;font-size:13px;min-height:32px;transition:background-color .15s ease,color .15s ease,border-color .15s ease}
+.acts button:hover,.acts button:focus-visible{color:var(--ink);background:var(--surface);border-color:var(--line)}
+/* back to the newest message */
+#latest{position:sticky;bottom:12px;left:50%;transform:translateX(-50%);width:max-content;display:block;margin:0 0 -44px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:7px 14px;font-size:13.5px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 6px 16px rgba(0,0,0,.10);z-index:2}
+#latest:hover{border-color:var(--slate)}
+.path{font-family:var(--mono);font-size:.92em;overflow-wrap:anywhere}
+@media (max-width:760px){#undo .long{display:none}.bar h1{min-width:0}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -239,7 +271,7 @@ td.m{font:12.5px/1.5 var(--mono)}
   <header class="bar">
     <button class="menu" id="menu" aria-label="Open menu">Menu</button>
     <h1 id="title">New conversation</h1>
-    <button class="ghost" id="undo" hidden title="Restore the last file Heron changed in this conversation">Undo last file change</button>
+    <button class="ghost" id="undo" hidden title="Restore the last file Heron changed in this conversation">Undo<span class="long"> last file change</span></button>
     <div class="modes" id="modes" role="group" aria-label="How much Heron may do without asking">
       <button data-mode="readonly" title="Heron can look, search and read — never change anything">Read only</button>
       <button data-mode="ask" title="Heron asks before changing files or running commands">Ask first</button>
@@ -248,8 +280,9 @@ td.m{font:12.5px/1.5 var(--mono)}
     </div>
   </header>
 
-  <section class="view" id="v-chat" aria-live="polite">
+  <section class="view" id="v-chat">
     <div class="col" id="thread"></div>
+    <button id="latest" hidden>↓ Newest message</button>
   </section>
 
   <section class="view page" id="v-memory" hidden><div class="col">
@@ -401,7 +434,7 @@ td.m{font:12.5px/1.5 var(--mono)}
       <textarea id="input" rows="1" placeholder="Ask Heron to do something"></textarea>
       <button class="btn" id="go">Send</button>
     </form>
-    <small id="hint">Enter to send, Shift+Enter for a new line</small>
+    <small id="hint" role="status">Enter to send, Shift+Enter for a new line</small>
   </div>
 </main>
 
@@ -448,6 +481,43 @@ function md(src) {
   flush(); return out.join('');
 }
 
+// While a reply is still arriving, a ** or ` that has opened but not yet closed would show as stray
+// symbols. Close them for display only; the text itself is left alone.
+function settle(src) {
+  if ((src.match(/^\s*```/gm) || []).length % 2) return src; // inside a code block: nothing to close
+  const cut = src.lastIndexOf('\n') + 1; let last = src.slice(cut);
+  if ((last.match(/`/g) || []).length % 2) last += '`';
+  if ((last.match(/\*\*/g) || []).length % 2) last = /\*\*\s*$/.test(last) ? last.replace(/\*\*\s*$/, '') : last + '**';
+  return src.slice(0, cut) + last;
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+  const t = el('textarea'); t.value = text; t.style.cssText = 'position:fixed;opacity:0'; document.body.append(t); t.select();
+  let ok = false; try { ok = document.execCommand('copy'); } catch (e) {} t.remove(); return ok;
+}
+// A cron pattern in words, for the common shapes; anything unusual is shown as it is.
+function cronText(c) {
+  const f = (c || '').trim().split(/\s+/); if (f.length !== 5) return `Repeats (${c})`;
+  const [m, h, dom, mon, dow] = f, n = x => /^\d+$/.test(x);
+  const at = () => new Date(2000, 0, 1, +h, +m).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  if (mon !== '*') return `Repeats (${c})`;
+  if (n(m) && n(h) && dom === '*') {
+    if (dow === '*') return `Every day at ${at()}`;
+    if (dow === '1-5') return `Every weekday at ${at()}`;
+    if (dow === '0,6' || dow === '6,0') return `Every Saturday and Sunday at ${at()}`;
+    if (n(dow) && days[+dow % 7]) return `Every ${days[+dow % 7]} at ${at()}`;
+  }
+  if (n(m) && n(h) && n(dom) && dow === '*') return `On day ${dom} of every month at ${at()}`;
+  if (dom === '*' && dow === '*') {
+    let k;
+    if ((k = m.match(/^\*\/(\d+)$/)) && h === '*') return `Every ${k[1]} minutes`;
+    if (m === '0' && (k = h.match(/^\*\/(\d+)$/))) return `Every ${k[1]} hours`;
+    if (n(m) && h === '*') return `Every hour at ${String(m).padStart(2, '0')} minutes past`;
+  }
+  return `Repeats (${c})`;
+}
+
 // ----- state -----
 let state = {}, current = null, busy = false, abortCtl = null, curTitle = 'New conversation';
 const setTitle = t => { curTitle = t; $('#title').textContent = t; };
@@ -491,7 +561,11 @@ function showEmpty() {
   const offers = el('div'); box.append(offers); renderOffers(offers, true);
   const today = el('div'); box.append(today); renderToday(today);
   box.append(el('h2', '', 'What should we get done?'));
-  box.append(el('p', '', `Heron works in ${state.workspace || 'your folder'}. It can read and write files there, run commands, search the web, remember what matters to you, and remind you of things.`));
+  // The folder's own name is what people recognise; the full location is there on hover.
+  const where = el('p'), full = state.workspace || '', parts = full.split(/[\\/]/).filter(Boolean);
+  const short = el('span', 'path', parts.length > 2 ? '…/' + parts.slice(-2).join('/') : (full || 'your folder')); short.title = full;
+  where.append('Heron works in ', short, '. It can read and write files there, run commands, search the web, remember what matters to you, and remind you of things.');
+  box.append(where);
   const st = el('div', 'starters');
   for (const s of ['Look through this folder and tell me what is in it', 'Remind me tomorrow at 9:00 to call the dentist', 'Research the best way to learn Rust in a month and save a plan as plan.md', 'What do you remember about me?']) { const b = el('button', '', s); b.onclick = () => { input.value = s; input.focus(); grow(); }; st.append(b); }
   box.append(st); thread.append(box);
@@ -503,7 +577,15 @@ function newTurn() {
   const track = () => { const last = turn.lastElementChild; if (last?.classList.contains('track')) return last; const t = el('ol', 'track'); turn.append(t); prose = null; return t; };
   const T = {
     el: turn,
-    text(t) { if (!prose) { prose = el('div', 'prose'); raw = ''; turn.append(prose); } raw += t; prose.innerHTML = md(raw); },
+    text(t, live) { if (!prose) { prose = el('div', 'prose'); raw = ''; turn.append(prose); } raw += t; prose.classList.toggle('live', !!live); prose.innerHTML = md(live ? settle(raw) : raw); },
+    // The reply is complete: stop the writing cursor and offer what can be done with it.
+    done() {
+      turn.querySelectorAll('.prose.live').forEach(p => p.classList.remove('live'));
+      if (prose && raw.trim()) { prose.innerHTML = md(raw); const text = raw, acts = el('div', 'acts'), b = el('button', '', 'Copy'); b.setAttribute('aria-label', 'Copy this reply');
+        b.onclick = async () => { b.textContent = (await copyText(text)) ? 'Copied' : 'Could not copy'; setTimeout(() => { b.textContent = 'Copy'; }, 1600); };
+        acts.append(b); prose.after(acts); }
+      prose = null;
+    },
     step(id, name, what, cls) {
       const li = el('li', 'step ' + cls); const b = el('button'); b.setAttribute('aria-expanded', 'false');
       b.append(el('b', '', label(name) + ' ')); b.append(el('span', 'what', what || ''));
@@ -537,13 +619,18 @@ function renderHistory(messages) {
   thread.replaceChildren(); let turn = null; const pending = {};
   for (const m of messages) {
     if (m.role === 'user') { if (m.content?.startsWith('[system notice]')) continue; addUser(m.content || ''); turn = null; }
-    else if (m.role === 'assistant') { turn = turn || newTurn(); if (m.content) turn.text(m.content); for (const c of m.tool_calls || []) { turn.step(c.id, c.function.name, argSummary(c.function.arguments), 'ok'); pending[c.id] = [turn, c.function.name]; } if (m.content && !(m.tool_calls || []).length) turn = null; }
+    else if (m.role === 'assistant') { turn = turn || newTurn(); if (m.content) turn.text(m.content); for (const c of m.tool_calls || []) { turn.step(c.id, c.function.name, argSummary(c.function.arguments), 'ok'); pending[c.id] = [turn, c.function.name]; } if (m.content && !(m.tool_calls || []).length) { turn.done(); turn = null; } }
     else if (m.role === 'tool' && pending[m.tool_call_id]) { const [t, name] = pending[m.tool_call_id]; const txt = m.content || ''; t.end(m.tool_call_id, name, !/^(Error:|Permission denied)/.test(txt), txt.slice(0, 1500)); }
   }
   if (!messages.length) showEmpty();
   scroll(true);
 }
-function scroll(force) { const v = $('#v-chat'); if (force || v.scrollHeight - v.scrollTop - v.clientHeight < 240) v.scrollTop = v.scrollHeight; }
+// Follow the reply as it grows, unless the reader has scrolled up to read something: then leave the
+// page where it is and offer a way back down instead of pulling them away.
+const nearEnd = v => v.scrollHeight - v.scrollTop - v.clientHeight < 240;
+function scroll(force) { const v = $('#v-chat'); if (force || nearEnd(v)) { v.scrollTop = v.scrollHeight; $('#latest').hidden = true; } else if (busy) $('#latest').hidden = false; }
+$('#v-chat').addEventListener('scroll', () => { if (nearEnd($('#v-chat'))) $('#latest').hidden = true; }, { passive: true });
+$('#latest').onclick = () => scroll(true);
 
 async function openSession(id) {
   if (busy) return;
@@ -556,9 +643,10 @@ async function openSession(id) {
 function startNew() { if (busy) return; current = null; setTitle('New conversation'); $('#undo').hidden = true; show('chat'); showEmpty(); refreshSessions(); refreshState().catch(() => {}); document.body.classList.remove('nav-open'); input.focus(); }
 
 // ----- sending -----
-function setBusy(b) { busy = b; const go = $('#go'); go.textContent = b ? 'Stop' : 'Send'; go.classList.toggle('stop', b); $('#hint').textContent = b ? 'Heron is working. You can stop it at any time.' : 'Enter to send, Shift+Enter for a new line'; }
+function setBusy(b) { busy = b; const go = $('#go'); go.textContent = b ? 'Stop' : 'Send'; go.classList.toggle('stop', b); $('#hint').textContent = b ? 'Heron is working. Press Esc or Stop to halt it.' : 'Enter to send, Shift+Enter for a new line'; if (!b) $('#latest').hidden = true; }
+function thinking(label) { const t = el('div', 'thinking'); t.setAttribute('role', 'status'); t.append(el('i'), el('i'), el('i'), el('span', '', label || 'Thinking…')); return t; }
 async function send(text) {
-  addUser(text); const turn = newTurn(); const waiting = el('p', 'note', 'Thinking…'); turn.el.append(waiting); scroll(true); setBusy(true);
+  addUser(text); const turn = newTurn(); const waiting = thinking(); turn.el.append(waiting); scroll(true); setBusy(true);
   abortCtl = new AbortController(); let finished = false;
   try {
     const res = await fetch('/api/chat', { method: 'POST', signal: abortCtl.signal, headers: { 'content-type': 'application/json', 'x-heron-token': token || '' }, body: JSON.stringify({ session_id: current, message: text }) });
@@ -571,21 +659,26 @@ async function send(text) {
         const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
         const data = chunk.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join(''); if (!data) continue;
         const ev = JSON.parse(data); waiting.remove();
+        // Between steps the model is reading results and deciding what to do next: say so, rather than
+        // leaving the page looking finished.
+        const between = { session: 'Thinking…', tool_end: 'Working out the next step…', notice: 'Thinking…' }[ev.type];
         if (ev.type === 'session') { current = ev.id; $('#undo').hidden = false; }
-        else if (ev.type === 'text') turn.text(ev.text);
+        else if (ev.type === 'text') turn.text(ev.text, true);
         else if (ev.type === 'tool_start') turn.step(ev.id, ev.name, ev.summary, 'run');
         else if (ev.type === 'tool_end') turn.end(ev.id, ev.name, ev.ok, ev.preview);
         else if (ev.type === 'approval') turn.ask(ev);
         else if (ev.type === 'notice') turn.note(ev.text);
         else if (ev.type === 'learned') turn.note('Saved to memory: ' + ev.items.join(' / '));
-        else if (ev.type === 'error') { turn.fail(ev.message); finished = true; setBusy(false); }
-        else if (ev.type === 'cancelled') { turn.note('Stopped.'); finished = true; setBusy(false); }
-        else if (ev.type === 'done') { finished = true; setBusy(false); if (ev.title) setTitle(ev.title); refreshSessions(); refreshState(); }
+        else if (ev.type === 'error') { turn.done(); turn.fail(ev.message); finished = true; setBusy(false); }
+        else if (ev.type === 'cancelled') { turn.done(); turn.note('Stopped.'); finished = true; setBusy(false); }
+        else if (ev.type === 'done') { turn.done(); finished = true; setBusy(false); if (ev.title) setTitle(ev.title); refreshSessions(); refreshState(); }
+        if (between && !finished) { $('span', waiting).textContent = between; turn.el.append(waiting); }
         scroll();
       }
     }
-    if (!finished) turn.note('The connection to Heron closed before the reply finished.');
-  } catch (e) { waiting.remove(); if (e.name !== 'AbortError') turn.fail(e.message); }
+    if (!finished) { turn.done(); turn.note('The connection to Heron closed before the reply finished.'); }
+  } catch (e) { turn.done(); if (e.name !== 'AbortError') turn.fail(e.message); }
+  waiting.remove();
   setBusy(false); refreshState().catch(() => {}); input.focus();
 }
 async function stop() { if (current) await api('/cancel', { method: 'POST', body: { session_id: current } }).catch(() => {}); else abortCtl?.abort(); }
@@ -772,7 +865,7 @@ async function loadReminders() {
   const [items, inbox] = await Promise.all([api('/schedules'), api('/inbox')]); const list = $('#rem-list'); list.replaceChildren();
   const live = items.filter(s => s.enabled);
   if (!live.length) blank(list, 'Nothing scheduled.');
-  for (const s of live) { const li = row(s.outline ? s.name : s.prompt, `${s.trigger ? s.trigger : (s.cron ? 'Repeats (' + s.cron + '), next ' : 'Once, ') + fmtTime(s.next_run)} — ${mayText(s.allow)}${s.quiet ? ', speaks up only when needed' : ''}${s.last_run ? `. Last ran ${fmtTime(s.last_run)}${s.last_tokens ? ', used ' + s.last_tokens.toLocaleString() + ' tokens' : ''}${s.quiet && s.last_result ? ': ' + s.last_result : ''}` : ''}`, async () => { await api('/schedules/' + s.id, { method: 'DELETE' }); loadReminders(); }, 'Cancel');
+  for (const s of live) { const li = row(s.outline ? s.name : s.prompt, `${s.trigger ? s.trigger : (s.cron ? cronText(s.cron) + '. Next: ' : 'Once, ') + fmtTime(s.next_run)} — ${mayText(s.allow)}${s.quiet ? ', speaks up only when needed' : ''}${s.last_run ? `. Last ran ${fmtTime(s.last_run)}${s.last_tokens ? ', used ' + s.last_tokens.toLocaleString() + ' tokens' : ''}${s.quiet && s.last_result ? ': ' + s.last_result : ''}` : ''}`, async () => { await api('/schedules/' + s.id, { method: 'DELETE' }); loadReminders(); }, 'Cancel');
     const body = $('.body', li);
     if (s.outline) { body.insertBefore(el('span', 'kind', s.uses_model ? 'Automation, uses the AI model' : 'Automation, no AI model needed'), body.firstChild); const pre = el('pre', '', s.outline); pre.style.cssText = 'margin:8px 0 4px;padding:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font:12.5px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere'; body.append(pre); }
     const tools = el('div', 'row'); tools.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px';

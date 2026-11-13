@@ -10,6 +10,13 @@ Found by the first runs against a real AI model (a free reasoning model through 
 - Setting a reminder no longer also saves a memory saying that a reminder was set.
 - Releases no longer include the interface file as a download.
 
+Interface, checked against the Web Interface Guidelines and a review of chat-interface practice:
+
+- While Heron works you can see it: a "thinking" indicator between steps, a cursor on the reply as it is written, and no stray symbols from half-arrived formatting.
+- The page no longer pulls you to the bottom while you are reading earlier text; a "Newest message" button takes you back.
+- Finished replies have a Copy button. Reminders read "Every weekday at 9:00 AM" instead of a cron pattern. The folder line shows the folder's name, not its whole location.
+- Smaller things: new messages ease in, buttons respond to a press, text wraps without orphans, the composer clears the phone's home bar, the browser's toolbar colour matches the page, and the phone layout no longer truncates the title.
+
 ## 0.1.0 — first beta
 
 The first public beta of Heron, a personal AI agent that runs on your own computer.
