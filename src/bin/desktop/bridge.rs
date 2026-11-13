@@ -477,7 +477,7 @@ mod tests {
         // event. That must be a stream failure, not a successful reply.
         let app = axum::Router::new().route(
             "/api/chat",
-            axum::routing::post(|| async { "data: {\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"partial\\\"}\\n\\n" }),
+            axum::routing::post(|| async { concat!(r#"data: {"type":"text","text":"partial"}"#, "\n\n") }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
