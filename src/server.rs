@@ -421,6 +421,7 @@ async fn approve(State(st): S, Json(b): Json<ApproveBody>) -> ApiResult {
     let _ = tx.send(match b.decision.as_str() {
         "once" => Approval::Once,
         "always" => Approval::Always,
+        "session" => Approval::Session,
         _ => Approval::Deny(None),
     });
     Ok(Json(json!({"ok": true})))

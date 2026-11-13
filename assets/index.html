@@ -644,6 +644,8 @@ function newTurn() {
       const answer = async (decision, said) => { row.querySelectorAll('button').forEach(b => b.disabled = true); try { await api('/approve', { method: 'POST', body: { id: ev.id, decision } }); } catch (e) { said = e.message; } box.replaceWith(el('p', 'note', said)); scroll(); };
       const yes = el('button', 'btn', 'Allow once'); yes.onclick = () => answer('once', 'You allowed this.');
       row.append(yes);
+      // A middle choice between "every single time" and "forever": for the rest of this conversation.
+      if (ev.can_always) { const here = el('button', 'btn quiet', 'Allow for this conversation'); here.onclick = () => answer('session', ev.tool === 'shell' ? 'You allowed this, and the same command for the rest of this conversation.' : 'You allowed this, and the same kind of action for the rest of this conversation.'); row.append(here); }
       if (ev.can_always) { const al = el('button', 'btn quiet', ev.tool === 'shell' ? `Always allow “${ev.always_rule.replace(/^shell:/, '').replace(/ \*$/, '')}” commands` : 'Always allow this kind of action'); al.onclick = () => answer('always', 'You allowed this, and similar actions from now on.'); row.append(al); }
       const no = el('button', 'btn quiet', "Don't allow"); no.onclick = () => answer('deny', "You didn't allow this.");
       row.append(no); box.append(row); track().append(box); yes.focus();

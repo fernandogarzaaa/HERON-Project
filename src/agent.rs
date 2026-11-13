@@ -93,6 +93,27 @@ pub struct Agent {
 }
 
 const DELEGATE: &str = "delegate";
+
+/// Kinds of action the user allowed for one conversation, kept with the conversation so they end with it.
+fn session_grants(ctx: &ToolCtx) -> Vec<String> {
+    ctx.store.kv_get(&format!("grants:{}", ctx.session_id)).and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default()
+}
+
+fn session_grant(ctx: &ToolCtx, tool: &str, summary: &str) -> bool {
+    // The same shape as a standing rule: the tool, or for commands the program being run. A command
+    // with anything chained, piped or redirected is never covered.
+    let compound = tool == "shell" && (summary.contains([';', '&', '|', '`', '\n', '\r', '>', '<']) || summary.contains("$("));
+    !compound && session_grants(ctx).contains(&always_rule(tool, summary))
+}
+
+fn grant_for_session(ctx: &ToolCtx, tool: &str, summary: &str) {
+    let mut all = session_grants(ctx);
+    let rule = always_rule(tool, summary);
+    if !all.contains(&rule) {
+        all.push(rule);
+        let _ = ctx.store.kv_set(&format!("grants:{}", ctx.session_id), &serde_json::to_string(&all).unwrap_or_default());
+    }
+}
 /// Prompt space reserved for memory (about 1,000 and 750 tokens).
 const MEMORY_CORE_CHARS: usize = 4000;
 const MEMORY_RELEVANT_CHARS: usize = 3000;
@@ -452,6 +473,9 @@ impl Agent {
                     sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: format!("blocked: {reason}") });
                     return format!("Permission denied: {reason}. Do not retry or work around this; tell the user.");
                 }
+                // Already allowed for this conversation by the user (never for risky actions, never once
+                // outside content is present, and never for anything chained after the approved command).
+                Verdict::Ask if !tainted && risk < Risk::Danger && session_grant(ctx, name, &summary) => "approved-for-conversation",
                 Verdict::Ask => {
                     let req = ApprovalRequest { tool: name.into(), summary: summary.clone(), risk, detail: tool.detail(&args, ctx), tainted, args: args.clone(), session_id: ctx.session_id.clone() };
                     match self.approver.approve(&req).await {
@@ -463,6 +487,12 @@ impl Agent {
                                 self.policy.add_allow(&always_rule(name, &summary));
                             }
                             "approved-always"
+                        }
+                        Approval::Session => {
+                            if !tainted && risk < Risk::Danger {
+                                grant_for_session(ctx, name, &summary);
+                            }
+                            "approved-for-conversation"
                         }
                         Approval::Deny(reason) => {
                             let reason = reason.unwrap_or_else(|| "the user declined this action".into());
@@ -703,6 +733,40 @@ mod tests {
         let mut s = Session::create(&agent.store, "").unwrap();
         agent.run_turn(&mut s, "wipe it", &null_sink()).await.unwrap();
         assert!(s.messages[2].text().contains("Permission denied"));
+    }
+
+    #[tokio::test]
+    async fn allowing_for_a_conversation_lasts_for_that_conversation_only() {
+        // Counts how often the user is asked, and answers "for this conversation".
+        struct ForConversation(std::sync::atomic::AtomicUsize);
+        #[async_trait::async_trait]
+        impl Approver for ForConversation {
+            async fn approve(&self, _: &ApprovalRequest) -> Approval {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Approval::Session
+            }
+        }
+        let ws = tempfile::tempdir().unwrap();
+        let llm = ScriptedLlm::new(vec![
+            ScriptedLlm::tool_call("write_file", json!({"path": "one.txt", "content": "1"})),
+            ScriptedLlm::tool_call("write_file", json!({"path": "two.txt", "content": "2"})),
+            // a risky action is still asked about, whatever was allowed before
+            ScriptedLlm::tool_call("write_file", json!({"path": "../outside.txt", "content": "x"})),
+            Message::assistant("done"),
+            // a different conversation starts from nothing
+            ScriptedLlm::tool_call("write_file", json!({"path": "three.txt", "content": "3"})),
+            Message::assistant("done"),
+        ]);
+        let asked = Arc::new(ForConversation(Default::default()));
+        let (agent, _) = agent_with(llm, Mode::Ask, asked.clone(), ws.path());
+        let mut first = Session::create(&agent.store, "").unwrap();
+        agent.run_turn(&mut first, "go", &null_sink()).await.unwrap();
+        assert!(ws.path().join("one.txt").exists() && ws.path().join("two.txt").exists());
+        assert_eq!(asked.0.load(std::sync::atomic::Ordering::SeqCst), 2, "asked for the first write and for the risky one, not for the second write");
+        assert!(agent.policy.allow_rules().is_empty(), "nothing was allowed for good");
+        let mut second = Session::create(&agent.store, "").unwrap();
+        agent.run_turn(&mut second, "go", &null_sink()).await.unwrap();
+        assert_eq!(asked.0.load(std::sync::atomic::Ordering::SeqCst), 3, "a new conversation asks again");
     }
 
     #[tokio::test]

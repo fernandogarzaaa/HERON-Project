@@ -15,6 +15,7 @@ Token awareness:
 - A Usage page (and `heron usage`): tokens used today and this month, what is left of your own daily and monthly limits, a projection for the month, a 30-day chart, a breakdown by model, and remaining OpenRouter credit where that applies. Every model call is recorded; where a provider reports no counts they are estimated.
 - Economy behaviour as the allowance runs down: fewer steps and shorter answers at a quarter left; the cheapest model and no self-started work near the end. Heron always still answers you.
 - Model routing: with a cheaper model configured, short simple requests go to it, and a request that turns out to need real work moves to the main model after two steps. The conversation shows which model is answering and why.
+- Approval prompts have a middle choice, "Allow for this conversation", between once and always. It is never offered for risky actions or after outside content has been read, and it ends with the conversation.
 - A written comparison with Hark Pro, Muse, Grok Bot, Dots and Claude Duet (docs/COMPARISON.md), from public sources.
 
 Interface, checked against the Web Interface Guidelines and a review of chat-interface practice:

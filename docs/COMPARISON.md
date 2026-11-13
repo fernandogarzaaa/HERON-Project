@@ -73,7 +73,7 @@ marked "(reported)". Heron's column comes from its own README and changelog, inc
 
 | # | Idea | From | Size | Status in Heron |
 |---|---|---|---|---|
-| 1 | Grant scopes on the approval card (once, this conversation, this task, for a time, always) and a page to review and revoke them | Muse, Grok Bot | Medium | Not yet |
+| 1 | Grant scopes on the approval card (once, this conversation, this task, for a time, always) and a page to review and revoke them | Muse, Grok Bot | Medium | Partly: "Allow for this conversation" added; no time-bound scope or review page yet |
 | 2 | One Activity view: in progress, scheduled, completed; answer waiting items in place | Dots, Muse | Medium | Not yet |
 | 3 | Morning brief pushed to desktop or phone, only when something needs attention | Duet | Small | Partly (Today summary exists; not pushed) |
 | 4 | Suggestion cards with "Do it", "Not now", "Never suggest this" | Hark | Small–medium | Partly (no "never") |
