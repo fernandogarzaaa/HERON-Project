@@ -1462,26 +1462,25 @@ impl Accumulator {
     }
 }
 
-/// Kill the provider's process group (Unix only). The child is spawned
-/// as a group leader, so this reaches descendants a plain `child.kill()`
-/// would leave running. Best effort: the group may already be gone.
+/// Kill a process group by id (Unix only). Best effort: the group may
+/// already be gone.
 #[cfg(unix)]
-fn kill_tree_group(child: &tokio::process::Child) {
-    if let Some(pid) = child.id() {
-        unsafe {
-            libc::killpg(pid as libc::pid_t, libc::SIGKILL);
-        }
+fn kill_group(pgid: u32) {
+    unsafe {
+        libc::killpg(pgid as libc::pid_t, libc::SIGKILL);
     }
 }
 
 #[cfg(not(unix))]
-fn kill_tree_group(_child: &tokio::process::Child) {}
+fn kill_group(_pgid: u32) {}
 
 /// Kill the provider's whole process tree: the group first, then the
 /// direct child. Used on timeout and on read errors, where the child is
 /// still running.
 async fn kill_process_tree(child: &mut tokio::process::Child) {
-    kill_tree_group(child);
+    if let Some(pid) = child.id() {
+        kill_group(pid);
+    }
     let _ = child.kill().await;
 }
 
@@ -1497,9 +1496,7 @@ struct KillTreeOnDrop {
 #[cfg(unix)]
 impl Drop for KillTreeOnDrop {
     fn drop(&mut self) {
-        unsafe {
-            libc::killpg(self.pgid as libc::pid_t, libc::SIGKILL);
-        }
+        kill_group(self.pgid);
     }
 }
 
@@ -1587,10 +1584,14 @@ impl Llm for CliLlm {
                 }
             }
         };
+        // The process-group id, saved now: after wait() Tokio's
+        // child.id() returns None, so the group can only be killed
+        // from this saved value.
+        let pgid = child.id();
         // Kills the group if this future is dropped (for example by
         // /cancel aborting the task). Lives until chat() returns.
         #[cfg(unix)]
-        let _tree_guard = child.id().map(|pid| KillTreeOnDrop { pgid: pid });
+        let _tree_guard = pgid.map(|pid| KillTreeOnDrop { pgid: pid });
         // Write the prompt on a separate task so a long prompt cannot
         // deadlock against the child's stdout pipe.
         if self.spec.input == PromptInput::Stdin {
@@ -1644,8 +1645,11 @@ impl Llm for CliLlm {
         let status = child.wait().await?;
         // A descendant that outlived the child still holds the stderr
         // pipe open; kill the group before awaiting the drain task, or
-        // that await never returns.
-        kill_tree_group(&child);
+        // that await never returns. The id must come from the value
+        // saved at spawn: after wait() child.id() is None.
+        if let Some(pid) = pgid {
+            kill_group(pid);
+        }
         if let Some(handle) = stderr_task {
             let _ = handle.await;
         }
@@ -2474,5 +2478,30 @@ mod tests {
             .map(|entries| entries.count())
             .unwrap_or(0);
         assert_eq!(remaining, 0, "a cancelled request left its temp dir behind");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn descendant_holding_stderr_does_not_hang_the_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\ncat > /dev/null\n(sleep 30) 1>/dev/null &\nprintf 'done\\n'\n";
+        let bin = fake_bin(dir.path(), "mycmd", script);
+        let mut cfg = test_cfg(dir.path(), "custom-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let r = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            llm.chat(
+                ChatRequest {
+                    messages: vec![Message::user("hi")],
+                    ..Default::default()
+                },
+                &|_| {},
+            ),
+        )
+        .await
+        .expect("chat hung awaiting stderr held open by a descendant");
+        let r = r.unwrap();
+        assert_eq!(r.message.text(), "done");
     }
 }

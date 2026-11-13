@@ -444,6 +444,23 @@ pub fn build(cfg: &Config) -> Result<std::sync::Arc<dyn Llm>> {
     if let (Some(path), true) = (&cassette, replay) {
         return Ok(std::sync::Arc::new(Cassette::replay(path)?));
     }
+    // A misspelled provider must fail loudly here, not fall through to
+    // HTTP: the user asked for a subscription CLI and would otherwise
+    // be charged on the previous endpoint, or get canned demo answers
+    // when the demo sentinel is set. This runs before the demo check
+    // for exactly that reason.
+    let provider = cfg.llm.provider.trim();
+    if !provider.is_empty() && provider != "http" && !crate::cli_llm::is_cli_provider(provider) {
+        let mut ids = crate::cli_llm::providers()
+            .into_iter()
+            .map(|s| s.id)
+            .collect::<Vec<_>>();
+        ids.insert(0, "http");
+        bail!(
+            "unknown [llm] provider \"{provider}\". Set provider to one of: {}.",
+            ids.join(", ")
+        );
+    }
     let inner: std::sync::Arc<dyn Llm> = if is_demo(cfg) {
         std::sync::Arc::new(DemoLlm)
     } else if crate::cli_llm::is_cli_provider(cfg.llm.provider.trim()) {
@@ -671,6 +688,29 @@ mod tests {
         assert_eq!(retry_delay(0, Some(Duration::from_secs(7))), Duration::from_secs(7));
         assert_eq!(retry_delay(5, Some(Duration::from_secs(3600))), Duration::from_secs(60), "never sleeps for an hour");
         assert_eq!(retry_delay(0, Some(Duration::ZERO)), Duration::from_millis(200));
+    }
+
+    #[test]
+    fn misspelled_provider_is_an_error_not_a_silent_http_fallback() {
+        let mut cfg = Config::default();
+        cfg.llm.provider = "claude-cl".to_string();
+        let err = match build(&cfg) {
+            Ok(_) => panic!("a misspelled provider must fail, not fall back to HTTP"),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("unknown [llm] provider"),
+            "a misspelled provider must fail loudly: {err}"
+        );
+        assert!(err.to_string().contains("claude-cl"), "{err}");
+        // The same holds with the demo sentinel set: a typo must not
+        // silently return canned answers.
+        cfg.llm.base_url = "demo".to_string();
+        let err = match build(&cfg) {
+            Ok(_) => panic!("a misspelled provider must fail even with the demo sentinel set"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("unknown [llm] provider"), "{err}");
     }
 
     #[tokio::test]
