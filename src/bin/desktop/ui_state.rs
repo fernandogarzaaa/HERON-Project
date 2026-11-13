@@ -10,7 +10,7 @@
 //! memory count) get no badge.
 
 use super::bridge::{AppState, Bridge};
-use crate::main::MainWindow;
+use crate::MainWindow;
 use slint::{SharedString, Weak};
 
 /// One line for the status row: `Heron · model · mode`.

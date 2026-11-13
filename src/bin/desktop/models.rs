@@ -8,7 +8,7 @@
 //! O(n) per chunk and visibly lags on long replies.
 
 use super::bridge::ChatEvent;
-use crate::main::{ChatMsg, MainWindow};
+use crate::{ChatMsg, MainWindow};
 use slint::{Model, SharedString, StyledText, VecModel};
 
 /// The window's message list, as a mutable model. The model is installed from
