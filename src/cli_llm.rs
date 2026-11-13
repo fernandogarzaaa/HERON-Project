@@ -1793,14 +1793,19 @@ impl Llm for CliLlm {
         let timeout = Duration::from_secs(self.timeout_secs.max(10));
         let spec = self.spec.clone();
         let mut acc = Accumulator::new();
-        let read = async {
+        // One deadline for the whole subprocess lifecycle: the read loop
+        // ending only means the CLI closed stdout, and a provider that
+        // stalls during cleanup or waits on a subprocess would otherwise
+        // hang wait() forever, past request_timeout_secs, because the
+        // tree guard only runs when the future is dropped.
+        let run = async {
             while let Some(line) = lines.next_line().await? {
                 acc.line(&line, &spec, on_delta);
             }
-            Result::<_, anyhow::Error>::Ok(())
+            Result::<_, anyhow::Error>::Ok(child.wait().await?)
         };
-        match tokio::time::timeout(timeout, read).await {
-            Ok(Ok(())) => {}
+        let status = match tokio::time::timeout(timeout, run).await {
+            Ok(Ok(status)) => status,
             Ok(Err(e)) => {
                 kill_process_tree(&mut child).await;
                 return Err(e);
@@ -1808,10 +1813,9 @@ impl Llm for CliLlm {
             Err(_) => {
                 kill_process_tree(&mut child).await;
                 let _ = child.wait().await;
-                bail!("{} took longer than {}s and was killed. The prompt may be too long for this CLI, or the CLI may be waiting on a login or approval. Run `{}` to check.", self.spec.display_name, self.timeout_secs, self.spec.login_command);
+                bail!("{} took longer than {}s and was killed. It may still be working, or waiting on a login, an approval, or a subprocess. Run `{}` to check.", self.spec.display_name, self.timeout_secs, self.spec.login_command);
             }
-        }
-        let status = child.wait().await?;
+        };
         // A descendant that outlived the child still holds the stderr
         // pipe open; kill the group before awaiting the drain task, or
         // that await never returns. The id must come from the value
@@ -2428,6 +2432,37 @@ mod tests {
         assert_eq!(seen.lock().unwrap().as_str(), "```rust\n");
         acc.push_text("let x = 1;\n```", &|t| seen.lock().unwrap().push_str(t));
         assert_eq!(seen.lock().unwrap().as_str(), "```rust\nlet x = 1;\n```");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn cli_that_closes_stdout_then_stalls_is_killed_by_the_timeout() {
+        // Closes stdout, then stalls: without a timeout on wait(), the
+        // request would hang until the wrapper exits on its own.
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\nprintf '%s\\n' '{\"text\": \"Done\", \"tool_calls\": []}'\nexec 1>&-\nsleep 30\n";
+        let bin = fake_bin(dir.path(), "wrapper", script);
+        let mut cfg = test_cfg(dir.path(), "custom-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        cfg.llm.request_timeout_secs = 1;
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        // The call must fail on the timeout (effective floor 10s), not
+        // hang until the wrapper exits after 30s.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            llm.chat(
+                ChatRequest {
+                    messages: vec![Message::user("hi")],
+                    ..Default::default()
+                },
+                &|_| {},
+            ),
+        )
+        .await;
+        let result = result.expect("chat hung past the outer 20s guard");
+        assert!(result.is_err());
+        let err = format!("{:?}", result.unwrap_err());
+        assert!(err.contains("took longer than"), "{err}");
     }
 
     #[tokio::test]
