@@ -212,6 +212,20 @@ td.m{font:12.5px/1.5 var(--mono)}
   .starters{grid-template-columns:1fr}
   .modes button{padding:5px 8px;font-size:12.5px}
 }
+/* usage */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:14px 0 22px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+.tile h4{margin:0 0 6px;font-size:13px;font-weight:600;color:var(--muted)}
+.tile b{display:block;font-size:24px;line-height:1.15;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.tile small{display:block;color:var(--muted);font-size:13px;margin-top:4px;font-variant-numeric:tabular-nums}
+.meter{height:8px;border-radius:999px;background:var(--slate-soft);margin-top:10px;overflow:hidden}
+.meter i{display:block;height:100%;border-radius:999px;background:var(--slate);transition:width .3s ease}
+.meter.low i{background:var(--talon)}.meter.out i{background:var(--danger)}
+.spark{display:flex;align-items:flex-end;gap:3px;height:96px;padding:8px 0 0;border-bottom:1px solid var(--line)}
+.spark i{flex:1;min-width:2px;background:var(--slate);border-radius:3px 3px 0 0;opacity:.85}
+.spark i.today{background:var(--talon)}
+.spark i:hover{opacity:1}
+td.n{white-space:nowrap;overflow-wrap:normal}
 /* small things that make it feel right */
 html{-webkit-text-size-adjust:100%}
 body{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
@@ -259,6 +273,7 @@ td,.meta,.note,#hint,.usage{font-variant-numeric:tabular-nums}
     <button data-view="memory">Memory</button>
     <button data-view="tasks">Tasks</button>
     <button data-view="reminders">Reminders <span class="count" id="unread" hidden></span></button>
+    <button data-view="usage">Usage</button>
     <button data-view="activity">Activity log</button>
     <button data-view="settings">Settings</button>
   </nav>
@@ -371,6 +386,29 @@ td,.meta,.note,#hint,.usage{font-variant-numeric:tabular-nums}
     <ul class="list" id="rem-list"></ul>
     <h3>Delivered</h3>
     <ul class="list" id="inbox-list"></ul>
+  </div></section>
+
+  <section class="view page" id="v-usage" hidden><div class="col">
+    <h2>Usage</h2>
+    <p>How many tokens Heron has used, how many are left of the limits you set, and where this month is heading. Tokens are what your AI model provider counts and charges for.</p>
+    <div id="u-level" class="note" role="status"></div>
+    <div class="tiles" id="u-tiles"></div>
+    <h3>Last 30 days</h3>
+    <div class="spark" id="u-days" role="img" aria-label="Tokens used per day over the last 30 days"></div>
+    <p class="note" id="u-pace"></p>
+    <h3>This month by model</h3>
+    <div id="u-models"></div>
+    <h3>Your limits</h3>
+    <p class="note">Set a limit and Heron paces itself. With a quarter left it takes fewer steps and keeps answers short. Near the end it uses its cheapest model and stops everything it does on its own. It never refuses to answer you.</p>
+    <div class="grid2">
+      <label class="field"><span>Per day</span><input id="u-day" inputmode="numeric" autocomplete="off" placeholder="No limit"><small>Tokens. Leave empty for no limit.</small></label>
+      <label class="field"><span>Per month</span><input id="u-month" inputmode="numeric" autocomplete="off" placeholder="No limit"><small>Tokens. Leave empty for no limit.</small></label>
+    </div>
+    <label class="field"><span>For work Heron starts on its own, per day</span><input id="u-bg" inputmode="numeric" autocomplete="off" placeholder="No limit"><small id="u-bg-note"></small></label>
+    <h3>Choosing a model</h3>
+    <label class="field"><span>Cheaper model for simple requests</span><input id="u-fast" autocomplete="off" spellcheck="false" placeholder="e.g. openai/gpt-4o-mini"><small id="u-fast-note"></small></label>
+    <label class="field" style="display:flex;gap:10px;align-items:flex-start"><input id="u-route" type="checkbox" style="width:18px;height:18px;margin-top:3px;accent-color:var(--slate)"><div><span style="margin:0">Send short, simple requests to the cheaper model</span><small>A greeting, a reminder or a quick question does not need the large model. If a request turns out to need real work, Heron moves it to the main model part-way through.</small></div></label>
+    <button class="btn" id="u-save">Save limits</button><span class="saved" id="u-saved" hidden>Saved</span>
   </div></section>
 
   <section class="view page" id="v-activity" hidden><div class="col" style="max-width:980px">
@@ -668,6 +706,7 @@ async function send(text) {
         else if (ev.type === 'tool_end') turn.end(ev.id, ev.name, ev.ok, ev.preview);
         else if (ev.type === 'approval') turn.ask(ev);
         else if (ev.type === 'notice') turn.note(ev.text);
+        else if (ev.type === 'model') turn.note(`Using ${ev.name}: ${ev.why}.`);
         else if (ev.type === 'learned') turn.note('Saved to memory: ' + ev.items.join(' / '));
         else if (ev.type === 'error') { turn.done(); turn.fail(ev.message); finished = true; setBusy(false); }
         else if (ev.type === 'cancelled') { turn.done(); turn.note('Stopped.'); finished = true; setBusy(false); }
@@ -693,7 +732,7 @@ $('#undo').onclick = async () => { const r = await api('/undo', { method: 'POST'
 $('#modes').onclick = async e => { const m = e.target.dataset.mode; if (!m) return; if (m === 'yolo' && !confirm('Unrestricted means Heron changes files and runs commands without asking. Continue?')) return; await api('/mode', { method: 'POST', body: { mode: m } }); refreshState(); };
 
 // ----- views -----
-const loaders = { onboarding: loadOnboarding, awareness: loadAwareness, memory: loadMemory, tasks: loadTasks, reminders: loadReminders, activity: loadActivity, settings: loadSettings };
+const loaders = { onboarding: loadOnboarding, awareness: loadAwareness, memory: loadMemory, tasks: loadTasks, reminders: loadReminders, activity: loadActivity, settings: loadSettings, usage: loadUsage };
 function show(name) {
   document.querySelectorAll('.view').forEach(v => v.hidden = v.id !== 'v-' + name);
   document.querySelectorAll('nav button').forEach(b => b.dataset.view === name ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
@@ -894,6 +933,41 @@ $('#rem-add').onsubmit = async e => { e.preventDefault(); const err = $('#rem-er
 $('#rem-brief').onclick = () => { $('#rem-what').value = 'Give me a short morning briefing: my open tasks by priority, anything due today, and what I was working on most recently in my folder.'; $('#rem-when').value = 'daily 08:00'; $('#rem-what').focus(); };
 $('#rem-watch').onclick = () => { $('#rem-what').value = 'Look at the new email. If it needs a reply from me today, tell me who it is from, what they need and a suggested reply. Do not reply yourself.'; $('#rem-when').value = 'when an email arrives'; $('#rem-quiet').checked = true; $('#rem-what').focus(); };
 const mayText = a => !a ? 'read only' : a.includes('shell') ? 'may edit files and run commands' : 'may edit files';
+
+const tok = n => n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M' : n >= 1e4 ? Math.round(n / 1e3) + 'k' : Number(n).toLocaleString();
+async function loadUsage() {
+  const u = await api('/usage'), b = u.budget, tiles = $('#u-tiles'); tiles.replaceChildren();
+  const tile = (title, big, small, w) => { const t = el('div', 'tile'); t.append(el('h4', '', title), el('b', '', big), el('small', '', small));
+    if (w && w.limit) { const m = el('div', 'meter' + (w.left === 0 ? ' out' : w.left / w.limit <= .25 ? ' low' : '')), bar = el('i'); bar.style.width = Math.min(100, Math.round(w.used / w.limit * 100)) + '%'; m.append(bar); m.setAttribute('role', 'progressbar'); m.setAttribute('aria-valuenow', Math.round(w.used / w.limit * 100)); m.setAttribute('aria-label', title + ' used'); t.append(m); }
+    tiles.append(t); };
+  const win = w => w.limit ? `${tok(w.left)} left of ${tok(w.limit)}` : 'No limit set';
+  tile('Today', tok(b.today.used), win(b.today), b.today);
+  tile('This month', tok(b.month.used), win(b.month), b.month);
+  tile('Heading for', tok(b.projected_month), b.month.limit ? (b.limit_reached_on ? `Limit reached around ${new Date(b.limit_reached_on + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' })}` : 'Within your monthly limit') : 'by the end of this month, at the recent pace');
+  if (u.provider && u.provider.credits_bought > 0) tile(u.provider.name + ' credit', '$' + u.provider.credits_left.toFixed(2), `left of $${u.provider.credits_bought.toFixed(2)} bought`, { used: u.provider.credits_used, limit: u.provider.credits_bought, left: u.provider.credits_left });
+  else if (u.provider) tile(u.provider.name + ' credit', 'None', 'No credit bought on this account, so only free models will answer.');
+  $('#u-level').textContent = u.demo ? 'Demo mode uses no tokens. Connect a model to see real figures.' : b.level === 'normal' ? '' : ({ careful: 'Economy mode is on: a quarter or less of your allowance is left, so Heron is taking fewer steps, keeping answers short and doing nothing on its own.', minimal: 'Strict economy is on: your allowance is almost used up. Heron is using its cheapest model and the least work that answers you.', spent: 'Your allowance is used up. Heron still answers you, as cheaply as it can, and has stopped everything it does on its own. Raise the limit below to lift this.' })[b.level];
+  const days = $('#u-days'), max = Math.max(1, ...u.days.map(d => d[1])); days.replaceChildren();
+  u.days.forEach(([day, n], i) => { const bar = el('i', i === u.days.length - 1 ? 'today' : ''); bar.style.height = Math.max(n ? 3 : 0, Math.round(n / max * 100)) + '%'; bar.title = `${new Date(day + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' })}: ${Number(n).toLocaleString()} tokens`; days.append(bar); });
+  $('#u-pace').textContent = b.daily_average ? `About ${tok(b.daily_average)} tokens a day over the last week. Hover a bar for the day's figure; today is highlighted.` : 'Nothing used yet.';
+  const models = $('#u-models'); models.replaceChildren();
+  if (!u.models.length) blank(models, 'No model calls this month.');
+  else { const t = el('table'); t.innerHTML = '<thead><tr><th>Model</th><th>Sent to it</th><th>Written by it</th><th>Calls</th></tr></thead>'; const tb = el('tbody');
+    for (const [name, i, o, calls] of u.models) { const tr = el('tr'); tr.append(el('td', 'm', name), el('td', 'n', Number(i).toLocaleString()), el('td', 'n', Number(o).toLocaleString()), el('td', 'n', Number(calls).toLocaleString())); tb.append(tr); }
+    t.append(tb); models.append(t); models.append(el('p', 'note', 'Where a provider does not report token counts, Heron estimates them from the length of the text.')); }
+  const show = n => n ? Number(n).toLocaleString() : '';
+  $('#u-day').value = show(b.today.limit); $('#u-month').value = show(b.month.limit); $('#u-bg').value = show(u.background_limit);
+  $('#u-bg-note').textContent = `Suggestions, preparing ahead, taking over and reflection. ${Number(u.background_today).toLocaleString()} used today. Reminders you set up yourself always run.`;
+  $('#u-fast').value = u.fast_model || ''; $('#u-route').checked = u.routing; $('#u-route').disabled = !u.fast_model || u.fast_model === u.main_model;
+  $('#u-fast-note').textContent = `Your main model is ${u.main_model}. Name a cheaper one here to let Heron choose between them.`;
+}
+$('#u-save').onclick = async () => {
+  const num = id => { const v = $(id).value.replace(/[^0-9]/g, ''); return v ? Number(v) : 0; };
+  const fast = $('#u-fast').value.trim();
+  try { await api('/usage', { method: 'POST', body: { daily_token_limit: num('#u-day'), monthly_token_limit: num('#u-month'), background_tokens_per_day: num('#u-bg'), fast_model: fast, routing: fast ? ($('#u-route').disabled ? true : $('#u-route').checked) : false } });
+    $('#u-saved').hidden = false; setTimeout(() => { $('#u-saved').hidden = true; }, 1800); await loadUsage(); refreshState().catch(() => {}); }
+  catch (e) { alert(e.message); }
+};
 
 async function loadActivity() {
   const log = await api('/audit'); const items = log.entries; const box = $('#audit'); box.replaceChildren();

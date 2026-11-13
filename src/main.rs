@@ -82,6 +82,8 @@ enum Cmd {
     Inbox,
     /// Show the audit log of tool actions
     Audit,
+    /// Show how many tokens have been used, what is left and where the month is heading
+    Usage,
     /// Serve Heron's memory and tasks to other apps over MCP (stdio)
     McpServe,
 }
@@ -202,6 +204,9 @@ fn terminal_sink() -> EventSink {
                 let _ = writeln!(out, "{}", st.dim(&format!("  {n}")));
             }
             Event::Usage(_) => {}
+            Event::Model { name, why } => {
+                let _ = writeln!(out, "{}", st.dim(&format!("  model: {name} ({why})")));
+            }
         }
         let _ = out.flush();
     })
@@ -539,6 +544,30 @@ async fn real_main() -> Result<()> {
                 println!("[{}] {}\n{}\n", fmt_ts(m.ts), m.title, m.body);
             }
             app.store.mark_inbox_read()?;
+            Ok(())
+        }
+        Cmd::Usage => {
+            let r = heron::usage::report(&app.store, &app.cfg(), app.background_budget().0);
+            let n = |v: u64| { let s = v.to_string(); let mut out = String::new(); for (i, c) in s.chars().enumerate() { if i > 0 && (s.len() - i) % 3 == 0 { out.push(','); } out.push(c); } out };
+            let window = |name: &str, w: &heron::usage::Window| match w.left {
+                Some(left) => println!("{name:<12} {} used of {} ({} left)", n(w.used), n(w.limit), n(left)),
+                None => println!("{name:<12} {} used (no limit set)", n(w.used)),
+            };
+            window("Today", &r.budget.today);
+            window("This month", &r.budget.month);
+            println!("{:<12} about {} a day; this month is heading for about {}", "Pace", n(r.budget.daily_average), n(r.budget.projected_month));
+            if let Some(day) = &r.budget.limit_reached_on {
+                println!("{:<12} at this pace the monthly limit is reached on {day}", "");
+            }
+            println!("{:<12} {}", "Effort", r.level_label);
+            println!("{:<12} {}", "Routing", if r.routing { format!("simple requests go to {}, the rest to {}", r.fast_model, r.main_model) } else { format!("everything goes to {}", r.main_model) });
+            if !r.models.is_empty() {
+                println!("\nThis month by model:");
+                for (model, tin, tout, calls) in &r.models {
+                    println!("  {model:<44} {:>12} in  {:>10} out  {:>5} calls", n(*tin), n(*tout), calls);
+                }
+            }
+            println!("\nSet limits in the app (Usage), or daily_token_limit / monthly_token_limit under [agent] in the config file.");
             Ok(())
         }
         Cmd::Audit => {

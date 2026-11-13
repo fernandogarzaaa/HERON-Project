@@ -24,6 +24,8 @@ pub enum Event {
     /// Out-of-band information for the user (compaction, sub-agent activity, ...).
     Notice(String),
     Usage(Usage),
+    /// Which model is handling this request and why (only when there is more than one to choose from).
+    Model { name: String, why: String },
 }
 
 pub type EventSink = Arc<dyn Fn(Event) + Send + Sync>;
@@ -301,7 +303,21 @@ impl Agent {
         let tools = self.tool_schemas();
         let mut recent_calls: Vec<String> = vec![];
 
-        for step in 0..self.cfg.agent.max_steps {
+        // How carefully to spend, and which model should take this request.
+        let budget = crate::usage::Budget::now(&self.store, &self.cfg);
+        let route = crate::usage::route(&self.cfg, budget.level, input);
+        let max_steps = budget.max_steps(self.cfg.agent.max_steps);
+        let system = match budget.guidance() {
+            Some(g) => format!("{system}\n\n# Token allowance\n{g}"),
+            None => system,
+        };
+        if self.depth == 0 {
+            if let Some(n) = budget.notice() {
+                sink(Event::Notice(n));
+            }
+        }
+
+        for step in 0..max_steps {
             if let Some(limit) = self.token_limit {
                 let used = {
                     let u = self.usage.lock().unwrap();
@@ -318,7 +334,15 @@ impl Agent {
             messages.extend(session.messages.iter().cloned());
 
             let s = sink.clone();
-            let resp = self.llm.chat(ChatRequest { messages, tools: tools.clone(), model: None, max_tokens: None }, &move |t| s(Event::Text(t.to_string()))).await?;
+            // A request sent to the cheaper model moves to the main one once it proves to need real work.
+            let model = route.model.clone().filter(|_| route.escalate_after.map(|n| step < n).unwrap_or(true));
+            let choosing = self.depth == 0 && !self.cfg.llm.fast_model.trim().is_empty() && self.cfg.llm.fast_model.trim() != self.cfg.llm.model;
+            if choosing && step == 0 {
+                sink(Event::Model { name: model.clone().unwrap_or_else(|| self.cfg.llm.model.clone()), why: route.why.to_string() });
+            } else if choosing && route.model.is_some() && route.escalate_after == Some(step) {
+                sink(Event::Model { name: self.cfg.llm.model.clone(), why: "this turned out to need more work".into() });
+            }
+            let resp = self.llm.chat(ChatRequest { messages, tools: tools.clone(), model, max_tokens: budget.reply_tokens() }, &move |t| s(Event::Text(t.to_string()))).await?;
             {
                 let mut u = self.usage.lock().unwrap();
                 u.prompt_tokens += resp.usage.prompt_tokens;
@@ -357,8 +381,8 @@ impl Agent {
                 self.push(session, Message::tool(call.id.clone(), result));
             }
 
-            if step + 1 == self.cfg.agent.max_steps {
-                sink(Event::Notice(format!("step limit ({}) reached — wrapping up", self.cfg.agent.max_steps)));
+            if step + 1 == max_steps {
+                sink(Event::Notice(format!("step limit ({max_steps}) reached — wrapping up")));
             }
         }
 
@@ -498,6 +522,7 @@ impl Agent {
         let child_sink: EventSink = Arc::new(move |e| match e {
             Event::ToolStart { name, summary, .. } => parent_sink(Event::Notice(format!("  ↳ sub-agent: {name} {summary}"))),
             Event::Usage(u) => parent_sink(Event::Usage(u)),
+            Event::Model { .. } => {}
             _ => {}
         });
         let result = child.run_turn(&mut session, task, &child_sink).await;
@@ -585,7 +610,9 @@ impl Agent {
 
     /// Background learning from the latest exchange (no-op unless auto_memory is on).
     pub async fn learn(&self, session: &Session, user: &str, assistant: &str) -> Vec<String> {
-        if !self.cfg.agent.auto_memory || self.depth > 0 {
+        // Learning costs a model call of its own, so it is among the first things to stop when the
+        // allowance runs low.
+        if !self.cfg.agent.auto_memory || self.depth > 0 || !crate::usage::Budget::now(&self.store, &self.cfg).background_allowed() {
             return vec![];
         }
         // Once outside content is in the conversation the reply may repeat what a web page or email

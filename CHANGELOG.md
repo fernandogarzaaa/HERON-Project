@@ -10,6 +10,13 @@ Found by the first runs against a real AI model (a free reasoning model through 
 - Setting a reminder no longer also saves a memory saying that a reminder was set.
 - Releases no longer include the interface file as a download.
 
+Token awareness:
+
+- A Usage page (and `heron usage`): tokens used today and this month, what is left of your own daily and monthly limits, a projection for the month, a 30-day chart, a breakdown by model, and remaining OpenRouter credit where that applies. Every model call is recorded; where a provider reports no counts they are estimated.
+- Economy behaviour as the allowance runs down: fewer steps and shorter answers at a quarter left; the cheapest model and no self-started work near the end. Heron always still answers you.
+- Model routing: with a cheaper model configured, short simple requests go to it, and a request that turns out to need real work moves to the main model after two steps. The conversation shows which model is answering and why.
+- A written comparison with Hark Pro, Muse, Grok Bot, Dots and Claude Duet (docs/COMPARISON.md), from public sources.
+
 Interface, checked against the Web Interface Guidelines and a review of chat-interface practice:
 
 - While Heron works you can see it: a "thinking" indicator between steps, a cursor on the reply as it is written, and no stray symbols from half-arrived formatting.

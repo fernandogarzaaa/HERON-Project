@@ -196,6 +196,7 @@ CREATE TABLE IF NOT EXISTS checkpoints(
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, path TEXT NOT NULL,
   existed INTEGER NOT NULL, prev BLOB);
 CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS usage(day TEXT NOT NULL, model TEXT NOT NULL, prompt INTEGER NOT NULL DEFAULT 0, completion INTEGER NOT NULL DEFAULT 0, calls INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day, model));
 CREATE TABLE IF NOT EXISTS observations(
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL, subject TEXT NOT NULL, bucket INTEGER NOT NULL,
   UNIQUE(kind, subject, bucket));
@@ -954,6 +955,34 @@ impl Store {
         let db = self.db();
         let Ok(mut st) = db.prepare("SELECT DISTINCT path FROM checkpoints WHERE ts>=?") else { return vec![] };
         st.query_map([since], |r| r.get(0)).map(|rows| rows.flatten().collect()).unwrap_or_default()
+    }
+
+    // ---------- token usage ----------
+
+    /// Add one model call to the record for that day and model.
+    pub fn record_usage(&self, day: &str, model: &str, prompt: u64, completion: u64) -> Result<()> {
+        self.db().execute(
+            "INSERT INTO usage(day, model, prompt, completion, calls) VALUES (?1,?2,?3,?4,1)
+             ON CONFLICT(day, model) DO UPDATE SET prompt=prompt+?3, completion=completion+?4, calls=calls+1",
+            params![day, model, prompt as i64, completion as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Total tokens per day from `since` (YYYY-MM-DD) on, oldest first.
+    pub fn usage_per_day(&self, since: &str) -> Result<Vec<(String, u64)>> {
+        let db = self.db();
+        let mut st = db.prepare("SELECT day, SUM(prompt + completion) FROM usage WHERE day>=? GROUP BY day ORDER BY day")?;
+        let v = st.query_map([since], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)))?.collect::<rusqlite::Result<_>>()?;
+        Ok(v)
+    }
+
+    /// Per model from `since` on: (model, tokens in, tokens out, calls), heaviest first.
+    pub fn usage_per_model(&self, since: &str) -> Result<Vec<(String, u64, u64, u64)>> {
+        let db = self.db();
+        let mut st = db.prepare("SELECT model, SUM(prompt), SUM(completion), SUM(calls) FROM usage WHERE day>=? GROUP BY model ORDER BY SUM(prompt + completion) DESC")?;
+        let v = st.query_map([since], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)? as u64, r.get::<_, i64>(3)? as u64)))?.collect::<rusqlite::Result<_>>()?;
+        Ok(v)
     }
 
     // ---------- kv ----------

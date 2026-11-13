@@ -468,3 +468,77 @@ async fn browser_reads_pages_follows_links_and_fills_in_forms() {
     heron::browser::shutdown().await;
     assert!(dir.path().join("home/browser").is_dir(), "the browser used its own profile inside the Heron folder");
 }
+
+/// Token awareness end to end: calls are recorded, simple requests go to the cheaper model, work that
+/// grows moves to the main model, and a nearly spent allowance changes how Heron behaves.
+#[tokio::test]
+async fn usage_is_recorded_and_shapes_model_choice_and_effort() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = Config::default();
+    cfg.home = dir.path().join("home");
+    cfg.llm.model = "big".into();
+    cfg.llm.fast_model = "small".into();
+    cfg.agent.auto_memory = false;
+    cfg.agent.ambient_context = false;
+    cfg.permissions.mode = "auto".into();
+    let llm = Arc::new(ScriptedLlm::new(vec![
+        // 1: a greeting
+        Message::assistant("Hello!"),
+        // 2: looks simple, but turns into three steps of work
+        ScriptedLlm::tool_call("task_list", json!({})),
+        ScriptedLlm::tool_call("task_list", json!({})),
+        ScriptedLlm::tool_call("task_list", json!({})),
+        Message::assistant("You have nothing on your list."),
+        // 3: plainly real work
+        Message::assistant("Here is the plan."),
+        // 4: after the allowance is spent
+        Message::assistant("Short answer."),
+    ]));
+    let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap());
+    let agent = app.agent(Arc::new(heron::permissions::DenyAll));
+    let events = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = events.clone();
+    let sink: heron::agent::EventSink = Arc::new(move |e| match e {
+        heron::agent::Event::Model { name, why } => seen.lock().unwrap().push(format!("model {name}: {why}")),
+        heron::agent::Event::Notice(n) => seen.lock().unwrap().push(format!("notice {n}")),
+        _ => {}
+    });
+    let mut session = heron::agent::Session::create(&app.store, "").unwrap();
+    let models = |llm: &ScriptedLlm| llm.requests.lock().unwrap().iter().map(|r| r.model.clone().unwrap_or_else(|| "main".into())).collect::<Vec<_>>();
+
+    agent.run_turn(&mut session, "hi there", &sink).await.unwrap();
+    assert_eq!(models(&llm), vec!["small"]);
+    agent.run_turn(&mut session, "what's on my list?", &sink).await.unwrap();
+    assert_eq!(models(&llm)[1..], ["small", "small", "main", "main"], "two steps on the cheaper model, then the main one takes over");
+    agent.run_turn(&mut session, "Research the best way to learn Rust in a month and write a plan", &sink).await.unwrap();
+    assert_eq!(models(&llm).last().unwrap(), "main");
+    {
+        let e = events.lock().unwrap();
+        assert!(e.iter().any(|l| l.starts_with("model small: a short, simple request")), "{e:?}");
+        assert!(e.iter().any(|l| l.starts_with("model big: this turned out to need more work")), "{e:?}");
+        assert!(!e.iter().any(|l| l.starts_with("notice")), "no economy notice while there is no limit: {e:?}");
+    }
+
+    // Every call was recorded (estimated here, since the stand-in model reports no usage).
+    let report = heron::usage::report(&app.store, &app.cfg(), 0);
+    assert!(report.budget.today.used > 0 && report.budget.month.used == report.budget.today.used);
+    assert_eq!(report.models.iter().map(|m| m.3).sum::<u64>(), 6, "six model calls so far");
+    assert_eq!(report.budget.level, heron::usage::Level::Normal);
+    assert!(report.routing);
+
+    // Set a daily limit below what has been used: Heron still answers, as cheaply as it can.
+    let mut tight = (*app.cfg()).clone();
+    tight.agent.daily_token_limit = 10;
+    app.update_config(tight).unwrap();
+    // update_config swaps in a client built from the settings; put the stand-in back for the test.
+    app.llm.swap(llm.clone());
+    let agent = app.agent(Arc::new(heron::permissions::DenyAll));
+    agent.run_turn(&mut session, "Research the best way to learn Go and write a plan", &sink).await.unwrap();
+    let requests = llm.requests.lock().unwrap();
+    let last = requests.last().unwrap();
+    assert_eq!(last.model.as_deref(), Some("small"), "even real work goes to the cheaper model now");
+    assert_eq!(last.max_tokens, Some(2048));
+    assert!(last.messages[0].text().contains("token allowance for this period is used up"), "the model is told to be brief");
+    assert!(events.lock().unwrap().iter().any(|l| l.contains("Your token allowance is used up")));
+    assert!(agent.learn(&session, "I always take the train to work", "Noted").await.is_empty(), "no extra model call for learning when the allowance is spent");
+}

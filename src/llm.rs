@@ -424,11 +424,15 @@ impl Llm for HttpLlm {
 }
 
 /// Lets the app replace the model client at runtime (e.g. after the user changes settings).
-pub struct SwappableLlm(std::sync::RwLock<std::sync::Arc<dyn Llm>>);
+pub struct SwappableLlm(std::sync::RwLock<std::sync::Arc<dyn Llm>>, std::sync::OnceLock<crate::store::Store>);
 
 impl SwappableLlm {
     pub fn new(inner: std::sync::Arc<dyn Llm>) -> Self {
-        SwappableLlm(std::sync::RwLock::new(inner))
+        SwappableLlm(std::sync::RwLock::new(inner), std::sync::OnceLock::new())
+    }
+    /// Keep a record of every call (tokens per day and model) in this store.
+    pub fn meter(&self, store: crate::store::Store) {
+        let _ = self.1.set(store);
     }
     pub fn swap(&self, inner: std::sync::Arc<dyn Llm>) {
         *self.0.write().unwrap() = inner;
@@ -441,7 +445,18 @@ impl SwappableLlm {
 #[async_trait]
 impl Llm for SwappableLlm {
     async fn chat(&self, req: ChatRequest, on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
-        self.current().chat(req, on_delta).await
+        // Some servers do not report usage. An estimate from the text keeps the record meaningful.
+        let rough_prompt: usize = req.messages.iter().map(|m| crate::util::estimate_tokens(m.text()) + m.tool_calls.iter().map(|c| crate::util::estimate_tokens(&c.function.arguments)).sum::<usize>() + 4).sum();
+        let resp = self.current().chat(req, on_delta).await?;
+        if let Some(store) = self.1.get().filter(|_| resp.model != "demo") {
+            let (mut prompt, mut completion) = (resp.usage.prompt_tokens, resp.usage.completion_tokens);
+            if prompt + completion == 0 {
+                prompt = rough_prompt as u64;
+                completion = (crate::util::estimate_tokens(resp.message.text()) + resp.message.tool_calls.iter().map(|c| crate::util::estimate_tokens(&c.function.arguments)).sum::<usize>()) as u64;
+            }
+            let _ = store.record_usage(&crate::usage::day_key(chrono::Local::now().date_naive()), &resp.model, prompt, completion);
+        }
+        Ok(resp)
     }
     async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         self.current().embed(texts).await
