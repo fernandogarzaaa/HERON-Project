@@ -246,7 +246,7 @@ export component SettingsView inherits VerticalBox {
             ComboBox {
                 model: tool_settings;
                 current-index: tool.setting;
-                selected(index) => { root.set_tool(tool.name, index); }
+                selected => { root.set_tool(tool.name, self.current-index); }
             }
         }
     }
