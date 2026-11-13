@@ -1139,6 +1139,11 @@ struct Accumulator {
     usage: Usage,
     tool_calls: Vec<ToolCall>,
     streamed: bool,
+    /// True once a stream event delivered text into `text`, whether or
+    /// not any of it reached the user as a delta. A tool-only envelope
+    /// delivers text but emits nothing, and the assistant snapshot must
+    /// not be appended a second time.
+    received: bool,
     stream_mode: StreamMode,
     /// Bytes of the decoded envelope `text` value already streamed.
     emitted: usize,
@@ -1155,6 +1160,7 @@ impl Accumulator {
             usage: Usage::default(),
             tool_calls: vec![],
             streamed: false,
+            received: false,
             stream_mode: StreamMode::Unknown,
             emitted: 0,
             json_buf: String::new(),
@@ -1247,6 +1253,9 @@ impl Accumulator {
                             .and_then(|d| d.get("text"))
                             .and_then(|t| t.as_str())
                         {
+                            if !t.is_empty() {
+                                self.received = true;
+                            }
                             self.push_text(t, on_delta);
                             return Some(t.to_string());
                         }
@@ -1264,9 +1273,15 @@ impl Accumulator {
                         match block.get("type").and_then(|t| t.as_str()) {
                             Some("text") => {
                                 if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
-                                    // Text blocks repeat what stream events already
-                                    // streamed; only keep them if nothing streamed.
-                                    if !self.streamed {
+                                    // The assistant snapshot repeats the
+                                    // text blocks stream events already
+                                    // delivered. `streamed` only records
+                                    // what reached the user, so a tool-only
+                                    // envelope (empty text, nothing
+                                    // emitted) would be appended a second
+                                    // time and corrupt the buffer. Skip it
+                                    // when any text was received.
+                                    if !self.received {
                                         self.push_text(t, on_delta);
                                     }
                                 }
@@ -1883,6 +1898,42 @@ mod tests {
 
     #[tokio::test]
     #[cfg(not(windows))]
+    async fn claude_tool_only_envelope_is_not_duplicated_by_the_assistant_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let part1 = r#"{\"text\": \"\", \"tool_calls\": ["#;
+        let part2 = r#"{\"name\": \"list_dir\", \"arguments\": {\"path\": \".\"}}]}"#;
+        let envelope = r#"{\"text\": \"\", \"tool_calls\": [{\"name\": \"list_dir\", \"arguments\": {\"path\": \".\"}}]}"#;
+        let script = format!(
+            "#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' '{{\"type\":\"stream_event\",\"event\":{{\"type\":\"content_block_delta\",\"delta\":{{\"text\":\"{part1}\"}}}}}}' '{{\"type\":\"stream_event\",\"event\":{{\"type\":\"content_block_delta\",\"delta\":{{\"text\":\"{part2}\"}}}}}}' '{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"{envelope}\"}}]}}}}'\necho 'max turns reached' >&2\nexit 1\n"
+        );
+        let bin = fake_bin(dir.path(), "claude", &script);
+        let mut cfg = test_cfg(dir.path(), "claude-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let seen = std::sync::Mutex::new(String::new());
+        let req = ChatRequest {
+            messages: vec![Message::user("hi")],
+            tools: vec![
+                serde_json::json!({"type": "function", "function": {"name": "list_dir", "parameters": {}}}),
+            ],
+            ..Default::default()
+        };
+        let r = llm
+            .chat(req, &|t| seen.lock().unwrap().push_str(t))
+            .await
+            .unwrap();
+        assert_eq!(r.message.text(), "");
+        assert_eq!(r.message.tool_calls.len(), 1);
+        assert_eq!(
+            r.message.tool_calls[0].function.arguments,
+            "{\"path\":\".\"}",
+            "a tool-only envelope must survive the assistant snapshot, not come back doubled and unparseable"
+        );
+        assert_eq!(seen.lock().unwrap().as_str(), "");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
     async fn codex_fake_binary_parses_jsonl_and_scrubs_api_key() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("env-check.txt");
@@ -2155,8 +2206,11 @@ mod tests {
     #[cfg(not(windows))]
     fn arg_prompt_over_the_size_cap_is_refused_early() {
         let dir = tempfile::tempdir().unwrap();
+        // A fake binary, not a hardcoded system path: /bin/true does
+        // not resolve on the macOS runner.
+        let bin = fake_bin(dir.path(), "opencode", "#!/bin/sh\n");
         let mut cfg = test_cfg(dir.path(), "opencode-cli");
-        cfg.llm.cli_command = "/bin/true".to_string();
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
         let llm = CliLlm::from_config(&cfg).unwrap();
         let err = llm.argv(&"x".repeat(200_000)).unwrap_err();
         assert!(
