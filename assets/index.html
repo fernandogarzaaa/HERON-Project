@@ -983,7 +983,7 @@ async function loadUsage() {
   // The same daily figures as the chart, as a table anyone can read (the bars only show them on hover).
   const daily = el('details'), dt = el('table'), db = el('tbody'); daily.append(el('summary', '', 'Daily figures'));
   dt.innerHTML = '<thead><tr><th>Day</th><th>Tokens</th></tr></thead>';
-  for (const [day, n] of [...u.days].reverse()) { if (!n) continue; const tr = el('tr'); tr.append(el('td', '', new Date(day + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' })), el('td', 'n', Number(n).toLocaleString())); db.append(tr); }
+  for (const [day, n] of [...u.days].reverse()) { const tr = el('tr'); tr.append(el('td', '', new Date(day + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' })), el('td', 'n', Number(n).toLocaleString())); db.append(tr); }
   dt.append(db); daily.append(dt); daily.id = 'u-daily'; $('#u-daily')?.remove(); $('#u-pace').after(daily);
   $('#u-day').value = show(b.today.limit); $('#u-month').value = show(b.month.limit); $('#u-bg').value = show(u.background_limit);
   $('#u-bg-note').textContent = `Suggestions, preparing ahead, taking over and reflection. ${Number(u.background_today).toLocaleString()} used today. Reminders you set up yourself always run.`;

@@ -10,8 +10,9 @@ exactly what is.
 |---|---|
 | Audited `main` | `8ecd2fa3e78f36a734eadda913ed68244002b242` |
 | PR #1 (v0.1.0 beta) | Merged into `main` |
-| PR #2 `heron-v0.1-beta` | Open, draft. Head `6291be231c05e0f538c079533d76271b0f574876`. CI green on that commit (six jobs, three systems). Kept as is and built upon: it holds the real-model fixes, usage monitor, interface pass and the conversation-wide grant the permission work depends on |
-| PR #4 `security/effect-model` | Open, draft, stacked on PR #2. Code commit `728184a`; this report is in the commits after it. See the pull request for the head and its CI status |
+| PR #2 `heron-v0.1-beta` | Merged into `main` by the owner on 13 November 2026 (merge commit `5b1bdf2`), at head `9293554` with CI green and the review findings addressed |
+| PR #4 `security/effect-model` | Open, draft, now targeting `main`. Holds the permission redesign and the owner's approval of D-2 and D-3. See the pull request for the head and its CI status |
+| PR #5 `durability/undo-jobs-env` | Open, draft, stacked on PR #4. Undo conflict detection, atomic job claims, environment allowlist for commands |
 | PR #3 `feat/cli-providers` | Open, not a draft, opened by the repository owner outside this session, targets `main`. Head `f189aaa`. Its CI fails on the Windows and macOS test jobs. It changes `config.rs`, `llm.rs`, `main.rs`, `server.rs`, `assets/index.html` and the README, all of which PR #2 and PR #4 also change, so it will need reconciling with them. Not touched by this session |
 
 Nothing in this session was merged, force-pushed or released.
@@ -49,7 +50,7 @@ The full matrix is REMEDIATION_MATRIX.md. Summary by status:
   network inside the command sandbox and no sandbox on Windows (T3), per-request checks missing
   in the browser (T4), shared browser state across conversations (T5), and recalled unconfirmed
   facts not tainting a conversation (T2).
-- **Risk acceptances made by the engineer, awaiting the owner:** DECISIONS D-2 and D-3.
+- **Risk acceptances:** DECISIONS D-2 and D-3, approved by the owner on 13 November 2026 (recorded in DECISIONS.md).
 
 ## 4. Correctness and performance evidence
 
