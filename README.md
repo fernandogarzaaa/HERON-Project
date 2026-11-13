@@ -116,12 +116,19 @@ In chat: `/help`, `/new`, `/resume <id>`, `/memory [query]`, `/forget <id>`, `/t
 
 ## Permission modes
 
-| Mode | Reads, searches, web | File changes in the working folder | Commands | Risky actions |
-|---|---|---|---|---|
-| `readonly` | allowed | refused | refused (read-only commands allowed) | refused |
-| `ask` (default) | allowed | asks | asks (read-only commands allowed) | asks |
-| `auto` | allowed | allowed | allowed | asks |
-| `yolo` | allowed | allowed | allowed | allowed |
+| Mode | Reading | Memories, tasks, reminders | File changes in the working folder | Commands | Acting on websites or other apps | Risky actions | Reading secrets |
+|---|---|---|---|---|---|---|---|
+| `readonly` | allowed | refused | refused | refused (read-only commands allowed) | refused | refused | asks |
+| `ask` (default) | allowed | allowed | asks | asks (read-only commands allowed) | asks | asks | asks |
+| `auto` | allowed | allowed | allowed | allowed | asks | asks | asks |
+| `yolo` | allowed | allowed | allowed | allowed | allowed | allowed | asks |
+
+Two rules apply in every mode, `yolo` included, and no allow rule or setting switches them off:
+
+- **After outside content** (a web page, an email, a document, a connected app's output) has entered a conversation, anything that changes something, and anything Heron composes and sends out (a search query, an address it built, a form, a connected app's arguments), needs your approval. Only addresses you typed yourself are opened without asking. "Allow searches for this conversation" lets research continue.
+- **Catastrophic commands** (wiping the disk or home folder, formatting drives) are refused outright.
+
+The whole table, cell by cell, is a test (`permissions::tests::the_decision_table`). The threat model and what is still open are in [docs/engineering](docs/engineering/).
 
 "Risky" means destructive or hard to undo (`rm -r`, `sudo`, `git push --force`, piping downloads into a shell…), touching credentials (`.ssh`, `.env`, key files), or writing outside the working folder. A small set of catastrophic commands (wiping the disk or home folder, formatting drives) is refused in every mode, including `yolo`.
 

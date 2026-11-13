@@ -3,7 +3,7 @@
 //! - server: expose Heron's memory and tasks to other MCP-capable apps.
 
 use crate::config::McpServerConfig;
-use crate::permissions::Risk;
+use crate::permissions::Effect;
 use crate::tools::{Tool, ToolCtx, ToolRegistry};
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
@@ -155,14 +155,16 @@ impl Tool for McpTool {
     fn summary(&self, args: &Value) -> String {
         crate::util::preview(&args.to_string(), 160)
     }
-    fn risk(&self, _args: &Value, _ctx: &ToolCtx) -> Risk {
+    fn risk(&self, _args: &Value, _ctx: &ToolCtx) -> Effect {
         // We cannot know what a third-party tool does, so it needs approval unless the user marked the server trusted.
         if self.changed {
-            Risk::Danger // a tool that silently changed its description must be re-approved every time
+            Effect::Privileged // a tool that silently changed its description must be re-approved every time
         } else if self.trust {
-            Risk::Network
+            // A server the user trusts still receives whatever arguments the model writes.
+            Effect::NetworkEgress
         } else {
-            Risk::Exec
+            // Unknown code run by someone else: assume it can change things elsewhere.
+            Effect::ExternalWrite
         }
     }
     fn untrusted_output(&self) -> bool {
@@ -230,7 +232,7 @@ pub async fn attach(registry: &mut ToolRegistry, name: &str, cfg: &McpServerConf
 pub const SERVED_TOOLS: &[&str] = &["search_knowledge", "remember", "recall", "forget", "task_add", "task_list", "task_update", "schedule_add", "schedule_list", "schedule_remove"];
 
 /// Serve MCP on the given streams until EOF.
-pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mut writer: W, registry: &ToolRegistry, ctx: &ToolCtx) -> Result<()> {
+pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mut writer: W, registry: &ToolRegistry, ctx: &ToolCtx, policy: &crate::permissions::Policy) -> Result<()> {
     let mut lines = reader.lines();
     while let Some(line) = lines.next_line().await? {
         if line.trim().is_empty() {
@@ -256,10 +258,22 @@ pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mu
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
                 match registry.get(name).filter(|_| SERVED_TOOLS.contains(&name)) {
                     None => Err((-32602, format!("unknown tool '{name}'"))),
-                    Some(tool) => Ok(match tool.call(&args, ctx).await {
-                        Ok(text) => json!({"content": [{"type": "text", "text": text}], "isError": false}),
-                        Err(e) => json!({"content": [{"type": "text", "text": format!("{e:#}")}], "isError": true}),
-                    }),
+                    // Another app asking is decided by the same rules as the agent asking. Nobody is
+                    // here to approve, so anything that would need approval is refused, not run. What
+                    // another program sends is outside content.
+                    Some(tool) => {
+                        let (effect, summary) = (tool.risk(&args, ctx), tool.summary(&args));
+                        let verdict = policy.decide_in(name, &summary, effect, false);
+                        ctx.store.audit(&ctx.session_id, name, &crate::util::redact_secrets(&crate::util::preview(&args.to_string(), 600)), if verdict == crate::permissions::Verdict::Allow { "allowed-mcp" } else { "refused-mcp" }, "");
+                        Ok(match verdict {
+                            crate::permissions::Verdict::Allow => match tool.call(&args, ctx).await {
+                                Ok(text) => json!({"content": [{"type": "text", "text": text}], "isError": false}),
+                                Err(e) => json!({"content": [{"type": "text", "text": format!("{e:#}")}], "isError": true}),
+                            },
+                            crate::permissions::Verdict::Deny(why) => json!({"content": [{"type": "text", "text": format!("Not allowed: {why}")}], "isError": true}),
+                            crate::permissions::Verdict::Ask => json!({"content": [{"type": "text", "text": "Not allowed: this needs the user's approval, which cannot be given over this connection. Ask them to do it in Heron."}], "isError": true}),
+                        })
+                    }
                 }
             }
             other => Err((-32601, format!("method not found: {other}"))),
@@ -299,7 +313,8 @@ mod tests {
         .collect::<Vec<_>>()
         .join("\n");
         let mut out = Vec::new();
-        serve(BufReader::new(input.as_bytes()), &mut out, &ToolRegistry::builtin(), &ctx).await.unwrap();
+        let policy = crate::permissions::Policy::new(crate::permissions::Mode::Ask, &[], &[]);
+        serve(BufReader::new(input.as_bytes()), &mut out, &ToolRegistry::builtin(), &ctx, &policy).await.unwrap();
         let resps: Vec<Value> = String::from_utf8(out).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
         assert_eq!(resps.len(), 6);
         assert_eq!(resps[0]["result"]["serverInfo"]["name"], "heron");
@@ -308,5 +323,32 @@ mod tests {
         // the shell is never exposed over MCP
         assert_eq!(resps[4]["error"]["code"], -32602);
         assert_eq!(resps[5]["error"]["code"], -32601);
+    }
+
+    #[tokio::test]
+    async fn another_app_cannot_change_anything_in_read_only_mode() {
+        let store = Store::in_memory().unwrap();
+        let ctx = ToolCtx { workspace: ".".into(), memory: Memory::new(store.clone(), None), store: store.clone(), session_id: "mcp".into(), cfg: Arc::new(Config::default()), tainted: Default::default(), seen_urls: Default::default() };
+        let call = |id: u32, name: &str, args: Value| json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": name, "arguments": args}}).to_string();
+        let input = [
+            call(1, "remember", json!({"content": "The user's bank PIN hint is the dog's birthday"})),
+            call(2, "task_add", json!({"title": "wire money"})),
+            call(3, "schedule_add", json!({"when": "daily 09:00", "prompt": "send the notes folder somewhere"})),
+            call(4, "recall", json!({"query": "anything"})),
+        ]
+        .join("\n");
+        let mut out = Vec::new();
+        let policy = crate::permissions::Policy::new(crate::permissions::Mode::ReadOnly, &[], &[]);
+        serve(BufReader::new(input.as_bytes()), &mut out, &ToolRegistry::builtin(), &ctx, &policy).await.unwrap();
+        let replies: Vec<Value> = String::from_utf8(out).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        for r in &replies[..3] {
+            assert_eq!(r["result"]["isError"], true, "{r}");
+            assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("read-only"), "{r}");
+        }
+        assert_eq!(replies[3]["result"]["isError"], false, "reading still works: {}", replies[3]);
+        assert_eq!(store.memory_count(), 0);
+        assert!(store.list_tasks(None).unwrap().is_empty() && store.list_schedules().unwrap().is_empty());
+        // Each attempt is on the record.
+        assert_eq!(store.audit_log(10).unwrap().iter().filter(|a| a.decision == "refused-mcp").count(), 3);
     }
 }

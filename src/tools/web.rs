@@ -2,7 +2,7 @@
 //! All web content is returned wrapped as untrusted data.
 
 use super::{arg_str, opt_i64, schema, FnTool, ToolCtx};
-use crate::permissions::{check_url, url_host_obviously_local, web_goes_through_proxy, PublicOnlyResolver, Risk};
+use crate::permissions::{check_url, url_host_obviously_local, web_goes_through_proxy, PublicOnlyResolver, Effect};
 use anyhow::{anyhow, bail, Result};
 use futures_util::StreamExt;
 use regex::Regex;
@@ -137,7 +137,9 @@ pub fn tools() -> Vec<FnTool> {
             description: "Fetch a public web page or text resource and return it as readable text. Cannot access local/internal addresses.",
             parameters: schema(json!({"url": {"type": "string"}, "max_chars": {"type": "integer", "description": "Default 20000"}}), &["url"]),
             summary: |a| a.get("url").and_then(|u| u.as_str()).unwrap_or("").to_string(),
-            risk: |_, _| Risk::Network,
+            // An address the user gave is read. Any other was composed by the model, and whatever it
+            // put in the address is sent to that site.
+            risk: |a, c| if a.get("url").and_then(|u| u.as_str()).map(|u| c.seen_urls.contains(u)).unwrap_or(false) { Effect::NetworkRead } else { Effect::NetworkEgress },
             detail: None,
             untrusted: true,
             run: |a, c| Box::pin(web_fetch(a, c)),
@@ -147,7 +149,8 @@ pub fn tools() -> Vec<FnTool> {
             description: "Search the web. Returns titles, URLs and snippets. Follow up with web_fetch to read a result.",
             parameters: schema(json!({"query": {"type": "string"}, "limit": {"type": "integer", "description": "Default 8"}}), &["query"]),
             summary: |a| a.get("query").and_then(|u| u.as_str()).unwrap_or("").to_string(),
-            risk: |_, _| Risk::Network,
+            // The query is text the model wrote and it leaves the computer.
+            risk: |_, _| Effect::NetworkEgress,
             detail: None,
             untrusted: true,
             run: |a, c| Box::pin(web_search(a, c)),

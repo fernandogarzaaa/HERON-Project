@@ -633,11 +633,14 @@ function newTurn() {
     end(id, name, ok, preview) { const li = steps[id] || T.step(id, name, '', 'run'); li.className = 'step ' + (ok ? 'ok' : 'err'); $('.res', li).textContent = preview || ''; },
     note(t) { turn.append(el('p', 'note', t)); prose = null; },
     ask(ev) {
-      const box = el('div', 'ask' + (ev.risk === 'DANGEROUS' && !['save_automation', 'update_persona', 'save_skill'].includes(ev.tool) ? ' danger' : '')); box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-label', askTitle(ev.tool));
+      const box = el('div', 'ask' + (['DANGEROUS', 'sensitive'].includes(ev.risk) && !['save_automation', 'update_persona', 'save_skill'].includes(ev.tool) ? ' danger' : '')); box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-label', askTitle(ev.tool));
       box.append(el('h3', '', askTitle(ev.tool)));
       const standing = ['save_automation', 'update_persona', 'save_skill'].includes(ev.tool);
       if (standing) box.append(el('p', 'why', 'This changes what Heron does from now on, so it always needs your OK. Read it through before allowing.'));
       else if (ev.risk === 'DANGEROUS') box.append(el('p', 'warn', 'This could delete data, reach outside your folder, or be hard to undo.'));
+      else if (ev.risk === 'sensitive') box.append(el('p', 'warn', 'This reads something that may hold passwords, keys or other secrets, and would show it to your AI model.'));
+      else if (ev.risk === 'external') box.append(el('p', 'why', 'This acts on a website or another app. Heron cannot undo it.'));
+      else if (ev.risk === 'egress') box.append(el('p', 'why', 'This sends text Heron wrote to somewhere outside your computer. Check that nothing private is in it.'));
       if (ev.tainted) box.append(el('p', 'warn', 'Heron has read content from outside (a web page, an email or a connected app) in this conversation. Check that this is something you asked for.'));
       box.append(el('pre', '', ev.detail || ev.summary));
       const row = el('div', 'row');
@@ -645,7 +648,7 @@ function newTurn() {
       const yes = el('button', 'btn', 'Allow once'); yes.onclick = () => answer('once', 'You allowed this.');
       row.append(yes);
       // A middle choice between "every single time" and "forever": for the rest of this conversation.
-      if (ev.can_always) { const here = el('button', 'btn quiet', 'Allow for this conversation'); here.onclick = () => answer('session', ev.tool === 'shell' ? 'You allowed this, and the same command for the rest of this conversation.' : 'You allowed this, and the same kind of action for the rest of this conversation.'); row.append(here); }
+      if (ev.can_session ?? ev.can_always) { const here = el('button', 'btn quiet', ev.tool === 'web_search' ? 'Allow searches for this conversation' : 'Allow for this conversation'); here.onclick = () => answer('session', ev.tool === 'shell' ? 'You allowed this, and the same command for the rest of this conversation.' : 'You allowed this, and the same kind of action for the rest of this conversation.'); row.append(here); }
       if (ev.can_always) { const al = el('button', 'btn quiet', ev.tool === 'shell' ? `Always allow “${ev.always_rule.replace(/^shell:/, '').replace(/ \*$/, '')}” commands` : 'Always allow this kind of action'); al.onclick = () => answer('always', 'You allowed this, and similar actions from now on.'); row.append(al); }
       const no = el('button', 'btn quiet', "Don't allow"); no.onclick = () => answer('deny', "You didn't allow this.");
       row.append(no); box.append(row); track().append(box); yes.focus();

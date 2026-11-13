@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use heron::agent::{Agent, Event, EventSink, Session};
 use heron::app::App;
 use heron::config::Config;
-use heron::permissions::{Approval, ApprovalRequest, Approver, DenyAll, Mode, Risk};
+use heron::permissions::{Approval, ApprovalRequest, Approver, DenyAll, Mode};
 use heron::util::fmt_ts;
 use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
@@ -135,7 +135,7 @@ impl Approver for TerminalApprover {
             // Say the real reason, so the model passes on advice that will actually work.
             return Approval::Deny(Some(if req.tainted {
                 "this conversation now contains content from outside (a web page, an email or a connected app), so changes need the user's own approval, and nobody is at the keyboard to give it. This is the same in every mode. Tell the user what you would have done and that they can approve it by asking again in `heron chat` or the Heron app".into()
-            } else if req.risk >= Risk::Danger {
+            } else if req.risk.high() {
                 "this is a risky action that always needs the user's own approval, and nobody is at the keyboard to give it. Tell the user they can approve it by asking again in `heron chat` or the Heron app".into()
             } else {
                 "not running interactively, so nobody can approve this. Re-run with --mode auto to allow file edits and commands".into()
@@ -144,7 +144,7 @@ impl Approver for TerminalApprover {
         let st = style();
         let req = req.clone();
         tokio::task::spawn_blocking(move || {
-            let head = if req.risk == Risk::Danger { st.red("Heron wants to do something risky") } else { st.yellow("Heron wants permission") };
+            let head = if req.risk.high() { st.red("Heron wants to do something risky") } else { st.yellow("Heron wants permission") };
             eprintln!("\n{head} — {} [{}]", st.bold(&req.tool), req.risk.label());
             if req.tainted {
                 eprintln!("  {}", st.yellow("Content from outside (a web page, email or connected app) is in this conversation and may have influenced this request."));
@@ -152,7 +152,7 @@ impl Approver for TerminalApprover {
             for line in req.detail.lines().take(30) {
                 eprintln!("  {line}");
             }
-            let can_always = req.risk < Risk::Danger && !req.tainted;
+            let can_always = !req.risk.high() && !req.tainted;
             loop {
                 eprint!("{}", if can_always { "Allow? [y]es / [a]lways / [n]o: " } else { "Allow? [y]es / [n]o: " });
                 let _ = std::io::stderr().flush();
@@ -584,7 +584,7 @@ async fn real_main() -> Result<()> {
         Cmd::McpServe => {
             let agent = app.agent(Arc::new(DenyAll));
             let ctx = agent.tool_ctx("mcp");
-            heron::mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app.tools, &ctx).await
+            heron::mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app.tools, &ctx, &app.policy).await
         }
         Cmd::Init | Cmd::Doctor | Cmd::Eval { .. } => unreachable!(),
     }

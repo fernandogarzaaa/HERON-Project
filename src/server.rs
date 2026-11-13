@@ -324,7 +324,7 @@ impl Approver for WebApprover {
         let (tx, rx) = oneshot::channel();
         self.state.approvals.lock().unwrap().insert(id.clone(), (self.session_id.clone(), tx));
         let _ = self.tx.send(json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
-            "always_rule": crate::permissions::always_rule(&req.tool, &req.summary), "can_always": req.risk < crate::permissions::Risk::Danger && !req.tainted, "tainted": req.tainted}));
+            "always_rule": crate::permissions::always_rule(&req.tool, &req.summary), "can_always": !req.risk.high() && !req.tainted, "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted}));
         // If nobody answers (window closed), decline rather than hang forever.
         let answer = tokio::time::timeout(Duration::from_secs(900), rx).await;
         self.state.approvals.lock().unwrap().remove(&id);
@@ -699,7 +699,7 @@ async fn list_tools(State(st): S) -> ApiResult {
             // Tools that never change anything need no setting.
             let risk = t.risk(&json!({}), &ctx);
             let first = t.description().split(". ").next().unwrap_or("").trim_end_matches('.').to_string();
-            json!({"name": t.name(), "about": first, "setting": st.app.policy.tool_setting(t.name()), "always_safe": risk == crate::permissions::Risk::Safe && !t.name().starts_with("mcp__") && !["read_file", "list_dir", "search_files", "find_files", "shell"].contains(&t.name())})
+            json!({"name": t.name(), "about": first, "setting": st.app.policy.tool_setting(t.name()), "always_safe": risk == crate::permissions::Effect::LocalRead && !t.name().starts_with("mcp__") && !["read_file", "list_dir", "search_files", "find_files", "shell"].contains(&t.name())})
         })
         .collect();
     Ok(Json(json!(tools)))
@@ -857,7 +857,7 @@ async fn connect_source(State(st): S, Path(name): Path<String>, Json(b): Json<Va
             if !folder.is_dir() {
                 return Err(bad("Heron could not find that folder. Check the path and try again."));
             }
-            if crate::permissions::classify_path(&folder, &app.workspace, false) == crate::permissions::Risk::Danger {
+            if crate::permissions::classify_path(&folder, &app.workspace, false) == crate::permissions::Effect::Privileged {
                 return Err(bad("That folder holds keys or passwords, so Heron will not index it."));
             }
             let folder = folder.to_string_lossy().to_string();
