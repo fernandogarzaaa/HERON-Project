@@ -729,6 +729,20 @@ fn envelope_text_prefix(text: &str) -> Option<(String, bool)> {
     None
 }
 
+/// Truncate to at most `max` bytes without splitting a UTF-8 character.
+/// Slicing `&s[..max]` panics when byte `max` falls inside a multibyte
+/// character, which a localized diagnostic can easily do.
+fn truncate_str(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 fn valid_tool_names(req: &ChatRequest) -> Vec<String> {
     req.tools
         .iter()
@@ -979,6 +993,10 @@ struct Accumulator {
     stream_mode: StreamMode,
     /// Bytes of the decoded envelope `text` value already streamed.
     emitted: usize,
+    /// Lines of a JsonSingle/JsonAuto reply that have not parsed yet.
+    /// A pretty-printed single JSON document arrives over many lines;
+    /// it is only decoded once the whole document is there.
+    json_buf: String,
 }
 
 impl Accumulator {
@@ -990,6 +1008,7 @@ impl Accumulator {
             streamed: false,
             stream_mode: StreamMode::Unknown,
             emitted: 0,
+            json_buf: String::new(),
         }
     }
 
@@ -1186,7 +1205,18 @@ impl Accumulator {
     }
 
     fn json_auto_line(&mut self, line: &str, on_delta: DeltaFn<'_>) -> Option<String> {
+        // A single line that parses on its own is a complete JSON-lines
+        // event; handle it directly, flushing any orphaned buffered lines
+        // as plain text first. Otherwise the line may be one line of a
+        // pretty-printed single document, so buffer it until the whole
+        // document parses, then decode it (response/result first).
+        // Decoding line by line would treat each pretty-printed line as
+        // plain text and lose the envelope inside the wrapper.
         if let Ok(v) = serde_json::from_str::<Value>(line) {
+            if !self.json_buf.is_empty() {
+                self.text.push_str(&self.json_buf);
+                self.json_buf.clear();
+            }
             merge_usage(&mut self.usage, event_usage(&v));
             if let Some(t) = event_text(&v) {
                 self.push_text(&t, on_delta);
@@ -1194,12 +1224,26 @@ impl Accumulator {
             }
             return None;
         }
-        self.text.push_str(line);
-        self.text.push('\n');
+        self.json_buf.push_str(line);
+        self.json_buf.push('\n');
+        if let Ok(v) = serde_json::from_str::<Value>(self.json_buf.trim()) {
+            self.json_buf.clear();
+            merge_usage(&mut self.usage, event_usage(&v));
+            if let Some(t) = event_text(&v) {
+                self.push_text(&t, on_delta);
+                return Some(t);
+            }
+            return None;
+        }
         None
     }
 
-    fn finish(self, req: &ChatRequest, on_delta: DeltaFn<'_>) -> ChatResponse {
+    fn finish(mut self, req: &ChatRequest, on_delta: DeltaFn<'_>) -> ChatResponse {
+        // A JsonSingle/JsonAuto buffer that never parsed is plain text,
+        // not a document; it is the reply.
+        if !self.json_buf.is_empty() {
+            self.text.push_str(&self.json_buf);
+        }
         let text = self.text.trim().to_string();
         let valid = valid_tool_names(req);
         let (reply, mut calls) = extract_envelope(&text, &valid);
@@ -1340,36 +1384,40 @@ impl Llm for CliLlm {
         if !status.success() {
             let err = stderr.trim();
             let preview = if err.len() > 600 {
-                format!("{}...", &err[..600])
+                format!("{}...", truncate_str(err, 600))
             } else {
                 err.to_string()
             };
             // Hermes accepts error_max_turns with a complete batch; the same
             // applies here: a finished answer survives a non-zero exit.
-            if text_len > 0
+            let recoverable = text_len > 0
                 && (preview.contains("max_turns")
                     || preview.contains("max turns")
                     || status.code() == Some(1))
                 && !preview.to_lowercase().contains("auth")
-                && !preview.to_lowercase().contains("login")
-            {
-                // Fall through and return the answer we have.
-            } else if text_len == 0 {
-                if preview.to_lowercase().contains("auth")
-                    || preview.to_lowercase().contains("not logged in")
-                    || preview.to_lowercase().contains("login")
-                    || preview.to_lowercase().contains("unauthorized")
+                && !preview.to_lowercase().contains("login");
+            if !recoverable {
+                // A failed exit is an error even when some text arrived:
+                // a partial reply must not be saved as a successful answer.
+                let lower = preview.to_lowercase();
+                if lower.contains("auth")
+                    || lower.contains("not logged in")
+                    || lower.contains("login")
+                    || lower.contains("unauthorized")
                 {
                     bail!("{} is not logged in. Run `{}` on this machine, then try again. (CLI said: {})", self.spec.display_name, self.spec.login_command, preview);
                 }
-                if preview.to_lowercase().contains("rate limit")
-                    || preview.to_lowercase().contains("limit")
-                        && preview.to_lowercase().contains("usage")
+                if lower.contains("rate limit")
+                    || lower.contains("limit") && lower.contains("usage")
                 {
                     bail!("{} refused the request: {}. The subscription's usage window may be exhausted; wait or check the plan.", self.spec.display_name, preview);
                 }
-                bail!("{} failed (exit {}): {}. Check `{}` and run `heron providers` to re-check the install.", self.spec.display_name, status.code().unwrap_or(-1), preview, self.spec.login_command);
+                if text_len == 0 {
+                    bail!("{} failed (exit {}): {}. Check `{}` and run `heron providers` to re-check the install.", self.spec.display_name, status.code().unwrap_or(-1), preview, self.spec.login_command);
+                }
+                bail!("{} failed (exit {}): {}. The reply was incomplete, so it was not saved as a successful answer. Check `{}` and run `heron providers` to re-check the install.", self.spec.display_name, status.code().unwrap_or(-1), preview, self.spec.login_command);
             }
+            // Recoverable: fall through and return the answer we have.
         }
         if text_len == 0 {
             let preview = stderr.trim();
@@ -1379,7 +1427,7 @@ impl Llm for CliLlm {
                 if preview.is_empty() {
                     "It may need a login; run the login command and try again.".to_string()
                 } else {
-                    format!("CLI said: {}", &preview[..preview.len().min(300)])
+                    format!("CLI said: {}", truncate_str(preview, 300))
                 }
             );
         }
@@ -1841,5 +1889,77 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(r.message.text(), "loud");
+    }
+
+    #[test]
+    fn truncate_str_never_splits_a_character() {
+        let s = "é".repeat(400);
+        assert_eq!(truncate_str(&s, 600).chars().count(), 300);
+        let s = format!("{}éx", "a".repeat(599));
+        assert_eq!(truncate_str(&s, 600), "a".repeat(599));
+        assert_eq!(truncate_str("short", 600), "short");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn qwen_fake_binary_decodes_pretty_printed_json_document() {
+        let dir = tempfile::tempdir().unwrap();
+        // A JsonSingle/JsonAuto provider may pretty-print one JSON
+        // document across lines; the envelope inside its `response`
+        // field must still be decoded, tool calls included.
+        let script = "#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' '{' '  \"response\": \"{\\\"text\\\": \\\"pretty\\\", \\\"tool_calls\\\": [{\\\"name\\\": \\\"list_dir\\\", \\\"arguments\\\": {\\\"path\\\": \\\".\\\"}}]}\"' '}'\n";
+        let bin = fake_bin(dir.path(), "qwen", script);
+        let mut cfg = test_cfg(dir.path(), "qwen-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let seen = std::sync::Mutex::new(String::new());
+        let req = ChatRequest {
+            messages: vec![Message::user("hi")],
+            tools: vec![
+                serde_json::json!({"type": "function", "function": {"name": "list_dir", "parameters": {}}}),
+            ],
+            ..Default::default()
+        };
+        let r = llm
+            .chat(req, &|t| seen.lock().unwrap().push_str(t))
+            .await
+            .unwrap();
+        assert_eq!(r.message.text(), "pretty");
+        assert_eq!(r.message.tool_calls.len(), 1);
+        assert_eq!(
+            r.message.tool_calls[0].function.arguments,
+            "{\"path\":\".\"}"
+        );
+        assert_eq!(
+            seen.lock().unwrap().as_str(),
+            "pretty",
+            "streamed output must be the reply text, not the JSON document"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn partial_output_with_failed_exit_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"text\\\":\\\"partial\\\",\\\"tool_calls\\\":[]}\"}}'\necho 'boom' >&2\nexit 2\n";
+        let bin = fake_bin(dir.path(), "codex", script);
+        let mut cfg = test_cfg(dir.path(), "codex-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let err = llm
+            .chat(
+                ChatRequest {
+                    messages: vec![Message::user("hi")],
+                    ..Default::default()
+                },
+                &|_| {},
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("incomplete"),
+            "partial output plus a failed exit must not read as success: {err}"
+        );
+        assert!(err.to_string().contains("exit 2"), "{err}");
     }
 }

@@ -177,6 +177,9 @@ gives a working 200K session rather than a broken 1M one.
   subscription's usage window is exhausted. Wait, or check the plan.
 - A CLI that exits non-zero after giving a complete answer still returns
   that answer, mirroring Hermes' handling of `error_max_turns`.
+- A CLI that fails after only a partial reply is an error, not a saved
+  answer. The reply was incomplete, so Heron refuses to store it as if
+  the turn had succeeded.
 - Terms: subscription logins in third-party tools sit in a grey area of
   Anthropic's terms, and each vendor's terms differ. This is your account
   on your machine, through the vendor's own unmodified CLI, with no
