@@ -597,7 +597,17 @@ impl App {
 
     /// Check for due jobs every 20 seconds, forever.
     pub async fn scheduler_loop(self: Arc<Self>) {
+        // Fold the write-ahead log into the database now and every six hours: a process that runs for
+        // weeks must not let it grow without limit.
+        const HOUSEKEEPING_EVERY: u64 = 6 * 60 * 60 / 20;
+        let mut ticks: u64 = 0;
         loop {
+            if ticks % HOUSEKEEPING_EVERY == 0 {
+                if let Err(e) = self.store.maintain() {
+                    eprintln!("heron: database housekeeping failed: {e:#}");
+                }
+            }
+            ticks += 1;
             self.run_due_schedules().await;
             tokio::time::sleep(std::time::Duration::from_secs(20)).await;
         }

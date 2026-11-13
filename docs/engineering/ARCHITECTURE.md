@@ -13,7 +13,7 @@ server, daemon, MCP server) and `heron-desktop` (a window around the local serve
 | `permissions` | `Effect` classification helpers and `Policy::decide_in`, the single decision point |
 | `tools/*`, `browser`, `mcp` | The tools. Each declares the `Effect` of a concrete call from its arguments |
 | `sandbox` | Wraps commands in bubblewrap (Linux) or Seatbelt (macOS) |
-| `store` | SQLite: conversations, memories, tasks, schedules, runs, approvals, audit log, usage, key-value |
+| `store` | SQLite: conversations, memories, tasks, schedules, runs, approvals, audit log, usage, key-value. Owns the data format: numbered upgrade steps, the copy taken before an upgrade, backup, restore, integrity check and log housekeeping |
 | `memory`, `embed`, `eval` | Hybrid retrieval, optional neural embeddings, the retrieval test |
 | `schedule`, `workflow`, `app` | Time and event triggers, fixed-step automations, background loops |
 | `usage` | Token ledger, limits, projection, effort level, model routing |

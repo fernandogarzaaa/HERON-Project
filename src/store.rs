@@ -3,10 +3,10 @@
 
 use crate::llm::Message;
 use crate::util::now_ts;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 fn audit_hash(prev: &str, ts: i64, session: &str, tool: &str, args: &str, decision: &str, result: &str) -> String {
@@ -23,6 +23,8 @@ fn audit_hash(prev: &str, ts: i64, session: &str, tool: &str, args: &str, decisi
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
+    /// Where the database file is; `None` for one that lives only in memory.
+    path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -148,9 +150,18 @@ pub struct AuditEntry {
     pub result: String,
 }
 
-const SCHEMA: &str = r#"
-PRAGMA journal_mode=WAL;
-PRAGMA foreign_keys=ON;
+/// The data format this build reads and writes, kept in the database file as `PRAGMA user_version`.
+/// It is the number of upgrade steps in [`STEPS`]. To change the schema: add a step, never edit an
+/// old one. A test (`the_schema_cannot_change_without_a_new_version`) fails until both are done.
+pub const SCHEMA_VERSION: i64 = STEPS.len() as i64;
+
+type Step = fn(&Connection) -> Result<()>;
+
+/// One entry per data format, in order. Step N takes a database from format N-1 to format N.
+const STEPS: &[Step] = &[to_v1, to_v2];
+
+/// Format 1: what Heron 0.1.0 shipped.
+const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions(
   id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', summary TEXT,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
@@ -187,10 +198,6 @@ CREATE TABLE IF NOT EXISTS schedules(
 CREATE TABLE IF NOT EXISTS runs(
   id INTEGER PRIMARY KEY, schedule_id INTEGER NOT NULL, ts INTEGER NOT NULL, status TEXT NOT NULL, tokens INTEGER NOT NULL DEFAULT 0, record TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_runs_schedule ON runs(schedule_id, id);
-CREATE TABLE IF NOT EXISTS job_runs(
-  id INTEGER PRIMARY KEY, schedule_id INTEGER NOT NULL, name TEXT NOT NULL, due_at INTEGER NOT NULL,
-  started_at INTEGER NOT NULL, finished_at INTEGER, status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '');
-CREATE INDEX IF NOT EXISTS idx_job_runs_status ON job_runs(status);
 CREATE TABLE IF NOT EXISTS inbox(
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS audit(
@@ -200,7 +207,6 @@ CREATE TABLE IF NOT EXISTS checkpoints(
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, path TEXT NOT NULL,
   existed INTEGER NOT NULL, prev BLOB);
 CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS usage(day TEXT NOT NULL, model TEXT NOT NULL, prompt INTEGER NOT NULL DEFAULT 0, completion INTEGER NOT NULL DEFAULT 0, calls INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day, model));
 CREATE TABLE IF NOT EXISTS observations(
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL, subject TEXT NOT NULL, bucket INTEGER NOT NULL,
   UNIQUE(kind, subject, bucket));
@@ -220,6 +226,193 @@ CREATE TABLE IF NOT EXISTS suggestions(
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, title TEXT NOT NULL, why TEXT NOT NULL DEFAULT '', prompt TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'new', result TEXT, session_id TEXT);
 "#;
+
+/// Settings applied to every connection. (The journal mode is stored in the file; the rest is per connection.)
+const PRAGMAS: &str = "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;";
+
+/// How many copies made before upgrades are kept. Copies made by hand or before a restore are never removed.
+const KEEP_UPGRADE_SNAPSHOTS: usize = 3;
+
+fn user_version(conn: &Connection) -> Result<i64> {
+    Ok(conn.query_row("PRAGMA user_version", [], |r| r.get(0))?)
+}
+
+/// Is this a database Heron has used before (as opposed to a new, empty file)?
+fn has_data(conn: &Connection) -> Result<bool> {
+    Ok(conn.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='sessions'", [], |r| r.get::<_, i64>(0))? > 0)
+}
+
+fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
+    conn.prepare(&format!("SELECT {column} FROM {table} LIMIT 0")).is_ok()
+}
+
+/// Physical damage: broken pages or indexes. A database with any is not upgraded, copied or restored from.
+fn damage(conn: &Connection) -> Result<Vec<String>> {
+    let mut problems = Vec::new();
+    let mut st = conn.prepare("PRAGMA quick_check")?;
+    for line in st.query_map([], |r| r.get::<_, String>(0))? {
+        let line = line?;
+        if line != "ok" {
+            problems.push(line);
+        }
+    }
+    Ok(problems)
+}
+
+/// Damage, plus rows that point at rows which no longer exist. The second kind does not stop an
+/// upgrade (the data is all there and the steps do not depend on it) but is worth reporting.
+fn integrity_problems(conn: &Connection) -> Result<Vec<String>> {
+    let mut problems = damage(conn)?;
+    let mut st = conn.prepare("PRAGMA foreign_key_check")?;
+    for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, String>(2)?)))? {
+        let (table, rowid, parent) = row?;
+        problems.push(format!("{table} row {} refers to a missing row in {parent}", rowid.map(|r| r.to_string()).unwrap_or_else(|| "?".into())));
+    }
+    Ok(problems)
+}
+
+/// The folder beside the database where copies of it are kept.
+pub fn backup_dir(db: &Path) -> PathBuf {
+    db.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")).join("backups")
+}
+
+/// Save a complete copy of the database in its `backups` folder under a name nothing else has.
+fn snapshot(conn: &Connection, db: &Path, label: &str) -> Result<PathBuf> {
+    let dir = backup_dir(db);
+    std::fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    for n in 1..=1000 {
+        let to = dir.join(if n == 1 { format!("heron-{label}-{stamp}.db") } else { format!("heron-{label}-{stamp}-{n}.db") });
+        match snapshot_to(conn, &to) {
+            Ok(()) => return Ok(to),
+            // The name was taken (perhaps this very moment, by another program): try the next.
+            Err(e) if e.root_cause().downcast_ref::<std::io::Error>().is_some_and(|io| io.kind() == std::io::ErrorKind::AlreadyExists) => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    bail!("cannot name a new copy in {}", dir.display())
+}
+
+/// Write a complete, consistent copy of the database to `to`, which must not exist yet. The copy is
+/// made by SQLite itself, so it is correct even while the database is in use, and it is private to
+/// the user from the moment it is created. It is checked before this returns.
+fn snapshot_to(conn: &Connection, to: &Path) -> Result<()> {
+    if let Some(parent) = to.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut open = std::fs::OpenOptions::new();
+    open.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        open.mode(0o600);
+    }
+    // Claim the name (and set who may read it) first; SQLite then fills the empty file.
+    open.open(to).with_context(|| format!("cannot create {}", to.display()))?;
+    let made = (|| -> Result<()> {
+        conn.execute("VACUUM INTO ?1", [to.to_string_lossy().as_ref()])?;
+        let copy = Connection::open_with_flags(to, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let problems = damage(&copy)?;
+        if !problems.is_empty() {
+            bail!("the copy did not pass its check ({})", problems.join("; "));
+        }
+        Ok(())
+    })();
+    if made.is_err() {
+        let _ = std::fs::remove_file(to);
+    }
+    made.with_context(|| format!("cannot save a copy of the database to {}", to.display()))
+}
+
+/// Keep the newest `keep` copies whose name starts with `heron-{prefix}` and remove the older ones.
+fn prune_snapshots(db: &Path, prefix: &str, keep: usize) {
+    let Ok(entries) = std::fs::read_dir(backup_dir(db)) else { return };
+    let wanted = format!("heron-{prefix}");
+    let mut copies: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            name.starts_with(&wanted) && name.ends_with(".db")
+        })
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    copies.sort();
+    let extra = copies.len().saturating_sub(keep);
+    for (_, path) in copies.into_iter().take(extra) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Bring a database up to the latest format, as one transaction: every step that is still owed runs,
+/// the version is recorded, and only then is anything kept. If a step fails, nothing is.
+/// The version is read again inside the transaction, so two programs starting at once cannot both upgrade.
+fn migrate(conn: &mut Connection, steps: &[Step]) -> Result<()> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let found = user_version(&tx)?;
+    for (done, step) in steps.iter().enumerate().skip(found.max(0) as usize) {
+        step(&tx).with_context(|| format!("step to data format {}", done + 1))?;
+    }
+    if found < steps.len() as i64 {
+        tx.pragma_update(None, "user_version", steps.len() as i64)?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// To format 1. Databases from before formats were numbered are also "format 0", and some of those
+/// were made by builds older than 0.1.0 that lacked a few columns, so this step adds whatever is missing.
+fn to_v1(conn: &Connection) -> Result<()> {
+    conn.execute_batch(SCHEMA_V1)?;
+    if !has_column(conn, "audit", "hash") {
+        conn.execute_batch("ALTER TABLE audit ADD COLUMN hash TEXT;")?;
+    }
+    if !has_column(conn, "memories", "embedder") {
+        conn.execute_batch("ALTER TABLE memories ADD COLUMN embedder TEXT NOT NULL DEFAULT 'hash-v1';")?;
+    }
+    // The activity log can only grow.
+    conn.execute_batch(
+        "CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'the activity log is append-only'); END;
+         CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT, 'the activity log is append-only'); END;",
+    )?;
+    if !has_column(conn, "schedules", "quiet") {
+        conn.execute_batch("ALTER TABLE schedules ADD COLUMN quiet INTEGER NOT NULL DEFAULT 0; ALTER TABLE schedules ADD COLUMN last_tokens INTEGER NOT NULL DEFAULT 0;")?;
+    }
+    if !has_column(conn, "schedules", "workflow") {
+        conn.execute_batch("ALTER TABLE schedules ADD COLUMN workflow TEXT NOT NULL DEFAULT '';")?;
+    }
+    if !has_column(conn, "tasks", "owner") {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN owner TEXT NOT NULL DEFAULT 'user';")?;
+    }
+    if !has_column(conn, "memories", "confirmed") {
+        conn.execute_batch("ALTER TABLE memories ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 1; ALTER TABLE memories ADD COLUMN invalid_at INTEGER; ALTER TABLE memories ADD COLUMN superseded_by INTEGER;")?;
+    }
+    if !has_column(conn, "schedules", "allow") {
+        conn.execute_batch("ALTER TABLE schedules ADD COLUMN allow TEXT NOT NULL DEFAULT ''")?;
+    }
+    Ok(())
+}
+
+/// To format 2: token usage, the record of scheduled runs, and what a file looked like after Heron
+/// changed it. Builds made between 0.1.0 and the first numbered format already have some of these
+/// (still as "format 0"), so each part is added only if it is not there.
+fn to_v2(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS job_runs(
+           id INTEGER PRIMARY KEY, schedule_id INTEGER NOT NULL, name TEXT NOT NULL, due_at INTEGER NOT NULL,
+           started_at INTEGER NOT NULL, finished_at INTEGER, status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '');
+         CREATE INDEX IF NOT EXISTS idx_job_runs_status ON job_runs(status);
+         CREATE TABLE IF NOT EXISTS usage(day TEXT NOT NULL, model TEXT NOT NULL, prompt INTEGER NOT NULL DEFAULT 0, completion INTEGER NOT NULL DEFAULT 0, calls INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day, model));",
+    )?;
+    if !has_column(conn, "checkpoints", "after_hash") {
+        conn.execute_batch("ALTER TABLE checkpoints ADD COLUMN after_hash TEXT;")?;
+    }
+    Ok(())
+}
 
 fn row_to_memory(r: &rusqlite::Row) -> rusqlite::Result<MemoryItem> {
     Ok(MemoryItem {
@@ -257,52 +450,127 @@ fn row_to_schedule(r: &rusqlite::Row) -> rusqlite::Result<Schedule> {
 const SCHED_COLS: &str = "id, name, cron, prompt, enabled, next_run, last_run, last_result, allow, quiet, last_tokens, workflow";
 
 impl Store {
+    /// Open the database, bringing it up to this build's data format first if it is older.
+    ///
+    /// Before an existing database is upgraded it is checked for damage and a complete copy is saved in
+    /// the `backups` folder beside it. The upgrade runs as one transaction: it either finishes or leaves
+    /// the file exactly as it was. A database written by a newer Heron is refused and not touched.
     pub fn open(path: &Path) -> Result<Store> {
         if let Some(p) = path.parent() {
             std::fs::create_dir_all(p)?;
         }
-        let conn = Connection::open(path)?;
-        Self::init(conn)
+        let mut conn = Connection::open(path)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        let found = user_version(&conn)?;
+        if found > SCHEMA_VERSION {
+            bail!(
+                "{} was last used by a newer version of Heron (data format {found}; this version understands up to {SCHEMA_VERSION}). Nothing was changed. Install the newer version, or restore an older copy from {} with `heron restore`.",
+                path.display(),
+                backup_dir(path).display()
+            );
+        }
+        conn.execute_batch(PRAGMAS)?;
+        if found < SCHEMA_VERSION {
+            if has_data(&conn)? {
+                let problems = damage(&conn).unwrap_or_else(|e| vec![e.to_string()]);
+                if !problems.is_empty() {
+                    bail!("{} is damaged and was not upgraded ({}). Restore a copy from {} with `heron restore`.", path.display(), problems.join("; "), backup_dir(path).display());
+                }
+                let copy = snapshot(&conn, path, &format!("before-upgrade-from-v{found}"))?;
+                // Another program may have finished the upgrade while the copy was being made. Then the
+                // copy is not "from before" anything and is not kept; the upgrade below finds nothing to do.
+                if Connection::open_with_flags(&copy, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).and_then(|c| c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))).map(|v| v >= SCHEMA_VERSION).unwrap_or(false) {
+                    let _ = std::fs::remove_file(&copy);
+                }
+                migrate(&mut conn, STEPS).with_context(|| format!("upgrading {} failed and it was left as it was; a copy from before the attempt is at {}", path.display(), copy.display()))?;
+                prune_snapshots(path, "before-upgrade-", KEEP_UPGRADE_SNAPSHOTS);
+            } else {
+                migrate(&mut conn, STEPS)?;
+            }
+        }
+        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: Some(path.to_path_buf()) })
     }
 
     pub fn in_memory() -> Result<Store> {
-        Self::init(Connection::open_in_memory()?)
+        let mut conn = Connection::open_in_memory()?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.execute_batch(PRAGMAS)?;
+        migrate(&mut conn, STEPS)?;
+        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: None })
     }
 
-    fn init(conn: Connection) -> Result<Store> {
-        conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        conn.execute_batch(SCHEMA)?;
-        // Databases created by earlier versions.
-        if conn.prepare("SELECT after_hash FROM checkpoints LIMIT 0").is_err() {
-            conn.execute_batch("ALTER TABLE checkpoints ADD COLUMN after_hash TEXT;")?;
+    /// The data format of the open database.
+    pub fn schema_version(&self) -> Result<i64> {
+        user_version(&self.db())
+    }
+
+    /// Look for damage: broken pages or indexes, and rows that point at rows which no longer exist.
+    /// Returns what was found, in SQLite's words; an empty list means the database is sound.
+    pub fn integrity(&self) -> Result<Vec<String>> {
+        integrity_problems(&self.db())
+    }
+
+    /// Save a complete, consistent copy of the database in the `backups` folder beside it (or at `to`),
+    /// while Heron keeps running. Returns where the copy is.
+    pub fn backup(&self, to: Option<&Path>) -> Result<PathBuf> {
+        let Some(path) = &self.path else { bail!("this database lives only in memory and cannot be backed up") };
+        let db = self.db();
+        match to {
+            Some(to) => {
+                snapshot_to(&db, to)?;
+                Ok(to.to_path_buf())
+            }
+            None => snapshot(&db, path, "backup"),
         }
-        if conn.prepare("SELECT hash FROM audit LIMIT 0").is_err() {
-            conn.execute_batch("ALTER TABLE audit ADD COLUMN hash TEXT;")?;
+    }
+
+    /// Replace the database at `path` with the copy in `from`.
+    ///
+    /// The copy is checked first (it must be an undamaged Heron database, no newer than this build
+    /// understands), then the current database is itself saved to the `backups` folder, so a restore
+    /// can be undone by restoring that. The content is replaced through SQLite, in one transaction, and
+    /// then upgraded if it is from an older version. Returns where the previous database was saved
+    /// (`None` if there was nothing there to save).
+    pub fn restore(path: &Path, from: &Path) -> Result<Option<PathBuf>> {
+        let source = Connection::open_with_flags(from, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).with_context(|| format!("cannot open {}", from.display()))?;
+        let Ok(version) = user_version(&source) else { bail!("{} is not a database", from.display()) };
+        if !has_data(&source).unwrap_or(false) {
+            bail!("{} is not a Heron database", from.display());
         }
-        if conn.prepare("SELECT embedder FROM memories LIMIT 0").is_err() {
-            conn.execute_batch("ALTER TABLE memories ADD COLUMN embedder TEXT NOT NULL DEFAULT 'hash-v1';")?;
+        if version > SCHEMA_VERSION {
+            bail!("{} was made by a newer version of Heron (data format {version}; this version understands up to {SCHEMA_VERSION})", from.display());
         }
-        // The activity log can only grow.
-        conn.execute_batch(
-            "CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'the activity log is append-only'); END;
-             CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT, 'the activity log is append-only'); END;",
-        )?;
-        if conn.prepare("SELECT quiet FROM schedules LIMIT 0").is_err() {
-            conn.execute_batch("ALTER TABLE schedules ADD COLUMN quiet INTEGER NOT NULL DEFAULT 0; ALTER TABLE schedules ADD COLUMN last_tokens INTEGER NOT NULL DEFAULT 0;")?;
+        let problems = damage(&source).unwrap_or_else(|e| vec![e.to_string()]);
+        if !problems.is_empty() {
+            bail!("{} is damaged and was not restored ({})", from.display(), problems.join("; "));
         }
-        if conn.prepare("SELECT workflow FROM schedules LIMIT 0").is_err() {
-            conn.execute_batch("ALTER TABLE schedules ADD COLUMN workflow TEXT NOT NULL DEFAULT '';")?;
+        if let Some(p) = path.parent() {
+            std::fs::create_dir_all(p)?;
         }
-        if conn.prepare("SELECT owner FROM tasks LIMIT 0").is_err() {
-            conn.execute_batch("ALTER TABLE tasks ADD COLUMN owner TEXT NOT NULL DEFAULT 'user';")?;
+        let mut live = Connection::open(path)?;
+        live.busy_timeout(std::time::Duration::from_secs(5))?;
+        let previous = if has_data(&live)? { Some(snapshot(&live, path, "before-restore")?) } else { None };
+        {
+            let copy = rusqlite::backup::Backup::new(&source, &mut live)?;
+            copy.run_to_completion(256, std::time::Duration::from_millis(0), None).with_context(|| match &previous {
+                Some(p) => format!("restoring into {} failed; the previous database is at {}", path.display(), p.display()),
+                None => format!("restoring into {} failed", path.display()),
+            })?;
         }
-        if conn.prepare("SELECT confirmed FROM memories LIMIT 0").is_err() {
-            conn.execute_batch("ALTER TABLE memories ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 1; ALTER TABLE memories ADD COLUMN invalid_at INTEGER; ALTER TABLE memories ADD COLUMN superseded_by INTEGER;")?;
-        }
-        if conn.prepare("SELECT allow FROM schedules LIMIT 0").is_err() {
-            conn.execute_batch("ALTER TABLE schedules ADD COLUMN allow TEXT NOT NULL DEFAULT ''")?;
-        }
-        Ok(Store { conn: Arc::new(Mutex::new(conn)) })
+        drop(live);
+        drop(source);
+        Store::open(path)?;
+        Ok(previous)
+    }
+
+    /// Housekeeping for a long-running process: fold the write-ahead log back into the main file so it
+    /// cannot grow without limit, and let SQLite refresh its query statistics.
+    pub fn maintain(&self) -> Result<()> {
+        let db = self.db();
+        // Statistics first (that is itself a write), then the fold, so the log ends up empty.
+        db.execute_batch("PRAGMA optimize;")?;
+        db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).optional()?;
+        Ok(())
     }
 
     fn db(&self) -> MutexGuard<'_, Connection> {
@@ -1163,5 +1431,340 @@ mod tests {
         assert_eq!(s.pop_checkpoint("s").unwrap(), Some(("/b".into(), None)));
         assert_eq!(s.pop_checkpoint("s").unwrap(), Some(("/a".into(), Some(b"old".to_vec()))));
         assert_eq!(s.pop_checkpoint("s").unwrap(), None);
+    }
+}
+
+/// Upgrades, copies and restores, tried against a database built exactly as Heron 0.1.0 built it.
+#[cfg(test)]
+mod upgrade_tests {
+    use super::*;
+
+    const RELEASED: &str = include_str!("../tests/fixtures/schema-v0.1.0.sql");
+
+    /// A database as 0.1.0 would have left it: its schema, no format number, and a little of everything in it.
+    fn released_database(path: &Path) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(RELEASED).unwrap();
+        conn.execute_batch(
+            "INSERT INTO sessions(id, title, created_at, updated_at) VALUES ('abc123', 'Planning the trip', 100, 200);
+             INSERT INTO messages(session_id, json, created_at) VALUES ('abc123', '{\"role\":\"user\",\"content\":\"book the ferry\"}', 100);
+             INSERT INTO memories(kind, content, tags, importance, source, created_at, updated_at) VALUES ('fact', 'Prefers the morning ferry', 'travel', 0.8, 'user', 100, 100);
+             INSERT INTO tasks(title, created_at) VALUES ('Renew passport', 100);
+             INSERT INTO schedules(name, cron, prompt, next_run, created_at) VALUES ('Morning brief', '0 9 * * 1-5', 'brief me', 4102444800, 100);
+             INSERT INTO schedules(name, cron, prompt, next_run, created_at, workflow, allow, quiet) VALUES ('Inbox digest', '0 18 * * *', 'digest', 4102444800, 100, '{\"steps\":[]}', 'web_search', 1);
+             INSERT INTO runs(schedule_id, ts, status, tokens, record) VALUES (2, 150, 'ok', 1200, '[]');
+             INSERT INTO inbox(ts, title, body) VALUES (150, 'Digest', 'three new things');
+             INSERT INTO checkpoints(ts, session_id, path, existed, prev) VALUES (160, 'abc123', '/tmp/notes.md', 1, x'6f6c64');
+             INSERT INTO kv(k, v) VALUES ('onboarded', '1');
+             INSERT INTO knowledge(source, ref, title, body, ts) VALUES ('notes', 'a.md', 'Ferry times', 'departs at seven', 100);
+             INSERT INTO suggestions(ts, title, prompt) VALUES (170, 'Check ferry prices', 'look up ferry prices');",
+        )
+        .unwrap();
+        // Two entries in the activity log, chained the way 0.1.0 chained them.
+        let first = audit_hash("", 100, "abc123", "read_file", "notes.md", "allowed", "ok");
+        let second = audit_hash(&first, 101, "abc123", "write_file", "notes.md", "approved", "ok");
+        conn.execute("INSERT INTO audit(ts, session_id, tool, args, decision, result, hash) VALUES (100, 'abc123', 'read_file', 'notes.md', 'allowed', 'ok', ?)", [&first]).unwrap();
+        conn.execute("INSERT INTO audit(ts, session_id, tool, args, decision, result, hash) VALUES (101, 'abc123', 'write_file', 'notes.md', 'approved', 'ok', ?)", [&second]).unwrap();
+        assert_eq!(user_version(&conn).unwrap(), 0, "0.1.0 did not number its format");
+    }
+
+    fn copies(db: &Path, starting: &str) -> Vec<PathBuf> {
+        let mut found: Vec<PathBuf> = std::fs::read_dir(backup_dir(db))
+            .map(|d| d.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.file_name().unwrap().to_string_lossy().starts_with(starting)).collect())
+            .unwrap_or_default();
+        found.sort();
+        found
+    }
+
+    /// Every table, index and trigger with its definition, in a fixed order (search-index internals left out).
+    fn shape(conn: &Connection) -> Vec<String> {
+        let mut st = conn.prepare("SELECT type || ' ' || name || ': ' || COALESCE(sql, '') FROM sqlite_master WHERE name NOT LIKE '%\\_fts\\_%' ESCAPE '\\' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY type, name").unwrap();
+        let rows = st.query_map([], |r| r.get::<_, String>(0)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+        rows
+    }
+
+    fn file_hash(path: &Path) -> String {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(std::fs::read(path).unwrap()).iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    #[test]
+    fn a_database_from_the_released_version_is_upgraded_with_everything_in_it_and_a_copy_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("heron.db");
+        released_database(&db);
+
+        let s = Store::open(&db).unwrap();
+        assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
+        assert!(s.integrity().unwrap().is_empty());
+
+        // Everything that was there still is, and reads back through the ordinary functions.
+        assert_eq!(s.load_messages("abc123").unwrap().len(), 1);
+        let memories = s.list_memories(None, 10).unwrap();
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0].content, "Prefers the morning ferry");
+        assert_eq!(s.fts_memories("ferry", 10).unwrap(), vec![memories[0].id], "the search index came along");
+        assert_eq!(s.list_tasks(None).unwrap()[0].title, "Renew passport");
+        let jobs = s.list_schedules().unwrap();
+        assert_eq!(jobs.len(), 2, "reminders and automations are preserved");
+        let digest = jobs.iter().find(|j| j.name == "Inbox digest").unwrap();
+        assert_eq!((digest.cron.as_str(), digest.workflow.as_str(), digest.allow.as_str(), digest.quiet, digest.next_run), ("0 18 * * *", "{\"steps\":[]}", "web_search", true, Some(4102444800)));
+        assert_eq!(s.inbox(false, 10).unwrap().len(), 1);
+        assert_eq!(s.verify_audit().unwrap(), (2, None), "the activity log's chain is unbroken");
+        assert_eq!(s.last_checkpoint("abc123").unwrap().map(|c| (c.1, c.2, c.3)), Some(("/tmp/notes.md".into(), Some(b"old".to_vec()), None)), "an old checkpoint has no after-hash and still restores");
+
+        // What the newer format adds works on the upgraded database.
+        s.record_usage("2026-11-13", "some-model", 10, 5).unwrap();
+        assert_eq!(s.usage_per_day("2026-11-01").unwrap(), vec![("2026-11-13".to_string(), 15)]);
+        assert!(s.claim_due_job(&jobs[0], None).unwrap().is_some());
+
+        // One copy was made first, it is the database as it was, and only the user can read it.
+        let kept = copies(&db, "heron-before-upgrade-from-v0-");
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        let old = Connection::open(&kept[0]).unwrap();
+        assert_eq!(user_version(&old).unwrap(), 0);
+        assert!(!has_column(&old, "usage", "day") && !has_column(&old, "checkpoints", "after_hash"), "the copy is from before the upgrade");
+        assert_eq!(old.query_row("SELECT count(*) FROM schedules", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
+        assert_eq!(old.query_row("SELECT content FROM memories", [], |r| r.get::<_, String>(0)).unwrap(), "Prefers the morning ferry");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&kept[0]).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(std::fs::metadata(backup_dir(&db)).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+
+        // Opening again is not an upgrade and makes no second copy.
+        drop(s);
+        Store::open(&db).unwrap();
+        assert_eq!(copies(&db, "heron-before-upgrade-").len(), 1);
+
+        // The copy can be opened by this build like any older database, which is what a restore does.
+        let again = dir.path().join("restored-elsewhere.db");
+        std::fs::copy(&kept[0], &again).unwrap();
+        assert_eq!(Store::open(&again).unwrap().list_schedules().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn an_upgraded_database_and_a_new_one_are_the_same_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("old.db");
+        released_database(&old);
+        drop(Store::open(&old).unwrap());
+        let elsewhere = tempfile::tempdir().unwrap();
+        let new = elsewhere.path().join("new.db");
+        drop(Store::open(&new).unwrap());
+        assert!(copies(&new, "heron-").is_empty(), "a new, empty database has nothing to copy");
+        assert_eq!(shape(&Connection::open(&old).unwrap()), shape(&Connection::open(&new).unwrap()));
+
+        // Builds made between 0.1.0 and the first numbered format already had the newer tables,
+        // unnumbered. They upgrade too, keeping what is in them.
+        let between = dir.path().join("between.db");
+        released_database(&between);
+        {
+            let conn = Connection::open(&between).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE usage(day TEXT NOT NULL, model TEXT NOT NULL, prompt INTEGER NOT NULL DEFAULT 0, completion INTEGER NOT NULL DEFAULT 0, calls INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day, model));
+                 INSERT INTO usage VALUES ('2026-11-12', 'm', 100, 50, 3);
+                 ALTER TABLE checkpoints ADD COLUMN after_hash TEXT;",
+            )
+            .unwrap();
+        }
+        let s = Store::open(&between).unwrap();
+        assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
+        assert_eq!(s.usage_per_day("2026-11-01").unwrap(), vec![("2026-11-12".to_string(), 150)]);
+        assert!(s.job_runs(10).is_ok());
+    }
+
+    /// If this fails you changed the schema. Do not edit an existing step: add a new one to `STEPS`
+    /// (which raises `SCHEMA_VERSION`), then update the two values below together.
+    #[test]
+    fn the_schema_cannot_change_without_a_new_version() {
+        use sha2::{Digest, Sha256};
+        let s = Store::in_memory().unwrap();
+        let text = shape(&s.db()).join("\n");
+        let fingerprint: String = Sha256::digest(text.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
+        assert_eq!((SCHEMA_VERSION, fingerprint.as_str()), (2, "fde4f56b77ab5de5"), "the schema is now:\n{text}");
+    }
+
+    #[test]
+    fn a_database_from_a_newer_heron_is_refused_and_not_touched() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("heron.db");
+        released_database(&db);
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch(&format!("CREATE TABLE something_new(x); PRAGMA user_version={};", SCHEMA_VERSION + 1)).unwrap();
+        }
+        let before = file_hash(&db);
+        let err = Store::open(&db).err().expect("must not open").to_string();
+        assert!(err.contains("newer version of Heron") && err.contains("Nothing was changed"), "{err}");
+        assert_eq!(file_hash(&db), before);
+        assert!(!backup_dir(&db).exists(), "nothing was written anywhere");
+    }
+
+    #[test]
+    fn an_upgrade_that_fails_part_way_leaves_the_database_as_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("heron.db");
+        released_database(&db);
+        let mut conn = Connection::open(&db).unwrap();
+        fn breaks(conn: &Connection) -> Result<()> {
+            conn.execute_batch("CREATE TABLE half_done(x); DELETE FROM tasks; ALTER TABLE schedules ADD COLUMN extra TEXT;")?;
+            bail!("the disk filled up")
+        }
+        let err = format!("{:#}", migrate(&mut conn, &[to_v1, to_v2, breaks]).unwrap_err());
+        assert!(err.contains("step to data format 3") && err.contains("the disk filled up"), "{err}");
+        // Not even the steps that succeeded were kept: it is still the released format, whole.
+        assert_eq!(user_version(&conn).unwrap(), 0);
+        assert!(!has_column(&conn, "half_done", "x") && !has_column(&conn, "usage", "day") && !has_column(&conn, "schedules", "extra"));
+        assert_eq!(conn.query_row("SELECT count(*) FROM tasks", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+        drop(conn);
+        // And the real upgrade still works on it afterwards.
+        assert_eq!(Store::open(&db).unwrap().list_tasks(None).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_damaged_database_is_not_upgraded() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("heron.db");
+        released_database(&db);
+        {
+            // Enough rows to spread over many pages, then closed so everything is in the main file.
+            let conn = Connection::open(&db).unwrap();
+            for i in 0..400 {
+                conn.execute("INSERT INTO memories(kind, content, created_at, updated_at) VALUES ('fact', ?, 1, 1)", [format!("{i} {}", "padding ".repeat(60))]).unwrap();
+            }
+            conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).unwrap();
+        }
+        // Scribble over the middle of the file, leaving the first page (which says what the file is) alone.
+        let mut bytes = std::fs::read(&db).unwrap();
+        let (from, to) = (bytes.len() / 3, bytes.len() / 3 * 2);
+        assert!(from > 8192);
+        for b in &mut bytes[from..to] {
+            *b = 0xA5;
+        }
+        std::fs::write(&db, &bytes).unwrap();
+        let before = file_hash(&db);
+
+        let err = Store::open(&db).err().expect("must not open a damaged database").to_string();
+        assert!(err.contains("damaged") && err.contains("was not upgraded"), "{err}");
+        assert_eq!(file_hash(&db), before, "it was left exactly as found");
+        assert!(copies(&db, "heron-").is_empty(), "and no copy of a damaged file is passed off as a backup");
+    }
+
+    #[test]
+    fn two_programs_starting_at_once_upgrade_the_database_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("heron.db");
+        released_database(&db);
+        let threads: Vec<_> = (0..6)
+            .map(|_| {
+                let db = db.clone();
+                std::thread::spawn(move || Store::open(&db).map(|s| (s.schema_version().unwrap(), s.list_schedules().unwrap().len())).map_err(|e| format!("{e:#}")))
+            })
+            .collect();
+        for t in threads {
+            assert_eq!(t.join().unwrap(), Ok((SCHEMA_VERSION, 2)));
+        }
+        let s = Store::open(&db).unwrap();
+        assert!(s.integrity().unwrap().is_empty());
+        assert_eq!(s.verify_audit().unwrap(), (2, None));
+    }
+
+    #[test]
+    fn a_backup_can_be_restored_and_a_restore_can_be_undone() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("heron.db");
+        let s = Store::open(&db).unwrap();
+        s.add_task("Keep me", "", 2, None).unwrap();
+        s.insert_memory("fact", "Lives by the harbour", "", 0.5, "user", None, true, "hash-v1").unwrap();
+        s.add_schedule("Morning brief", "0 9 * * *", "brief me", 4102444800, "").unwrap();
+        s.audit("x", "read_file", "a", "allowed", "ok");
+
+        let saved = s.backup(None).unwrap();
+        assert!(saved.starts_with(backup_dir(&db)) && saved.file_name().unwrap().to_string_lossy().starts_with("heron-backup-"));
+        let elsewhere = dir.path().join("my-copy.db");
+        assert_eq!(s.backup(Some(&elsewhere)).unwrap(), elsewhere);
+        assert!(s.backup(Some(&elsewhere)).is_err(), "a copy is never written over an existing file");
+
+        // Things change after the backup...
+        let later = s.add_task("Added later", "", 2, None).unwrap();
+        s.update_task(1, None, None, Some("done"), None, None).unwrap();
+        drop(s);
+
+        // ...and restoring brings back the state at the backup, whole.
+        let previous = Store::restore(&db, &saved).unwrap().expect("there was data to save first");
+        let s = Store::open(&db).unwrap();
+        let tasks = s.list_tasks(None).unwrap();
+        assert_eq!(tasks.iter().map(|t| (t.title.as_str(), t.status.as_str())).collect::<Vec<_>>(), [("Keep me", "open")]);
+        assert_eq!(s.list_memories(None, 10).unwrap().len(), 1);
+        assert_eq!(s.fts_memories("harbour", 10).unwrap().len(), 1);
+        assert_eq!(s.list_schedules().unwrap().len(), 1);
+        assert_eq!(s.verify_audit().unwrap(), (1, None));
+        assert!(s.integrity().unwrap().is_empty());
+        drop(s);
+
+        // What was there before the restore was saved first, so the restore itself can be undone.
+        assert!(previous.file_name().unwrap().to_string_lossy().starts_with("heron-before-restore-"));
+        Store::restore(&db, &previous).unwrap();
+        let s = Store::open(&db).unwrap();
+        assert!(s.list_tasks(None).unwrap().iter().any(|t| t.id == later && t.title == "Added later"));
+        drop(s);
+
+        // Things that are not usable backups are refused, and the database is left alone.
+        let before = Store::open(&db).unwrap().list_tasks(None).unwrap().len();
+        let junk = dir.path().join("junk.db");
+        std::fs::write(&junk, "this is not a database at all, just some text that is long enough").unwrap();
+        assert!(Store::restore(&db, &junk).is_err());
+        let empty = dir.path().join("empty.db");
+        Connection::open(&empty).unwrap().execute_batch("CREATE TABLE unrelated(x);").unwrap();
+        assert!(Store::restore(&db, &empty).unwrap_err().to_string().contains("not a Heron database"));
+        let newer = dir.path().join("newer.db");
+        std::fs::copy(&elsewhere, &newer).unwrap();
+        Connection::open(&newer).unwrap().execute_batch(&format!("PRAGMA user_version={};", SCHEMA_VERSION + 5)).unwrap();
+        assert!(Store::restore(&db, &newer).unwrap_err().to_string().contains("newer version"));
+        assert!(Store::restore(&db, &dir.path().join("missing.db")).is_err());
+        assert_eq!(Store::open(&db).unwrap().list_tasks(None).unwrap().len(), before);
+
+        // A backup from the released version restores into this one and is upgraded on the way.
+        let released = dir.path().join("released.db");
+        released_database(&released);
+        Store::restore(&db, &released).unwrap();
+        let s = Store::open(&db).unwrap();
+        assert_eq!((s.schema_version().unwrap(), s.list_schedules().unwrap().len()), (SCHEMA_VERSION, 2));
+        drop(s);
+
+        // Restoring onto a computer that has no Heron data yet works, and there is nothing to save first.
+        let fresh = dir.path().join("new-computer").join("heron.db");
+        assert_eq!(Store::restore(&fresh, &elsewhere).unwrap(), None);
+        assert_eq!(Store::open(&fresh).unwrap().list_tasks(None).unwrap()[0].title, "Keep me");
+    }
+
+    #[test]
+    fn housekeeping_keeps_the_log_file_small_and_only_the_newest_upgrade_copies() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("heron.db");
+        let s = Store::open(&db).unwrap();
+        for i in 0..200 {
+            s.add_inbox(&format!("note {i}"), &"body ".repeat(200)).unwrap();
+        }
+        let log = dir.path().join("heron.db-wal");
+        assert!(std::fs::metadata(&log).unwrap().len() > 0, "writes go to the log first");
+        s.maintain().unwrap();
+        assert_eq!(std::fs::metadata(&log).unwrap().len(), 0, "and are folded into the main file");
+        assert_eq!(s.inbox(false, 500).unwrap().len(), 200);
+
+        // Five upgrade copies and one made by hand: the three newest upgrade copies stay, and the hand-made one.
+        std::fs::create_dir_all(backup_dir(&db)).unwrap();
+        for n in 1..=5 {
+            let p = backup_dir(&db).join(format!("heron-before-upgrade-from-v{n}-x.db"));
+            std::fs::write(&p, "x").unwrap();
+            let when = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000 + n);
+            std::fs::File::options().write(true).open(&p).unwrap().set_modified(when).unwrap();
+        }
+        std::fs::write(backup_dir(&db).join("heron-backup-mine.db"), "x").unwrap();
+        prune_snapshots(&db, "before-upgrade-", KEEP_UPGRADE_SNAPSHOTS);
+        let left: Vec<String> = copies(&db, "heron-").iter().map(|p| p.file_name().unwrap().to_string_lossy().to_string()).collect();
+        assert_eq!(left, ["heron-backup-mine.db", "heron-before-upgrade-from-v3-x.db", "heron-before-upgrade-from-v4-x.db", "heron-before-upgrade-from-v5-x.db"]);
     }
 }

@@ -42,3 +42,22 @@ fuzzing harness is still owed for the parsers (G3).
 
 **D-9. Stacked pull requests.** The permission work is stacked on PR #2, which holds unmerged
 work it depends on (the conversation-wide grant). Nothing is merged without the owner's say-so.
+
+**D-10. Upgrades are one transaction, and only physical damage stops one.** Every owed step and the
+new format number are committed together or not at all, so there is no half-upgraded state to
+recover from. A database that fails SQLite's page and index check is not upgraded or copied. A row
+that refers to a missing row is reported by `heron doctor` but does not block: the data is all
+there, no step depends on it, and refusing would lock a user out of their own data over something
+harmless. Steps 1 and 2 tolerate parts that already exist, because builds between 0.1.0 and the
+first numbered format created some of them without a number; later steps must not need that.
+
+**D-11. Going back is by restoring the copy, not by reverse steps.** The mission asks for
+reversible migrations. Writing a tested "down" step for every "up" step doubles the surface for a
+path almost nobody runs; a verified copy taken immediately before the upgrade is simpler and
+restores exactly what was there. The cost: anything written after the upgrade is lost on going
+back. Three upgrade copies are kept; copies made by hand or before a restore are never removed.
+
+**D-12. Copies are not encrypted.** They are private files (0600 in a 0700 folder on macOS and
+Linux; the user profile's own protection on Windows) holding the same data as the database beside
+them, which is not encrypted either. Encrypted export for moving data between machines is still
+owed (B5).

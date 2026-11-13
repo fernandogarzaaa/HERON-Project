@@ -33,7 +33,7 @@ open = "5"
 ignore = "0.4"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json", "stream", "gzip"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 rustyline = "15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

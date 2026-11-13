@@ -104,7 +104,9 @@ heron -c                  continue the last conversation
 heron run "summarize README.md"        one request, then exit (stdin is included if piped)
 heron serve               the app in your browser + scheduler
 heron daemon              scheduler only
-heron doctor              check configuration and connectivity
+heron doctor              check configuration, connectivity and the database
+heron backup             save a complete copy of your data (also in Settings)
+heron restore <file>     put a saved copy back; what is there now is saved first
 heron eval                measure memory retrieval quality (offline, built-in test set)
 heron memory | tasks | schedules | inbox | audit | sessions
 heron mcp-serve           expose memory and tasks to other apps over MCP

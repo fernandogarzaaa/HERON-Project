@@ -461,6 +461,8 @@ td,.meta,.note,#hint,.usage{font-variant-numeric:tabular-nums}
       <label class="field" id="s-neural-row" style="display:flex;gap:10px;align-items:flex-start"><input id="s-neural" type="checkbox" style="width:18px;height:18px;margin-top:3px;accent-color:var(--slate)"><div><span style="margin:0">Understand meaning when searching memory</span><small>Finds “what is her job” even when the memory says “landscape architect”. Runs a small model on this computer; it is downloaded once (about 23 MB) the first time. Applies after restarting Heron.</small></div></label>
       <label class="field"><span>Working folder</span><input id="s-ws"><small>Where Heron reads and writes files by default. Changes apply after restarting Heron.</small></label>
       <p class="note" id="s-home"></p>
+      <p><button type="button" class="btn quiet" id="s-backup">Save a copy of my data</button><span class="saved" id="s-backup-saved" role="status"></span></p>
+      <p class="note">A copy holds your conversations, memory, tasks, reminders, automations and activity log. Heron also saves one by itself before it upgrades your data. To go back to a copy, close Heron and run <code>heron restore</code> with the file’s name.</p>
       <button class="btn">Save settings</button><span class="saved" id="s-saved" role="status"></span>
       <div class="fail" id="s-err" hidden></div>
     </form>
@@ -1042,6 +1044,8 @@ $('#tg-save').onclick = async () => { try { await loadPhone(await api('/telegram
 $('#tg-remove').onclick = async () => { if (!confirm('Disconnect your phone from Heron?')) return; const r = await api('/telegram', { method: 'DELETE' }); await loadPhone(r); $('#tg-status').textContent = r.note; };
 $('#s-persona-save').onclick = async () => { const out = $('#s-persona-saved'); out.textContent = '';
   try { const p = await api('/persona', { method: 'POST', body: { text: $('#s-persona').value, name: $('#s-name').value } }); out.textContent = 'Personality saved'; $('#s-persona-reset').hidden = p.is_default; refreshState(); } catch (e) { out.textContent = e.message; } };
+$('#s-backup').onclick = async () => { const b = $('#s-backup'), out = $('#s-backup-saved'); out.textContent = ''; b.disabled = true;
+  try { const r = await api('/backup', { method: 'POST' }); out.textContent = 'Saved as ' + r.path; } catch (e) { out.textContent = 'Could not save a copy: ' + e.message; } finally { b.disabled = false; } };
 $('#s-persona-reset').onclick = async () => { if (!confirm('Put Heron back to its original personality?')) return; const p = await api('/persona', { method: 'DELETE' }); $('#s-persona').value = p.text; $('#s-persona-reset').hidden = true; $('#s-persona-saved').textContent = 'Back to the original'; };
 $('#presets').onclick = e => { const b = e.target.closest('button'); if (!b) return; $('#s-base').value = b.dataset.url; $('#s-model').value = b.dataset.model; };
 $('#settings').onsubmit = async e => { e.preventDefault(); const err = $('#s-err'); err.hidden = true; $('#s-saved').textContent = '';

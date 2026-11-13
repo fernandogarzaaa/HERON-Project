@@ -22,6 +22,14 @@ Durability and isolation:
 - A scheduled job can no longer be started twice for the same time, and a job that was running when Heron stopped is reported in the inbox as "not known whether it finished" instead of disappearing. It is not repeated automatically.
 - **Commands no longer see your whole environment.** They get paths, language settings and toolchain locations; tokens and cloud keys are withheld. If a command needs one, add its name to `shell_env` under `[agent]`. The variable that holds the model's key is never passed, even if listed.
 
+Your data across upgrades:
+
+- **Heron saves a copy of your data before it upgrades it.** The data now carries a format number. When a newer Heron opens older data it first checks it for damage, saves a complete copy in the `backups` folder in Heron's home, and then upgrades in one step that either finishes or changes nothing. The three most recent of these copies are kept.
+- **A newer version's data is never opened by an older Heron.** From this version on, Heron refuses data in a format it does not understand and leaves it untouched, instead of guessing.
+- **Backup and restore.** `heron backup` (or "Save a copy of my data" in Settings) saves everything in the database while Heron keeps running. `heron restore <file>` puts a copy back; what was there is saved first, so a restore can itself be undone. Settings and saved keys are separate files and are not part of a copy. Copies are not encrypted.
+- `heron doctor` now reports the data format and whether the database passes its integrity check.
+- Piping a command into `head` (for example `heron audit | head`) no longer prints a crash report.
+
 Found by the first runs against a real AI model (a free reasoning model through OpenRouter):
 
 - Models that think before answering no longer come back empty: every request leaves room for the thinking as well as the answer, and a reply that is all thinking is reported as such instead of being retried.

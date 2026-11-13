@@ -86,6 +86,17 @@ enum Cmd {
     Usage,
     /// Serve Heron's memory and tasks to other apps over MCP (stdio)
     McpServe,
+    /// Save a complete copy of Heron's data (conversations, memory, reminders, automations, activity log)
+    Backup {
+        /// Where to write the copy (default: the `backups` folder inside Heron's home). Must not exist yet.
+        #[arg(long)]
+        to: Option<PathBuf>,
+    },
+    /// Replace Heron's data with a saved copy. Close Heron first. What is there now is saved before it is replaced.
+    Restore {
+        /// The copy to restore (one made by `heron backup`, or one Heron made before an upgrade)
+        file: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -402,7 +413,23 @@ async fn doctor(cfg: &Config) -> Result<()> {
     println!("{} home        {}", ok(cfg.ensure_home().is_ok()), cfg.home.display());
     let config_path = cfg.home.join("config.toml");
     println!("{} config      {}", ok(true), if config_path.exists() { config_path.display().to_string() } else { "defaults (run `heron init` to create a config file)".into() });
-    println!("{} database    {}", ok(heron::store::Store::open(&cfg.db_path()).is_ok()), cfg.db_path().display());
+    match heron::store::Store::open(&cfg.db_path()) {
+        Ok(store) => {
+            let format = store.schema_version().unwrap_or(-1);
+            match store.integrity() {
+                Ok(problems) if problems.is_empty() => println!("{} database    {} (data format {format}, checked: sound)", ok(true), cfg.db_path().display()),
+                Ok(problems) => {
+                    println!("{} database    {} (data format {format})", ok(false), cfg.db_path().display());
+                    for p in problems.iter().take(5) {
+                        println!("       problem   {p}");
+                    }
+                    println!("       copies    {} (restore one with `heron restore <file>`)", heron::store::backup_dir(&cfg.db_path()).display());
+                }
+                Err(e) => println!("{} database    {} could not be checked: {e:#}", ok(false), cfg.db_path().display()),
+            }
+        }
+        Err(e) => println!("{} database    {e:#}", ok(false)),
+    }
     println!("     endpoint    {}", cfg.llm.base_url);
     println!("     model       {}", cfg.llm.model);
     let local = cfg.llm.base_url.contains("localhost") || cfg.llm.base_url.contains("127.0.0.1");
@@ -428,6 +455,17 @@ async fn doctor(cfg: &Config) -> Result<()> {
 
 #[tokio::main]
 async fn main() {
+    // `heron audit | head` closes our output early. That is the reader being done, not a crash: leave
+    // quietly instead of printing a panic and a backtrace.
+    let usual = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let said = info.payload().downcast_ref::<String>().map(String::as_str).or_else(|| info.payload().downcast_ref::<&str>().copied()).unwrap_or("");
+        if said.starts_with("failed printing to std") {
+            heron::browser::kill_now();
+            std::process::exit(0);
+        }
+        usual(info);
+    }));
     let outcome = real_main().await;
     heron::browser::shutdown().await; // never leave a browser running behind us
     if let Err(e) = outcome {
@@ -455,6 +493,25 @@ async fn real_main() -> Result<()> {
             return Ok(());
         }
         Cmd::Doctor => return doctor(&cfg).await,
+        Cmd::Backup { to } => {
+            cfg.ensure_home()?;
+            let store = heron::store::Store::open(&cfg.db_path()).with_context(|| format!("opening {}", cfg.db_path().display()))?;
+            let saved = store.backup(to.as_deref())?;
+            println!("Saved a copy of Heron's data to {}", saved.display());
+            println!("It holds everything in the database. Settings and saved keys are separate files and are not in it.");
+            println!("To go back to it later: heron restore \"{}\"", saved.display());
+            return Ok(());
+        }
+        Cmd::Restore { file } => {
+            cfg.ensure_home()?;
+            let previous = heron::store::Store::restore(&cfg.db_path(), file)?;
+            println!("Restored Heron's data from {}", file.display());
+            if let Some(previous) = previous {
+                println!("What was there before is kept at {}", previous.display());
+            }
+            println!("If Heron was running during this, close and reopen it.");
+            return Ok(());
+        }
         Cmd::Eval { neural } => {
             if *neural && !heron::embed::neural_built_in() {
                 bail!("this build does not include the neural memory model; build with `cargo build --features neural`");
@@ -586,6 +643,6 @@ async fn real_main() -> Result<()> {
             let ctx = agent.tool_ctx("mcp");
             heron::mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app.tools, &ctx, &app.policy).await
         }
-        Cmd::Init | Cmd::Doctor | Cmd::Eval { .. } => unreachable!(),
+        Cmd::Init | Cmd::Doctor | Cmd::Eval { .. } | Cmd::Backup { .. } | Cmd::Restore { .. } => unreachable!(),
     }
 }

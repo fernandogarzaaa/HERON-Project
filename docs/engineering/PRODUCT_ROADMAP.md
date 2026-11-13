@@ -16,8 +16,10 @@ one of these is larger than a single change. Status lives in REMEDIATION_MATRIX.
 - Done: approvals given later are claimed atomically; undo checks the file has not changed
   since and writes are atomic; due jobs are claimed in one transaction and interrupted runs are
   reported.
-- Next, in order: retry with backoff and per-job pause for jobs; `user_version` migrations with a
-  snapshot before upgrade; backup and restore.
+- Done: the data format is numbered, a copy is saved before every upgrade, and there is backup
+  and restore.
+- Next, in order: retry with backoff and per-job pause for jobs; encrypted export; restore from
+  inside the app.
 
 ## Phase 3 — platform security
 
