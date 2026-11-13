@@ -404,19 +404,32 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
         }
         let p = dir.join(name);
         if is_executable(&p) {
-            return Some(p);
+            return Some(make_absolute(p));
         }
         #[cfg(windows)]
         {
             for ext in ["exe", "cmd", "bat"] {
                 let p = dir.join(format!("{name}.{ext}"));
                 if p.is_file() {
-                    return Some(p);
+                    return Some(make_absolute(p));
                 }
             }
         }
     }
     None
+}
+
+/// A resolved executable must be absolute. chat() spawns with the working
+/// directory set to the per-request temp dir, so a relative path (from a
+/// relative PATH entry, or a relative command override) would resolve
+/// against the temp dir and fail to start, while the probes, which never
+/// change directory, still report the provider as installed.
+fn make_absolute(p: PathBuf) -> PathBuf {
+    if p.is_absolute() {
+        p
+    } else {
+        std::env::current_dir().map(|cwd| cwd.join(&p)).unwrap_or(p)
+    }
 }
 
 pub struct ProviderStatus {
@@ -2584,6 +2597,53 @@ mod tests {
         let (_, args) = llm.argv("hello", "m").unwrap();
         assert_eq!(args[0], "-p");
         assert_eq!(args.last().unwrap(), "hello");
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn resolve_binary_makes_a_relative_path_entry_absolute() {
+        // A relative PATH entry used to return a relative path, which chat()
+        // then resolved against the per-request temp dir and failed to
+        // spawn, while the probes still reported the provider installed.
+        struct RestorePath(String);
+        impl Drop for RestorePath {
+            fn drop(&mut self) {
+                std::env::set_var("PATH", &self.0);
+            }
+        }
+        fn relative_path(from: &std::path::Path, to: &std::path::Path) -> PathBuf {
+            let from: Vec<_> = from.components().collect();
+            let to: Vec<_> = to.components().collect();
+            let mut i = 0;
+            while i < from.len() && i < to.len() && from[i] == to[i] {
+                i += 1;
+            }
+            let mut out = PathBuf::new();
+            for _ in i..from.len() {
+                out.push("..");
+            }
+            for c in &to[i..] {
+                out.push(c.as_os_str());
+            }
+            out
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path().join("relbin");
+        std::fs::create_dir(&bin_dir).unwrap();
+        let fake = fake_bin(&bin_dir, "mycli", "#!/bin/sh\nexit 0\n");
+        let rel = relative_path(&std::env::current_dir().unwrap(), &bin_dir);
+        assert!(!rel.is_absolute(), "the test needs a relative PATH entry");
+        let _guard = RestorePath(std::env::var("PATH").unwrap_or_default());
+        std::env::set_var("PATH", rel.as_os_str());
+        let found = resolve_binary("mycli", "").expect("fake on relative PATH");
+        assert!(found.is_absolute(), "{found:?}");
+        assert_eq!(
+            std::fs::canonicalize(&found).unwrap(),
+            std::fs::canonicalize(&fake).unwrap()
+        );
+        // A relative command override goes through the same lookup.
+        let via_override = resolve_binary("", "mycli").expect("fake via override");
+        assert!(via_override.is_absolute(), "{via_override:?}");
     }
 
     #[tokio::test]
