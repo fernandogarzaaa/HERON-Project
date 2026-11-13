@@ -211,7 +211,8 @@ fn schedule_row(s: &logic::ScheduleItem) -> ScheduleRow {
 fn inbox_row(m: &logic::InboxItem) -> InboxRow {
     InboxRow {
         title: m.title.clone().into(),
-        body: slint::StyledText::from_markdown(&m.body).unwrap_or_default(),
+        body: slint::StyledText::from_markdown(&m.body)
+            .unwrap_or_else(|_| slint::StyledText::from_plain_text(&m.body)),
         meta: logic::fmt_time(m.ts).into(),
     }
 }
