@@ -35,7 +35,7 @@ use super::setup::{
 };
 use super::setup_bridge::HeronSetupBridge;
 use crate::{MainWindow, McpLine, SourceItem, ToolItem};
-use slint::{ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
 use std::sync::Arc;
 
 /// The two Setup states, held beside the window. The driver is built
@@ -691,7 +691,7 @@ fn bind_onboarding(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
             let _ = slint::spawn_local(async move {
                 let picked = rfd::AsyncFileDialog::new().pick_folder().await;
                 let Some(path) = picked else { return };
-                let path = path.to_string_lossy().into_owned();
+                let path = path.path().to_string_lossy().into_owned();
                 let weak_task = weak.clone();
                 bridge.spawn(async move {
                     let snap = {

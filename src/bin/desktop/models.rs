@@ -155,7 +155,7 @@ fn chat_msg_from_item(item: &view::ThreadItem) -> ChatMsg {
                     label: SharedString::from(step.label.as_str()),
                     summary: SharedString::from(step.summary.as_str()),
                     risk: SharedString::from(step.risk.as_str()),
-                    state: SharedString::from(step.status.wire()),
+                    state: SharedString::from(step.status.clone().wire()),
                     preview: SharedString::from(step.preview.as_str()),
                     expanded: step.expanded,
                 })

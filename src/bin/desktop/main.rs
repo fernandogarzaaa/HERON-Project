@@ -98,6 +98,11 @@ fn send_message(
     }
     let turn_id = {
         let mut chat = chat.lock().unwrap();
+        // Guard all send entry points under the same mutex before adding a
+        // turn: a concurrent 409 must not clear the original reply's busy state.
+        if chat.busy {
+            return;
+        }
         begin_send(window, &mut chat, &text)
     };
     let (tx, mut rx) = mpsc::unbounded_channel::<ChatEvent>();
@@ -305,7 +310,7 @@ fn main() {
         }
 
         // Answer a waiting approval: once, always, session, or anything else denies.
-        // The card is replaced by its decision note; a failed call reports its error as the note.
+        // A failed server decision must leave the approval card actionable.
         {
             let bridge = bridge.clone();
             let chat = chat.clone();
@@ -324,13 +329,13 @@ fn main() {
                             Ok(()) => {
                                 models::answer_approval(&window, &mut chat, &id, &decision, None)
                             }
-                            Err(e) => models::answer_approval(
-                                &window,
-                                &mut chat,
-                                &id,
-                                &decision,
-                                Some(&format!("{e:#}")),
-                            ),
+                            Err(e) => {
+                                models::push_note(
+                                    &window,
+                                    &mut chat,
+                                    &format!("Approval request failed: {e:#}. Please retry or deny."),
+                                );
+                            }
                         }
                     });
                 });
