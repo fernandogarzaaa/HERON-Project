@@ -519,6 +519,8 @@ pub struct ChatView {
     pub busy: bool,
     pub thread: Vec<ThreadItem>,
     next_turn_id: u64,
+    /// Invalidate stale session fetches after new/session selection actions.
+    pub navigation_generation: u64,
     /// True unless the reader scrolled more than 240px from the bottom.
     pub following: bool,
     /// Expanded tool result rows, by step id.
@@ -541,8 +543,16 @@ impl ChatView {
         }
     }
 
+    /// New navigation requests invalidate older in-flight session loads.
+    pub fn begin_navigation(&mut self) -> u64 {
+        self.navigation_generation = self.navigation_generation.checked_add(1)
+            .expect("navigation generation overflow");
+        self.navigation_generation
+    }
+
     /// Start a new conversation. Clears the thread and the session id.
     pub fn start_new(&mut self) {
+        self.begin_navigation();
         self.session_id = None;
         self.title = "New conversation".to_string();
         self.thread.clear();
@@ -808,6 +818,7 @@ impl ChatView {
     /// `renderHistory`. User messages starting with `[system notice]`
     /// are skipped. `interrupted` adds the cut short note.
     pub fn open_history(&mut self, messages: Vec<HistoryMessage>, interrupted: bool) {
+        self.begin_navigation();
         self.thread.clear();
         let mut pending: HashMap<String, (usize, String)> = HashMap::new();
         let mut turn_open = false;

@@ -277,15 +277,17 @@ pub fn apply_chat_event(
 
 /// The stream ended with no terminal event. Closes the live turn with the
 /// connection note, as the ChatView specifies.
-pub fn stream_closed_early(window: &MainWindow, chat: &mut view::ChatView) {
-    let live = chat.thread.iter().rev().find_map(|item| match item {
-        view::ThreadItem::Turn(turn) if turn.live => Some(turn.turn_id),
-        _ => None,
-    });
-    chat.stream_closed_early();
-    if let Some(turn_id) = live {
-        sync_turn(window, chat, turn_id);
+pub fn stream_closed_early(window: &MainWindow, chat: &mut view::ChatView, turn_id: u64) {
+    // A closed stream from a previous conversation must never stop a newer
+    // live reply. The forwarder always carries its originating turn id.
+    let is_live_origin = chat.thread.iter().any(|item| matches!(item,
+        view::ThreadItem::Turn(turn) if turn.turn_id == turn_id && turn.live
+    ));
+    if !is_live_origin {
+        return;
     }
+    chat.stream_closed_early();
+    sync_turn(window, chat, turn_id);
     sync_window_state(window, chat);
 }
 

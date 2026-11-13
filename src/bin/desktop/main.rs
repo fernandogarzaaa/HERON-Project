@@ -129,7 +129,7 @@ fn send_message(
             let chat = chat_events.clone();
             let _ = weak.upgrade_in_event_loop(move |window| {
                 let mut chat = chat.lock().unwrap();
-                models::stream_closed_early(&window, &mut chat);
+                models::stream_closed_early(&window, &mut chat, turn_id);
             });
         }
     });
@@ -546,41 +546,44 @@ fn main() {
             let weak = window.as_weak();
             let slot = ctrl_slot.clone();
             Arc::new(move |prompt: String, session_id: Option<String>| {
+                let nav_generation = chat.lock().unwrap().begin_navigation();
                 let client = bridge.client().clone();
                 let bridge_task = bridge.clone();
                 let chat_task = chat.clone();
                 let weak_task = weak.clone();
                 let slot_task = slot.clone();
                 bridge.spawn(async move {
-                    // A session id means the server started one for this
-                    // suggestion. Load its history first, so the new turn
-                    // does not append to another session's thread.
+                    // Existing sessions must actually load before their
+                    // suggestions can run; otherwise a separate server
+                    // session would be appended to the old UI transcript.
                     let detail = match &session_id {
-                        Some(id) => client.get_session(id).await.ok(),
+                        Some(id) => Some(client.get_session(id).await),
                         None => None,
                     };
                     let _ = weak_task.upgrade_in_event_loop(move |window| {
-                        let start_fresh = {
-                            let mut chat = chat_task.lock().unwrap();
-                            match detail {
-                                Some(detail) => {
-                                    models::open_history(&window, &mut chat, &detail);
-                                    false
-                                }
-                                None => match &session_id {
-                                    Some(id) => {
-                                        chat.session_id = Some(id.clone());
-                                        false
-                                    }
-                                    // A suggestion with no session is a
-                                    // fresh conversation: the web UI starts
-                                    // one before sending, so the new turn
-                                    // never appends to the open thread.
-                                    None => true,
-                                },
+                        {
+                            let mut state = chat_task.lock().unwrap();
+                            if state.navigation_generation != nav_generation {
+                                return;
                             }
-                        };
-                        if start_fresh {
+                            if state.busy {
+                                models::push_note(&window, &mut state,
+                                    "Stop the current reply before opening a suggestion.");
+                                return;
+                            }
+                            match detail {
+                                Some(Ok(detail)) => {
+                                    models::open_history(&window, &mut state, &detail);
+                                }
+                                Some(Err(e)) => {
+                                    models::push_note(&window, &mut state,
+                                        &format!("Could not open suggestion conversation: {e:#}"));
+                                    return;
+                                }
+                                None => {}
+                            }
+                        }
+                        if session_id.is_none() {
                             start_new_conversation(&window, &chat_task, &bridge_task);
                         }
                         window.set_current_view(SharedString::from("chat"));
@@ -598,6 +601,15 @@ fn main() {
             let weak = window.as_weak();
             let slot = ctrl_slot.clone();
             Arc::new(move |id: String| {
+                // Each selection invalidates earlier pending fetches. New
+                // conversation and history replay invalidate these too.
+                let nav_generation = {
+                    let mut state = chat.lock().unwrap();
+                    if state.busy {
+                        return;
+                    }
+                    state.begin_navigation()
+                };
                 let client = bridge.client().clone();
                 let chat_task = chat.clone();
                 let weak_task = weak.clone();
@@ -607,14 +619,17 @@ fn main() {
                     let _ = weak_task.upgrade_in_event_loop(move |window| {
                         // Do not switch away while a reply is running:
                         // the web UI refuses the same way.
-                        if chat_task.lock().unwrap().busy {
+                        let mut state = chat_task.lock().unwrap();
+                        if state.busy || state.navigation_generation != nav_generation {
                             return;
                         }
-                        let Some(detail) = detail else { return };
-                        {
-                            let mut chat = chat_task.lock().unwrap();
-                            models::open_history(&window, &mut chat, &detail);
-                        }
+                        let Some(detail) = detail else {
+                            models::push_note(&window, &mut state,
+                                "Could not open the selected conversation.");
+                            return;
+                        };
+                        models::open_history(&window, &mut state, &detail);
+                        drop(state);
                         window.set_current_view(SharedString::from("chat"));
                         if let Some(ctrl) = slot_task.lock().unwrap().as_ref() {
                             ctrl.set_current_session(Some(id));
