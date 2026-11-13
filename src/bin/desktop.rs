@@ -1,17 +1,27 @@
-//! Heron desktop app: a native window around the local UI.
+//! Heron desktop app: a native Slint window around the local UI.
 //! The agent, its data and the HTTP server all live inside this one process;
 //! the server listens on a random loopback port protected by a per-launch token.
+//! The window talks to that server over HTTP through the bridge (`desktop/`),
+//! exactly like the old web UI did. It never touches the backend in-process,
+//! and it never touches a widget from a background thread: background tasks
+//! hand results to the UI thread with `Weak::upgrade_in_event_loop`.
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod bridge;
+mod models;
+mod sse;
+mod ui_state;
+
+use bridge::{Bridge, ChatEvent, HeronClient};
 use heron::app::App;
 use heron::config::Config;
+use models::{apply_chat_event, push_message};
+use slint::{ModelRc, SharedString, VecModel};
 use std::sync::Arc;
-use tao::dpi::LogicalSize;
-use tao::event::{Event, WindowEvent};
-use tao::event_loop::{ControlFlow, EventLoop};
-use tao::window::WindowBuilder;
-use wry::WebViewBuilder;
+use tokio::sync::mpsc;
+
+slint::include_modules!();
 
 /// Start the agent backend on its own thread. Returns the launch URL, or a message explaining why it could not start.
 fn start_backend() -> Result<String, String> {
@@ -43,46 +53,8 @@ fn start_backend() -> Result<String, String> {
             }
         });
     });
-    rx.recv().unwrap_or_else(|_| Err("the background service stopped unexpectedly".into()))
-}
-
-fn error_page(message: &str) -> String {
-    let safe = message.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
-    format!(
-        "<!doctype html><meta charset=utf-8><body style=\"font:16px/1.5 system-ui;max-width:640px;margin:12vh auto;padding:0 24px;color:#16212B;background:#EDF1F4\">\
-         <h1 style=\"font:600 28px Georgia,serif\">Heron could not start</h1><p>{safe}</p>\
-         <p>If you edited the settings file by hand, check it for mistakes, then open Heron again. It lives in the <code>.heron</code> folder in your home folder.</p></body>"
-    )
-}
-
-/// Standard app and Edit menus. On macOS these are what make ⌘C / ⌘V / ⌘Q work inside the window.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn build_menu() -> muda::Menu {
-    use muda::{Menu, PredefinedMenuItem, Submenu};
-    let menu = Menu::new();
-    let app_menu = Submenu::new("Heron", true);
-    let _ = app_menu.append_items(&[
-        &PredefinedMenuItem::about(None, None),
-        &PredefinedMenuItem::separator(),
-        &PredefinedMenuItem::hide(None),
-        &PredefinedMenuItem::hide_others(None),
-        &PredefinedMenuItem::separator(),
-        &PredefinedMenuItem::quit(None),
-    ]);
-    let edit = Submenu::new("Edit", true);
-    let _ = edit.append_items(&[
-        &PredefinedMenuItem::undo(None),
-        &PredefinedMenuItem::redo(None),
-        &PredefinedMenuItem::separator(),
-        &PredefinedMenuItem::cut(None),
-        &PredefinedMenuItem::copy(None),
-        &PredefinedMenuItem::paste(None),
-        &PredefinedMenuItem::select_all(None),
-    ]);
-    let window = Submenu::new("Window", true);
-    let _ = window.append_items(&[&PredefinedMenuItem::minimize(None), &PredefinedMenuItem::fullscreen(None), &PredefinedMenuItem::close_window(None)]);
-    let _ = menu.append_items(&[&app_menu, &edit, &window]);
-    menu
+    rx.recv()
+        .unwrap_or_else(|_| Err("the background service stopped unexpectedly".into()))
 }
 
 fn main() {
@@ -91,67 +63,136 @@ fn main() {
     #[cfg(target_os = "macos")]
     {
         let current = std::env::var("PATH").unwrap_or_default();
-        let extra = ["/opt/homebrew/bin", "/usr/local/bin"].iter().filter(|p| !current.split(':').any(|c| c == **p)).cloned().collect::<Vec<_>>();
+        let extra = ["/opt/homebrew/bin", "/usr/local/bin"]
+            .iter()
+            .filter(|p| !current.split(':').any(|c| c == **p))
+            .cloned()
+            .collect::<Vec<_>>();
         if !extra.is_empty() {
             std::env::set_var("PATH", format!("{}:{current}", extra.join(":")));
         }
     }
-    let backend = start_backend();
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title("Heron")
-        .with_inner_size(LogicalSize::new(1180.0, 800.0))
-        .with_min_inner_size(LogicalSize::new(420.0, 480.0))
-        .build(&event_loop)
-        .expect("could not create the Heron window");
 
-    #[cfg(target_os = "macos")]
-    let _menu = {
-        let menu = build_menu();
-        menu.init_for_nsapp();
-        menu
+    let window = MainWindow::new().expect("could not create the Heron window");
+    window.set_app_version(SharedString::from(env!("CARGO_PKG_VERSION")));
+    window.set_messages(ModelRc::new(VecModel::<ChatMsg>::default()));
+
+    let bridge = match start_backend() {
+        Ok(url) => match HeronClient::from_launch_url(&url) {
+            Some(client) => match Bridge::new(client) {
+                Ok(bridge) => {
+                    window.set_backend_status(SharedString::from("Connected"));
+                    Some(bridge)
+                }
+                Err(e) => {
+                    window.set_error_message(SharedString::from(format!(
+                        "Heron could not start: {e:#}"
+                    )));
+                    None
+                }
+            },
+            None => {
+                window.set_error_message(SharedString::from(
+                    "Heron could not start: the backend URL was not recognised.",
+                ));
+                None
+            }
+        },
+        Err(message) => {
+            window.set_error_message(SharedString::from(format!(
+                "Heron could not start: {message} If you edited the settings file by hand, check it for mistakes, then open Heron again. It lives in the .heron folder in your home folder."
+            )));
+            None
+        }
     };
 
-    let builder = match &backend {
-        Ok(url) => {
-            let origin = url.split("/?").next().unwrap_or("").to_string();
-            WebViewBuilder::new().with_url(url).with_navigation_handler(move |target: String| {
-                // Stay inside the app; anything else (links in replies) opens in the default browser.
-                if target.starts_with(&origin) || target.starts_with("about:") || target.starts_with("data:") {
-                    true
+    if let Some(bridge) = bridge {
+        // Refresh the status line from the live server state, every 30 seconds.
+        ui_state::poll_state(&bridge, window.as_weak());
+
+        // Send a message: echo it, open an empty assistant reply, and stream the
+        // turn's events onto the UI thread as they arrive.
+        {
+            let bridge = bridge.clone();
+            let weak = window.as_weak();
+            window.on_send_message(move |text| {
+                let text = text.to_string();
+                if text.trim().is_empty() {
+                    return;
+                }
+                let Some(window) = weak.upgrade() else { return };
+                push_message(&window, "user", &text);
+                push_message(&window, "assistant", "");
+                window.set_busy(true);
+                let session_id = window.get_session_id();
+                let sid = if session_id.is_empty() {
+                    None
                 } else {
-                    if target.starts_with("http://") || target.starts_with("https://") {
-                        let _ = open::that(&target);
+                    Some(session_id.to_string())
+                };
+                let (tx, mut rx) = mpsc::unbounded_channel::<ChatEvent>();
+                let weak_events = weak.clone();
+                bridge.spawn(async move {
+                    while let Some(event) = rx.recv().await {
+                        let weak = weak_events.clone();
+                        let _ = weak.upgrade_in_event_loop(move |window| {
+                            apply_chat_event(window, event);
+                        });
                     }
-                    false
-                }
-            })
-            // Links that ask for a new window (target="_blank") never reach the handler above on
-            // Windows. Open them in the default browser too, and never open a second app window.
-            .with_new_window_req_handler(|target: String, _features| {
-                if target.starts_with("http://") || target.starts_with("https://") {
-                    let _ = open::that(&target);
-                }
-                wry::NewWindowResponse::Deny
-            })
+                });
+                let client = bridge.client().clone();
+                bridge.spawn(async move {
+                    let _ = client.stream_chat(sid.as_deref(), &text, tx).await;
+                });
+            });
         }
-        Err(message) => WebViewBuilder::new().with_html(error_page(message)),
-    };
 
-    #[cfg(not(target_os = "linux"))]
-    let _webview = builder.build(&window).expect("could not create the web view");
-    #[cfg(target_os = "linux")]
-    let _webview = {
-        use tao::platform::unix::WindowExtUnix;
-        use wry::WebViewBuilderExtUnix;
-        builder.build_gtk(window.default_vbox().expect("window has no container")).expect("could not create the web view")
-    };
-
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
-        if let Event::WindowEvent { event: WindowEvent::CloseRequested, .. } = event {
-            heron::browser::kill_now(); // the browser Heron was driving closes with the app
-            *control_flow = ControlFlow::Exit;
+        // New conversation: forget the server session id and clear the view. The
+        // server creates the next session lazily, on the first message sent.
+        {
+            let weak = window.as_weak();
+            window.on_new_session(move || {
+                if let Some(window) = weak.upgrade() {
+                    window.set_session_id(SharedString::from(""));
+                    window.set_messages(ModelRc::new(VecModel::<ChatMsg>::default()));
+                    window.set_session_title(SharedString::from(""));
+                    window.set_busy(false);
+                }
+            });
         }
-    });
+
+        // Stop the running reply in the current conversation.
+        {
+            let bridge = bridge.clone();
+            let weak = window.as_weak();
+            window.on_cancel_reply(move || {
+                let Some(window) = weak.upgrade() else { return };
+                let session_id = window.get_session_id();
+                if session_id.is_empty() {
+                    return;
+                }
+                let client = bridge.client().clone();
+                let sid = session_id.to_string();
+                bridge.spawn(async move {
+                    let _ = client.cancel(&sid).await;
+                });
+            });
+        }
+
+        // Answer a waiting approval: once, always, session, or anything else denies.
+        {
+            let bridge = bridge.clone();
+            window.on_approve(move |id, decision| {
+                let client = bridge.client().clone();
+                let id = id.to_string();
+                let decision = decision.to_string();
+                bridge.spawn(async move {
+                    let _ = client.approve(&id, &decision).await;
+                });
+            });
+        }
+    }
+
+    let _ = window.run();
+    heron::browser::kill_now(); // the browser Heron was driving closes with the app
 }
