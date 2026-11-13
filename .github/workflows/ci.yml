@@ -30,6 +30,9 @@ jobs:
           HERON_TEST_BROWSER: "1"
       - name: Build the desktop app
         run: cargo build --features desktop --bins
+      - name: Linux installer smoke test
+        if: runner.os == 'Linux'
+        run: bash tests/linux-install-smoke.sh
   neural:
     # The optional neural memory model. Informational for now: it tells us on which systems the
     # ONNX runtime builds and the model loads, without holding up everything else.

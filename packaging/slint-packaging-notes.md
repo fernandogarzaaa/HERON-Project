@@ -1,7 +1,14 @@
 # Slint packaging notes (Packaging lane, native/slint-packaging)
 
-Base: main ea06729a (after PR #8). Worktree: ~/workspace/HERON-Slint-Packaging.
-Status: drafts only. Nothing pushed, merged, or PR'd.
+Historical drafting base: main ea06729a (after PR #8).
+Current review: PR #13 against native/slint, with the Slint shell already
+merged via PR #9. The sections below record the original packaging audit
+and drafts; references to the old Wry desktop binary or an unpushed
+worktree describe that *historical* state, not the current integration
+target. The CI checks a synthetic merge of this PR with native/slint.
+The Linux installer now also has a no-root smoke test in
+tests/linux-install-smoke.sh; tagged release installers still require
+independent end-to-end testing on each supported platform.
 
 ## 1. Audit: what each file does today, and its webview dependency
 
