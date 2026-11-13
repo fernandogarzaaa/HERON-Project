@@ -14,7 +14,15 @@ STAGE=dist/dmg
 rm -rf "$APP" "$DMG" "$STAGE"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 lipo -create -output "$APP/Contents/MacOS/Heron" target/aarch64-apple-darwin/release/heron-desktop target/x86_64-apple-darwin/release/heron-desktop
-lipo -create -output "$APP/Contents/MacOS/heron" target/aarch64-apple-darwin/release/heron target/x86_64-apple-darwin/release/heron
+# The CLI ships as heron-cli, not heron: macOS uses a case-insensitive
+# filesystem by default, so Heron and heron are the same file and the second
+# lipo silently overwrote the desktop binary with the CLI (v0.3.0 shipped a
+# bundle whose only executable was the CLI, so double-clicking showed
+# nothing). This matches the Windows name heron-cli.exe.
+lipo -create -output "$APP/Contents/MacOS/heron-cli" target/aarch64-apple-darwin/release/heron target/x86_64-apple-darwin/release/heron
+# Guard the collision above: the two executables must be different files with
+# different content, or the bundle is broken the same way again.
+cmp -s "$APP/Contents/MacOS/Heron" "$APP/Contents/MacOS/heron-cli" && { echo "Heron and heron-cli are identical; the desktop binary was overwritten" >&2; exit 1; }
 sed "s/__VERSION__/$VERSION/g" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
 cp packaging/icons/icon.icns "$APP/Contents/Resources/icon.icns"
 # Ad-hoc signature so the app runs on Apple silicon. For distribution without Gatekeeper warnings,
