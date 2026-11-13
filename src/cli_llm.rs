@@ -1238,6 +1238,54 @@ enum StreamMode {
     Envelope,
 }
 
+/// How to treat the opening of a reply while the stream mode is still
+/// undecided.
+enum Opening {
+    /// Too little has arrived to tell; emit nothing yet.
+    Wait,
+    /// The reply is a JSON envelope; stream only its `text` value.
+    Envelope,
+    /// The reply is plain text; stream everything buffered so far.
+    Plain,
+}
+
+/// Classify the opening of a reply. A fenced envelope (```json\n{...}
+/// or ```\n{...}) arrives backtick-first, so deciding Plain on the
+/// backticks would stream the fence and the JSON framing to the terminal
+/// while `finish()` quietly saves the clean reply.
+fn classify_opening(rest: &str) -> Opening {
+    // A fence opener still arriving is ambiguous: it could be the
+    // start of ```json or just backticks.
+    if "```json".starts_with(rest) {
+        return Opening::Wait;
+    }
+    if !rest.starts_with("```") {
+        return Opening::Plain;
+    }
+    let mut after = rest[3..].trim_start();
+    if after.is_empty() {
+        return Opening::Wait;
+    }
+    // A partial "json" tag is still ambiguous.
+    let lower = after.to_ascii_lowercase();
+    if lower.len() < 4 && "json".starts_with(&lower) {
+        return Opening::Wait;
+    }
+    if lower.starts_with("json") {
+        // The first four bytes are ASCII "json", so byte 4 is a char
+        // boundary.
+        after = after[4..].trim_start();
+        if after.is_empty() {
+            return Opening::Wait;
+        }
+    }
+    if after.starts_with('{') {
+        Opening::Envelope
+    } else {
+        Opening::Plain
+    }
+}
+
 struct Accumulator {
     text: String,
     usage: Usage,
@@ -1300,12 +1348,21 @@ impl Accumulator {
                     self.stream_mode = StreamMode::Envelope;
                     self.emit_envelope_prefix(on_delta);
                 } else {
-                    self.stream_mode = StreamMode::Plain;
-                    // Everything so far, including any leading
-                    // whitespace, is the start of the reply.
-                    let all = self.text.clone();
-                    on_delta(&all);
-                    self.streamed = true;
+                    match classify_opening(rest) {
+                        Opening::Wait => {}
+                        Opening::Envelope => {
+                            self.stream_mode = StreamMode::Envelope;
+                            self.emit_envelope_prefix(on_delta);
+                        }
+                        Opening::Plain => {
+                            self.stream_mode = StreamMode::Plain;
+                            // Everything so far, including any leading
+                            // whitespace, is the start of the reply.
+                            let all = self.text.clone();
+                            on_delta(&all);
+                            self.streamed = true;
+                        }
+                    }
                 }
             }
             StreamMode::Plain => {
@@ -2314,6 +2371,63 @@ mod tests {
             envelope_text_prefix("{\"tool_calls\": [{\"name\": \"x\", \"arguments\": {\"text\": \"input value\"}}], \"text\": \"Do"),
             Some(("Do".to_string(), false))
         );
+    }
+
+    #[test]
+    fn fenced_envelope_streams_only_its_text() {
+        // A fenced envelope arrives backtick-first: the fence must never
+        // reach the terminal, only the decoded text value.
+        let mut acc = Accumulator::new();
+        let seen = std::sync::Mutex::new(String::new());
+        acc.push_text("```json\n", &|t| seen.lock().unwrap().push_str(t));
+        assert!(seen.lock().unwrap().is_empty(), "the fence must not stream");
+        acc.push_text("{\"text\": \"Done\", \"tool_calls\": []}\n```", &|t| {
+            seen.lock().unwrap().push_str(t)
+        });
+        assert_eq!(seen.lock().unwrap().as_str(), "Done");
+        let req = ChatRequest {
+            messages: vec![],
+            ..Default::default()
+        };
+        let resp = acc.finish(&req, &|t| seen.lock().unwrap().push_str(t));
+        assert_eq!(resp.message.content.as_deref(), Some("Done"));
+        assert_eq!(seen.lock().unwrap().as_str(), "Done");
+    }
+
+    #[test]
+    fn bare_fenced_envelope_and_slow_backticks_stream_only_its_text() {
+        let mut acc = Accumulator::new();
+        let seen = std::sync::Mutex::new(String::new());
+        acc.push_text("```\n", &|t| seen.lock().unwrap().push_str(t));
+        assert!(seen.lock().unwrap().is_empty());
+        acc.push_text("{\"text\": \"Done\", \"tool_calls\": []}\n```", &|t| {
+            seen.lock().unwrap().push_str(t)
+        });
+        assert_eq!(seen.lock().unwrap().as_str(), "Done");
+
+        // Backticks arriving one at a time must wait, not commit to Plain.
+        let mut acc = Accumulator::new();
+        let seen = std::sync::Mutex::new(String::new());
+        for frag in ["`", "`", "`json\n"] {
+            acc.push_text(frag, &|t| seen.lock().unwrap().push_str(t));
+            assert!(seen.lock().unwrap().is_empty(), "after {frag:?}");
+        }
+        acc.push_text("{\"text\": \"Done\", \"tool_calls\": []}", &|t| {
+            seen.lock().unwrap().push_str(t)
+        });
+        assert_eq!(seen.lock().unwrap().as_str(), "Done");
+    }
+
+    #[test]
+    fn plain_code_block_still_streams_as_plain_text() {
+        // A fenced code block is not an envelope: it must stream at once,
+        // fence and all, not wait for the end of the reply.
+        let mut acc = Accumulator::new();
+        let seen = std::sync::Mutex::new(String::new());
+        acc.push_text("```rust\n", &|t| seen.lock().unwrap().push_str(t));
+        assert_eq!(seen.lock().unwrap().as_str(), "```rust\n");
+        acc.push_text("let x = 1;\n```", &|t| seen.lock().unwrap().push_str(t));
+        assert_eq!(seen.lock().unwrap().as_str(), "```rust\nlet x = 1;\n```");
     }
 
     #[tokio::test]
