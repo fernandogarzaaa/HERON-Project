@@ -42,3 +42,20 @@ fuzzing harness is still owed for the parsers (G3).
 
 **D-9. Stacked pull requests.** The permission work is stacked on PR #2, which holds unmerged
 work it depends on (the conversation-wide grant). Nothing is merged without the owner's say-so.
+
+
+**D-13. Undo replaces by atomic exchange, verified against what was displaced.** A reviewer pointed out
+that a file can change between undo's check and the rename that restores the old version. The
+replacement is now an atomic exchange (`renameat2` with `RENAME_EXCHANGE` on Linux, `renamex_np`
+with `RENAME_SWAP` on macOS, `ReplaceFileW` on Windows): the new version and the old one change
+places in one operating-system step, and what was displaced is read back and compared with what
+undo expected to find. A save that landed before the exchange is caught and the exchange is
+undone, so it is never overwritten. The rollback after a mismatch verifies the target still
+holds the staged version before swapping back, and restores any save that landed in between,
+so an intervening save is never deleted (Codex review 5890235470). If the verification read
+itself errors after the exchange, the rollback runs and the error is reported; if the rollback
+also fails, the displaced file is left in place (never deleted) so the version survives on
+disk (Codex review 5890471946). The exchange is the crate's first `unsafe` code; the macOS
+and Windows paths are exercised by the test suite in CI, not by hand here. Removing a file has
+no such primitive and keeps the narrowed check-then-remove gap (see T11).
+

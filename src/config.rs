@@ -123,6 +123,11 @@ pub struct AgentConfig {
     /// Shell used for commands: "powershell", "pwsh", "cmd", "bash", "zsh", ... Empty = the system default
     /// (PowerShell on Windows, bash elsewhere). The HERON_SHELL environment variable overrides it.
     pub shell: String,
+    /// Extra environment variables commands may see, by name. Commands get a short fixed list (PATH,
+    /// HOME, language and time zone, temporary folders, toolchain locations) and nothing else, so
+    /// tokens and cloud keys in your environment are not handed to whatever is run. Add a name here
+    /// when a command genuinely needs one.
+    pub shell_env: Vec<String>,
     /// "auto" (default): run commands inside the operating system's sandbox where one is available
     /// (bubblewrap on Linux, Seatbelt on macOS). "off": run them directly.
     pub sandbox: String,
@@ -252,6 +257,7 @@ impl Default for AgentConfig {
             max_tool_output_chars: 30_000,
             notify_command: String::new(),
             shell: String::new(),
+            shell_env: vec![],
             sandbox: "auto".into(),
             browser: String::new(),
             browser_visible: false,
@@ -569,6 +575,7 @@ max_steps = 40
 context_tokens = 100000
 auto_memory = true
 notify_command = ""                  # e.g. 'notify-send Heron "$HERON_MESSAGE"'
+shell_env = []                       # extra variables commands may see, e.g. ["GITHUB_TOKEN"]; others are withheld
 daily_token_limit = 0                # your own cap per day; 0 = none. Heron economises as it runs down
 monthly_token_limit = 0              # the same, per calendar month
 routing = "auto"                     # send short, simple requests to fast_model when one is set; "off" = never

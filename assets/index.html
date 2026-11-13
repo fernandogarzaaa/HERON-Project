@@ -739,7 +739,24 @@ input.addEventListener('input', grow);
 document.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); startNew(); } if (e.key === 'Escape') { if (document.body.classList.contains('nav-open')) document.body.classList.remove('nav-open'); else if (busy) stop(); } });
 $('#new').onclick = startNew;
 $('#menu').onclick = () => document.body.classList.toggle('nav-open');
-$('#undo').onclick = async () => { const r = await api('/undo', { method: 'POST', body: { session_id: current } }).catch(e => ({ undone: e.message })); const t = newTurn(); t.note(r.undone ? 'Undone: ' + r.undone : 'Nothing to undo in this conversation.'); scroll(true); };
+async function undoLast(confirmed) {
+  // "Restore anyway" answers a question about one change in one conversation: it carries both, so
+  // switching conversations (or Heron changing another file) meanwhile cannot redirect it.
+  const session = confirmed ? confirmed.session : current;
+  const r = await api('/undo', { method: 'POST', body: confirmed ? { session_id: session, force: true, checkpoint: confirmed.checkpoint } : { session_id: session } }).catch(e => ({ failed: e.message }));
+  const t = newTurn();
+  if (r.conflict) {
+    // The file is not as Heron left it. Say so, and let the person decide; their version is kept if they go ahead.
+    const box = el('div', 'ask'); box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-label', 'Undo would overwrite newer changes');
+    box.append(el('h3', '', 'Undo would overwrite newer changes'), el('p', 'warn', r.conflict), el('p', 'why', 'If you restore anyway, the version that is there now is saved beside the file first, so nothing is lost.'));
+    const row = el('div', 'row'), keep = el('button', 'btn', 'Leave the file as it is'), go = el('button', 'btn quiet', 'Restore anyway');
+    keep.onclick = () => box.replaceWith(el('p', 'note', 'Left as it is. Nothing was undone.'));
+    go.onclick = () => { box.remove(); undoLast({ session, checkpoint: r.checkpoint }); };
+    row.append(keep, go); box.append(row); t.el.append(box); keep.focus();
+  } else t.note(r.failed ? 'Could not undo: ' + r.failed : r.stale ? r.stale : r.undone ? 'Undone: ' + r.undone : 'Nothing to undo in this conversation.');
+  scroll(true);
+}
+$('#undo').onclick = () => undoLast(false);
 $('#modes').onclick = async e => { const m = e.target.dataset.mode; if (!m) return; if (m === 'yolo' && !confirm('Unrestricted means Heron changes files and runs commands without asking. Continue?')) return; await api('/mode', { method: 'POST', body: { mode: m } }); refreshState(); };
 
 // ----- views -----
@@ -972,7 +989,7 @@ async function loadUsage() {
   // The same daily figures as the chart, as a table anyone can read (the bars only show them on hover).
   const daily = el('details'), dt = el('table'), db = el('tbody'); daily.append(el('summary', '', 'Daily figures'));
   dt.innerHTML = '<thead><tr><th>Day</th><th>Tokens</th></tr></thead>';
-  for (const [day, n] of [...u.days].reverse()) { if (!n) continue; const tr = el('tr'); tr.append(el('td', '', new Date(day + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' })), el('td', 'n', Number(n).toLocaleString())); db.append(tr); }
+  for (const [day, n] of [...u.days].reverse()) { const tr = el('tr'); tr.append(el('td', '', new Date(day + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' })), el('td', 'n', Number(n).toLocaleString())); db.append(tr); }
   dt.append(db); daily.append(dt); daily.id = 'u-daily'; $('#u-daily')?.remove(); $('#u-pace').after(daily);
   $('#u-day').value = show(b.today.limit); $('#u-month').value = show(b.month.limit); $('#u-bg').value = show(u.background_limit);
   $('#u-bg-note').textContent = `Suggestions, preparing ahead, taking over and reflection. ${Number(u.background_today).toLocaleString()} used today. Reminders you set up yourself always run.`;

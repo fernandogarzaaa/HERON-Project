@@ -10,11 +10,12 @@ exactly what is.
 |---|---|
 | Audited `main` | `8ecd2fa3e78f36a734eadda913ed68244002b242` |
 | PR #1 (v0.1.0 beta) | Merged into `main` |
-| PR #2 `heron-v0.1-beta` | Open, draft. Head `6291be231c05e0f538c079533d76271b0f574876`. CI green on that commit (six jobs, three systems). Kept as is and built upon: it holds the real-model fixes, usage monitor, interface pass and the conversation-wide grant the permission work depends on |
-| PR #4 `security/effect-model` | Open, draft, stacked on PR #2. Code commit `728184a`; this report is in the commits after it. See the pull request for the head and its CI status |
+| PR #2 `heron-v0.1-beta` | Merged into `main` by the owner on 13 November 2026 (merge commit `5b1bdf2`), at head `9293554` with CI green and the review findings addressed |
+| PR #4 `security/effect-model` | Merged into `main` by the owner on 13 November 2026. Holds the permission redesign and the owner's approval of D-2 and D-3 |
+| PR #5 `durability/undo-jobs-env` | Open, marked ready for review by the owner. Undo conflict detection, atomic job claims, environment allowlist for commands, and the three findings from its automated review. Its base is still the already-merged `security/effect-model` branch and needs changing to `main` |
 | PR #3 `feat/cli-providers` | Open, not a draft, opened by the repository owner outside this session, targets `main`. Head `f189aaa`. Its CI fails on the Windows and macOS test jobs. It changes `config.rs`, `llm.rs`, `main.rs`, `server.rs`, `assets/index.html` and the README, all of which PR #2 and PR #4 also change, so it will need reconciling with them. Not touched by this session |
 
-Nothing in this session was merged, force-pushed or released.
+PR #1 was merged by this session at the owner's request; PR #2 and PR #4 were merged by the owner. Nothing was force-pushed, and no release was created by this session (the owner published v0.1.0).
 
 ## 2. Remediation matrix
 
@@ -22,13 +23,14 @@ The full matrix is REMEDIATION_MATRIX.md. Summary by status:
 
 - **Verified:** A1 effect model; A2 outside-content rule in unrestricted mode; A2 addresses from
   tool output are not the user's; A3 search exemption removed and narrow research grant;
-  C1 atomic approval claim; MCP server entry point under the policy.
+  C1 atomic approval claim; MCP server entry point under the policy; B2 allowlisted environment
+  for commands; C2 undo conflict detection and atomic writes (second session, branch
+  `durability/undo-jobs-env`, stacked on PR #4).
 - **Partial:** A1 across entry points (the app's own buttons are outside the mode, by decision
   D-3); A2 provenance; A3 typed egress policy; A4 invariant tests (no fuzz harness);
-  B2 limits; B3 MCP; B5 atomic writes; C4; D3; D4; E2; F1; G7.
+  B2 limits; B3 MCP; B5 atomic writes; C3 job claims and interrupted-run reporting; C4; D3; D4; E2; F1; G7.
 - **Not started:** B1 (browser request interception, per-session state, screenshots);
-  B2 environment allowlist and Windows containment; B4; C2 undo conflicts; C3 durable job queue;
-  C5 migrations; D1–D2 capability router; E1, E3, E4; F2 Automation Studio; F3 OAuth; F4 voice;
+  B2 Windows containment; B4; C5 migrations; D1–D2 capability router; E1, E3, E4; F2 Automation Studio; F3 OAuth; F4 voice;
   F5; F6; G1 gates; G2 mutation testing; G3 fuzzing; G5.
 - **Blocked externally:** G4 signing and installer qualification; G6 branch protection; live
   OAuth tests; paid-model tests; removing the stray file from the v0.1.0 release.
@@ -48,11 +50,11 @@ The full matrix is REMEDIATION_MATRIX.md. Summary by status:
   network inside the command sandbox and no sandbox on Windows (T3), per-request checks missing
   in the browser (T4), shared browser state across conversations (T5), and recalled unconfirmed
   facts not tainting a conversation (T2).
-- **Risk acceptances made by the engineer, awaiting the owner:** DECISIONS D-2 and D-3.
+- **Risk acceptances:** DECISIONS D-2 and D-3, approved by the owner on 13 November 2026 (recorded in DECISIONS.md).
 
 ## 4. Correctness and performance evidence
 
-- Tests: 101 unit and 8 integration pass locally (Linux 6.18 x86_64, rustc 1.97.0), including
+- Tests: 110 unit and 8 integration pass locally (Linux 6.18 x86_64, rustc 1.97.0), including
   the real-browser test against Chromium. Windows type-check passes from Linux.
 - Hosted CI: green on PR #2's head. For the permission branch see its pull request; a local
   pass is not a hosted pass.

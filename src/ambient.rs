@@ -231,7 +231,7 @@ mod observer_tests {
 
         // a file Heron wrote itself is not treated as the user's activity
         std::fs::write(d.path().join("by-heron.md"), "x").unwrap();
-        store.save_checkpoint("s", &d.path().join("by-heron.md").to_string_lossy(), None).unwrap();
+        store.save_checkpoint("s", &d.path().join("by-heron.md").to_string_lossy(), None, None).unwrap();
         assert_eq!(observe(&store, d.path()), 5);
         assert_eq!(observe(&store, d.path()), 0, "the same change is not counted twice");
         let a = awareness(&store, d.path());

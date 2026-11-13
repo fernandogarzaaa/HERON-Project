@@ -315,9 +315,11 @@ async fn repl(app: Arc<App>, mut session: Session) -> Result<()> {
                     }
                     Err(e) => println!("{}", st.red(&e.to_string())),
                 },
-                "undo" => match heron::tools::fs::undo_last(&agent.tool_ctx(&session.id))? {
-                    Some(what) => println!("{}", st.dim(&format!("  undone: {what}"))),
-                    None => println!("{}", st.dim("  nothing to undo")),
+                "undo" => match heron::tools::fs::undo_last(&agent.tool_ctx(&session.id)) {
+                    Ok(Some(what)) => println!("{}", st.dim(&format!("  undone: {what}"))),
+                    Ok(None) => println!("{}", st.dim("  nothing to undo")),
+                    // A refusal (the file has changed since) is an answer, not a reason to end the conversation.
+                    Err(e) => println!("{}", st.red(&format!("  not undone: {e:#}"))),
                 },
                 "tokens" => {
                     let u = app.usage.lock().unwrap().clone();
@@ -611,6 +613,7 @@ async fn real_main() -> Result<()> {
             }
         }
         Cmd::Daemon => {
+            app.own_background_work(); // before anything runs; the loop says so if another Heron already does
             println!("Heron scheduler running (jobs use '{}' mode). Ctrl-C to stop.", app.cfg().permissions.daemon_mode);
             tokio::spawn(app.clone().observer_loop());
             if heron::telegram::spawn_if_configured(&app) {

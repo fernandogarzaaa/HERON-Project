@@ -1590,6 +1590,7 @@ dependencies = [
  "toml 0.8.2",
  "url",
  "uuid",
+ "windows-sys 0.59.0",
  "winresource",
  "wry",
 ]

@@ -158,6 +158,9 @@ pub fn router(app: Arc<App>, token: String) -> Router {
 }
 
 pub async fn serve(app: Arc<App>, listener: tokio::net::TcpListener, token: String) -> Result<()> {
+    // Before anything can be started from the app: if this Heron is to own background work, it takes
+    // ownership (and reports what the previous one left unfinished) now, never in the middle of its own work.
+    app.own_background_work();
     tokio::spawn(app.clone().scheduler_loop());
     tokio::spawn(app.clone().observer_loop());
     crate::telegram::spawn_if_configured(&app);
@@ -469,10 +472,32 @@ async fn cancel(State(st): S, Json(b): Json<SessionBody>) -> ApiResult {
     Ok(Json(json!({"ok": true})))
 }
 
-async fn undo(State(st): S, Json(b): Json<SessionBody>) -> ApiResult {
+#[derive(Deserialize)]
+struct UndoBody {
+    session_id: String,
+    /// Restore even though the file has changed since (the current version is kept beside it).
+    #[serde(default)]
+    force: bool,
+    /// With `force`: the change the person was asked about, as named in the refusal. Restoring
+    /// anyway applies to that one only.
+    #[serde(default)]
+    checkpoint: Option<String>,
+}
+
+async fn undo(State(st): S, Json(b): Json<UndoBody>) -> ApiResult {
+    use crate::tools::fs::Undo;
     let agent = st.app.agent(Arc::new(crate::permissions::DenyAll));
-    let result = crate::tools::fs::undo_last(&agent.tool_ctx(&b.session_id))?;
-    Ok(Json(json!({"undone": result})))
+    let restore_anyway = match (b.force, b.checkpoint.as_deref()) {
+        (false, _) => None,
+        (true, Some(id)) => Some(id),
+        (true, None) => return Err(ApiError(StatusCode::BAD_REQUEST, "restoring anyway needs the checkpoint that was asked about".into())),
+    };
+    Ok(Json(match crate::tools::fs::undo(&agent.tool_ctx(&b.session_id), restore_anyway)? {
+        Undo::Nothing => json!({"undone": null}),
+        Undo::Done(said) => json!({"undone": said}),
+        Undo::Conflict { id, why } => json!({"undone": null, "conflict": why, "checkpoint": id}),
+        Undo::Stale(why) => json!({"undone": null, "stale": why}),
+    }))
 }
 
 // ---------- memory / tasks / schedules / inbox / audit ----------

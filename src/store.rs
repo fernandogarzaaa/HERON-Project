@@ -187,6 +187,10 @@ CREATE TABLE IF NOT EXISTS schedules(
 CREATE TABLE IF NOT EXISTS runs(
   id INTEGER PRIMARY KEY, schedule_id INTEGER NOT NULL, ts INTEGER NOT NULL, status TEXT NOT NULL, tokens INTEGER NOT NULL DEFAULT 0, record TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_runs_schedule ON runs(schedule_id, id);
+CREATE TABLE IF NOT EXISTS job_runs(
+  id INTEGER PRIMARY KEY, schedule_id INTEGER NOT NULL, name TEXT NOT NULL, due_at INTEGER NOT NULL,
+  started_at INTEGER NOT NULL, finished_at INTEGER, status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS idx_job_runs_status ON job_runs(status);
 CREATE TABLE IF NOT EXISTS inbox(
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS audit(
@@ -269,6 +273,9 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
         // Databases created by earlier versions.
+        if conn.prepare("SELECT after_hash FROM checkpoints LIMIT 0").is_err() {
+            conn.execute_batch("ALTER TABLE checkpoints ADD COLUMN after_hash TEXT;")?;
+        }
         if conn.prepare("SELECT hash FROM audit LIMIT 0").is_err() {
             conn.execute_batch("ALTER TABLE audit ADD COLUMN hash TEXT;")?;
         }
@@ -715,6 +722,64 @@ impl Store {
         Ok(())
     }
 
+    /// Take a due job for running. In one transaction the schedule moves on to its next time and a
+    /// "running" record is written, and only if the job is still due at the time that was seen. So
+    /// two schedulers looking at the same moment cannot both run it, a crash cannot make it fire in a
+    /// loop, and a run that is cut short leaves a record behind instead of vanishing.
+    /// Returns the run's id, or None if someone else took the job first.
+    pub fn claim_due_job(&self, job: &Schedule, next_run: Option<i64>) -> Result<Option<i64>> {
+        let mut db = self.db();
+        let tx = db.transaction()?;
+        let taken = tx.execute(
+            "UPDATE schedules SET last_run=?1, next_run=?2, enabled=CASE WHEN ?2 IS NULL THEN 0 ELSE enabled END WHERE id=?3 AND enabled=1 AND next_run IS ?4",
+            params![now_ts(), next_run, job.id, job.next_run],
+        )?;
+        if taken != 1 {
+            return Ok(None);
+        }
+        tx.execute("INSERT INTO job_runs(schedule_id, name, due_at, started_at, status) VALUES (?,?,?,?,'running')", params![job.id, job.name, job.next_run.unwrap_or(0), now_ts()])?;
+        let id = tx.last_insert_rowid();
+        // Keep the last 500 finished runs. A run still in progress is never removed, however old.
+        tx.execute("DELETE FROM job_runs WHERE status != 'running' AND id NOT IN (SELECT id FROM job_runs WHERE status != 'running' ORDER BY id DESC LIMIT 500)", [])?;
+        tx.commit()?;
+        Ok(Some(id))
+    }
+
+    pub fn finish_job_run(&self, run_id: i64, status: &str, note: &str) -> Result<()> {
+        self.db().execute("UPDATE job_runs SET status=?, note=?, finished_at=? WHERE id=? AND status='running'", params![status, note, now_ts(), run_id])?;
+        Ok(())
+    }
+
+    /// Runs that were under way when Heron last stopped. Whether they finished is not known, so they are
+    /// marked that way and returned (schedule id, job name) for the user to be told. They are not repeated.
+    pub fn recover_interrupted_jobs(&self, notice: &str) -> Result<Vec<(i64, String)>> {
+        let mut db = self.db();
+        // One transaction: a run is never marked without its notice being written, so stopping
+        // half-way cannot leave an interrupted run that nobody is told about.
+        let tx = db.transaction()?;
+        let found: Vec<(i64, String)> = {
+            let mut st = tx.prepare("SELECT schedule_id, name FROM job_runs WHERE status='running' ORDER BY id")?;
+            let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+            rows
+        };
+        let now = now_ts();
+        tx.execute("UPDATE job_runs SET status='unknown', finished_at=?, note='Heron stopped while this was running' WHERE status='running'", [now])?;
+        for (_, name) in &found {
+            tx.execute("INSERT INTO inbox(ts, title, body) VALUES (?,?,?)", params![now, name, notice])?;
+        }
+        tx.commit()?;
+        Ok(found)
+    }
+
+    /// Recent runs of scheduled jobs, newest first: (job name, due, started, finished, status, note).
+    #[allow(clippy::type_complexity)]
+    pub fn job_runs(&self, limit: usize) -> Result<Vec<(String, i64, i64, Option<i64>, String, String)>> {
+        let db = self.db();
+        let mut st = db.prepare("SELECT name, due_at, started_at, finished_at, status, note FROM job_runs ORDER BY id DESC LIMIT ?")?;
+        let v = st.query_map([limit as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?.collect::<rusqlite::Result<_>>()?;
+        Ok(v)
+    }
+
     pub fn set_schedule_result(&self, id: i64, result: &str) -> Result<()> {
         self.db().execute("UPDATE schedules SET last_result=? WHERE id=?", params![result, id])?;
         Ok(())
@@ -793,12 +858,36 @@ impl Store {
 
     // ---------- checkpoints (undo for file writes) ----------
 
-    pub fn save_checkpoint(&self, session_id: &str, path: &str, prev: Option<&[u8]>) -> Result<()> {
-        self.db().execute(
-            "INSERT INTO checkpoints(ts, session_id, path, existed, prev) VALUES (?,?,?,?,?)",
-            params![now_ts(), session_id, path, prev.is_some() as i64, prev],
-        )?;
+    /// Note a file change that is about to be made: what was there (`prev`), and a hash of what the
+    /// file will hold afterwards, so undo can tell later whether anyone has touched it since.
+    pub fn save_checkpoint(&self, session_id: &str, path: &str, prev: Option<&[u8]>, after_hash: Option<&str>) -> Result<i64> {
+        let db = self.db();
+        db.execute("INSERT INTO checkpoints(ts, session_id, path, existed, prev, after_hash) VALUES (?,?,?,?,?,?)", params![now_ts(), session_id, path, prev.is_some() as i64, prev, after_hash])?;
+        Ok(db.last_insert_rowid())
+    }
+
+    /// The change turned out not to happen (the write failed): there is nothing to undo.
+    pub fn drop_checkpoint(&self, id: i64) -> Result<()> {
+        self.db().execute("DELETE FROM checkpoints WHERE id=?", [id])?;
         Ok(())
+    }
+
+    /// The most recent checkpoint of a conversation, left in place:
+    /// (id, path, previous content or None if the file did not exist, hash after Heron's change).
+    #[allow(clippy::type_complexity)]
+    pub fn last_checkpoint(&self, session_id: &str) -> Result<Option<(i64, String, Option<Vec<u8>>, Option<String>)>> {
+        let row: Option<(i64, String, i64, Option<Vec<u8>>, Option<String>)> = self
+            .db()
+            .query_row("SELECT id, path, existed, prev, after_hash FROM checkpoints WHERE session_id=? ORDER BY id DESC LIMIT 1", [session_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })
+            .optional()?;
+        Ok(row.map(|(id, path, existed, prev, after)| (id, path, if existed != 0 { Some(prev.unwrap_or_default()) } else { None }, after)))
+    }
+
+    /// When a checkpoint was made (seconds), or None if it is gone.
+    pub fn checkpoint_made_at(&self, id: i64) -> Result<Option<i64>> {
+        Ok(self.db().query_row("SELECT ts FROM checkpoints WHERE id=?", [id], |r| r.get(0)).optional()?)
     }
 
     /// Pop the most recent checkpoint for a session: (path, previous content or None if the file did not exist).
@@ -1063,6 +1152,35 @@ mod tests {
     }
 
     #[test]
+    fn a_run_in_progress_is_never_pruned_and_is_reported_with_its_notice_in_one_step() {
+        let s = Store::in_memory().unwrap();
+        let slow = s.add_schedule("slow job", "0 9 * * *", "p", 1, "").unwrap();
+        let quick = s.add_schedule("quick job", "* * * * *", "p", 1, "").unwrap();
+        let job = |id: i64| s.list_schedules().unwrap().into_iter().find(|j| j.id == id).unwrap();
+
+        // One long run starts and stays in progress while another job runs many hundreds of times.
+        assert!(s.claim_due_job(&job(slow), Some(i64::MAX - 1)).unwrap().is_some());
+        for n in 0..520 {
+            let run = s.claim_due_job(&job(quick), Some(1000 + n)).unwrap().expect("claimed");
+            s.finish_job_run(run, "ok", "").unwrap();
+        }
+        let runs = s.job_runs(1000).unwrap();
+        // (Pruning happens as a run starts, so the newest finished run can sit one above the cap.)
+        assert!((500..=501).contains(&runs.iter().filter(|r| r.4 == "ok").count()), "finished history is capped");
+        assert_eq!(runs.iter().filter(|r| r.0 == "slow job" && r.4 == "running").count(), 1, "the run in progress is still on record");
+
+        // Heron stops. On the next start the run is marked and its notice written together.
+        let found = s.recover_interrupted_jobs("it is not known whether it finished").unwrap();
+        assert_eq!(found, vec![(slow, "slow job".to_string())]);
+        let notices: Vec<_> = s.inbox(true, 10).unwrap().into_iter().filter(|m| m.title == "slow job").collect();
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].body.contains("not known whether it finished"));
+        // Starting again finds nothing new and says nothing twice.
+        assert!(s.recover_interrupted_jobs("x").unwrap().is_empty());
+        assert_eq!(s.inbox(true, 10).unwrap().iter().filter(|m| m.title == "slow job").count(), 1);
+    }
+
+    #[test]
     fn tasks_schedules_checkpoints() {
         let s = Store::in_memory().unwrap();
         let t = s.add_task("write report", "", 1, Some("2026-12-01")).unwrap();
@@ -1076,8 +1194,9 @@ mod tests {
         assert!(s.due_schedules(i64::MAX).unwrap().is_empty());
         assert!(!s.list_schedules().unwrap()[0].enabled);
 
-        s.save_checkpoint("s", "/a", Some(b"old")).unwrap();
-        s.save_checkpoint("s", "/b", None).unwrap();
+        let first = s.save_checkpoint("s", "/a", Some(b"old"), Some("abc")).unwrap();
+        assert_eq!(s.last_checkpoint("s").unwrap(), Some((first, "/a".into(), Some(b"old".to_vec()), Some("abc".into()))));
+        s.save_checkpoint("s", "/b", None, None).unwrap();
         assert_eq!(s.pop_checkpoint("s").unwrap(), Some(("/b".into(), None)));
         assert_eq!(s.pop_checkpoint("s").unwrap(), Some(("/a".into(), Some(b"old".to_vec()))));
         assert_eq!(s.pop_checkpoint("s").unwrap(), None);

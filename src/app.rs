@@ -28,7 +28,13 @@ pub struct App {
     pub usage: Arc<Mutex<Usage>>,
     /// The phone gateway, while it is running.
     pub telegram_task: Mutex<Option<tokio::task::AbortHandle>>,
+    /// Held while this is the one Heron on the computer that runs things in the background
+    /// (see [`App::own_background_work`]). Released when the program ends, however it ends.
+    background: Mutex<Option<std::fs::File>>,
 }
+
+/// What the inbox says about a job that was running when Heron stopped.
+const INTERRUPTED_JOB_NOTICE: &str = "Heron stopped while this job was running, so it is not known whether it finished. It was not run again. Check what it was meant to do, and use \"Run now\" under Reminders if it should be repeated.";
 
 const RULES_KEY: &str = "allow_rules";
 
@@ -86,9 +92,7 @@ impl App {
                 policy.add_allow(&r);
             }
         }
-        // Anything that was mid-way when Heron last stopped has an unknown outcome; say so.
-        let _ = store.recover_interrupted_approvals();
-        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy: Arc::new(policy), workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default() })
+        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy: Arc::new(policy), workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default() })
     }
 
     pub fn cfg(&self) -> Arc<Config> {
@@ -157,18 +161,24 @@ impl App {
             return 0;
         }
         let due = self.store.due_schedules(crate::util::now_ts()).unwrap_or_default();
+        let mut ran = 0;
         for job in &due {
-            // Advance first: a crash or a slow run must never cause the same job to fire in a loop.
-            let _ = self.store.advance_schedule(job.id, crate::schedule::next_run(&job.cron, chrono::Local::now()));
-            self.run_job(job, None).await;
+            // Claim first, in one step with moving the schedule on: a crash or a slow run can never
+            // make the same job fire in a loop, two schedulers can never both run it, and a run that
+            // is cut short stays on record.
+            let Ok(Some(run)) = self.store.claim_due_job(job, crate::schedule::next_run(&job.cron, chrono::Local::now())) else { continue };
+            let ok = self.run_job(job, None).await;
+            let _ = self.store.finish_job_run(run, if ok { "ok" } else { "failed" }, "");
+            ran += 1;
         }
-        due.len()
+        ran
     }
 
     /// Run one unattended job. Each job has exactly the authority the user granted it; anything beyond
     /// that is not done but kept in the "waiting for you" list. `event` describes what set off a trigger
     /// and is outside content, so a triggered job starts under the outside-content rule.
-    async fn run_job(&self, job: &crate::store::Schedule, event: Option<String>) {
+    /// Returns whether the job did its work (a refusal that is waiting for approval counts as done).
+    async fn run_job(&self, job: &crate::store::Schedule, event: Option<String>) -> bool {
         let cfg = self.cfg();
         let grants: Vec<String> = job.allow.split('\n').map(str::trim).filter(|r| !r.is_empty()).map(String::from).collect();
         let policy = if grants.is_empty() {
@@ -207,22 +217,24 @@ impl App {
             total.prompt_tokens += used.prompt_tokens;
             total.completion_tokens += used.completion_tokens;
         }
+        let worked = outcome.is_ok();
         let body = match outcome {
             Ok(text) => text,
             Err(e) => format!("Scheduled job failed: {e:#}"),
         };
         if job.quiet && body.trim().trim_matches(['.', '`', '"']) == "NOTHING_TO_REPORT" {
             let _ = self.store.record_schedule_run(job.id, "Checked: nothing needed your attention.", tokens);
-            return;
+            return true;
         }
         let _ = self.store.record_schedule_run(job.id, &preview(&body, 500), tokens);
         let _ = self.store.add_inbox(&job.name, &body);
         notify(&cfg, &job.name, &body);
+        worked
     }
 
     /// Run a job whose work is a fixed list of steps. Steps run as plain code through the same permission
     /// checks as the agent; the model is called only by steps that ask for it.
-    async fn run_automation(&self, job: &crate::store::Schedule, agent: Agent, event: Option<String>) {
+    async fn run_automation(&self, job: &crate::store::Schedule, agent: Agent, event: Option<String>) -> bool {
         let cfg = self.cfg();
         let spent = agent.usage.clone();
         let outcome: Result<crate::workflow::RunRecord> = async {
@@ -279,6 +291,7 @@ impl App {
             }
         };
         let _ = self.store.record_schedule_run(job.id, &summary, tokens);
+        matches!(record.status.as_str(), "ok" | "stopped" | "waiting")
     }
 
     /// Run a job right now, whatever its schedule (the "Run now" button).
@@ -590,9 +603,47 @@ impl App {
     }
 
     /// Check for due jobs every 20 seconds, forever.
+    /// Become the one Heron on this computer that runs reminders and scheduled jobs, if no other is.
+    ///
+    /// Ownership is a lock on a file in Heron's home, held for as long as this program runs and let
+    /// go by the operating system when it ends, even if it crashes. Getting the lock therefore means
+    /// no other Heron is doing background work, so anything the database still shows as "running"
+    /// was cut short: only then is it marked as "outcome unknown" and reported. A second Heron, or a
+    /// terminal command such as `heron inbox` run while the app is open, does not get the lock and
+    /// must leave those records alone: the work they describe may be going on right now.
+    ///
+    /// Returns whether this program owns background work. Safe to call repeatedly.
+    pub fn own_background_work(&self) -> bool {
+        let mut held = self.background.lock().unwrap_or_else(|e| e.into_inner());
+        if held.is_some() {
+            return true;
+        }
+        let cfg = self.cfg();
+        if cfg.ensure_home().is_err() {
+            return false;
+        }
+        let Ok(file) = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(cfg.home.join("background.lock")) else { return false };
+        if file.try_lock().is_err() {
+            return false;
+        }
+        // Anything that was mid-way when the previous owner stopped has an unknown outcome; say so.
+        let _ = self.store.recover_interrupted_approvals();
+        let _ = self.store.recover_interrupted_jobs(INTERRUPTED_JOB_NOTICE);
+        *held = Some(file);
+        true
+    }
+
     pub async fn scheduler_loop(self: Arc<Self>) {
+        let mut said = false;
         loop {
-            self.run_due_schedules().await;
+            // Only one Heron runs reminders and jobs. If another already does, wait: this one takes
+            // over within a few seconds of the other stopping.
+            if self.own_background_work() {
+                self.run_due_schedules().await;
+            } else if !said {
+                said = true;
+                eprintln!("heron: another Heron on this computer is already running reminders and scheduled jobs; this one will take over if it stops.");
+            }
             tokio::time::sleep(std::time::Duration::from_secs(20)).await;
         }
     }
@@ -679,6 +730,64 @@ mod tests {
     use super::*;
     use crate::llm::{Message, ScriptedLlm};
     use serde_json::json;
+
+    #[tokio::test]
+    async fn a_due_job_is_claimed_once_recorded_and_never_silently_lost() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        cfg.agent.auto_memory = false;
+        let llm = Arc::new(ScriptedLlm::new(vec![Message::assistant("Done: stretched.")]));
+        let store = Store::in_memory().unwrap();
+        let app = App::assemble(cfg.clone(), dir.path().join("ws"), store.clone(), llm.clone()).await.unwrap();
+        assert!(app.own_background_work(), "the first Heron runs the background work");
+        let daily = app.store.add_schedule("stretch", "0 9 * * *", "remind me to stretch", 1, "").unwrap();
+
+        // Two schedulers see the same due job at the same moment. Only one of them gets it.
+        let seen = app.store.due_schedules(crate::util::now_ts()).unwrap();
+        assert_eq!(seen.len(), 1);
+        let first = app.store.claim_due_job(&seen[0], Some(i64::MAX - 1)).unwrap();
+        let second = app.store.claim_due_job(&seen[0], Some(i64::MAX - 1)).unwrap();
+        assert!(first.is_some() && second.is_none(), "the same due time cannot be taken twice");
+        // The schedule has moved on, so it is not due again and cannot fire in a loop.
+        assert!(app.store.due_schedules(crate::util::now_ts()).unwrap().is_empty());
+
+        // While that run is going on, someone looks at Heron from the terminal (`heron inbox`, say).
+        // That builds a second app on the same data. It must not disturb the run: it is not known
+        // to have been interrupted, because the Heron running it is still there.
+        let looking = App::assemble(cfg.clone(), dir.path().join("ws"), store.clone(), llm.clone()).await.unwrap();
+        assert!(!looking.own_background_work(), "a second one does not take it over while the first is alive");
+        let runs = looking.store.job_runs(10).unwrap();
+        assert_eq!((runs.len(), runs[0].4.as_str()), (1, "running"), "the live run is left alone");
+        assert!(looking.store.inbox(true, 10).unwrap().is_empty(), "and nobody is told it was interrupted");
+        drop(looking);
+
+        // That run never finishes (Heron stops). On the next start it is reported, not repeated.
+        drop(app);
+        let restarted = App::assemble(cfg, dir.path().join("ws"), store.clone(), llm.clone()).await.unwrap();
+        assert_eq!(restarted.store.job_runs(10).unwrap()[0].4, "running", "building the app alone changes nothing");
+        assert!(restarted.own_background_work(), "with the first Heron gone, the next one takes over");
+        assert!(restarted.own_background_work(), "and asking again is harmless");
+        let runs = restarted.store.job_runs(10).unwrap();
+        assert_eq!((runs.len(), runs[0].4.as_str()), (1, "unknown"));
+        let inbox = restarted.store.inbox(true, 10).unwrap();
+        assert!(inbox.iter().any(|m| m.title == "stretch" && m.body.contains("not known whether it finished")), "{inbox:?}");
+        assert_eq!(restarted.run_due_schedules().await, 0, "the interrupted run is not started again by itself");
+        assert_eq!(llm.requests.lock().unwrap().len(), 0);
+
+        // A normal run is recorded as finished, and a failing one as failed.
+        restarted.store.add_schedule("ok job", "", "say done", 1, "").unwrap();
+        assert_eq!(restarted.run_due_schedules().await, 1);
+        let broken = restarted.store.add_schedule("broken job", "", "this will fail", 1, "").unwrap();
+        restarted.store.set_schedule_workflow(broken, "{ this is not a valid automation").unwrap();
+        assert_eq!(restarted.run_due_schedules().await, 1);
+        let runs = restarted.store.job_runs(10).unwrap();
+        let status = |name: &str| runs.iter().find(|r| r.0 == name).map(|r| (r.4.clone(), r.3.is_some())).unwrap();
+        assert_eq!(status("ok job"), ("ok".to_string(), true));
+        assert_eq!(status("broken job"), ("failed".to_string(), true));
+        assert!(restarted.store.inbox(true, 10).unwrap().iter().any(|m| m.title == "broken job" && m.body.contains("did not finish")));
+        let _ = daily;
+    }
 
     #[tokio::test]
     async fn scheduled_job_runs_once_readonly_and_lands_in_inbox() {

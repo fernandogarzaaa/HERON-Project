@@ -7,14 +7,17 @@ one of these is larger than a single change. Status lives in REMEDIATION_MATRIX.
 
 - Done: effect model, read-only for all state, outside-content rule in every mode, search no
   longer exempt, MCP server under the same policy.
-- Next: treat recalled unconfirmed facts as outside content (T2); allowlisted environment for
-  commands; per-conversation browser state; request-level checks in the browser.
+- Done since: allowlisted environment for commands.
+- Next: treat recalled unconfirmed facts as outside content (T2); per-conversation browser state;
+  request-level checks in the browser.
 
 ## Phase 2 — durability
 
-- Done: approvals given later are claimed atomically.
-- Next, in order: undo that checks the file has not changed since; a run table with claim and
-  crash recovery for scheduled jobs; `user_version` migrations with a snapshot before upgrade.
+- Done: approvals given later are claimed atomically; undo checks the file has not changed
+  since and writes are atomic; due jobs are claimed in one transaction and interrupted runs are
+  reported.
+- Next, in order: retry with backoff and per-job pause for jobs; `user_version` migrations with a
+  snapshot before upgrade; backup and restore.
 
 ## Phase 3 — platform security
 

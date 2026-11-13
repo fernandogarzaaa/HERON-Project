@@ -8,7 +8,7 @@ Environment used for the figures in this folder: Linux 6.18 (x86_64), rustc 1.97
 for the browser test.
 
 ```bash
-cargo test                                   # 101 unit + 8 integration (browser test skipped)
+cargo test                                   # 110 unit + 8 integration (browser test skipped)
 ```
 ```bash
 HERON_TEST_BROWSER=1 cargo test              # also drives the installed browser
