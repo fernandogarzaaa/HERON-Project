@@ -478,16 +478,21 @@ pub fn classify_shell(cmd: &str) -> Effect {
     if c.len() > 1500 || links > 10 {
         return Effect::Privileged;
     }
-    // Keys, credentials, other programs' memory and devices: the same files `read_file` asks about.
-    if names_sensitive_path(c) {
-        return Effect::SensitiveRead;
-    }
     // Provably read-only: a pipeline of known-safe commands with no redirection, substitution, chaining,
     // variables (which can hold secrets) or script blocks.
     if c.contains(['>', '<', ';', '&', '`', '\n', '\r', '$', '{', '(', '%']) || c.to_lowercase().contains("env:") {
         return Effect::ProcessExec;
     }
-    if c.split('|').all(simple_command_is_readonly) { Effect::LocalRead } else { Effect::ProcessExec }
+    if !c.split('|').all(simple_command_is_readonly) {
+        return Effect::ProcessExec;
+    }
+    // Keys, credentials, other programs' memory and devices: the same files `read_file` asks about.
+    // Only a provably read-only command earns the read effect. A command that names a secret but
+    // also writes or runs code (cp, rm, mv) stays an exec, so read-only mode still refuses it.
+    if names_sensitive_path(c) {
+        return Effect::SensitiveRead;
+    }
+    Effect::LocalRead
 }
 
 // ---------------- path sandbox ----------------
@@ -730,6 +735,21 @@ mod tests {
         for c in ["cat /proc/self/environ", "head -c 100 /proc/1/environ", "cat /dev/zero", "cat ~/.npmrc", "cat deploy/credentials.json", "tail server.pem", "grep token ~/.git-credentials", "cat C:\\Users\\me\\.aws\\credentials"] {
             assert!(classify_shell(c).high(), "{c}");
         }
+    }
+
+    #[test]
+    fn a_command_that_names_a_secret_but_writes_is_still_an_exec() {
+        for c in ["cp ~/.npmrc copied.txt", "rm ~/.npmrc", "mv server.pem server.pem.bak", "cp deploy/credentials.json /tmp/x"] {
+            assert_eq!(classify_shell(c), Effect::ProcessExec, "{c}");
+        }
+        // The read-only form still asks about the secret instead of allowing it outright.
+        for c in ["cat ~/.npmrc", "grep token ~/.git-credentials", "tail server.pem"] {
+            assert_eq!(classify_shell(c), Effect::SensitiveRead, "{c}");
+        }
+        // And read-only mode refuses the write even though it names a secret.
+        let p = Policy::new(Mode::ReadOnly, &[], &[]);
+        let effect = classify_shell("cp ~/.npmrc copied.txt");
+        assert!(matches!(p.decide_in("shell", "cp ~/.npmrc copied.txt", effect, false), Verdict::Deny(_)));
     }
 
     #[test]

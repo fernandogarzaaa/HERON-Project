@@ -1097,7 +1097,7 @@ impl CliLlm {
         env
     }
 
-    fn argv(&self, prompt: &str) -> Result<(PathBuf, Vec<String>)> {
+    fn argv(&self, prompt: &str, model: &str) -> Result<(PathBuf, Vec<String>)> {
         // The size cap needs no binary: check it first, so a prompt over
         // the cap is refused even when the CLI is not installed.
         if matches!(self.spec.input, PromptInput::Arg | PromptInput::Flag) {
@@ -1113,16 +1113,16 @@ impl CliLlm {
         }
         let path = self.binary_path()?;
         let model = if self.spec.id == "claude-cli" {
-            let base = if !self.model.is_empty() {
-                self.model.clone()
+            let base = if !model.is_empty() {
+                model.to_string()
             } else {
                 "sonnet".to_string()
             };
             Some(claude_native_model(&base))
-        } else if self.model.is_empty() {
+        } else if model.is_empty() {
             None
         } else {
-            Some(self.model.clone())
+            Some(model.to_string())
         };
         let template_has_prompt =
             self.spec.id == "custom-cli" && self.custom_args.iter().any(|a| a.contains("{prompt}"));
@@ -1553,7 +1553,15 @@ pub fn override_for_provider<'a>(spec_id: &str, selected: &str, cli_command: &'a
 impl Llm for CliLlm {
     async fn chat(&self, req: ChatRequest, on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
         let prompt = render_prompt(&req);
-        let (path, args) = self.argv(&prompt)?;
+        // The agent routes simple and background requests to the fast model
+        // through ChatRequest.model; that override wins over cli_model, so
+        // the CLI actually runs the model the UI announces.
+        let model = req
+            .model
+            .as_deref()
+            .filter(|m| !m.trim().is_empty())
+            .unwrap_or(self.model.as_str());
+        let (path, args) = self.argv(&prompt, model)?;
         let run_dir = make_private_temp_dir(&self.home)?;
         // Removes the dir when chat() returns or the future is dropped
         // (cancel). This is the only cleanup: explicit calls cannot run
@@ -1735,10 +1743,10 @@ impl Llm for CliLlm {
             );
         }
         let mut resp = acc.finish(&req, on_delta);
-        resp.model = if self.model.is_empty() {
+        resp.model = if model.is_empty() {
             self.spec.id.to_string()
         } else {
-            self.model.clone()
+            model.to_string()
         };
         Ok(resp)
     }
@@ -2364,12 +2372,12 @@ mod tests {
         let mut cfg = test_cfg(dir.path(), "opencode-cli");
         cfg.llm.cli_command = bin.to_string_lossy().to_string();
         let llm = CliLlm::from_config(&cfg).unwrap();
-        let err = llm.argv(&"x".repeat(200_000)).unwrap_err();
+        let err = llm.argv(&"x".repeat(200_000), "").unwrap_err();
         assert!(
             err.to_string().contains("over the"),
             "a prompt over the argv cap must fail early, not at spawn: {err}"
         );
-        assert!(llm.argv("short").is_ok());
+        assert!(llm.argv("short", "").is_ok());
     }
 
     #[tokio::test]
@@ -2477,6 +2485,42 @@ mod tests {
         assert_eq!(probed.plan.as_deref(), Some("Claude pro"));
         let unprobed = probe_status(&spec, &bin.to_string_lossy(), "").await;
         assert_eq!(unprobed.logged_in, Some(false));
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn request_model_override_wins_over_cli_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let record = dir.path().join("argv.txt");
+        let envelope = r#"{\"text\": \"hi\", \"tool_calls\": []}"#;
+        let script = format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ncat > /dev/null\nprintf '%s\\n' '{{\"type\":\"system\",\"subtype\":\"init\"}}' '{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"{envelope}\"}}]}}}}' '{{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"{envelope}\",\"usage\":{{\"input_tokens\":11,\"output_tokens\":4}}}}'\n",
+            record.display()
+        );
+        let bin = fake_bin(dir.path(), "claude", &script);
+        let mut cfg = test_cfg(dir.path(), "claude-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        cfg.llm.cli_model = "sonnet".to_string();
+        let llm = CliLlm::from_config(&cfg).unwrap();
+        let req = ChatRequest {
+            messages: vec![Message::user("hi")],
+            model: Some("haiku".to_string()),
+            ..Default::default()
+        };
+        let r = llm.chat(req, &|_| {}).await.unwrap();
+        assert_eq!(r.message.text(), "hi");
+        // The reply names the model that was asked for; the CLI itself
+        // ran the native form, checked on the recorded argv below.
+        assert_eq!(r.model, "haiku");
+        let argv = std::fs::read_to_string(&record).unwrap();
+        assert!(
+            argv.contains("--model claude-haiku-5-5[1m]"),
+            "the CLI ran with: {argv}"
+        );
+        assert!(
+            !argv.contains("sonnet"),
+            "the configured main model leaked into the override: {argv}"
+        );
     }
 
     #[tokio::test]
