@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.3.0 — 2026-11-14
+
+Native desktop beta (Slint):
+
+- Replaced the old embedded webview desktop window with a native Slint window on macOS, Windows, and Linux. Heron's local, loopback-only Axum backend and per-launch bridge token remain in place.
+- Wired the Chat, Views, and Setup components into one compiled Slint root, replacing the temporary shell placeholders.
+- Chat now includes conversation history and session switching, streamed replies with turn correlation (including late memory-learning events), cancellation, saved session replay, tool-step and approval cards, copy, link opening, and undo feedback.
+- Added native views for memory, tasks, reminders, awareness, activity, and usage with sidebar updates. Delivered reminders are marked read only when the Reminders view is opened, not on app startup. Acknowledging a completed suggestion does not execute it again.
+- Native onboarding and settings support local models, OpenAI-compatible endpoints, and configured subscription CLIs (including Claude and Codex). CLI selection does not install or authenticate a provider; sign in to the relevant CLI yourself. Optional profile questions can be skipped.
+- Confirmation prompts guard Unrestricted mode, awareness takeover, and deletion of observed information. Server-side permission enforcement remains authoritative.
+- Refined cross-platform Slint packaging and added Linux installer smoke tests, bridge/SSE tests, and CI checks on all three operating systems.
+
+Known beta limitations:
+
+- Windows binaries are not Authenticode signed; macOS uses an ad-hoc signature rather than Developer ID notarization. Follow the operating system's documented manual-open flow if prompted.
+- The release workflow verifies compilation and automated tests, but full manual native GUI installation and interaction testing on end-user machines remains outstanding. This is a beta, not a production qualification.
+- Neural memory is an optional feature, not bundled into the default desktop installers.
+- User data stays in the local Heron directory across reinstallations; make a copy before testing major upgrades.
+
 ## 0.2.0 — 2026-11-13
 
 Subscription CLIs instead of an API key:

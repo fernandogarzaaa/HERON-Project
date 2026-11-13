@@ -42,12 +42,12 @@ Heron reads and writes files, runs commands, searches and reads the web, keeps l
 
 ## Install
 
-Heron v0.1.0 is a beta. Download from the [releases page](https://github.com/fernandogarzaaa/HERON-Project/releases), or use the one-line installer for your system. The installers check the download against the published checksums before installing anything.
+Heron v0.3.0 is a beta. Download from the [releases page](https://github.com/fernandogarzaaa/HERON-Project/releases), or use the one-line installer for your system. The installers check the download against the published checksums before installing anything.
 
 **macOS** (Apple silicon and Intel, macOS 11 or later)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.1.0/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.0/scripts/install.sh | sh
 ```
 
 Or download `Heron-macos-universal.dmg`, open it, and drag Heron onto Applications.
@@ -55,7 +55,7 @@ Or download `Heron-macos-universal.dmg`, open it, and drag Heron onto Applicatio
 **Windows** (10 or 11, 64-bit)
 
 ```powershell
-irm https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.1.0/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.0/scripts/install.ps1 | iex
 ```
 
 Or download `Heron-Setup-windows-x64.exe` and run it (no administrator rights needed), or unzip `Heron-windows-x64.zip` anywhere and open `Heron.exe`.
@@ -63,7 +63,7 @@ Or download `Heron-Setup-windows-x64.exe` and run it (no administrator rights ne
 **Linux** (64-bit, needs WebKitGTK 4.1)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.1.0/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.0/scripts/install.sh | sh
 ```
 
 Then open Heron. The first launch walks you through getting set up: choose an AI model (or try the built-in demo, which needs no key), tell Heron about yourself, and connect what you like.

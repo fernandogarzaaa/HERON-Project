@@ -1,34 +1,102 @@
 name: Release
-# Pushing a tag like v0.1.0 builds the installers on real macOS, Windows and Linux machines
-# and publishes them as a GitHub release.
+# Tags continue to build normally. The one-time controlled v0.3.0 trigger
+# exists so GitHub Actions can mint the tag from an audited main SHA even when
+# the release operator's connector cannot create Git tags directly.
 on:
   push:
     tags: ["v*"]
+    branches: ["release/v0.3.0-publish"]
 permissions:
   contents: read
+
 jobs:
+  source:
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.resolve.outputs.target }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Resolve a pinned, authorized release revision
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"
+            target="$GITHUB_SHA"
+          elif [[ "$GITHUB_REF" == "refs/heads/release/v0.3.0-publish" ]]; then
+            tag="v0.3.0"
+            target="${{ github.event.before }}"
+            [[ "$target" =~ ^[0-9a-f]{40}$ ]] || { echo "Expected an existing commit as release target"; exit 1; }
+            main_head=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)
+            [[ "$target" == "$main_head" ]] || { echo "Main moved since this release branch was cut; refusing to tag a stale commit"; exit 1; }
+          else
+            echo "Unknown release trigger: $GITHUB_REF"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve.outputs.target }}
+      - name: Validate package, lockfile and changelog versions
+        env:
+          RELEASE_TAG: ${{ steps.resolve.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          [[ "v$version" == "$RELEASE_TAG" ]] || { echo "Tag and package version differ"; exit 1; }
+          grep -Fq "## $version " CHANGELOG.md || { echo "No changelog entry for $version"; exit 1; }
+          awk '/^name = "heron"$/{found=1; next} found && /^version = /{print; exit}' Cargo.lock | grep -Fxq "version = \"$version\"" || { echo "Cargo.lock package version differs"; exit 1; }
+      - name: Refuse an existing published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.resolve.outputs.tag }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists. Never overwrite published assets."
+            exit 1
+          fi
+
   macos:
+    needs: source
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.target }}
       - run: rustup update stable && rustup default stable
-      - run: cargo test
+      - run: cargo test --locked
       - run: ./packaging/macos/build-app.sh
+      - name: Verify the macOS app signature
+        run: codesign --verify --deep --strict dist/Heron.app
       - uses: actions/upload-artifact@v4
         with:
           name: macos
           path: dist/Heron-macos-universal.dmg
           if-no-files-found: error
+
   windows:
+    needs: source
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.target }}
       - run: rustup update stable && rustup default stable
-      - run: cargo test
-      - name: Inno Setup (for the installer; the zip is built either way)
-        continue-on-error: true
+      - run: cargo test --locked
+      - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
       - run: powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
+      - name: Verify both Windows distributions exist
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/Heron-windows-x64.zip")) { throw "Windows ZIP missing" }
+          if (!(Test-Path "dist/Heron-Setup-windows-x64.exe")) { throw "Windows installer missing" }
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -36,46 +104,61 @@ jobs:
             dist/Heron-windows-x64.zip
             dist/Heron-Setup-windows-x64.exe
           if-no-files-found: error
+
   linux:
+    needs: source
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.target }}
       - run: rustup update stable && rustup default stable
       - run: sudo apt-get update && sudo apt-get install -y libfontconfig-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb-shape0-dev libxcb-xfixes0-dev libx11-dev libx11-xcb-dev libxcursor-dev libxi-dev libssl-dev pkg-config
-      - run: cargo test
+      - run: cargo test --locked
+      - name: Linux installer smoke test
+        run: bash tests/linux-install-smoke.sh
       - run: ./packaging/linux/build.sh
       - uses: actions/upload-artifact@v4
         with:
           name: linux
           path: dist/Heron-linux-x64.tar.gz
           if-no-files-found: error
+
   publish:
-    needs: [macos, windows, linux]
+    needs: [source, macos, windows, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.target }}
       - uses: actions/download-artifact@v4
         with:
-          # Its own folder: the repository already has an `assets` folder, and anything in the upload
-          # folder is published.
           path: release-files
           merge-multiple: true
-      - name: Check the tag matches the version in Cargo.toml
+      - name: Require all four distribution files
+        shell: bash
         run: |
-          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
-          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"; exit 1; }
-      - name: Checksums
-        run: cd release-files && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
-      - name: Publish
+          set -euo pipefail
+          for file in Heron-macos-universal.dmg Heron-windows-x64.zip Heron-Setup-windows-x64.exe Heron-linux-x64.tar.gz; do
+            test -s "release-files/$file" || { echo "Missing release artifact: $file"; exit 1; }
+          done
+      - name: Generate SHA256 checksums
+        run: cd release-files && sha256sum Heron-* > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Publish immutable beta release at pinned revision
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+          RELEASE_TARGET: ${{ needs.source.outputs.target }}
+        shell: bash
         run: |
-          notes=$(mktemp)
-          awk -v tag="${GITHUB_REF_NAME#v}" '$0 ~ "^## " {on = ($0 ~ tag)} on' CHANGELOG.md > "$notes"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" release-files/* --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" release-files/* --title "Heron $GITHUB_REF_NAME (beta)" --notes-file "$notes" --prerelease
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing release $RELEASE_TAG"
+            exit 1
           fi
+          notes=$(mktemp)
+          awk -v header="## ${RELEASE_TAG#v} " '/^## / { showing = (index($0, header) == 1) } showing { print }' CHANGELOG.md > "$notes"
+          test -s "$notes" || { echo "Missing release notes"; exit 1; }
+          gh release create "$RELEASE_TAG" release-files/* --target "$RELEASE_TARGET" --title "Heron $RELEASE_TAG (beta)" --notes-file "$notes" --prerelease
