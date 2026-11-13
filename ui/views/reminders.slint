@@ -1,0 +1,209 @@
+// Heron reminders view. One file per view: the Shell's MainWindow drives
+// the views only through its own forwarded properties and callbacks, so
+// each view keeps its own file and its own component.
+
+import { Button, CheckBox, ComboBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { ScheduleRow, RunStepRow, InboxRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
+import { Theme } from "../components/theme.slint";
+
+export component RemindersView inherits Rectangle {
+    background: Theme.paper;
+    in property <[ScheduleRow]> schedules;
+    in property <[InboxRow]> delivered;
+    in property <string> schedules-empty-text: "";
+    in property <string> delivered-empty-text: "";
+    in property <string> form-error: "";
+    in property <bool> reduce-motion: false;
+    in-out property <string> new-what: "";
+    in-out property <string> new-when: "";
+    in-out property <string> new-may: "read";
+    in-out property <int> new-may-index: 0;
+    in-out property <bool> new-quiet: false;
+    in property <[string]> may-options: ["Only read, search and look things up", "Also create and edit files in my folder", "Also run commands in my folder"];
+    in property <[RunStepRow]> last-run-steps;
+    in property <string> last-run-title: "";
+    callback add-schedule(string, string, string, bool);
+    callback cancel-schedule(int);
+    callback run-schedule-now(int);
+    callback set-schedule-may(int, string);
+    callback show-last-run(int);
+    callback fill-daily-briefing();
+    callback fill-inbox-watch();
+
+    ScrollView {
+        width: parent.width;
+        height: parent.height;
+        VerticalBox {
+            width: parent.width;
+            padding: 28px;
+            spacing: 14px;
+            SectionTitle { title: "Reminders"; }
+            SectionIntro { body: "Things Heron does on a schedule, or when something happens, while the app is open. Scheduled runs can read and search but not change anything, unless you allow more in Settings."; }
+            Text {
+                text: "What should Heron do?";
+                font-size: 14px;
+                font-weight: 600;
+                color: Theme.ink;
+            }
+            LineEdit {
+                placeholder-text: "e.g. Summarize today's top technology news in five bullet points";
+                text <=> root.new-what;
+            }
+            Text {
+                text: "When?";
+                font-size: 14px;
+                font-weight: 600;
+                color: Theme.ink;
+            }
+            LineEdit {
+                placeholder-text: "tomorrow 9:00";
+                text <=> root.new-when;
+            }
+            Text {
+                text: "A time: “in 30m”, “tomorrow 9:00”, “daily 08:00”, “every 2h”. Or an event: “when notes/*.md changes”, “when a file changes in Drafts”, “when an email arrives from Maria”.";
+                font-size: 13px;
+                color: Theme.muted;
+                wrap: TextWrap.word-wrap;
+            }
+            Text {
+                text: "While it runs, Heron may";
+                font-size: 14px;
+                font-weight: 600;
+                color: Theme.ink;
+            }
+            ComboBox {
+                model: root.may-options;
+                current-index <=> root.new-may-index;
+                selected(value) => {
+                    root.new-may = value == "Also run commands in my folder" ? "commands" : value == "Also create and edit files in my folder" ? "write" : "read";
+                }
+            }
+            CheckBox {
+                text: "Only tell me when something needs my attention";
+                checked <=> root.new-quiet;
+            }
+            HorizontalBox {
+                spacing: 8px;
+                Button {
+                    text: "Schedule it";
+                    primary: true;
+                    clicked => { root.add-schedule(root.new-what, root.new-when, root.new-may, root.new-quiet); }
+                }
+                Button {
+                    text: "Fill in a daily briefing";
+                    clicked => { root.fill-daily-briefing(); }
+                }
+                Button {
+                    text: "Fill in an inbox watch";
+                    clicked => { root.fill-inbox-watch(); }
+                }
+            }
+            Text {
+                text: root.form-error;
+                font-size: 14px;
+                color: Theme.danger;
+                wrap: TextWrap.word-wrap;
+                visible: root.form-error != "";
+            }
+            Spacer { height: 16px; }
+            Text {
+                text: "Scheduled";
+                font-size: 17px;
+                font-weight: 600;
+                color: Theme.ink;
+            }
+            EmptyNote { body: root.schedules-empty-text; visible: root.schedules-empty-text != ""; }
+            for row in root.schedules: RowCard {
+                reduce-motion: root.reduce-motion;
+                VerticalBox {
+                    width: parent.width;
+                    padding: 10px;
+                    spacing: 4px;
+                    Text {
+                        text: row.title;
+                        font-size: 15px;
+                        color: Theme.ink;
+                        wrap: TextWrap.word-wrap;
+                    }
+                    RowMeta { body: row.meta; }
+                    Text {
+                        text: row.outline;
+                        font-size: 12px;
+                        font-family: "SF Mono";
+                        color: Theme.ink;
+                        wrap: TextWrap.word-wrap;
+                        visible: row.has-outline;
+                    }
+                    HorizontalBox {
+                        spacing: 8px;
+                        Button {
+                            text: "Run now";
+                            clicked => { root.run-schedule-now(row.id); }
+                        }
+                        ComboBox {
+                            model: ["May only read and look things up", "May also edit files in my folder", "May also run commands"];
+                            current-value: row.may == "commands" ? "May also run commands" : row.may == "write" ? "May also edit files in my folder" : "May only read and look things up";
+                            selected(value) => {
+                                root.set-schedule-may(row.id, value == "May also run commands" ? "commands" : value == "May also edit files in my folder" ? "write" : "read");
+                            }
+                        }
+                        Button {
+                            text: "Show last run";
+                            visible: row.has-outline && row.has-last-run;
+                            clicked => { root.show-last-run(row.id); }
+                        }
+                        Button {
+                            text: "Cancel";
+                            clicked => { root.cancel-schedule(row.id); }
+                        }
+                    }
+                }
+            }
+            Spacer { height: 8px; }
+            Text {
+                text: root.last-run-title;
+                font-size: 15px;
+                font-weight: 600;
+                color: Theme.ink;
+                wrap: TextWrap.word-wrap;
+                visible: root.last-run-title != "";
+            }
+            for step in root.last-run-steps: Text {
+                text: step.text;
+                font-size: 13px;
+                color: step.failed ? Theme.danger : Theme.ink;
+                wrap: TextWrap.word-wrap;
+            }
+            Spacer { height: 16px; }
+            Text {
+                text: "Delivered";
+                font-size: 17px;
+                font-weight: 600;
+                color: Theme.ink;
+            }
+            EmptyNote { body: root.delivered-empty-text; visible: root.delivered-empty-text != ""; }
+            for item in root.delivered: RowCard {
+                reduce-motion: root.reduce-motion;
+                VerticalBox {
+                    width: parent.width;
+                    padding: 10px;
+                    spacing: 4px;
+                    Text {
+                        text: item.title;
+                        font-size: 15px;
+                        font-weight: 600;
+                        color: Theme.ink;
+                        wrap: TextWrap.word-wrap;
+                    }
+                    StyledText {
+                        text: item.body;
+                        default-font-size: 14px;
+                        default-color: Theme.ink;
+                    }
+                    RowMeta { body: item.meta; }
+                }
+            }
+        }
+    }
+}
+

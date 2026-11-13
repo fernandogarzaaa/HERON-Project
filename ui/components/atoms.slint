@@ -1,0 +1,92 @@
+// Shared atoms for the Setup views. No style decisions live here.
+// Colors come from Theme. See ui/components/theme.slint.
+
+import { HorizontalBox, LineEdit, VerticalBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+// A small section heading. Serif, like the web UI headings.
+export component SectionTitle inherits Text {
+    in property <string> label;
+    text: label;
+    font-size: 19px;
+    font-family: Theme.heading-font;
+    font-weight: 600;
+    color: Theme.ink;
+}
+
+// A label above a single-line input.
+export component LabeledInput inherits VerticalBox {
+    in property <string> label;
+    in property <string> hint;
+    in-out property <string> value;
+    in property <bool> password: false;
+    in property <bool> enabled: true;
+    Text { text: label; font-size: 14px; font-weight: 600; color: Theme.ink; }
+    LineEdit {
+        text <=> value;
+        placeholder-text: hint;
+        input-type: password ? InputType.password : InputType.text;
+        enabled: enabled;
+    }
+}
+
+// A selectable card, used for proactivity levels and permission modes.
+// Pressed feedback is immediate: the background answers the tap while
+// the finger is down. The selected state animates. Both are motion that
+// communicates, not decoration. Durations are 0 when reduce-motion is on.
+export component ChoiceCard inherits Rectangle {
+    in property <string> title;
+    in property <string> detail;
+    in property <bool> selected;
+    in property <bool> reduce-motion: false;
+    callback clicked();
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: selected || touch.pressed ? Theme.slate : Theme.line;
+    background: selected || touch.pressed ? Theme.slate-soft : Theme.surface;
+    animate background { duration: reduce-motion ? 0ms : 150ms; }
+    animate border-color { duration: reduce-motion ? 0ms : 150ms; }
+    VerticalBox {
+        padding: 10px;
+        spacing: 2px;
+        Text { text: title; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
+        Text { text: detail; font-size: 14px; color: Theme.muted; wrap: word-wrap; }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+// Progress through the onboarding steps. The steps are genuinely
+// sequential, so numbering them encodes real order. The fill bar is the
+// progress; its width animates when a step completes. Display only: going
+// back is the Back button on each step, not a tap on the indicator.
+export component StepIndicator inherits VerticalBox {
+    in property <[string]> labels;
+    in property <int> current;
+    in property <[bool]> done;
+    in property <float> progress; // 0.0 to 1.0, from the Rust side
+    in property <bool> reduce-motion: false;
+    spacing: 8px;
+    HorizontalBox {
+        spacing: 4px;
+        for label[idx] in labels: Text {
+            text: done[idx] ? "✓ " + label : label;
+            font-size: 14px;
+            font-weight: idx == current ? 700 : 400;
+            color: done[idx] ? Theme.slate : idx == current ? Theme.talon : Theme.muted;
+            horizontal-stretch: 1;
+            horizontal-alignment: center;
+        }
+    }
+    Rectangle {
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.line;
+        Rectangle {
+            height: 100%;
+            width: parent.width * progress;
+            border-radius: 2px;
+            background: Theme.slate;
+            animate width { duration: reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+        }
+    }
+}

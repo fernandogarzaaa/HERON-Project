@@ -12,9 +12,6 @@ New-Item -ItemType Directory -Force $out | Out-Null
 Copy-Item "target\release\heron-desktop.exe" "$out\Heron.exe"
 Copy-Item "target\release\heron.exe" "$out\heron-cli.exe"
 Copy-Item "LICENSE" "$out\LICENSE.txt"
-# GNU-toolchain builds load WebView2Loader.dll at runtime; MSVC builds link it statically.
-$loader = Get-ChildItem -Recurse "target\release\build" -Filter "WebView2Loader.dll" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1
-if ($loader) { Copy-Item $loader.FullName "$out\WebView2Loader.dll" }
 Compress-Archive -Path "$out\*" -DestinationPath "dist\Heron-windows-x64.zip"
 Write-Host "Built dist\Heron-windows-x64.zip"
 

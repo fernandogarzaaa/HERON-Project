@@ -1,0 +1,73 @@
+// Heron tasks view. One file per view: the Shell's MainWindow drives
+// the views only through its own forwarded properties and callbacks, so
+// each view keeps its own file and its own component.
+
+import { Button, CheckBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { TaskRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, RowCard } from "common.slint";
+import { Theme } from "../components/theme.slint";
+
+export component TasksView inherits Rectangle {
+    background: Theme.paper;
+    in property <[TaskRow]> rows;
+    in-out property <string> new-title: "";
+    in property <string> empty-text: "";
+    in property <bool> reduce-motion: false;
+    callback add-task(string);
+    callback set-task-done(int, bool);
+    callback delete-task(int);
+
+    ScrollView {
+        width: parent.width;
+        height: parent.height;
+        VerticalBox {
+            width: parent.width;
+            padding: 28px;
+            spacing: 14px;
+            SectionTitle { title: "Tasks"; }
+            SectionIntro { body: "Your to-do list. Heron can add to it and tick things off when you ask."; }
+            HorizontalBox {
+                spacing: 8px;
+                LineEdit {
+                    placeholder-text: "Add a task";
+                    text <=> root.new-title;
+                    accepted => { root.add-task(root.new-title); }
+                }
+                Button {
+                    text: "Add task";
+                    primary: true;
+                    clicked => { root.add-task(root.new-title); }
+                }
+            }
+            EmptyNote { body: root.empty-text; visible: root.empty-text != ""; }
+            for row in root.rows: RowCard {
+                reduce-motion: root.reduce-motion;
+                HorizontalBox {
+                    width: parent.width;
+                    padding: 10px;
+                    spacing: 10px;
+                    CheckBox {
+                        checked: row.done;
+                        toggled => { root.set-task-done(row.id, self.checked); }
+                    }
+                    VerticalBox {
+                        horizontal-stretch: 1;
+                        spacing: 2px;
+                        Text {
+                            text: row.title;
+                            font-size: 15px;
+                            color: row.done ? Theme.muted : Theme.ink;
+                            wrap: TextWrap.word-wrap;
+                            animate color { duration: root.reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+                        }
+                        RowMeta { body: row.meta; visible: row.meta != ""; }
+                    }
+                    Button {
+                        text: "Remove";
+                        clicked => { root.delete-task(row.id); }
+                    }
+                }
+            }
+        }
+    }
+}
+

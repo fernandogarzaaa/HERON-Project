@@ -1,0 +1,105 @@
+// One "connect your world" card in onboarding.
+//
+// The documents card uses a real folder picker, per the plan (section 4).
+// There is no native file dialog in Slint. The Rust side opens
+// rfd::AsyncFileDialog inside slint::spawn_local and feeds the picked path
+// back into doc_path. The typed path from the web UI is gone on purpose.
+// Calendar and email still use typed inputs.
+
+import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { LabeledInput } from "atoms.slint";
+
+export struct SourceItem {
+    kind: string,
+    title: string,
+    status: string,
+    connected: bool,
+    learn_enabled: bool,
+}
+
+export component SourceCard inherits Rectangle {
+    in property <SourceItem> item;
+    // Form fields. Only the ones matching item.kind are shown.
+    // doc_path is display only. The picker sets it from the Rust side.
+    in-out property <string> doc_path;
+    in-out property <string> cal_url;
+    in-out property <string> email_host;
+    in-out property <string> email_user;
+    in-out property <string> email_pass;
+    in property <string> message;
+    callback connect(string);
+    callback learn(string);
+    callback disconnect(string);
+    callback pick_folder();
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.line;
+    background: Theme.surface;
+    VerticalBox {
+        padding: 14px;
+        spacing: 8px;
+        Text { text: item.title; font-size: 16px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
+        Text { text: item.status; font-size: 14px; color: Theme.muted; wrap: word-wrap; }
+        VerticalBox {
+            visible: item.kind == "documents";
+            spacing: 8px;
+            Text {
+                text: doc_path == "" ? "No folder chosen yet." : doc_path;
+                font-size: 14px;
+                color: Theme.muted;
+                wrap: word-wrap;
+            }
+            Button { text: "Choose folder"; clicked => { root.pick_folder(); } }
+        }
+        LabeledInput {
+            visible: item.kind == "calendar";
+            label: "Private calendar link";
+            hint: "https://… .ics";
+            value <=> cal_url;
+        }
+        LabeledInput {
+            visible: item.kind == "email";
+            label: "Mail server";
+            hint: "imap.gmail.com";
+            value <=> email_host;
+        }
+        LabeledInput {
+            visible: item.kind == "email";
+            label: "Email address";
+            hint: "you@example.com";
+            value <=> email_user;
+        }
+        LabeledInput {
+            visible: item.kind == "email";
+            label: "App password";
+            password: true;
+            value <=> email_pass;
+        }
+        HorizontalBox {
+            spacing: 8px;
+            Button {
+                text: item.connected && (item.kind == "documents" || item.kind == "calendar") ? "Add another" : item.kind == "computer" ? "Look around" : "Connect";
+                clicked => { root.connect(item.kind); }
+            }
+            Button {
+                visible: item.connected && item.kind != "computer";
+                enabled: item.learn_enabled;
+                text: "Learn from it";
+                clicked => { root.learn(item.kind); }
+            }
+            Button {
+                visible: item.connected;
+                text: "Disconnect and forget";
+                clicked => { root.disconnect(item.kind); }
+            }
+        }
+        Text {
+            visible: message != "";
+            text: message;
+            font-size: 14px;
+            color: Theme.danger;
+            wrap: word-wrap;
+        }
+    }
+}

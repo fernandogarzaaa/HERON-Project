@@ -1,0 +1,56 @@
+// Heron activity log view. One file per view: the Shell's MainWindow drives
+// the views only through its own forwarded properties and callbacks, so
+// each view keeps its own file and its own component.
+
+import { ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { AuditRow, SectionTitle, SectionIntro, EmptyNote, RowCard } from "common.slint";
+import { Theme } from "../components/theme.slint";
+
+export component ActivityView inherits Rectangle {
+    background: Theme.paper;
+    in property <[AuditRow]> rows;
+    in property <string> seal-text: "";
+    in property <bool> seal-danger: false;
+    in property <string> empty-text: "";
+    in property <bool> reduce-motion: false;
+
+    ScrollView {
+        width: parent.width;
+        height: parent.height;
+        VerticalBox {
+            width: parent.width;
+            padding: 28px;
+            spacing: 14px;
+            SectionTitle { title: "Activity log"; }
+            SectionIntro { body: "Every action Heron took or was refused, newest first. Passwords and keys are blanked out before anything is logged."; }
+            Text {
+                text: root.seal-text;
+                font-size: 14px;
+                color: root.seal-danger ? Theme.danger : Theme.muted;
+                wrap: TextWrap.word-wrap;
+                visible: root.seal-text != "";
+            }
+            EmptyNote { body: root.empty-text; visible: root.empty-text != ""; }
+            HorizontalBox {
+                spacing: 10px;
+                visible: root.rows.length > 0;
+                Text { text: "When"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 110px; }
+                Text { text: "Action"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 140px; }
+                Text { text: "Details"; font-size: 13px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; }
+                Text { text: "Outcome"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 130px; }
+            }
+            for row in root.rows: RowCard {
+                reduce-motion: root.reduce-motion;
+                HorizontalBox {
+                    width: parent.width;
+                    padding: 10px;
+                    spacing: 10px;
+                    Text { text: row.when; font-size: 14px; color: Theme.ink; width: 110px; }
+                    Text { text: row.action; font-size: 14px; color: Theme.ink; width: 140px; wrap: TextWrap.word-wrap; }
+                    Text { text: row.details; font-size: 14px; font-family: "SF Mono"; color: Theme.ink; horizontal-stretch: 1; wrap: TextWrap.word-wrap; }
+                    Text { text: row.outcome; font-size: 14px; color: row.denied ? Theme.danger : Theme.ink; width: 130px; wrap: TextWrap.word-wrap; }
+                }
+            }
+        }
+    }
+}

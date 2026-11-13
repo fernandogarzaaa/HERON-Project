@@ -1,0 +1,169 @@
+// Shared bits for the Heron views: palette, row structs, section helpers.
+// Imported by every ui/views/<view>.slint file. No component here is driven
+// from Rust directly; the Shell's MainWindow forwards what Rust needs.
+
+// Heron views: sidebar, Memory, Tasks, Reminders, Awareness, Activity, Usage.
+// Drafted by the Views lane. The Shell lane owns the app window, the
+// navigation switching, and the bridge that feeds these components data.
+// Visual language follows assets/index.html: dark palette, slate blue
+// primary, amber accent, serif headings.
+//
+// The palette lives in one place: ui/components/theme.slint. The views
+// import Theme from there. Headings use Georgia, the last family in the
+// heading stack: Slint takes one family string, so the full comma list
+// from the Shell's heading-font property cannot be used here.
+
+import { Button, CheckBox, ComboBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+
+export struct SessionRow {
+    id: string,
+    title: string,
+    updated: string,
+    messages: int,
+    current: bool,
+}
+
+export struct MemoryRow {
+    id: int,
+    kind-label: string,
+    content: string,
+    meta: string,
+    confirmed: bool,
+}
+
+export struct TaskRow {
+    id: int,
+    title: string,
+    meta: string,
+    done: bool,
+}
+
+export struct ScheduleRow {
+    id: int,
+    title: string,
+    meta: string,
+    outline: string,
+    has-outline: bool,
+    has-last-run: bool,
+    uses-model: bool,
+    may: string,
+}
+
+export struct RunStepRow {
+    text: string,
+    failed: bool,
+}
+
+export struct InboxRow {
+    title: string,
+    body: styled-text,
+    meta: string,
+}
+
+export struct SuggestionRow {
+    id: int,
+    title: string,
+    why: string,
+    result: string,
+    status: string,
+    has-session: bool,
+}
+
+export struct SimpleRow {
+    text: string,
+    meta: string,
+}
+
+export struct AuditRow {
+    when: string,
+    action: string,
+    details: string,
+    outcome: string,
+    denied: bool,
+}
+
+export struct UsageDayRow {
+    label: string,
+    tokens: string,
+    frac: float,
+    today: bool,
+}
+
+export struct ModelRow {
+    model: string,
+    sent: string,
+    written: string,
+    calls: string,
+}
+
+
+export component SectionTitle inherits Text {
+    in property <string> title;
+    text: title;
+    font-size: 30px;
+    font-family: "Georgia";
+    font-weight: 600;
+    color: Theme.ink;
+}
+
+export component SectionIntro inherits Text {
+    in property <string> body;
+    text: body;
+    font-size: 16px;
+    color: Theme.muted;
+    wrap: TextWrap.word-wrap;
+}
+
+export component RowMeta inherits Text {
+    in property <string> body;
+    text: body;
+    font-size: 13px;
+    color: Theme.muted;
+    wrap: TextWrap.word-wrap;
+}
+
+export component EmptyNote inherits Text {
+    in property <string> body;
+    text: body;
+    font-size: 15px;
+    color: Theme.muted;
+}
+
+export component Spacer inherits Rectangle {
+    height: 14px;
+}
+
+export component KindTag inherits Rectangle {
+    in property <string> label;
+    background: transparent;
+    border-color: Theme.slate;
+    border-width: 1px;
+    border-radius: 5px;
+    height: 20px;
+    width: tag-text.width + 12px;
+    tag-text := Text {
+        text: label;
+        font-size: 12px;
+        color: Theme.slate;
+        x: 6px;
+        height: 20px;
+        vertical-alignment: center;
+    }
+}
+
+export component RowCard inherits Rectangle {
+    // One list row: hover and press highlight, animated, instant when
+    // reduced motion is on. The row itself is not clickable; the buttons
+    // inside it are. The highlight marks the row as the unit of action.
+    // Enter animations are deliberately absent: refreshes rebuild the
+    // row models, so a fade-in would replay on every load.
+    in property <bool> reduce-motion: false;
+    background: touch.pressed || touch.has-hover ? Theme.slate-soft : Theme.surface;
+    border-color: Theme.line;
+    border-width: 1px;
+    border-radius: 8px;
+    animate background { duration: root.reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+    touch := TouchArea { }
+    @children
+}

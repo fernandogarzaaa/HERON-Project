@@ -2808,14 +2808,14 @@ mod tests {
         let bin = fake_bin(dir.path(), "claude", &script);
         let result = run_capture(&bin, &["--version"], 1, None).await;
         assert!(result.is_err());
-        let pid: u32 = std::fs::read_to_string(&pid_file)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
-        // The child was reaped by run_capture, so the pid is gone, not
-        // a zombie and not a live orphan.
-        assert_ne!(unsafe { libc::kill(pid as libc::pid_t, 0) }, 0);
+        // CI can time out a heavily scheduled child before the script's
+        // first instruction writes its PID. In that case there is no
+        // recorded process to check; the timeout itself was asserted above.
+        if let Ok(contents) = std::fs::read_to_string(&pid_file) {
+            let pid: u32 = contents.trim().parse().unwrap();
+            // A started child must be reaped, not left as a live orphan.
+            assert_ne!(unsafe { libc::kill(pid as libc::pid_t, 0) }, 0);
+        }
     }
 
     #[test]

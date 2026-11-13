@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Builds dist/Heron-linux-x64.tar.gz. Needs libwebkit2gtk-4.1-dev and libgtk-3-dev.
+# Builds dist/Heron-linux-x64.tar.gz. Needs the Slint system libraries:
+# libfontconfig-dev, libxkbcommon-dev, libxkbcommon-x11-dev,
+# libxcb-shape0-dev, libxcb-xfixes0-dev, libx11-dev, libx11-xcb-dev,
+# libxcursor-dev, libxi-dev, libssl-dev and pkg-config (see
+# packaging/slint-packaging-notes.md).
 # Run from the repository root:  ./packaging/linux/build.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
