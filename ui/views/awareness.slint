@@ -14,6 +14,9 @@ export component AwarenessView inherits Rectangle {
     in property <string> workspace: "";
     in property <string> proactive: "off";
     in property <string> proactive-note: "";
+    // A high-impact change is never submitted on its first click.
+    in-out property <bool> confirm-takeover: false;
+    in-out property <bool> confirm-clear: false;
     in property <[SuggestionRow]> suggestions;
     in property <string> suggestions-empty-text: "";
     in property <[SimpleRow]> right-now;
@@ -81,7 +84,26 @@ export component AwarenessView inherits Rectangle {
                 Button { text: "Only when I ask"; checkable: true; checked: root.proactive == "off"; enabled: root.watching; clicked => { root.set-proactive("off"); } }
                 Button { text: "Suggest work"; checkable: true; checked: root.proactive == "suggest"; enabled: root.watching; clicked => { root.set-proactive("suggest"); } }
                 Button { text: "Prepare ahead"; checkable: true; checked: root.proactive == "prepare"; enabled: root.watching; clicked => { root.set-proactive("prepare"); } }
-                Button { text: "Take over"; checkable: true; checked: root.proactive == "takeover"; enabled: root.watching; clicked => { root.set-proactive("takeover"); } }
+                Button { text: "Take over"; checkable: true; checked: root.proactive == "takeover"; enabled: root.watching; clicked => { if (root.proactive != "takeover") { root.confirm-takeover = true; } } }
+            }
+            if root.confirm-takeover: Rectangle {
+                background: Theme.danger-soft;
+                border-color: Theme.danger;
+                border-width: 1px;
+                border-radius: 8px;
+                VerticalBox {
+                    padding: 12px;
+                    spacing: 8px;
+                    Text {
+                        text: "Take over lets Heron create and edit files in your working folder without asking first. Continue?";
+                        color: Theme.ink;
+                        wrap: TextWrap.word-wrap;
+                    }
+                    HorizontalBox {
+                        Button { text: "Confirm take over"; clicked => { root.confirm-takeover = false; root.set-proactive("takeover"); } }
+                        Button { text: "Cancel"; clicked => { root.confirm-takeover = false; } }
+                    }
+                }
             }
             Text {
                 text: root.proactive-note;
@@ -198,7 +220,26 @@ export component AwarenessView inherits Rectangle {
             }
             Button {
                 text: "Forget everything observed";
-                clicked => { root.clear-observations(); }
+                clicked => { root.confirm-clear = true; }
+            }
+            if root.confirm-clear: Rectangle {
+                background: Theme.danger-soft;
+                border-color: Theme.danger;
+                border-width: 1px;
+                border-radius: 8px;
+                VerticalBox {
+                    padding: 12px;
+                    spacing: 8px;
+                    Text {
+                        text: "Forget all observations and conclusions? Information you told Heron directly is kept.";
+                        color: Theme.ink;
+                        wrap: TextWrap.word-wrap;
+                    }
+                    HorizontalBox {
+                        Button { text: "Yes, forget observations"; clicked => { root.confirm-clear = false; root.clear-observations(); } }
+                        Button { text: "Cancel"; clicked => { root.confirm-clear = false; } }
+                    }
+                }
             }
         }
     }

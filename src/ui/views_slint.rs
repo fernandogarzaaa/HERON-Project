@@ -446,8 +446,9 @@ pub fn refresh_tasks(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
 
 // ---------- reminders ----------
 
-/// Reload schedules and the delivered inbox, then mark unread delivered
-/// items read and refresh the sidebar badges, as the web UI does on load.
+/// Reload schedules and the delivered inbox. Mark delivery notifications read
+/// only when the Reminders view is actually visible: initialization and
+/// background updates must not silently clear the unread badge.
 pub fn refresh_reminders(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
     let ctrl = ctrl.clone();
     let rt = ctrl.rt.clone();
@@ -484,8 +485,24 @@ pub fn refresh_reminders(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
             }
         });
         if any_unread {
-            if ctrl.bridge.read_inbox().await.is_ok() {
-                ctrl.refresh_sidebar_state();
+            // Check visibility on the Slint event loop, not on this tokio
+            // worker. The user may have navigated away during the fetch.
+            let ctrl_for_read = ctrl.clone();
+            let weak_for_read = ctrl.window.lock().unwrap().clone();
+            if let Some(weak_for_read) = weak_for_read {
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(window) = weak_for_read.upgrade() {
+                        if window.get_current_view().as_str() == "reminders" {
+                            let ctrl = ctrl_for_read.clone();
+                            let rt = ctrl.rt.clone();
+                            rt.spawn(async move {
+                                if ctrl.bridge.read_inbox().await.is_ok() {
+                                    ctrl.refresh_sidebar_state();
+                                }
+                            });
+                        }
+                    }
+                });
             }
         }
     });
@@ -883,7 +900,15 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
     *ctrl.window.lock().unwrap() = Some(window.as_weak());
 
     let c = ctrl.clone();
-    window.on_sidebar_navigate(move |view| (c.on_navigate)(view.to_string()));
+    let weak = window.as_weak();
+    window.on_sidebar_navigate(move |view| {
+        let name = view.to_string();
+        (c.on_navigate)(name.clone());
+        // Loading at app startup is not a visit. Entering Reminders is.
+        if name == "reminders" {
+            refresh_reminders(weak.clone(), &c);
+        }
+    });
     let c = ctrl.clone();
     window.on_sidebar_open_session(move |id| (c.on_open_session)(id.to_string()));
     let c = ctrl.clone();
@@ -1209,28 +1234,21 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
         let rt = ctrl.rt.clone();
         let weak = weak.clone();
         rt.spawn(async move {
-            // The web UI answers "accept" for a done suggestion even on
-            // its dismiss button ("Got it"). The .slint sends "dismiss",
-            // so the glue maps it here from the stored status.
-            let action = if action == "dismiss" {
+            // The server treats an acknowledgement of a finished suggestion
+            // as "accept", but this is NOT consent to execute it again.
+            let status = {
                 let st = ctrl.state.lock().unwrap();
-                let is_done = st
-                    .suggestions
+                st.suggestions
                     .iter()
                     .find(|s| s.id == id as i64)
-                    .map(|s| s.status == "done")
-                    .unwrap_or(false);
-                if is_done {
-                    "accept".to_string()
-                } else {
-                    action
-                }
-            } else {
-                action
+                    .map(|s| s.status.clone())
+                    .unwrap_or_default()
             };
-            match ctrl.bridge.answer_suggestion(id as i64, &action).await {
+            let (server_action, should_execute) =
+                logic::suggestion_action(&action, &status);
+            match ctrl.bridge.answer_suggestion(id as i64, server_action).await {
                 Ok((prompt, session_id)) => {
-                    if action == "accept" {
+                    if should_execute {
                         (ctrl.on_accept_suggestion)(prompt, session_id);
                     }
                     refresh_awareness(weak, &ctrl);

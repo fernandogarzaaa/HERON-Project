@@ -981,11 +981,29 @@ impl ViewsState {
     }
 }
 
+/// Preserve the user's intent when acknowledging finished suggestions.
+/// The server expects "accept" for a completed "Got it" acknowledgement,
+/// but only an explicit "Do it" action should start a conversation.
+pub fn suggestion_action<'a>(action: &'a str, status: &str) -> (&'a str, bool) {
+    if action == "dismiss" && status == "done" {
+        ("accept", false)
+    } else {
+        (action, action == "accept")
+    }
+}
+
 // ---------- tests ----------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn acknowledging_completed_suggestions_never_executes_again() {
+        assert_eq!(suggestion_action("dismiss", "done"), ("accept", false));
+        assert_eq!(suggestion_action("dismiss", "new"), ("dismiss", false));
+        assert_eq!(suggestion_action("accept", "new"), ("accept", true));
+    }
 
     fn memory_json() -> &'static str {
         r#"{"id":7,"kind":"fact","content":"I am vegetarian","tags":"","importance":0.7,"created_at":1763000000,"updated_at":1763000000,"uses":3,"source":"user","confirmed":true}"#
