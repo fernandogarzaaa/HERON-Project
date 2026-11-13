@@ -1253,14 +1253,31 @@ impl Llm for CliLlm {
         cmd.stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
-        let mut child = cmd.spawn().map_err(|e| {
-            anyhow!(
-                "could not start `{}` ({}): {e}. {}",
-                path.display(),
-                self.spec.display_name,
-                self.spec.install_hint
-            )
-        })?;
+        // A binary that was just written can still be busy on some
+        // filesystems (overlayfs on CI returns ETXTBSY even after the
+        // writer closed it). The process never started, so retrying the
+        // spawn is side-effect free. The same race can hit a real CLI
+        // right after its own updater rewrote it.
+        let mut child = {
+            let mut attempt = 0;
+            loop {
+                match cmd.spawn() {
+                    Ok(child) => break child,
+                    Err(e) if e.raw_os_error() == Some(26) && attempt < 5 => {
+                        attempt += 1;
+                        tokio::time::sleep(Duration::from_millis(20 * attempt)).await;
+                    }
+                    Err(e) => {
+                        return Err(anyhow!(
+                            "could not start `{}` ({}): {e}. {}",
+                            path.display(),
+                            self.spec.display_name,
+                            self.spec.install_hint
+                        ));
+                    }
+                }
+            }
+        };
         // Write the prompt on a separate task so a long prompt cannot
         // deadlock against the child's stdout pipe.
         if self.spec.input == PromptInput::Stdin {
