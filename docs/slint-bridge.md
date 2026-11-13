@@ -48,8 +48,10 @@ All Slint code lives in the desktop binary crate, never the lib:
   the `heron` lib crate in the binary, so the plan's name is the only one that
   works. It holds the MenuBar, the rail, the view switcher, and the chat view.
 - `ui/components/theme.slint` — the `Theme` global (dark palette, serif
-  headings). A byte-identical copy of the Setup lane's file; the integration
-  keeps one copy. Do not edit the values in one worktree without the other.
+  headings). A copy of the Setup lane's file with one word added: `export`,
+  which Slint requires for a global another file imports. The integration
+  keeps one copy, and it must be the exported one. Do not edit the values in
+  one worktree without the other.
 - `build.rs` compiles every file in `ui/` with
   `slint_build::compile_with_config`, pinning the widget style per target
   (settled 2026-11-13): cupertino on macOS, fluent on Windows and Linux. The
@@ -195,9 +197,10 @@ How the shell carries it, concretely (anti-slop guidance from the
 
 - **Theme.** `ui/components/theme.slint` holds the `Theme` global: Heron's
   dark palette measured from `assets/index.html` (dark media query), serif
-  headings via the web UI's serif stack. The file is a byte-identical copy of
-  the Setup lane's `ui/components/theme.slint`; the integration keeps one
-  copy. Do not invent a second palette: the brand hexes slate #2F6690 and
+  headings via the web UI's serif stack. The file is a copy of the Setup
+  lane's `ui/components/theme.slint` with one word added (`export`, which
+  Slint requires for a global another file imports); the integration keeps
+  one copy, and it must be the exported one. Do not invent a second palette: the brand hexes slate #2F6690 and
   talon #C98F00 are the light-mode values, and in dark mode they lighten to
   #7DB3D8 and #EDB92B for contrast on dark surfaces. The shell uses the dark
   values. Native widgets (Button, LineEdit, ListView, MenuBar, Dialog) keep
@@ -305,7 +308,7 @@ Errors are `{"error": "..."}` with a non-2xx status.
 | `GET /sources` | `{onboarded, demo, has_model, model, about, computer, documents, calendar, email}` |
 | `POST /sources/{name}` | `about`, `computer`, `documents`, `calendar`, or `email`, each with its own body (see `connect_source` in `src/server.rs`). |
 | `DELETE /sources/{name}` | `{removed_items, removed_memories}` |
-| `POST /sources/{name}/learn` | `{learned: n}` |
+| `POST /sources/{name}/learn` | `{learned: [string]}` |
 | `POST /onboarded` | `{ok: true}` |
 | `GET /suggestions` | `[{id, prompt, session_id, ...}]` (20 max, unanswered only) |
 | `POST /suggestions/{id}` | `{action}` where action is `accept` or `dismiss`. Returns `{prompt, session_id}`. |

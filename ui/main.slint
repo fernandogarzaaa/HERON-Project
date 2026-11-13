@@ -5,8 +5,9 @@
 //
 // Design bar (Inan, 2026-11-13): "make it beautiful, more interactive, more
 // intuitive to use." The shell carries it: Heron's dark palette as the
-// Theme global (ui/components/theme.slint, copied byte-identical from the
-// Setup lane's worktree; the integration keeps one copy), serif headings,
+// Theme global (ui/components/theme.slint, copied from the Setup lane's
+// worktree with one word added: `export`, which Slint requires for a global
+// another file imports; the integration keeps one copy), serif headings,
 // animated feedback on every interactive element, and a rail that makes the
 // next action obvious. Animation budget: 150ms for rail feedback, 180ms for
 // view fades, 0ms when reduce-motion is on. See docs/slint-bridge.md.

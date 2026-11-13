@@ -141,8 +141,20 @@ fn main() {
                     }
                 });
                 let client = bridge.client().clone();
+                // stream_chat takes the sender, so hold a clone for the error
+                // path: if the turn fails before any event arrives (409 while
+                // a reply runs, connection failure, broken stream), map the
+                // error into a ChatEvent::Error instead of dropping it. The
+                // forwarder turns it into an error line and clears busy;
+                // without it the empty assistant row stays live and busy
+                // stays true forever.
+                let tx_err = tx.clone();
                 bridge.spawn(async move {
-                    let _ = client.stream_chat(sid.as_deref(), &text, tx).await;
+                    if let Err(e) = client.stream_chat(sid.as_deref(), &text, tx).await {
+                        let _ = tx_err.send(ChatEvent::Error {
+                            message: format!("{e:#}"),
+                        });
+                    }
                 });
             });
         }
