@@ -1,9 +1,10 @@
 # Google and Microsoft 365 connections (OAuth beta)
 
-**Status: backend implementation under review, not a qualified or complete desktop integration.**
-The current native Slint onboarding still contains legacy app-password/ICS copy. Native
-Connect/Disconnect controls, user-visible sync errors, live provider tests, and
-Google/Microsoft app registration are outstanding; do not present the connector as fully shipped.
+**Status: implementation under review, not a qualified provider integration.**
+Native Slint Settings now includes Connect/Sync/Disconnect/Refresh account controls, while
+onboarding also supports legacy IMAP and private ICS sources. Real Google/Microsoft app
+registrations, browser consent tests, provider-specific errors and cross-platform runtime
+smoke tests remain outstanding; do not present the connector as fully shipped.
 
 ## Architecture
 
@@ -28,9 +29,9 @@ the next 30 days of calendar entries. Sync repeats with HERON's existing backgro
 refresh loop, at most every 30 minutes.
 
 **Known limits:** no paging beyond those limits; no calendar-write or email-send capabilities
-by design; no offline reconsent handling beyond retry; source learning UI is still tied to the
-legacy source names; not tested with live Google or Microsoft accounts; no multi-account
-support per provider. The current API must be exercised by an authenticated local client.
+by design; no offline reconsent handling beyond retry; not tested with live Google or Microsoft
+accounts; no multi-account support per provider. The native Settings screen uses the same
+authenticated local API as the developer handshake below.
 Do not distribute production credentials in this repo.
 
 ## Provider registration (required before a live test)
@@ -90,8 +91,8 @@ sync; a successful OAuth redirect does **not** prove the upstream API read worke
    tenant policy). Test consent denial, expired/duplicate state, wrong provider,
    revoked refresh token, network timeout, tenant admin-consent rejection and stale
    sync racing with disconnect.
-4. Add and test native Slint connect/disconnect/retry/status controls, credential
-   setup, user-visible consent disclosure, empty/loading/error states.
+4. Test native Slint connect/disconnect/retry/status controls, credential
+   setup, user-visible consent disclosure, empty/loading/error states and platform rendering.
 5. Review model prompt-injection safeguards for untrusted mail/calendar entries,
    audit logs for redaction, and the local API trust boundary.
 6. Only after passing live acceptance evidence should this be listed as a completed
