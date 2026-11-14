@@ -20,8 +20,8 @@ Google permissions: Gmail read-only and Calendar read-only (plus email identity)
 Microsoft delegated permissions: Mail.Read, Calendars.Read, User.Read and offline_access.
 These connectors do not send mail, alter events or modify a mailbox.
 
-Google records use the sources \`google_email\` and \`google_calendar\`, and Microsoft records
-use \`microsoft_email\` and \`microsoft_calendar\`. Legacy IMAP and ICS indexes remain separate.
+Google records use the sources `google_email` and `google_calendar`, and Microsoft records
+use `microsoft_email` and `microsoft_calendar`. Legacy IMAP and ICS indexes remain separate.
 The source search API combines the provider-specific indexes when the model asks to look at
 connected email or calendar data. Each sync imports up to 25 recent inbox messages and up to
 50 calendar entries; recurring Google events are expanded by the provider API. Microsoft uses
@@ -42,9 +42,9 @@ secret). Google may require independent verification for distributing an app tha
 Gmail read-only scopes to general users.
 
 Microsoft: register a **public desktop** application in Microsoft Entra, add the
-Mobile and desktop application platform with the \`http://localhost/oauth/callback/microsoft\` loopback redirect (the OS-assigned port is ignored for matching),
-allow public-client flows, and grant delegated \`Mail.Read\`, \`Calendars.Read\`, \`User.Read\`
-and \`offline_access\`. Some tenants require an administrator's consent.
+Mobile and desktop application platform with the `http://localhost/oauth/callback/microsoft` loopback redirect (the OS-assigned port is ignored for matching),
+allow public-client flows, and grant delegated `Mail.Read`, `Calendars.Read`, `User.Read`
+and `offline_access`. Some tenants require an administrator's consent.
 
 Consult:
 - https://developers.google.com/identity/protocols/oauth2/native-app
@@ -52,12 +52,19 @@ Consult:
 - https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow
 - https://learn.microsoft.com/en-us/azure/active-directory/develop/scenario-desktop-app-registration
 
+
+The distributor may bundle **public** Google and Microsoft desktop client IDs at compile time
+using `HERON_GOOGLE_OAUTH_CLIENT_ID` and `HERON_MICROSOFT_OAUTH_CLIENT_ID`.
+These values are not secrets. Without a bundled ID, the user can enter a public desktop
+client ID in the native Settings screen and that ID is remembered on successful consent.
+No application/client secret is supported or required.
+
 ## Local API handshake (developer/QA)
 
 Launch HERON bound to 127.0.0.1, take the printed server port and per-launch API
 token (never share either externally). The example below uses placeholders.
 
-\`\`\`bash
+```bash
 HERON_URL='http://127.0.0.1:8080'
 HERON_TOKEN='<per-launch-api-token>'
 CLIENT_ID='<public-desktop-oauth-client-id>'
@@ -65,26 +72,26 @@ CLIENT_ID='<public-desktop-oauth-client-id>'
 curl -fsS -X POST "$HERON_URL/api/oauth/google/start" \
   -H "x-heron-token: $HERON_TOKEN" -H 'content-type: application/json' \
   -d "{\"client_id\":\"$CLIENT_ID\"}"
-\`\`\`
+```
 
-The JSON \`authorization_url\` is opened in the user's system browser. Google redirects
+The JSON `authorization_url` is opened in the user's system browser. Google redirects
 to HERON's single-use local callback on consent. Microsoft is identical except
-\`/api/oauth/microsoft/start\` and a Microsoft public client ID. Redirect errors are
+`/api/oauth/microsoft/start` and a Microsoft public client ID. Redirect errors are
 reported in the browser without rendering the code or token.
 
-\`\`\`bash
+```bash
 curl -fsS "$HERON_URL/api/oauth" -H "x-heron-token: $HERON_TOKEN"
 curl -fsS -X POST "$HERON_URL/api/oauth/google/sync" -H "x-heron-token: $HERON_TOKEN"
 curl -fsS -X DELETE "$HERON_URL/api/oauth/google" -H "x-heron-token: $HERON_TOKEN"
-\`\`\`
+```
 
 The synchronous sync endpoint returns counts. The callback initiates a background
 sync; a successful OAuth redirect does **not** prove the upstream API read worked.
 
 ## Release qualification
 
-1. Run \`cargo test --locked\`, the full native desktop build, cross-platform CI and
-   \`oauth::tests\` on the exact PR head.
+1. Run `cargo test --locked`, the full native desktop build, cross-platform CI and
+   `oauth::tests` on the exact PR head.
 2. Confirm a Google test user can consent, return to the callback, restart HERON,
    refresh the token, list inbox and calendar, search locally and disconnect.
 3. Repeat with a personal Microsoft account and an Entra work account (subject to
