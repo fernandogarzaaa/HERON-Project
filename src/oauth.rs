@@ -162,8 +162,16 @@ pub async fn access_token(cfg: &Config, provider: Provider) -> Result<String> {
     let token = redeem(provider, &[
         ("client_id", &id), ("refresh_token", &refresh), ("grant_type", "refresh_token"),
     ]).await?;
-    if let Some(next) = token.get("refresh_token").and_then(Value::as_str).filter(|s| !s.is_empty()) {
-        cfg.store_secret(&provider.secret_key("refresh_token"), next)?;
+    // Disconnect may occur during this network request. Never resurrect a revoked
+    // connection by saving a rotated refresh token after the user's disconnect.
+    {
+        let _guard = SOURCE_WRITES.lock().unwrap_or_else(|e| e.into_inner());
+        if cfg.secret(&provider.secret_key("refresh_token")).as_deref() != Some(refresh.as_str()) {
+            bail!("Account was disconnected or changed while renewing access.");
+        }
+        if let Some(next) = token.get("refresh_token").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+            cfg.store_secret(&provider.secret_key("refresh_token"), next)?;
+        }
     }
     Ok(token["access_token"].as_str().unwrap_or_default().to_string())
 }
