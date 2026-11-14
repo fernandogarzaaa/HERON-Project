@@ -1003,6 +1003,10 @@ async fn disconnect_oauth(State(st): S, Path(provider): Path<String>) -> ApiResu
         let mut pending = st.oauth_pending.lock().unwrap_or_else(|e| e.into_inner());
         pending.retain(|_, sign_in| sign_in.provider != provider);
     }
+    // Wait for any provider-derived memory already being embedded/saved
+    // before deleting that account's index and memories. No new provider
+    // learning can commit after the connection has been removed.
+    let _learning = crate::oauth::OAUTH_LEARNING_COMMIT.lock().await;
     let (items, memories) = crate::oauth::disconnect(&st.app, provider)?;
     Ok(Json(json!({"provider": provider.name(), "removed_items": items, "removed_memories": memories})))
 }
