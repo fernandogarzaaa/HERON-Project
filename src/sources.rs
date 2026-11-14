@@ -427,6 +427,20 @@ async fn learn_one(app: &App, source: &str) -> Result<Vec<String>> {
     if crate::llm::is_demo(&cfg) {
         bail!("Demo mode cannot learn from your information. Connect a model first.");
     }
+    let oauth_provider = match source {
+        "google_email" | "google_calendar" => Some(crate::oauth::Provider::Google),
+        "microsoft_email" | "microsoft_calendar" => Some(crate::oauth::Provider::Microsoft),
+        _ => None,
+    };
+    // Snapshot the account before awaiting the model. A disconnect followed
+    // by reconnect must not let old-account content enter new-account memory.
+    let source_account_epoch = if let Some(provider) = oauth_provider {
+        Some(provider.account_epoch(&cfg).ok_or_else(|| anyhow::anyhow!(
+            "OAuth account disconnected or needs reconnection before learning."
+        ))?)
+    } else {
+        None
+    };
     let items = app.store.knowledge_of(source, true, 120)?;
     let mut batches: Vec<Vec<&KnowledgeItem>> = vec![vec![]];
     let mut size = 0;
@@ -465,18 +479,15 @@ async fn learn_one(app: &App, source: &str) -> Result<Vec<String>> {
                 // What the user wrote about themselves is trusted; what arrived from outside is capped lower.
                 let cap = if source == "about" { 0.9 } else { 0.6 };
                 let importance = it["importance"].as_f64().unwrap_or(0.5).min(cap);
-                let oauth_provider = match source {
-                    "google_email" | "google_calendar" => Some(crate::oauth::Provider::Google),
-                    "microsoft_email" | "microsoft_calendar" => Some(crate::oauth::Provider::Microsoft),
-                    _ => None,
-                };
                 let result = if let Some(provider) = oauth_provider {
                     // Serialize the actual memory commit (including any
                     // awaited embeddings) with user-facing Disconnect.
                     // If disconnect won first, refuse to recreate memories.
                     let _guard = crate::oauth::OAUTH_LEARNING_COMMIT.lock().await;
-                    if !provider.connected(&app.cfg()) {
-                        bail!("OAuth account was disconnected during source learning.");
+                    let current = app.cfg();
+                    if !provider.connected(&current)
+                        || provider.account_epoch(&current).as_ref() != source_account_epoch.as_ref() {
+                        bail!("OAuth account was disconnected or changed during source learning.");
                     }
                     app.memory.save(content, kind, source, importance, source).await?
                 } else {
