@@ -23,14 +23,21 @@ export component ActionButton inherits Rectangle {
     in property <bool> reduce-motion: false;
     callback clicked();
 
+    // Custom-painted controls still need a semantic button and a
+    // screen-reader activation path, not just a mouse TouchArea.
+    accessible-role: button;
+    accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+
     property <color> base: kind == "primary" ? Theme.slate : kind == "danger" ? Theme.danger : Theme.surface;
     property <color> press-bg: kind == "primary" ? Theme.slate-soft : kind == "danger" ? Theme.danger-soft : Theme.slate-soft;
     property <color> press-text: kind == "primary" ? Theme.slate : kind == "danger" ? Theme.danger : Theme.ink;
 
     height: 36px;
     border-radius: pill ? 18px : 8px;
-    border-width: touch.has-hover || !enabled ? 1px : 0px;
-    border-color: touch.has-hover ? Theme.talon : Theme.line;
+    border-width: keyboard.has-focus || touch.has-hover || !enabled ? 1px : 0px;
+    border-color: keyboard.has-focus ? Theme.slate : touch.has-hover ? Theme.talon : Theme.line;
     background: !enabled ? Theme.line : touch.pressed ? press-bg : base;
     animate background { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
     animate border-color { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
@@ -42,6 +49,22 @@ export component ActionButton inherits Rectangle {
         color: !enabled ? Theme.muted : touch.pressed ? press-text : kind == "secondary" ? Theme.ink : Theme.slate-ink;
         horizontal-alignment: center;
         vertical-alignment: center;
+    }
+
+    // Tab focuses this control; Enter/Space activate it without allowing
+    // key repeats to fire multiple requests. Avoid focus-on-click here:
+    // an unfocused FocusScope can consume the first pointer press.
+    keyboard := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        key-pressed(event) => {
+            if ((event.text == Key.Return || event.text == Key.Space) && !event.repeat) {
+                root.clicked();
+                accept
+            } else {
+                reject
+            }
+        }
     }
 
     touch := TouchArea {

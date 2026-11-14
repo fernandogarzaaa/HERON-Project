@@ -11,12 +11,10 @@
 /// separate compile roots. Every .slint file under ui/ is still watched for
 /// rebuilds, so editing an imported file recompiles the UI.
 ///
-/// Widget style is pinned per target (Inan's call, 2026-11-13: "just make it
-/// good so its in your hands"): cupertino on macOS, fluent on Windows and
-/// Linux, with Heron's dark palette carried as custom theme properties in the
-/// .slint files. This API shape follows the scoping plan; it is NOT verified
-/// in this sandbox (no Slint crate here), so the first Mac or CI build is the
-/// check for it.
+/// Widget style is pinned per target: cupertino-dark on macOS and
+/// fluent-dark on Windows/Linux. This matches HERON's always-dark custom
+/// palette even when the desktop OS uses a light color scheme.
+/// Cross-platform desktop builds in CI verify the selected styles compile.
 #[cfg(feature = "desktop")]
 fn compile_slint_ui() {
     fn collect_slint(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
@@ -37,9 +35,12 @@ fn compile_slint_ui() {
     for file in &files {
         println!("cargo:rerun-if-changed={}", file.display());
     }
+    // HERON's custom surface/text palette is dark on every platform.
+    // Force the matching native-widget color variant, otherwise system
+    // light-mode users get pale widgets and dark text on dark surfaces.
     let style = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        Ok("macos") => "cupertino",
-        _ => "fluent",
+        Ok("macos") => "cupertino-dark",
+        _ => "fluent-dark",
     };
     let config = slint_build::CompilerConfiguration::new().with_style(style.to_string());
     slint_build::compile_with_config("ui/main.slint", config).expect("Slint UI failed to compile");
