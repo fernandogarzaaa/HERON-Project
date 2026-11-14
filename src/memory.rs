@@ -15,7 +15,12 @@ const LOCAL_DIM: usize = 384;
 /// Above this cosine similarity a new memory is treated as an update of an existing one.
 const DEDUPE_THRESHOLD: f32 = 0.88;
 /// Facts from these sources were written by other people or inferred, not stated by the user.
-pub const OUTSIDE_SOURCES: &[&str] = &["email", "calendar", "documents", "observed", "computer", "outside"];
+pub const OUTSIDE_SOURCES: &[&str] = &[
+    "email", "calendar", "documents", "observed", "computer", "outside",
+    // Provider-derived email/calendar is still untrusted outside content.
+    // Preserve the provider name for account-specific erasure and audit.
+    "google_email", "google_calendar", "microsoft_email", "microsoft_calendar",
+];
 
 #[derive(Clone)]
 pub struct Memory {
