@@ -37,9 +37,12 @@ fn compile_slint_ui() {
     for file in &files {
         println!("cargo:rerun-if-changed={}", file.display());
     }
+    // HERON's custom surface/text palette is dark on every platform.
+    // Force the matching native-widget color variant, otherwise system
+    // light-mode users get pale widgets and dark text on dark surfaces.
     let style = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        Ok("macos") => "cupertino",
-        _ => "fluent",
+        Ok("macos") => "cupertino-dark",
+        _ => "fluent-dark",
     };
     let config = slint_build::CompilerConfiguration::new().with_style(style.to_string());
     slint_build::compile_with_config("ui/main.slint", config).expect("Slint UI failed to compile");
