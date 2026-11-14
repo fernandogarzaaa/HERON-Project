@@ -20,6 +20,12 @@ static SOURCE_WRITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 // embedding/save, then remove its resulting memories before returning.
 pub(crate) static OAUTH_LEARNING_COMMIT: tokio::sync::Mutex<()> =
     tokio::sync::Mutex::const_new(());
+// One full sync per provider, including refresh and the final index commit.
+// The provider is the isolation unit (not global), so Google and Microsoft
+// can sync concurrently without one refresh rotating credentials underneath
+// another same-provider sync that is still fetching remote records.
+static GOOGLE_SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static MICROSOFT_SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 use url::Url;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -312,6 +318,14 @@ async fn microsoft_calendar(http: &reqwest::Client, token: &str) -> Result<Vec<R
 /// Refresh both read-only sources. Read everything before replacing saved results,
 /// so a failed API request does not erase the previous offline index.
 pub async fn sync(app: &App, provider: Provider) -> Result<(usize, usize)> {
+    // Keep token generation stable until fetched data is committed. A
+    // second same-provider sync must not rotate the refresh token during
+    // this network request, as doing so would cause a false account
+    // replacement detection at commit time.
+    let _sync_guard = match provider {
+        Provider::Google => GOOGLE_SYNC.lock().await,
+        Provider::Microsoft => MICROSOFT_SYNC.lock().await,
+    };
     let cfg = app.cfg();
     // Bind the fetched account data to the exact credential generation
     // that issued this access token. Disconnect/reconnect during the
