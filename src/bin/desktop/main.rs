@@ -779,6 +779,14 @@ mod window_layout_tests {
                 renderer.render(&mut pixels, width as usize);
             });
             assert!(drew, "main window did not render after resizing to {width}x{height}");
+            // A draw call alone can succeed while presenting a completely
+            // blank window. Require at least two distinct RGB values so a
+            // broken compositor or hidden top-level view is caught.
+            let reference = (pixels[0].red, pixels[0].green, pixels[0].blue);
+            assert!(
+                pixels.iter().any(|pixel| (pixel.red, pixel.green, pixel.blue) != reference),
+                "main window drew a uniform/blank frame at {width}x{height}"
+            );
         }
     }
 }
