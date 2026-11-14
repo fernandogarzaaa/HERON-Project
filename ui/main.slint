@@ -404,6 +404,12 @@ export component MainWindow inherits Window {
         // reminders, usage, activity, onboarding, and settings.
         content := Rectangle {
             horizontal-stretch: 1;
+            // Surface sits one step above the paper sidebar and window,
+            // so the content area reads as the working plane and the
+            // cards, composer, and message containers (raised) sit one
+            // step above it again. Round 1 redesign elevation ladder:
+            // paper < surface < raised.
+            background: Theme.surface;
 
             VerticalLayout {
                 width: parent.width;
