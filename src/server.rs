@@ -1105,6 +1105,14 @@ async fn disconnect_source(State(st): S, Path(name): Path<String>) -> ApiResult 
     if !crate::sources::SOURCES.contains(&name.as_str()) {
         return Err(ApiError(StatusCode::NOT_FOUND, "Unknown source.".into()));
     }
+    // A provider-specific source cannot be safely removed through the
+    // legacy route: its OAuth credentials and background sync remain live.
+    // Only the OAuth disconnect endpoint acquires the transition/learning
+    // gates, revokes local credentials and erases both associated sources.
+    if matches!(name.as_str(), "google_email" | "google_calendar" |
+                             "microsoft_email" | "microsoft_calendar") {
+        return Err(bad("Disconnect Google or Microsoft under Settings > Google and Microsoft accounts to remove its data."));
+    }
     let mut cfg = (*st.app.cfg()).clone();
     // OAuth consent covers both mail and calendar. Do not silently claim that
     // clicking a legacy source's Disconnect button revoked an OAuth account.
