@@ -812,6 +812,22 @@ mod window_layout_tests {
                 ui.get_debug_content_height(),
                 ui.get_debug_composer_y()
             );
+            // For viewport sizes within the supported native minimum,
+            // reject an intrinsic Slint root taller than the actual frame.
+            // The previous missing-composer regression had a 2752px root
+            // for a requested 700px window while every draw call succeeded.
+            if width >= 880 && height >= 560 {
+                let shell_height = ui.get_debug_window_height();
+                let composer_y = ui.get_debug_composer_y();
+                assert!(
+                    shell_height <= height as f32 + 1.0,
+                    "Slint shell height {shell_height} overflows requested {height}px frame"
+                );
+                assert!(
+                    composer_y >= 0.0 && composer_y + 94.0 <= height as f32,
+                    "composer at y={composer_y} is outside the {height}px frame"
+                );
+            }
             let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
             let drew = window.draw_if_needed(|renderer| {
                 renderer.render(&mut pixels, width as usize);
