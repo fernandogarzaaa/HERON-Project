@@ -442,6 +442,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn oauth_provider_facts_remain_unconfirmed_external_sources() {
+        let m = mem();
+        for (source, label) in [
+            ("google_email", "Google inbox"),
+            ("google_calendar", "Google events"),
+            ("microsoft_email", "Microsoft inbox"),
+            ("microsoft_calendar", "Microsoft events"),
+        ] {
+            let fact = format!("An external {label} record claims the user has a special discount.");
+            let result = m.save(&fact, "fact", "", 0.5, source).await.unwrap();
+            let memory = m.store.list_memories(None, 20).unwrap()
+                .into_iter().find(|row| row.id == result.id()).unwrap();
+            assert!(!memory.confirmed, "{source} must not become a confirmed user fact");
+            assert_eq!(memory.source, source, "preserve provider erasure provenance");
+        }
+    }
+
+    #[tokio::test]
     async fn vectors_from_different_embedders_are_never_mixed() {
         let m = mem();
         let id = m.save("The user keeps bees on the allotment", "fact", "", 0.6, "user").await.unwrap().id();
