@@ -99,17 +99,34 @@ component StarterCard inherits TouchArea {
     in property <string> prompt;
     in property <bool> reduce-motion;
     callback picked(string);
+    // A pointer-only starter prevents keyboard and assistive-tech users
+    // from starting a conversation. Expose the same action on all paths.
+    accessible-role: button;
+    accessible-label: prompt;
+    accessible-action-default => { root.picked(prompt); }
     clicked => { root.picked(prompt); }
     Rectangle {
         background: root.pressed ? Theme.slate-soft : root.has-hover ? Theme.surface : Theme.paper;
-        border-color: root.has-hover ? Theme.slate : Theme.line;
-        border-width: 1px; border-radius: 10px;
+        border-color: keyboard.has-focus || root.has-hover ? Theme.slate : Theme.line;
+        border-width: keyboard.has-focus ? 2px : 1px;
+        border-radius: 10px;
         animate background { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
         animate border-color { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
         HorizontalBox {
             spacing: 10px;
             Rectangle { width: 4px; background: Theme.talon; border-radius: 2px; }
             Text { text: prompt; font-size: 14px; color: Theme.ink; wrap: word-wrap; }
+        }
+    }
+    keyboard := FocusScope {
+        focus-on-click: false;
+        key-pressed(event) => {
+            if ((event.text == Key.Return || event.text == Key.Space) && !event.repeat) {
+                root.picked(prompt);
+                accept
+            } else {
+                reject
+            }
         }
     }
 }
