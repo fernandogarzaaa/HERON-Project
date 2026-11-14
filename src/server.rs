@@ -900,7 +900,10 @@ async fn get_oauth_status(State(st): S) -> ApiResult {
     let providers: Vec<Value> = [crate::oauth::Provider::Google, crate::oauth::Provider::Microsoft]
         .iter().map(|p| json!({
             "provider": p.name(), "connected": p.connected(&cfg),
-            "client_configured": cfg.secret(&format!("oauth_{}_client_id", p.name())).is_some(),
+            "client_configured": cfg.secret(&format!("oauth_{}_client_id", p.name())).is_some() || match p {
+                crate::oauth::Provider::Google => option_env!("HERON_GOOGLE_OAUTH_CLIENT_ID").is_some(),
+                crate::oauth::Provider::Microsoft => option_env!("HERON_MICROSOFT_OAUTH_CLIENT_ID").is_some(),
+            },
             "read_only": true
         })).collect();
     Ok(Json(json!({"providers": providers})))
@@ -914,10 +917,17 @@ async fn start_oauth(State(st): S, Path(provider): Path<String>, headers: Header
     }
     let provider = crate::oauth::Provider::parse(&provider)?;
     let cfg = st.app.cfg();
+    // Public desktop client IDs may be bundled by the HERON distributor (no secret).
+    // Let a user override them with their own app registration for self-hosted use.
+    let bundled = match provider {
+        crate::oauth::Provider::Google => option_env!("HERON_GOOGLE_OAUTH_CLIENT_ID"),
+        crate::oauth::Provider::Microsoft => option_env!("HERON_MICROSOFT_OAUTH_CLIENT_ID"),
+    };
     let client_id = body.get("client_id").and_then(Value::as_str).map(str::trim)
         .filter(|s| !s.is_empty()).map(str::to_string)
         .or_else(|| cfg.secret(&format!("oauth_{}_client_id", provider.name())))
-        .ok_or_else(|| bad("Add a Google or Microsoft public desktop OAuth client ID to connect."))?;
+        .or_else(|| bundled.map(str::to_string))
+        .ok_or_else(|| bad("This build has no public desktop OAuth client ID. Add your own client ID or ask the HERON distributor to register an app."))?;
     let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or_default();
     let port = host.rsplit_once(':').and_then(|(_, p)| p.parse::<u16>().ok())
         .ok_or_else(|| bad("Cannot find this local server's OAuth callback port."))?;
