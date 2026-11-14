@@ -41,7 +41,7 @@ secret). Google may require independent verification for distributing an app tha
 Gmail read-only scopes to general users.
 
 Microsoft: register a **public desktop** application in Microsoft Entra, add the
-Mobile and desktop application platform with the \`http://localhost\` loopback redirect,
+Mobile and desktop application platform with the \`http://localhost/oauth/callback/microsoft\` loopback redirect (the OS-assigned port is ignored for matching),
 allow public-client flows, and grant delegated \`Mail.Read\`, \`Calendars.Read\`, \`User.Read\`
 and \`offline_access\`. Some tenants require an administrator's consent.
 
