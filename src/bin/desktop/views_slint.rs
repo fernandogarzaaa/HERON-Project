@@ -920,17 +920,30 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
         let rt = ctrl.rt.clone();
         let weak = weak.clone();
         rt.spawn(async move {
-            if ctrl.bridge.add_memory(&content, &kind).await.is_err() {
-                return;
-            }
-            let weak_for_clear = weak.clone();
+            let succeeded = ctrl.bridge.add_memory(&content, &kind).await.is_ok();
+            let weak_for_feedback = weak.clone();
+            // Preserve any newer draft typed while the network request was
+            // pending. Also ignore stale failures from older submissions.
             let _ = slint::invoke_from_event_loop(move || {
-                if let Some(window) = weak_for_clear.upgrade() {
-                    window.set_memory_new_content(SharedString::default());
+                if let Some(window) = weak_for_feedback.upgrade() {
+                    let still_editing_submission =
+                        window.get_memory_new_content().as_str() == content.as_str();
+                    if succeeded {
+                        if still_editing_submission {
+                            window.set_memory_new_content(SharedString::default());
+                        }
+                        window.set_memory_save_error(SharedString::default());
+                    } else if still_editing_submission {
+                        window.set_memory_save_error(SharedString::from(
+                            "Could not save memory. Check the connection and retry.",
+                        ));
+                    }
                 }
             });
-            refresh_memory(weak, &ctrl);
-            ctrl.refresh_sidebar_state();
+            if succeeded {
+                refresh_memory(weak, &ctrl);
+                ctrl.refresh_sidebar_state();
+            }
         });
     });
     let weak = window.as_weak();
@@ -992,16 +1005,27 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
         let rt = ctrl.rt.clone();
         let weak = weak.clone();
         rt.spawn(async move {
-            if ctrl.bridge.add_task(&title).await.is_err() {
-                return;
-            }
-            let weak_for_clear = weak.clone();
+            let succeeded = ctrl.bridge.add_task(&title).await.is_ok();
+            let weak_for_feedback = weak.clone();
             let _ = slint::invoke_from_event_loop(move || {
-                if let Some(window) = weak_for_clear.upgrade() {
-                    window.set_tasks_new_title(SharedString::default());
+                if let Some(window) = weak_for_feedback.upgrade() {
+                    let still_editing_submission =
+                        window.get_tasks_new_title().as_str() == title.as_str();
+                    if succeeded {
+                        if still_editing_submission {
+                            window.set_tasks_new_title(SharedString::default());
+                        }
+                        window.set_tasks_save_error(SharedString::default());
+                    } else if still_editing_submission {
+                        window.set_tasks_save_error(SharedString::from(
+                            "Could not add task. Check the connection and retry.",
+                        ));
+                    }
                 }
             });
-            refresh_tasks(weak, &ctrl);
+            if succeeded {
+                refresh_tasks(weak, &ctrl);
+            }
         });
     });
     let weak = window.as_weak();
