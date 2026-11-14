@@ -30,6 +30,12 @@ fn redirect_target_allowed(previous: Option<&url::Url>, target: &url::Url, allow
     allow_local || !url_host_obviously_local(target)
 }
 
+// A proxy is never a silent opt-out from connect-time address screening.
+// This small decision is tested without mutating the process environment.
+fn use_system_proxy(explicitly_trusted: bool, configured: bool) -> bool {
+    explicitly_trusted && configured
+}
+
 fn client() -> &'static reqwest::Client {
     static C: OnceLock<reqwest::Client> = OnceLock::new();
     C.get_or_init(|| {
@@ -38,7 +44,7 @@ fn client() -> &'static reqwest::Client {
         // present, it skips the direct origin DNS resolution that our SSRF
         // guard normally validates. Fail closed to direct connections by
         // default. A deliberately trusted system proxy is opt-in.
-        let trusted_proxy = trusted_web_proxy_enabled() && web_goes_through_proxy();
+        let trusted_proxy = use_system_proxy(trusted_web_proxy_enabled(), web_goes_through_proxy());
         let mut builder = reqwest::Client::builder();
         if !trusted_proxy {
             builder = builder.no_proxy();
@@ -188,6 +194,14 @@ pub fn tools() -> Vec<FnTool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inherited_proxy_never_disables_ssrf_guard_without_opt_in() {
+        assert!(!use_system_proxy(false, false));
+        assert!(!use_system_proxy(false, true));
+        assert!(!use_system_proxy(true, false));
+        assert!(use_system_proxy(true, true));
+    }
 
     #[test]
     fn redirect_cannot_escape_origin_safety_policy() {
