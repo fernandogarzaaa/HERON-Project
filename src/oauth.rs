@@ -11,6 +11,10 @@ use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Utc};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
+
+// Serialize database writes with disconnect. A delayed network response must never
+// restore another account\'s records after the user disconnects it.
+static SOURCE_WRITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 use url::Url;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,6 +169,7 @@ pub async fn access_token(cfg: &Config, provider: Provider) -> Result<String> {
 }
 
 pub fn disconnect(app: &App, provider: Provider) -> Result<(usize, usize)> {
+    let _guard = SOURCE_WRITES.lock().unwrap_or_else(|e| e.into_inner());
     let cfg = app.cfg();
     cfg.store_secret(&provider.secret_key("refresh_token"), "")?;
     cfg.store_secret(&provider.secret_key("client_id"), "")?;
@@ -187,6 +192,9 @@ async fn get_json(http: &reqwest::Client, token: &str, url: &str, params: &[(&st
 
 fn parse_time(s: &str) -> i64 {
     DateTime::parse_from_rfc3339(s).map(|d| d.timestamp()).or_else(|_| {
+        chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f")
+            .map(|d| d.and_utc().timestamp())
+    }).or_else(|_| {
         NaiveDate::parse_from_str(s, "%Y-%m-%d")
             .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp())
     }).unwrap_or_else(|_| now_ts())
@@ -269,12 +277,19 @@ async fn microsoft_calendar(http: &reqwest::Client, token: &str) -> Result<Vec<R
 /// Refresh both read-only sources. Read everything before replacing saved results,
 /// so a failed API request does not erase the previous offline index.
 pub async fn sync(app: &App, provider: Provider) -> Result<(usize, usize)> {
-    let token = access_token(&app.cfg(), provider).await?;
+    let cfg = app.cfg();
+    let token = access_token(&cfg, provider).await?;
+    let refresh_at_start = cfg.secret(&provider.secret_key("refresh_token"))
+        .ok_or_else(|| anyhow!("Account was disconnected before sync."))?;
     let http = oauth_http()?;
     let (email, calendar) = match provider {
         Provider::Google => (google_mail(&http, &token).await?, google_calendar(&http, &token).await?),
         Provider::Microsoft => (microsoft_mail(&http, &token).await?, microsoft_calendar(&http, &token).await?),
     };
+    let _guard = SOURCE_WRITES.lock().unwrap_or_else(|e| e.into_inner());
+    if cfg.secret(&provider.secret_key("refresh_token")).as_deref() != Some(refresh_at_start.as_str()) {
+        bail!("Account was disconnected or changed while the sync was running.");
+    }
     app.store.clear_knowledge(provider.mail_source())?;
     for rec in &email {
         app.store.upsert_knowledge(provider.mail_source(), &rec.id, &rec.title, &rec.body, rec.timestamp)?;
