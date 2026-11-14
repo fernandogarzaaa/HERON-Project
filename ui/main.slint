@@ -356,12 +356,9 @@ export component MainWindow inherits Window {
                 activated => { root.new-session(); }
             }
         }
-        Menu {
-            title: "Edit";
-            MenuItem {
-                title: "Copy";
-            }
-        }
+        // Do not advertise an inert Edit > Copy command. The old menu
+        // item had no activated callback; native text inputs retain their
+        // own copy shortcut and completed chat messages have Copy buttons.
         Menu {
             title: "Help";
             MenuItem {
