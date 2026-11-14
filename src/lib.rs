@@ -11,6 +11,7 @@ pub mod llm;
 pub mod mail;
 pub mod mcp;
 pub mod memory;
+pub mod oauth;
 pub mod permissions;
 pub mod persona;
 pub mod sandbox;
