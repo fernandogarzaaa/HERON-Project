@@ -89,7 +89,7 @@ fn challenge(verifier: &str) -> String {
 }
 pub fn begin(provider: Provider, client_id: &str, redirect_uri: &str) -> Result<(String, Pending, Url)> {
     let client_id = client_id.trim();
-    if client_id.is_empty() || client_id.len() > 512 || client_id.contains(['\n', '\r']) {
+    if client_id.is_empty() || client_id.len() > 512 || client_id.contains('\n') || client_id.contains('\r') {
         bail!("Supply a valid public OAuth desktop application client ID.");
     }
     let callback = Url::parse(redirect_uri)?;
