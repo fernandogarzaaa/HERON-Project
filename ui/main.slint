@@ -15,7 +15,7 @@
 import { AboutSlint, StandardButton } from "std-widgets.slint";
 import { Theme } from "components/theme.slint";
 import { ChatMsg } from "components/message.slint";
-import { ChatView } from "views/chat.slint";
+import { ChatView, ComposerView } from "views/chat.slint";
 import { Sidebar } from "views/sidebar.slint";
 import { MemoryView } from "views/memory.slint";
 import { TasksView } from "views/tasks.slint";
@@ -79,6 +79,10 @@ export component MainWindow inherits Window {
     // start, and stays empty in normal use.
     in-out property <string> backend-status: "Starting…";
     in-out property <string> error-message: "";
+    // Diagnostic geometry exported to native headless resize tests.
+    out property <length> debug-window-height: root.height;
+    out property <length> debug-content-height: content.height;
+    out property <length> debug-composer-y: composer-overlay.y;
     // Current conversation id, owned by Rust. Empty means "no session yet";
     // the server creates one lazily on the first message sent.
     in-out property <string> session-id: "";
@@ -135,6 +139,7 @@ export component MainWindow inherits Window {
     in-out property <string> memory-new-content: "";
     in-out property <string> memory-new-kind: "fact";
     in-out property <string> memory-empty-text: "";
+    in-out property <string> memory-save-error: "";
     callback memory-add-memory(string, string);
     callback memory-delete-memory(int);
     callback memory-confirm-memory(int);
@@ -144,6 +149,7 @@ export component MainWindow inherits Window {
     in-out property <[TaskRow]> tasks-rows: [];
     in-out property <string> tasks-new-title: "";
     in-out property <string> tasks-empty-text: "";
+    in-out property <string> tasks-save-error: "";
     callback tasks-add-task(string);
     callback tasks-set-task-done(int, bool);
     callback tasks-delete-task(int);
@@ -356,12 +362,9 @@ export component MainWindow inherits Window {
                 activated => { root.new-session(); }
             }
         }
-        Menu {
-            title: "Edit";
-            MenuItem {
-                title: "Copy";
-            }
-        }
+        // Do not advertise an inert Edit > Copy command. The old menu
+        // item had no activated callback; native text inputs retain their
+        // own copy shortcut and completed chat messages have Copy buttons.
         Menu {
             title: "Help";
             MenuItem {
@@ -403,6 +406,13 @@ export component MainWindow inherits Window {
         // reminders, usage, activity, onboarding, and settings.
         content := Rectangle {
             horizontal-stretch: 1;
+            vertical-stretch: 1;
+            // Hidden view branches and their scrollable children must not
+            // export thousands of pixels of intrinsic minimum height to
+            // the main Window. The root preferred size remains 1100×700,
+            // and this content region is free to shrink when resized.
+            min-height: 0px;
+            preferred-height: 600px;
             // Surface sits one step above the paper sidebar and window,
             // so the content area reads as the working plane and the
             // cards, composer, and message containers (raised) sit one
@@ -562,6 +572,7 @@ export component MainWindow inherits Window {
                     new-content <=> root.memory-new-content;
                     new-kind <=> root.memory-new-kind;
                     empty-text: root.memory-empty-text;
+                    save-error: root.memory-save-error;
                     add-memory(a0, a1) => { root.memory-add-memory(a0, a1); }
                     delete-memory(a0) => { root.memory-delete-memory(a0); }
                     confirm-memory(a0) => { root.memory-confirm-memory(a0); }
@@ -581,6 +592,7 @@ export component MainWindow inherits Window {
                     rows: root.tasks-rows;
                     new-title <=> root.tasks-new-title;
                     empty-text: root.tasks-empty-text;
+                    save-error: root.tasks-save-error;
                     add-task(a0) => { root.tasks-add-task(a0); }
                     set-task-done(a0, a1) => { root.tasks-set-task-done(a0, a1); }
                     delete-task(a0) => { root.tasks-delete-task(a0); }
@@ -737,6 +749,40 @@ export component MainWindow inherits Window {
                     connect-telegram => { root.settings-connect-telegram(); }
                     disconnect-telegram => { root.settings-disconnect-telegram(); }
                     make-backup => { root.settings-make-backup(); }
+                }
+            }
+
+            // Pin the composer to the shell's *actual content rectangle*.
+            // It is the last, absolutely positioned child (topmost layer).
+            // Anchoring to ChatView/root.height was incorrect: its preferred
+            // size can exceed the viewport when an empty state grows.
+            // This overlay is absent outside the Chat lane, and never
+            // changes the content layout's intrinsic size.
+            composer-overlay := Rectangle {
+                visible: root.current-view == "chat" && root.error-message == "";
+                x: 16px;
+                // Anchor to the physical Window, not a content-layout
+                // height that can expand to fit its scrollable descendants.
+                y: root.height - 144px;
+                width: parent.width - 32px;
+                height: 94px;
+                background: Theme.surface;
+                border-color: Theme.line;
+                border-width: 1px;
+                border-radius: 10px;
+                ComposerView {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    busy: root.busy;
+                    hint: root.busy
+                        ? "Heron is working. Press Esc or Stop to halt it."
+                        : "Enter to send, Shift+Enter for a new line";
+                    reduce-motion: root.reduce-motion;
+                    send-message(t) => { root.send-message(t); }
+                    cancel-reply => { root.cancel-reply(); }
+                    new-session => { root.new-session(); }
                 }
             }
         }

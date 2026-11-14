@@ -11,6 +11,7 @@ export component TasksView inherits Rectangle {
     in property <[TaskRow]> rows;
     in-out property <string> new-title: "";
     in property <string> empty-text: "";
+    in property <string> save-error: "";
     in property <bool> reduce-motion: false;
     callback add-task(string);
     callback set-task-done(int, bool);
@@ -38,6 +39,7 @@ export component TasksView inherits Rectangle {
                     clicked => { root.add-task(root.new-title); }
                 }
             }
+            if root.save-error != "": Text { text: root.save-error; color: Theme.danger; wrap: word-wrap; }
             EmptyNote { body: root.empty-text; visible: root.empty-text != ""; }
             for row in root.rows: RowCard {
                 reduce-motion: root.reduce-motion;

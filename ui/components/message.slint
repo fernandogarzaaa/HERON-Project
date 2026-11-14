@@ -55,9 +55,18 @@ component StepRowView inherits TouchArea {
     in property <ToolStep> step;
     in property <bool> reduce-motion;
     callback toggled(string);
+    // Expandable tool steps are interactive controls, not plain text.
+    // Expose their state and allow the same action from keyboard and AT.
+    accessible-role: button;
+    accessible-label: step.label;
+    accessible-expandable: true;
+    accessible-expanded: step.expanded;
+    accessible-action-default => { root.toggled(step.id); }
     clicked => { root.toggled(step.id); }
     Rectangle {
         background: root.pressed ? Theme.slate-soft : root.has-hover ? Theme.surface : transparent;
+        border-color: keyboard.has-focus ? Theme.slate : transparent;
+        border-width: keyboard.has-focus ? 1px : 0px;
         border-radius: 6px;
         animate background { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
         VerticalBox {
@@ -80,6 +89,17 @@ component StepRowView inherits TouchArea {
                 border-color: Theme.line; border-width: 1px; border-radius: 6px;
                 animate opacity { duration: reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
                 Text { text: step.preview; font-family: "monospace"; font-size: 12px; color: step.state == "err" ? Theme.danger : Theme.ink; wrap: word-wrap; }
+            }
+        }
+    }
+    keyboard := FocusScope {
+        focus-on-click: false;
+        key-pressed(event) => {
+            if ((event.text == Key.Return || event.text == Key.Space) && !event.repeat) {
+                root.toggled(step.id);
+                accept
+            } else {
+                reject
             }
         }
     }

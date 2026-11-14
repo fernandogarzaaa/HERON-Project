@@ -37,43 +37,81 @@ component ModeButton inherits Button {
     clicked => { root.clicked-mode(mode); }
 }
 
-component ComposerView inherits FocusScope {
+export component ComposerView inherits FocusScope {
+    height: 88px;
+    vertical-stretch: 0;
     in property <bool> busy;
     in property <string> hint;
     in property <bool> reduce-motion;
     callback send-message(string);
     callback cancel-reply();
-    // Enter sends, Shift+Enter inserts a newline. Other keys bubble up
-    // to the ChatView scope (Esc stops, Cmd/Ctrl+N starts a new
-    // conversation). If the TextEdit consumes Return before this scope
-    // sees it, the Send button still works; see ui/WIRING.md.
+    callback new-session();
+    // When the Send/Stop button holds keyboard focus, events must be
+    // handled here: ChatView is a sibling, not an ancestor, now that the
+    // composer is anchored by the shell. TextEdit handles its own keys.
     key-pressed(event) => {
-        if (event.text == "\n" && !event.modifiers.shift) {
-            if (input.text != "") { root.send-message(input.text); input.text = ""; }
+        if (event.text == "n" && (event.modifiers.control || event.modifiers.meta)) {
+            root.new-session();
+            accept
+        } else if (event.text == Key.Escape && root.busy) {
+            root.cancel-reply();
             accept
         } else {
             reject
         }
     }
+    // Handle Enter on TextEdit itself: parent FocusScope key handlers
+    // may never receive keys already accepted by the text editor.
+    // Shift+Enter is delegated to the editor for a newline.
     // The composer is the obvious place to type. It takes focus when
     // the view appears.
     init => { input.focus(); }
     VerticalBox {
+        width: parent.width;
+        height: parent.height;
+        spacing: 6px;
+        padding: 4px;
         HorizontalBox {
+            width: parent.width;
+            height: 54px;
             alignment: stretch;
             spacing: 8px;
             Rectangle {
+                horizontal-stretch: 1;
+                height: 54px;
                 border-color: input.has-focus ? Theme.slate : Theme.line;
                 border-width: 1px; border-radius: 10px;
                 background: Theme.surface;
                 animate border-color { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
                 input := TextEdit {
+                    width: parent.width;
+                    height: parent.height;
                     placeholder-text: "Ask Heron to do something";
                     wrap: word-wrap;
-                    min-height: 46px;
+                    key-pressed(event) => {
+                        if (event.text == "n" && (event.modifiers.control || event.modifiers.meta)) {
+                            root.new-session();
+                            accept
+                        } else if (event.text == Key.Escape && root.busy) {
+                            root.cancel-reply();
+                            accept
+                        } else if ((event.text == Key.Return || event.text == "\n")
+                                   && !event.modifiers.shift && !event.modifiers.control
+                                   && !event.modifiers.meta) {
+                            // Ignore repeated Enter and never submit while busy.
+                            if (!root.busy && !event.repeat && self.text != "") {
+                                root.send-message(self.text);
+                                self.text = "";
+                            }
+                            accept
+                        } else {
+                            reject
+                        }
+                    }
                 }
             }
             ActionButton {
+                width: 96px;
                 label: busy ? "Stop" : "Send";
                 kind: busy ? "danger" : "primary";
                 enabled: busy || input.text != "";
@@ -88,14 +126,22 @@ component ComposerView inherits FocusScope {
 }
 
 component StarterCard inherits TouchArea {
+    height: 62px;
+    vertical-stretch: 0;
     in property <string> prompt;
     in property <bool> reduce-motion;
     callback picked(string);
+    // A pointer-only starter prevents keyboard and assistive-tech users
+    // from starting a conversation. Expose the same action on all paths.
+    accessible-role: button;
+    accessible-label: prompt;
+    accessible-action-default => { root.picked(prompt); }
     clicked => { root.picked(prompt); }
     Rectangle {
         background: root.pressed ? Theme.slate-soft : root.has-hover ? Theme.surface : Theme.paper;
-        border-color: root.has-hover ? Theme.slate : Theme.line;
-        border-width: 1px; border-radius: 10px;
+        border-color: keyboard.has-focus || root.has-hover ? Theme.slate : Theme.line;
+        border-width: keyboard.has-focus ? 2px : 1px;
+        border-radius: 10px;
         animate background { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
         animate border-color { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
         HorizontalBox {
@@ -104,9 +150,22 @@ component StarterCard inherits TouchArea {
             Text { text: prompt; font-size: 14px; color: Theme.ink; wrap: word-wrap; }
         }
     }
+    keyboard := FocusScope {
+        focus-on-click: false;
+        key-pressed(event) => {
+            if ((event.text == Key.Return || event.text == Key.Space) && !event.repeat) {
+                root.picked(prompt);
+                accept
+            } else {
+                reject
+            }
+        }
+    }
 }
 
 component EmptyStateView inherits VerticalBox {
+    spacing: 12px;
+    vertical-stretch: 0;
     in property <bool> has-key;
     in property <bool> demo;
     in property <bool> paused;
@@ -118,32 +177,53 @@ component EmptyStateView inherits VerticalBox {
     callback try-demo();
     callback resume();
     callback use-starter(string);
-    if !has-key: Rectangle {
+    if !has-key && !demo: Rectangle {
+        height: 118px;
+        vertical-stretch: 0;
         background: Theme.talon-soft; border-color: Theme.talon; border-width: 1px; border-radius: 10px;
         VerticalBox {
-            Text { text: "Heron needs an AI model before it can reply. Add an API key, or point it at a model running on this computer."; wrap: word-wrap; }
+            width: parent.width;
+            height: parent.height;
+            padding: 12px;
+            spacing: 8px;
+            Text { text: "Heron needs an AI model before it can reply. Add an API key, or point it at a model running on this computer."; color: Theme.talon-ink; wrap: word-wrap; vertical-stretch: 0; }
             HorizontalBox {
+                height: 34px;
+                vertical-stretch: 0;
+                spacing: 8px;
                 Button { text: "Connect a model"; clicked => { root.open-settings(); } }
                 Button { text: "Try the demo first"; clicked => { root.try-demo(); } }
             }
         }
     }
     if demo: Rectangle {
+        height: 110px;
+        vertical-stretch: 0;
         background: Theme.talon-soft; border-color: Theme.talon; border-width: 1px; border-radius: 10px;
         VerticalBox {
-            Text { text: "Demo mode: replies are canned, but the actions are real, so you can try approvals, memory and reminders. Connect a model for real answers."; wrap: word-wrap; }
+            width: parent.width;
+            height: parent.height;
+            padding: 12px;
+            spacing: 8px;
+            Text { text: "Demo mode: replies are canned, but the actions are real, so you can try approvals, memory and reminders. Connect a model for real answers."; color: Theme.talon-ink; wrap: word-wrap; vertical-stretch: 0; }
             Button { text: "Connect a model"; clicked => { root.open-settings(); } }
         }
     }
     if paused: Rectangle {
+        height: 104px;
+        vertical-stretch: 0;
         background: Theme.surface; border-color: Theme.line; border-width: 1px; border-radius: 10px;
         VerticalBox {
-            Text { text: "Heron is paused: it starts nothing on its own until you resume it. You can still ask it for things here."; wrap: word-wrap; }
+            width: parent.width;
+            height: parent.height;
+            padding: 12px;
+            spacing: 8px;
+            Text { text: "Heron is paused: it starts nothing on its own until you resume it. You can still ask it for things here."; color: Theme.ink; wrap: word-wrap; vertical-stretch: 0; }
             Button { text: "Resume"; clicked => { root.resume(); } }
         }
     }
-    Text { text: "What should we get done?"; font-size: 30px; font-weight: 600; font-family: Theme.heading-font; wrap: word-wrap; }
-    Text { text: "Heron works in " + workspace-short + ". It can read and write files there, run commands, search the web, remember what matters to you, and remind you of things."; color: Theme.muted; wrap: word-wrap; }
+    Text { text: "What should we get done?"; color: Theme.ink; font-size: 30px; font-weight: 600; font-family: Theme.heading-font; wrap: word-wrap; vertical-stretch: 0; }
+    Text { text: "Heron works in " + workspace-short + ". It can read and write files there, run commands, search the web, remember what matters to you, and remind you of things."; color: Theme.muted; wrap: word-wrap; vertical-stretch: 0; }
     for starter in starters: StarterCard {
         prompt: starter;
         reduce-motion: reduce-motion;
@@ -152,6 +232,10 @@ component EmptyStateView inherits VerticalBox {
 }
 
 export component ChatView inherits FocusScope {
+    // Stop deeply nested scroll content inflating this child beyond the
+    // actual desktop viewport: the outer layout owns the real height.
+    min-height: 0px;
+    preferred-height: 280px;
     in property <string> title;
     in property <string> mode;
     in property <bool> busy;
@@ -182,7 +266,7 @@ export component ChatView inherits FocusScope {
     in-out property <bool> follow: true;
     property <bool> show-latest: !follow;
     changed thread-version => {
-        if (root.follow) { thread-scroll.content-y = thread-scroll.height - thread-box.height; }
+        if (root.follow) { thread-scroll.content-y = thread-box.height > thread-scroll.height ? thread-scroll.height - thread-box.height : 0px; }
     }
 
     // Cmd/Ctrl+N starts a new conversation. Esc stops a running reply.
@@ -217,12 +301,24 @@ export component ChatView inherits FocusScope {
     callback resume();
 
     VerticalBox {
+        width: parent.width;
+        height: parent.height;
+        spacing: 10px;
+        padding-bottom: 96px;
         // Header: title, Undo, mode group.
-        HorizontalBox {
-            alignment: space-between;
-            Text { text: title; font-size: 20px; font-weight: 600; font-family: Theme.heading-font; }
-            if can-undo: Button { text: "Undo last file change"; clicked => { root.undo(); } }
+        // Keep the session title/actions separate from the four mode
+        // controls. Putting all six controls on one row overflowed the
+        // minimum-width desktop window when titles were long.
+        VerticalBox {
+            spacing: 6px;
+            vertical-stretch: 0;
             HorizontalBox {
+                alignment: space-between;
+                Text { text: title; font-size: 20px; font-weight: 600; font-family: Theme.heading-font; wrap: word-wrap; horizontal-stretch: 1; }
+                if can-undo: Button { text: "Undo last file change"; clicked => { root.undo(); } }
+            }
+            HorizontalBox {
+                spacing: 6px;
                 ModeButton { mode: "readonly"; current-mode: root.mode; clicked-mode(m) => { root.set-mode(m); } }
                 ModeButton { mode: "ask"; current-mode: root.mode; clicked-mode(m) => { root.set-mode(m); } }
                 ModeButton { mode: "auto"; current-mode: root.mode; clicked-mode(m) => { root.set-mode(m); } }
@@ -247,12 +343,17 @@ export component ChatView inherits FocusScope {
 
         // Thread.
         thread-scroll := ScrollView {
+            preferred-height: 240px;
+            min-height: 0px;
+            vertical-stretch: 1;
             // This fires for user scrolling, not a layout-height change.
             // That preserves follow-mode across large streaming deltas.
             scrolled() => {
                 root.follow = thread-scroll.content-y <= thread-scroll.height - thread-box.height + 240px;
             }
             thread-box := VerticalBox {
+                width: parent.width;
+                spacing: 12px;
                 if show-empty: EmptyStateView {
                     has-key: has-key; demo: demo; paused: paused;
                     workspace-short: workspace-short; workspace-full: workspace-full;
@@ -274,15 +375,12 @@ export component ChatView inherits FocusScope {
             }
         }
         if show-latest: HorizontalBox {
+            height: 40px;
+            vertical-stretch: 0;
             alignment: center;
-            ActionButton { label: "↓ Newest message"; kind: "primary"; pill: true; reduce-motion: reduce-motion; clicked => { thread-scroll.content-y = thread-scroll.height - thread-box.height; } }
+            ActionButton { label: "↓ Newest message"; kind: "primary"; pill: true; reduce-motion: reduce-motion; clicked => { root.follow = true; thread-scroll.content-y = thread-box.height > thread-scroll.height ? thread-scroll.height - thread-box.height : 0px; } }
         }
 
-        // Composer.
-        ComposerView {
-            busy: busy; hint: hint; reduce-motion: reduce-motion;
-            send-message(t) => { root.send-message(t); }
-            cancel-reply => { root.cancel-reply(); }
-        }
     }
+
 }
