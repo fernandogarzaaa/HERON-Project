@@ -182,6 +182,8 @@ async fn access_token_with_generation(cfg: &Config, provider: Provider) -> Resul
         .ok_or_else(|| anyhow!("This OAuth connection has no client ID. Please reconnect."))?;
     let refresh = cfg.secret(&provider.secret_key("refresh_token"))
         .ok_or_else(|| anyhow!("This OAuth account is not connected."))?;
+    let original_epoch = provider.account_epoch(cfg)
+        .ok_or_else(|| anyhow!("OAuth account has no generation. Disconnect and reconnect."))?;
     let token = redeem(provider, &[
         ("client_id", &id), ("refresh_token", &refresh), ("grant_type", "refresh_token"),
     ]).await?;
@@ -189,11 +191,11 @@ async fn access_token_with_generation(cfg: &Config, provider: Provider) -> Resul
     // connection by saving a rotated refresh token after the user's disconnect.
     {
         let _guard = SOURCE_WRITES.lock().unwrap_or_else(|e| e.into_inner());
-        if cfg.secret(&provider.secret_key("refresh_token")).as_deref() != Some(refresh.as_str()) {
+        if cfg.secret(&provider.secret_key("refresh_token")).as_deref() != Some(refresh.as_str())
+            || provider.account_epoch(cfg).as_deref() != Some(original_epoch.as_str()) {
             bail!("Account was disconnected or changed while renewing access.");
         }
-        let generation = provider.account_epoch(cfg)
-            .ok_or_else(|| anyhow!("OAuth account has no generation. Disconnect and reconnect."))?;
+        let generation = original_epoch;
         if let Some(next) = token.get("refresh_token").and_then(Value::as_str).filter(|s| !s.is_empty()) {
             cfg.store_secret(&provider.secret_key("refresh_token"), next)?;
         }
