@@ -300,7 +300,7 @@ export component SettingsView inherits VerticalBox {
         spacing: 8px;
         SectionTitle { label: "Google and Microsoft accounts"; }
         Text {
-            text: "Connect read-only email and calendar access. You need a registered desktop OAuth client ID for each provider. HERON does not receive your login password or permission to send mail or change events.";
+            text: "Connect email and calendar read-only in your browser. A distributor-registered app connects with one click; enter your own public client ID only if needed. HERON never sees your account password. Synced content stays locally indexed, but may be sent to your chosen AI model when you ask HERON about it.";
             color: Theme.muted;
             font-size: 13px;
             wrap: word-wrap;
