@@ -73,6 +73,11 @@ export component MainWindow inherits Window {
     min-height: 560px;
     preferred-width: 1100px;
     preferred-height: 700px;
+    // Single source of truth for the fixed chat composer top edge and
+    // the space reserved by ChatView's scrolling layout. Its 94px
+    // overlay ends above the shell's bottom edge and remains separated
+    // from the thread/Newest row at all supported window heights.
+    private property <length> composer-top-inset: 144px;
 
     // Server connection. backend-status is the status line the shell polls
     // every 30 seconds; error-message is set once when the backend fails to
@@ -444,6 +449,7 @@ export component MainWindow inherits Window {
                 if root.error-message == "" : ChatView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
+                    composer-top-inset: root.composer-top-inset;
                     title: root.session-title == "" ? "New conversation" : root.session-title;
                     thread: root.messages;
                     busy: root.busy;
@@ -763,7 +769,7 @@ export component MainWindow inherits Window {
                 x: 16px;
                 // Anchor to the physical Window, not a content-layout
                 // height that can expand to fit its scrollable descendants.
-                y: root.height - 144px;
+                y: root.height - root.composer-top-inset;
                 width: parent.width - 32px;
                 height: 94px;
                 background: Theme.surface;
