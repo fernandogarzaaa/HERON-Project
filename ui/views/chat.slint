@@ -370,7 +370,10 @@ export component ChatView inherits FocusScope {
     // preferred-size calculation and thread growth cannot push it away.
     ComposerView {
         x: 0px;
-        y: root.height - 92px;
+        // Diagnostic placement: overlap the visible header to determine
+        // whether this component renders at all. Restore bottom anchoring
+        // after confirming the frame in CI.
+        y: 120px;
         width: root.width;
         height: 90px;
         busy: busy; hint: hint; reduce-motion: reduce-motion;
