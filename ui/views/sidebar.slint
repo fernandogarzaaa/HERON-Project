@@ -41,21 +41,24 @@ export component Sidebar inherits Rectangle {
         }
         Button {
             text: "New conversation";
+            icon: @image-url("../icons/plus.svg");
+            icon-size: 17px;
+            colorize-icon: true;
             primary: true;
             clicked => { root.new-conversation(); }
         }
         VerticalBox {
             spacing: 1px;
             padding-top: 8px;
-            Button { text: root.waiting-count > 0 ? "Conversation ({root.waiting-count})" : "Conversation"; checkable: true; checked: root.current-view == "chat"; clicked => { root.navigate("chat"); } }
-            Button { text: "Getting to know you"; checkable: true; checked: root.current-view == "onboarding"; clicked => { root.navigate("onboarding"); } }
-            Button { text: root.suggestions-count > 0 ? "Awareness ({root.suggestions-count})" : "Awareness"; checkable: true; checked: root.current-view == "awareness"; clicked => { root.navigate("awareness"); } }
-            Button { text: "Memory"; checkable: true; checked: root.current-view == "memory"; clicked => { root.navigate("memory"); } }
-            Button { text: "Tasks"; checkable: true; checked: root.current-view == "tasks"; clicked => { root.navigate("tasks"); } }
-            Button { text: root.unread-count > 0 ? "Reminders ({root.unread-count})" : "Reminders"; checkable: true; checked: root.current-view == "reminders"; clicked => { root.navigate("reminders"); } }
-            Button { text: "Usage"; checkable: true; checked: root.current-view == "usage"; clicked => { root.navigate("usage"); } }
-            Button { text: "Activity log"; checkable: true; checked: root.current-view == "activity"; clicked => { root.navigate("activity"); } }
-            Button { text: "Settings"; checkable: true; checked: root.current-view == "settings"; clicked => { root.navigate("settings"); } }
+            Button { icon: @image-url("../icons/chat.svg"); icon-size: 17px; colorize-icon: true; text: root.waiting-count > 0 ? "Conversation ({root.waiting-count})" : "Conversation"; checkable: true; checked: root.current-view == "chat"; clicked => { root.navigate("chat"); } }
+            Button { icon: @image-url("../icons/sparkles.svg"); icon-size: 17px; colorize-icon: true; text: "Getting to know you"; checkable: true; checked: root.current-view == "onboarding"; clicked => { root.navigate("onboarding"); } }
+            Button { icon: @image-url("../icons/activity.svg"); icon-size: 17px; colorize-icon: true; text: root.suggestions-count > 0 ? "Awareness ({root.suggestions-count})" : "Awareness"; checkable: true; checked: root.current-view == "awareness"; clicked => { root.navigate("awareness"); } }
+            Button { icon: @image-url("../icons/memory.svg"); icon-size: 17px; colorize-icon: true; text: "Memory"; checkable: true; checked: root.current-view == "memory"; clicked => { root.navigate("memory"); } }
+            Button { icon: @image-url("../icons/tasks.svg"); icon-size: 17px; colorize-icon: true; text: "Tasks"; checkable: true; checked: root.current-view == "tasks"; clicked => { root.navigate("tasks"); } }
+            Button { icon: @image-url("../icons/reminders.svg"); icon-size: 17px; colorize-icon: true; text: root.unread-count > 0 ? "Reminders ({root.unread-count})" : "Reminders"; checkable: true; checked: root.current-view == "reminders"; clicked => { root.navigate("reminders"); } }
+            Button { icon: @image-url("../icons/usage.svg"); icon-size: 17px; colorize-icon: true; text: "Usage"; checkable: true; checked: root.current-view == "usage"; clicked => { root.navigate("usage"); } }
+            Button { icon: @image-url("../icons/activity.svg"); icon-size: 17px; colorize-icon: true; text: "Activity log"; checkable: true; checked: root.current-view == "activity"; clicked => { root.navigate("activity"); } }
+            Button { icon: @image-url("../icons/settings.svg"); icon-size: 17px; colorize-icon: true; text: "Settings"; checkable: true; checked: root.current-view == "settings"; clicked => { root.navigate("settings"); } }
         }
         Text {
             text: "Recent conversations";
