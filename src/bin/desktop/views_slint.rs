@@ -87,6 +87,8 @@ pub struct ViewsController {
     state: Arc<Mutex<logic::ViewsState>>,
     rt: tokio::runtime::Handle,
     search_seq: AtomicU64,
+    memory_save_seq: AtomicU64,
+    tasks_save_seq: AtomicU64,
     window: Mutex<Option<Weak<MainWindow>>>,
     /// Shell-provided: start a conversation with the accepted suggestion.
     /// Called with the prompt the server returned, and the session id when
@@ -114,6 +116,8 @@ impl ViewsController {
             state: Arc::new(Mutex::new(logic::ViewsState::new())),
             rt,
             search_seq: AtomicU64::new(0),
+            memory_save_seq: AtomicU64::new(0),
+            tasks_save_seq: AtomicU64::new(0),
             window: Mutex::new(None),
             on_accept_suggestion,
             on_open_session,
@@ -916,18 +920,25 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
             return;
         }
         let kind = kind.to_string();
+        let sequence = c.memory_save_seq.fetch_add(1, Ordering::SeqCst) + 1;
         let ctrl = c.clone();
         let rt = ctrl.rt.clone();
         let weak = weak.clone();
         rt.spawn(async move {
             let succeeded = ctrl.bridge.add_memory(&content, &kind).await.is_ok();
             let weak_for_feedback = weak.clone();
+            let ctrl_for_feedback = ctrl.clone();
             // Preserve any newer draft typed while the network request was
             // pending. Also ignore stale failures from older submissions.
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(window) = weak_for_feedback.upgrade() {
                     let still_editing_submission =
                         window.get_memory_new_content().as_str() == content.as_str();
+                    // A newer submission owns the feedback area. An older
+                    // success may refresh rows but must not clear its error.
+                    if ctrl_for_feedback.memory_save_seq.load(Ordering::SeqCst) != sequence {
+                        return;
+                    }
                     if succeeded {
                         if still_editing_submission {
                             window.set_memory_new_content(SharedString::default());
@@ -1001,16 +1012,21 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
         if title.trim().is_empty() {
             return;
         }
+        let sequence = c.tasks_save_seq.fetch_add(1, Ordering::SeqCst) + 1;
         let ctrl = c.clone();
         let rt = ctrl.rt.clone();
         let weak = weak.clone();
         rt.spawn(async move {
             let succeeded = ctrl.bridge.add_task(&title).await.is_ok();
             let weak_for_feedback = weak.clone();
+            let ctrl_for_feedback = ctrl.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(window) = weak_for_feedback.upgrade() {
                     let still_editing_submission =
                         window.get_tasks_new_title().as_str() == title.as_str();
+                    if ctrl_for_feedback.tasks_save_seq.load(Ordering::SeqCst) != sequence {
+                        return;
+                    }
                     if succeeded {
                         if still_editing_submission {
                             window.set_tasks_new_title(SharedString::default());
