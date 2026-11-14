@@ -330,7 +330,6 @@ export component ChatView inherits FocusScope {
         thread-scroll := ScrollView {
             preferred-height: 240px;
             min-height: 0px;
-            max-height: root.viewport-height - 220px;
             vertical-stretch: 1;
             // This fires for user scrolling, not a layout-height change.
             // That preserves follow-mode across large streaming deltas.
