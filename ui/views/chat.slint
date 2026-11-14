@@ -37,7 +37,7 @@ component ModeButton inherits Button {
     clicked => { root.clicked-mode(mode); }
 }
 
-component ComposerView inherits FocusScope {
+export component ComposerView inherits FocusScope {
     height: 88px;
     vertical-stretch: 0;
     in property <bool> busy;
@@ -218,9 +218,6 @@ export component ChatView inherits FocusScope {
     // actual desktop viewport: the outer layout owns the real height.
     min-height: 0px;
     preferred-height: 280px;
-    // Supplied by MainWindow from the real window size; chat content
-    // has an unconstrained intrinsic height and must not anchor controls.
-    in property <length> viewport-height: 600px;
     in property <string> title;
     in property <string> mode;
     in property <bool> busy;
@@ -368,18 +365,4 @@ export component ChatView inherits FocusScope {
 
     }
 
-    // Anchor the composer outside the thread's scrolling layout. With an
-    // absolutely positioned child, Slint excludes it from the layout's
-    // preferred-size calculation and thread growth cannot push it away.
-    ComposerView {
-        x: 0px;
-        // The viewport height comes from the actual native Window,
-        // rather than the chat content's potentially inflated layout.
-        y: root.viewport-height - 92px;
-        width: root.width;
-        height: 90px;
-        busy: busy; hint: hint; reduce-motion: reduce-motion;
-        send-message(t) => { root.send-message(t); }
-        cancel-reply => { root.cancel-reply(); }
-    }
 }
