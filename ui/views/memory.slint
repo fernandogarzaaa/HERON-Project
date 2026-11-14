@@ -14,6 +14,7 @@ export component MemoryView inherits Rectangle {
     in-out property <string> new-kind: "fact";
     in property <[string]> kinds: ["About me", "Preference", "How I like things done", "Project", "Person", "Fact"];
     in property <string> empty-text: "";
+    in property <string> save-error: "";
     in property <bool> reduce-motion: false;
     callback add-memory(string, string);
     callback delete-memory(int);
@@ -54,6 +55,7 @@ export component MemoryView inherits Rectangle {
                 text <=> root.search-text;
                 edited(text) => { root.search-changed(text); }
             }
+            if root.save-error != "": Text { text: root.save-error; color: Theme.danger; wrap: word-wrap; }
             EmptyNote { body: root.empty-text; visible: root.empty-text != ""; }
             for row in root.rows: RowCard {
                 reduce-motion: root.reduce-motion;
