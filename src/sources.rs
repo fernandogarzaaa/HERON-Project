@@ -403,6 +403,23 @@ fn source_label(source: &str) -> &'static str {
 /// Turn not-yet-read items of a source into lasting memories. Sends excerpts to the model, so it runs
 /// only when the user asked for it. Returns what was learned.
 pub async fn learn(app: &App, source: &str) -> Result<Vec<String>> {
+    // The visible Email/Calendar cards combine legacy and OAuth sources.
+    // Learn separately from each provider so memories retain accurate source
+    // provenance and are deleted when that account is disconnected.
+    let members: &[&str] = match source {
+        "email" => &["email", "google_email", "microsoft_email"],
+        "calendar" => &["calendar", "google_calendar", "microsoft_calendar"],
+        _ => &[],
+    };
+    if !members.is_empty() {
+        let mut all = vec![];
+        for member in members { all.extend(learn_one(app, member).await?); }
+        return Ok(all);
+    }
+    learn_one(app, source).await
+}
+
+async fn learn_one(app: &App, source: &str) -> Result<Vec<String>> {
     if !SOURCES.contains(&source) {
         bail!("Unknown source.");
     }
