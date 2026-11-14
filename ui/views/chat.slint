@@ -236,6 +236,10 @@ export component ChatView inherits FocusScope {
     // actual desktop viewport: the outer layout owns the real height.
     min-height: 0px;
     preferred-height: 280px;
+    // Must match MainWindow's composer-top-inset. In addition to the
+    // shell's 16px inner padding this keeps the scroll viewport and
+    // Newest button above the fixed composer with a 16px clear gap.
+    in property <length> composer-top-inset: 144px;
     in property <string> title;
     in property <string> mode;
     in property <bool> busy;
@@ -304,7 +308,7 @@ export component ChatView inherits FocusScope {
         width: parent.width;
         height: parent.height;
         spacing: 10px;
-        padding-bottom: 96px;
+        padding-bottom: root.composer-top-inset;
         // Header: title, Undo, mode group.
         // Keep the session title/actions separate from the four mode
         // controls. Putting all six controls on one row overflowed the
