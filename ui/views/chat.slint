@@ -45,6 +45,21 @@ export component ComposerView inherits FocusScope {
     in property <bool> reduce-motion;
     callback send-message(string);
     callback cancel-reply();
+    callback new-session();
+    // When the Send/Stop button holds keyboard focus, events must be
+    // handled here: ChatView is a sibling, not an ancestor, now that the
+    // composer is anchored by the shell. TextEdit handles its own keys.
+    key-pressed(event) => {
+        if (event.text == "n" && (event.modifiers.control || event.modifiers.meta)) {
+            root.new-session();
+            accept
+        } else if (event.text == Key.Escape && root.busy) {
+            root.cancel-reply();
+            accept
+        } else {
+            reject
+        }
+    }
     // Handle Enter on TextEdit itself: parent FocusScope key handlers
     // may never receive keys already accepted by the text editor.
     // Shift+Enter is delegated to the editor for a newline.
@@ -74,7 +89,10 @@ export component ComposerView inherits FocusScope {
                     placeholder-text: "Ask Heron to do something";
                     wrap: word-wrap;
                     key-pressed(event) => {
-                        if (event.text == Key.Escape && root.busy) {
+                        if (event.text == "n" && (event.modifiers.control || event.modifiers.meta)) {
+                            root.new-session();
+                            accept
+                        } else if (event.text == Key.Escape && root.busy) {
                             root.cancel-reply();
                             accept
                         } else if ((event.text == Key.Return || event.text == "\n")
