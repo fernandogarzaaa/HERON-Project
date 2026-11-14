@@ -762,6 +762,37 @@ mod window_layout_tests {
         }
     }
 
+    // Uncompressed 32-bit BMP output requires no extra dependencies and
+    // can be opened by macOS Preview and Windows Photos for visual review.
+    fn write_bmp(
+        path: &std::path::Path,
+        width: u32,
+        height: u32,
+        pixels: &[PremultipliedRgbaColor],
+    ) {
+        let image_size = width * height * 4;
+        let file_size = image_size + 54;
+        let mut bytes = Vec::with_capacity(file_size as usize);
+        bytes.extend_from_slice(b"BM");
+        bytes.extend_from_slice(&file_size.to_le_bytes());
+        bytes.extend_from_slice(&[0u8; 4]); // reserved
+        bytes.extend_from_slice(&54u32.to_le_bytes()); // pixel data offset
+        bytes.extend_from_slice(&40u32.to_le_bytes()); // BITMAPINFOHEADER size
+        bytes.extend_from_slice(&(width as i32).to_le_bytes());
+        bytes.extend_from_slice(&(height as i32).to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // color planes
+        bytes.extend_from_slice(&32u16.to_le_bytes()); // bits per pixel
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB, uncompressed
+        bytes.extend_from_slice(&image_size.to_le_bytes());
+        bytes.extend_from_slice(&[0u8; 16]); // DPI and palette
+        for row in pixels.chunks_exact(width as usize).rev() {
+            for pixel in row {
+                bytes.extend_from_slice(&[pixel.blue, pixel.green, pixel.red, 0]);
+            }
+        }
+        std::fs::write(path, bytes).expect("write headless UI screenshot");
+    }
+
     #[test]
     fn main_window_lays_out_and_renders_without_a_binding_loop() {
         let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
@@ -787,6 +818,14 @@ mod window_layout_tests {
                 pixels.iter().any(|pixel| (pixel.red, pixel.green, pixel.blue) != reference),
                 "main window drew a uniform/blank frame at {width}x{height}"
             );
+            if let Ok(directory) = std::env::var("HERON_UI_SNAPSHOTS_DIR") {
+                // CI saves an intentionally empty-session screen only.
+                // No runtime account, message, or credential data is rendered.
+                std::fs::create_dir_all(&directory).expect("create screenshot artifact directory");
+                let path = std::path::Path::new(&directory)
+                    .join(format!("heron-main-{width}x{height}.bmp"));
+                write_bmp(&path, width, height, &pixels);
+            }
         }
     }
 }
