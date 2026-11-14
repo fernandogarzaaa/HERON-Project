@@ -35,6 +35,10 @@ Use a macOS or Windows machine with a real desktop window. Inspect at 880×560 (
 | Modes | Select read-only/ask/auto/unrestricted | Correct selected state; unrestricted still asks for confirmation |
 | Accessibility | VoiceOver or Narrator inspect action buttons/cards/steps | Role and accessible label are announced; default action works |
 | Loading | Start a slow response | Stop action and thinking indicator are visible; no double-send |
+| Task save race | Submit task A, type draft B before A completes | B is not cleared when A succeeds |
+| Memory save race | Submit memory A, type draft B before A completes | B is not cleared when A succeeds |
+| Save error | Disconnect backend while submitting task or memory | A retryable error appears and the input remains intact |
+| Sidebar icons | Navigate every view using keyboard and pointer | All icons render without replacing the native button action or selection state |
 | Motion | Test reduced-motion setting when wired | No unwanted transition animation |
 
 ## Evidence before merging
