@@ -745,3 +745,35 @@ fn main() {
     let _ = window.run();
     heron::browser::kill_now(); // the browser Heron was driving closes with the app
 }
+
+#[cfg(test)]
+mod window_layout_tests {
+    use super::MainWindow;
+    use slint::platform::software_renderer::{MinimalSoftwareWindow, PremultipliedRgbaColor, RepaintBufferType};
+    use slint::platform::{Platform, WindowAdapter};
+    use slint::{ComponentHandle, PhysicalSize, PlatformError};
+    use std::rc::Rc;
+
+    struct HeadlessPlatform(Rc<MinimalSoftwareWindow>);
+
+    impl Platform for HeadlessPlatform {
+        fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, PlatformError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    #[test]
+    fn main_window_lays_out_and_renders_without_a_binding_loop() {
+        let (width, height) = (1100, 700);
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+        slint::platform::set_platform(Box::new(HeadlessPlatform(window.clone()))).expect("headless platform installs");
+        let ui = MainWindow::new().expect("main window builds");
+        ui.show().expect("main window shows");
+        window.set_size(PhysicalSize::new(width, height));
+        let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
+        let drew = window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, width as usize);
+        });
+        assert!(drew, "main window rendered a frame");
+    }
+}

@@ -26,5 +26,18 @@ export global Theme {
     in-out property <color> danger: #EC7A6F;
     in-out property <color> danger-soft: #3A1D1A;
     in-out property <color> ok: #6EC49C;
+    // Round 1 redesign tokens (2026-11-14). Existing tokens above do
+    // not change. raised is one step above surface, for cards, the
+    // composer, and message containers. hover is the nav and row hover
+    // background. border-strong is for focused and active elements.
+    // icon is brighter than muted so 16px glyphs stay legible;
+    // icon-active matches ink. badge matches talon; badge text is
+    // slate-ink.
+    in-out property <color> raised: #1C2833;
+    in-out property <color> hover: #22303C;
+    in-out property <color> border-strong: #3A4A58;
+    in-out property <color> icon: #A8B8C4;
+    in-out property <color> icon-active: #E3EAF0;
+    in-out property <color> badge: #EDB92B;
     in-out property <string> heading-font: "Iowan Old Style, Sitka Display, Sitka Text, Constantia, Charter, Georgia, serif";
 }
