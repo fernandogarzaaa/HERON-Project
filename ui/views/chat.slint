@@ -70,7 +70,6 @@ component ComposerView inherits FocusScope {
                     height: parent.height;
                     placeholder-text: "Ask Heron to do something";
                     wrap: word-wrap;
-                    min-height: 46px;
                     key-pressed(event) => {
                         if (event.text == Key.Escape && root.busy) {
                             root.cancel-reply();
@@ -318,12 +317,11 @@ export component ChatView inherits FocusScope {
 
         // Thread.
         thread-scroll := ScrollView {
-            // A fixed viewport budget prevents the ScrollView's preferred
-            // content size from pushing the composer below the window.
-            // The 220px reserve covers the header, composer and spacing;
-            // unrestricted-mode confirmation needs another 100px.
-            height: root.height - (root.confirm-yolo ? 320px : 220px);
-            min-height: 80px;
+            // Bound this viewport to avoid the empty-state content's
+            // preferred height expanding indefinitely and hiding the
+            // composer. Avoid root.height arithmetic here: Slint derives
+            // the Window's size from layout hints and that forms a loop.
+            height: 300px;
             vertical-stretch: 0;
             // This fires for user scrolling, not a layout-height change.
             // That preserves follow-mode across large streaming deltas.
