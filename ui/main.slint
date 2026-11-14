@@ -135,6 +135,7 @@ export component MainWindow inherits Window {
     in-out property <string> memory-new-content: "";
     in-out property <string> memory-new-kind: "fact";
     in-out property <string> memory-empty-text: "";
+    in-out property <string> memory-save-error: "";
     callback memory-add-memory(string, string);
     callback memory-delete-memory(int);
     callback memory-confirm-memory(int);
@@ -144,6 +145,7 @@ export component MainWindow inherits Window {
     in-out property <[TaskRow]> tasks-rows: [];
     in-out property <string> tasks-new-title: "";
     in-out property <string> tasks-empty-text: "";
+    in-out property <string> tasks-save-error: "";
     callback tasks-add-task(string);
     callback tasks-set-task-done(int, bool);
     callback tasks-delete-task(int);
@@ -559,6 +561,7 @@ export component MainWindow inherits Window {
                     new-content <=> root.memory-new-content;
                     new-kind <=> root.memory-new-kind;
                     empty-text: root.memory-empty-text;
+                    save-error: root.memory-save-error;
                     add-memory(a0, a1) => { root.memory-add-memory(a0, a1); }
                     delete-memory(a0) => { root.memory-delete-memory(a0); }
                     confirm-memory(a0) => { root.memory-confirm-memory(a0); }
@@ -578,6 +581,7 @@ export component MainWindow inherits Window {
                     rows: root.tasks-rows;
                     new-title <=> root.tasks-new-title;
                     empty-text: root.tasks-empty-text;
+                    save-error: root.tasks-save-error;
                     add-task(a0) => { root.tasks-add-task(a0); }
                     set-task-done(a0, a1) => { root.tasks-set-task-done(a0, a1); }
                     delete-task(a0) => { root.tasks-delete-task(a0); }
