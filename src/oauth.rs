@@ -74,6 +74,9 @@ impl Provider {
     pub fn connected(self, cfg: &Config) -> bool {
         cfg.secret(&self.secret_key("refresh_token")).is_some()
     }
+    pub(crate) fn account_epoch(self, cfg: &Config) -> Option<String> {
+        cfg.secret(&self.secret_key("account_epoch"))
+    }
 }
 
 #[derive(Debug)]
@@ -168,6 +171,8 @@ pub async fn finish(cfg: &Config, pending: Pending, code: &str) -> Result<()> {
         bail!("An account is already connected for this provider. Disconnect it before connecting a different account.");
     }
     cfg.store_secret(&pending.provider.secret_key("client_id"), &pending.client_id)?;
+    cfg.store_secret(&pending.provider.secret_key("account_epoch"), &random_secret())?;
+    // Publish the connection last, after its stable epoch is durable.
     cfg.store_secret(&pending.provider.secret_key("refresh_token"), refresh)?;
     Ok(())
 }
@@ -187,12 +192,11 @@ async fn access_token_with_generation(cfg: &Config, provider: Provider) -> Resul
         if cfg.secret(&provider.secret_key("refresh_token")).as_deref() != Some(refresh.as_str()) {
             bail!("Account was disconnected or changed while renewing access.");
         }
-        let generation = if let Some(next) = token.get("refresh_token").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        let generation = provider.account_epoch(cfg)
+            .ok_or_else(|| anyhow!("OAuth account has no generation. Disconnect and reconnect."))?;
+        if let Some(next) = token.get("refresh_token").and_then(Value::as_str).filter(|s| !s.is_empty()) {
             cfg.store_secret(&provider.secret_key("refresh_token"), next)?;
-            next.to_string()
-        } else {
-            refresh
-        };
+        }
         return Ok((token["access_token"].as_str().unwrap_or_default().to_string(), generation));
     }
 }
@@ -208,6 +212,7 @@ pub fn disconnect(app: &App, provider: Provider) -> Result<(usize, usize)> {
     let _guard = SOURCE_WRITES.lock().unwrap_or_else(|e| e.into_inner());
     let cfg = app.cfg();
     cfg.store_secret(&provider.secret_key("refresh_token"), "")?;
+    cfg.store_secret(&provider.secret_key("account_epoch"), "")?;
     cfg.store_secret(&provider.secret_key("client_id"), "")?;
     let mut removed = 0;
     let mut memories = 0;
@@ -330,14 +335,14 @@ pub async fn sync(app: &App, provider: Provider) -> Result<(usize, usize)> {
     // Bind the fetched account data to the exact credential generation
     // that issued this access token. Disconnect/reconnect during the
     // network fetch must never write old-account data into new indexes.
-    let (token, refresh_at_start) = access_token_with_generation(&cfg, provider).await?;
+    let (token, epoch_at_start) = access_token_with_generation(&cfg, provider).await?;
     let http = oauth_http()?;
     let (email, calendar) = match provider {
         Provider::Google => (google_mail(&http, &token).await?, google_calendar(&http, &token).await?),
         Provider::Microsoft => (microsoft_mail(&http, &token).await?, microsoft_calendar(&http, &token).await?),
     };
     let _guard = SOURCE_WRITES.lock().unwrap_or_else(|e| e.into_inner());
-    if cfg.secret(&provider.secret_key("refresh_token")).as_deref() != Some(refresh_at_start.as_str()) {
+    if provider.account_epoch(&cfg).as_deref() != Some(epoch_at_start.as_str()) || !provider.connected(&cfg) {
         bail!("Account was disconnected or changed while the sync was running.");
     }
     app.store.clear_knowledge(provider.mail_source())?;
