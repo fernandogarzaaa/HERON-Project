@@ -413,7 +413,21 @@ pub async fn learn(app: &App, source: &str) -> Result<Vec<String>> {
     };
     if !members.is_empty() {
         let mut all = vec![];
-        for member in members { all.extend(learn_one(app, member).await?); }
+        let cfg = app.cfg();
+        for member in members {
+            let provider = match *member {
+                "google_email" | "google_calendar" => Some(crate::oauth::Provider::Google),
+                "microsoft_email" | "microsoft_calendar" => Some(crate::oauth::Provider::Microsoft),
+                _ => None,
+            };
+            // Aggregate learning includes legacy sources and only currently
+            // connected OAuth providers. One unconnected provider must not
+            // abort the other provider's valid learning pass.
+            if provider.is_some_and(|p| !p.connected(&cfg)) {
+                continue;
+            }
+            all.extend(learn_one(app, member).await?);
+        }
         return Ok(all);
     }
     learn_one(app, source).await
