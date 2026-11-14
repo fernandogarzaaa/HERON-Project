@@ -149,6 +149,13 @@ pub async fn finish(cfg: &Config, pending: Pending, code: &str) -> Result<()> {
         .ok_or_else(|| anyhow!("No offline access was granted. Remove the existing app consent and connect again."))?;
     // Store the nonsecret client ID too so token refresh still works after an app restart.
     // The refresh token is not sent to the desktop frontend or an agent tool.
+    // Reject account replacement without an explicit Disconnect. Holding
+    // SOURCE_WRITES makes this credential installation atomic relative to
+    // refresh-token rotation, source sync commits, and disconnect.
+    let _guard = SOURCE_WRITES.lock().unwrap_or_else(|e| e.into_inner());
+    if pending.provider.connected(cfg) {
+        bail!("An account is already connected for this provider. Disconnect it before connecting a different account.");
+    }
     cfg.store_secret(&pending.provider.secret_key("client_id"), &pending.client_id)?;
     cfg.store_secret(&pending.provider.secret_key("refresh_token"), refresh)?;
     Ok(())
