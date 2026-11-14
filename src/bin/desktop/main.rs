@@ -805,6 +805,13 @@ mod window_layout_tests {
         // detect resize-triggered binding loops or renderer failures.
         for (width, height) in [(1100, 700), (800, 600), (640, 480), (1440, 900), (1100, 700)] {
             window.set_size(PhysicalSize::new(width, height));
+            eprintln!(
+                "HERON_UI_GEOMETRY requested={}x{} window={:?} content={:?} composer_y={:?}",
+                width, height,
+                ui.get_debug_window_height(),
+                ui.get_debug_content_height(),
+                ui.get_debug_composer_y()
+            );
             let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
             let drew = window.draw_if_needed(|renderer| {
                 renderer.render(&mut pixels, width as usize);
