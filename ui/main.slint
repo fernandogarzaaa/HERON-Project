@@ -406,6 +406,13 @@ export component MainWindow inherits Window {
         // reminders, usage, activity, onboarding, and settings.
         content := Rectangle {
             horizontal-stretch: 1;
+            vertical-stretch: 1;
+            // Hidden view branches and their scrollable children must not
+            // export thousands of pixels of intrinsic minimum height to
+            // the main Window. The root preferred size remains 1100×700,
+            // and this content region is free to shrink when resized.
+            min-height: 0px;
+            preferred-height: 600px;
             // Surface sits one step above the paper sidebar and window,
             // so the content area reads as the working plane and the
             // cards, composer, and message containers (raised) sit one
