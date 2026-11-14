@@ -14,9 +14,7 @@
 /// Widget style is pinned per target: cupertino-dark on macOS and
 /// fluent-dark on Windows/Linux. This matches HERON's always-dark custom
 /// palette even when the desktop OS uses a light color scheme.
-/// .slint files. This API shape follows the scoping plan; it is NOT verified
-/// in this sandbox (no Slint crate here), so the first Mac or CI build is the
-/// check for it.
+/// Cross-platform desktop builds in CI verify the selected styles compile.
 #[cfg(feature = "desktop")]
 fn compile_slint_ui() {
     fn collect_slint(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
