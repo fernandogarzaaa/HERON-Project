@@ -11,7 +11,7 @@ cargo test --locked --features desktop
 cargo build --locked --features desktop --bin heron-desktop
 ```
 
-The headless resize regression checks that the native window draws a frame after successive size changes (1100×700, 800×600, 640×480, 1440×900, 1100×700). It does **not** assert whether text is clipped, whether widgets remain visible, or whether focus order is usable. The native app enforces an 880×560 minimum window size; the smaller headless case is an additional stress check.
+The headless resize regression checks that the native window draws **non-uniform pixels** after successive size changes (1100×700, 800×600, 640×480, 1440×900, 1100×700). On Linux, CI also runs it with `HERON_UI_SNAPSHOTS_DIR=target/ui-snapshots` and uploads BMP images as the `slint-ui-snapshots-<sha>` artifact (14-day retention). Inspect these images before approving; they are a headless-renderer baseline, not a replacement for actual native window screenshots. The test does **not** assert whether text is clipped, whether widgets remain visible, or whether focus order is usable. The native app enforces an 880×560 minimum window size; the smaller headless case is an additional stress check.
 
 ## Manual desktop acceptance
 
