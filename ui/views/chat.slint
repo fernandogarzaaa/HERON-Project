@@ -59,11 +59,15 @@ component ComposerView inherits FocusScope {
             alignment: stretch;
             spacing: 8px;
             Rectangle {
+                horizontal-stretch: 1;
+                min-height: 46px;
                 border-color: input.has-focus ? Theme.slate : Theme.line;
                 border-width: 1px; border-radius: 10px;
                 background: Theme.surface;
                 animate border-color { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
                 input := TextEdit {
+                    width: parent.width;
+                    height: parent.height;
                     placeholder-text: "Ask Heron to do something";
                     wrap: word-wrap;
                     min-height: 46px;
@@ -87,6 +91,7 @@ component ComposerView inherits FocusScope {
                 }
             }
             ActionButton {
+                width: 96px;
                 label: busy ? "Stop" : "Send";
                 kind: busy ? "danger" : "primary";
                 enabled: busy || input.text != "";
@@ -313,8 +318,13 @@ export component ChatView inherits FocusScope {
 
         // Thread.
         thread-scroll := ScrollView {
-            vertical-stretch: 1;
-            min-height: 0px;
+            // A fixed viewport budget prevents the ScrollView's preferred
+            // content size from pushing the composer below the window.
+            // The 220px reserve covers the header, composer and spacing;
+            // unrestricted-mode confirmation needs another 100px.
+            height: root.height - (root.confirm-yolo ? 320px : 220px);
+            min-height: 80px;
+            vertical-stretch: 0;
             // This fires for user scrolling, not a layout-height change.
             // That preserves follow-mode across large streaming deltas.
             scrolled() => {
