@@ -191,7 +191,12 @@ pub fn disconnect(app: &App, provider: Provider) -> Result<(usize, usize)> {
 }
 
 async fn get_json(http: &reqwest::Client, token: &str, url: &str, params: &[(&str, &str)]) -> Result<Value> {
-    let result = http.get(url).bearer_auth(token).query(params).send().await?;
+    let mut request = http.get(url).bearer_auth(token).query(params);
+    if url.starts_with("https://graph.microsoft.com/") {
+        // Graph DateTimeTimeZone fields are otherwise returned in account-local time.
+        request = request.header("Prefer", "outlook.timezone=\"UTC\"");
+    }
+    let result = request.send().await?;
     if !result.status().is_success() {
         bail!("Read-only account sync failed (HTTP {}). The token may be expired or its scopes insufficient.", result.status().as_u16());
     }
