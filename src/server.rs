@@ -1084,6 +1084,12 @@ async fn disconnect_source(State(st): S, Path(name): Path<String>) -> ApiResult 
         return Err(ApiError(StatusCode::NOT_FOUND, "Unknown source.".into()));
     }
     let mut cfg = (*st.app.cfg()).clone();
+    // OAuth consent covers both mail and calendar. Do not silently claim that
+    // clicking a legacy source's Disconnect button revoked an OAuth account.
+    if (name == "email" || name == "calendar") &&
+        (crate::oauth::Provider::Google.connected(&cfg) || crate::oauth::Provider::Microsoft.connected(&cfg)) {
+        return Err(bad("An OAuth account is still connected. Disconnect Google or Microsoft under Settings > Google and Microsoft accounts first."));
+    }
     match name.as_str() {
         "email" => {
             cfg.sources.email = None;
