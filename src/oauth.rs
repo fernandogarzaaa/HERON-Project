@@ -15,6 +15,11 @@ use std::time::{Duration, Instant};
 // Serialize database writes with disconnect. A delayed network response must never
 // restore another account\'s records after the user disconnects it.
 static SOURCE_WRITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+// Provider-derived memory commits and user-facing account disconnect share
+// this async gate. A disconnect must wait for any accepted in-flight
+// embedding/save, then remove its resulting memories before returning.
+pub(crate) static OAUTH_LEARNING_COMMIT: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
 use url::Url;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
