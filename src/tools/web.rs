@@ -2,7 +2,7 @@
 //! All web content is returned wrapped as untrusted data.
 
 use super::{arg_str, opt_i64, schema, FnTool, ToolCtx};
-use crate::permissions::{check_url, url_host_obviously_local, web_goes_through_proxy, PublicOnlyResolver, Effect};
+use crate::permissions::{check_url, local_web_fetch_allowed, trusted_web_proxy_enabled, url_host_obviously_local, web_goes_through_proxy, PublicOnlyResolver, Effect};
 use anyhow::{anyhow, bail, Result};
 use futures_util::StreamExt;
 use regex::Regex;
@@ -12,13 +12,46 @@ use std::time::Duration;
 
 const MAX_BODY: usize = 3 * 1024 * 1024;
 
+/// Never allow a redirect to escape the original URL's security policy.
+/// Unlike the initial URL, redirect targets are not passed to check_url:
+/// they must be validated synchronously by reqwest's redirect callback.
+fn redirect_target_allowed(previous: Option<&url::Url>, target: &url::Url, allow_local: bool) -> bool {
+    if !matches!(target.scheme(), "http" | "https") {
+        return false;
+    }
+    if !target.username().is_empty() || target.password().is_some() {
+        return false;
+    }
+    // Prevent requests initiated over TLS from leaking URL parameters
+    // over a downgraded, plaintext redirect.
+    if previous.is_some_and(|url| url.scheme() == "https") && target.scheme() == "http" {
+        return false;
+    }
+    allow_local || !url_host_obviously_local(target)
+}
+
+// A proxy is never a silent opt-out from connect-time address screening.
+// This small decision is tested without mutating the process environment.
+fn use_system_proxy(explicitly_trusted: bool, configured: bool) -> bool {
+    explicitly_trusted && configured
+}
+
 fn client() -> &'static reqwest::Client {
     static C: OnceLock<reqwest::Client> = OnceLock::new();
     C.get_or_init(|| {
-        let allow_local = std::env::var("HERON_ALLOW_LOCAL_FETCH").is_ok();
+        let allow_local = local_web_fetch_allowed();
+        // reqwest automatically reads HTTP(S)_PROXY/ALL_PROXY. If any are
+        // present, it skips the direct origin DNS resolution that our SSRF
+        // guard normally validates. Fail closed to direct connections by
+        // default. A deliberately trusted system proxy is opt-in.
+        let trusted_proxy = use_system_proxy(trusted_web_proxy_enabled(), web_goes_through_proxy());
         let mut builder = reqwest::Client::builder();
-        if !allow_local && !web_goes_through_proxy() {
-            // Refuse internal addresses at the moment of connecting, for the first request and every redirect.
+        if !trusted_proxy {
+            builder = builder.no_proxy();
+        }
+        if !allow_local && !trusted_proxy {
+            // Refuse private addresses at the connection point, for
+            // initial requests and all redirects, including DNS rebinding.
             builder = builder.dns_resolver(std::sync::Arc::new(PublicOnlyResolver));
         }
         builder
@@ -29,8 +62,8 @@ fn client() -> &'static reqwest::Client {
             .redirect(reqwest::redirect::Policy::custom(move |attempt| {
                 if attempt.previous().len() >= 5 {
                     attempt.error("too many redirects")
-                } else if !allow_local && url_host_obviously_local(attempt.url()) {
-                    attempt.error("redirect to a local/internal address blocked")
+                } else if !redirect_target_allowed(attempt.previous().last(), attempt.url(), allow_local) {
+                    attempt.error("unsafe redirect target (local address, credentials, scheme, or HTTPS downgrade)")
                 } else {
                     attempt.follow()
                 }
@@ -161,6 +194,33 @@ pub fn tools() -> Vec<FnTool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inherited_proxy_never_disables_ssrf_guard_without_opt_in() {
+        assert!(!use_system_proxy(false, false));
+        assert!(!use_system_proxy(false, true));
+        assert!(!use_system_proxy(true, false));
+        assert!(use_system_proxy(true, true));
+    }
+
+    #[test]
+    fn redirect_cannot_escape_origin_safety_policy() {
+        let https = url::Url::parse("https://example.org/page").unwrap();
+        let http = url::Url::parse("http://example.org/page").unwrap();
+        let internal = url::Url::parse("http://localhost./admin").unwrap();
+        let private = url::Url::parse("http://169.254.169.254/latest").unwrap();
+        let credentialed = url::Url::parse("https://name:secret@example.org/").unwrap();
+        let ftp = url::Url::parse("ftp://example.org/file").unwrap();
+        let other_public = url::Url::parse("https://www.rust-lang.org/").unwrap();
+
+        assert!(redirect_target_allowed(Some(&https), &other_public, false));
+        assert!(!redirect_target_allowed(Some(&https), &internal, false));
+        assert!(!redirect_target_allowed(Some(&http), &private, false));
+        assert!(!redirect_target_allowed(Some(&https), &http, false));
+        assert!(!redirect_target_allowed(Some(&https), &credentialed, false));
+        assert!(!redirect_target_allowed(Some(&https), &ftp, false));
+        assert!(redirect_target_allowed(Some(&http), &internal, true));
+    }
 
     #[test]
     fn parses_ddg_results() {

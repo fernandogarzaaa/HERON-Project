@@ -675,8 +675,29 @@ impl reqwest::dns::Resolve for PublicOnlyResolver {
     }
 }
 
-/// True when web requests leave through a proxy. The proxy then looks names up, not this program, so
-/// the connect-time check above cannot apply (and would wrongly reject a proxy on the local network).
+/// A security-sensitive override must be deliberately enabled. Merely
+/// defining HERON_ALLOW_LOCAL_FETCH=0/false must not turn off the SSRF guard.
+fn explicit_opt_in(value: &str) -> bool {
+    matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes")
+}
+
+pub fn local_web_fetch_allowed() -> bool {
+    std::env::var("HERON_ALLOW_LOCAL_FETCH")
+        .map(|v| explicit_opt_in(&v))
+        .unwrap_or(false)
+}
+
+/// Trusting a configured HTTP proxy means the proxy, not HERON, may resolve
+/// the origin hostname. This is an explicit trust decision, not inferred
+/// from HTTP_PROXY/HTTPS_PROXY/ALL_PROXY being present in the environment.
+pub fn trusted_web_proxy_enabled() -> bool {
+    std::env::var("HERON_TRUST_WEB_PROXY")
+        .map(|v| explicit_opt_in(&v))
+        .unwrap_or(false)
+}
+
+/// Whether the process has inherited a system proxy configuration. The
+/// web-fetch client ignores it unless HERON_TRUST_WEB_PROXY is explicitly true.
 pub fn web_goes_through_proxy() -> bool {
     ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"].iter().any(|v| std::env::var(v).map(|p| !p.trim().is_empty()).unwrap_or(false))
 }
@@ -687,7 +708,9 @@ pub fn url_host_obviously_local(url: &url::Url) -> bool {
         Some(url::Host::Ipv4(ip)) => is_private_ip(&IpAddr::V4(ip)),
         Some(url::Host::Ipv6(ip)) => is_private_ip(&IpAddr::V6(ip)),
         Some(url::Host::Domain(d)) => {
-            let d = d.to_lowercase();
+            // DNS permits a fully-qualified trailing dot (localhost.).
+            // Treat it like the equivalent unqualified internal hostname.
+            let d = d.trim_end_matches('.').to_ascii_lowercase();
             d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local") || d.ends_with(".internal")
         }
         None => true,
@@ -704,7 +727,7 @@ pub async fn check_url(raw: &str) -> Result<url::Url> {
     if !url.username().is_empty() || url.password().is_some() {
         bail!("URLs with embedded credentials are not allowed");
     }
-    if std::env::var("HERON_ALLOW_LOCAL_FETCH").is_ok() {
+    if local_web_fetch_allowed() {
         return Ok(url);
     }
     if url_host_obviously_local(&url) {
@@ -998,6 +1021,20 @@ mod tests {
             let outside = tempfile::tempdir().unwrap();
             std::os::unix::fs::symlink(outside.path(), w.join("link")).unwrap();
             assert_eq!(classify_path(&resolve_path(&w, "link/evil.txt"), &w, true), Effect::Privileged);
+        }
+    }
+
+    #[test]
+    fn web_fetch_exceptions_require_explicit_true_values() {
+        for value in ["1", "TRUE", " yes ", "true"] {
+            assert!(explicit_opt_in(value), "{value}");
+        }
+        for value in ["", "0", "false", "FALSE", "no", "disabled", "2"] {
+            assert!(!explicit_opt_in(value), "{value}");
+        }
+        for hostname in ["localhost.", "LOCALHOST.", "printer.local.", "metadata.internal."] {
+            let uri = url::Url::parse(&format!("http://{hostname}/")).unwrap();
+            assert!(url_host_obviously_local(&uri), "{hostname}");
         }
     }
 
