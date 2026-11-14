@@ -762,18 +762,93 @@ mod window_layout_tests {
         }
     }
 
+    // Uncompressed 32-bit BMP output requires no extra dependencies and
+    // can be opened by macOS Preview and Windows Photos for visual review.
+    fn write_bmp(
+        path: &std::path::Path,
+        width: u32,
+        height: u32,
+        pixels: &[PremultipliedRgbaColor],
+    ) {
+        let image_size = width * height * 4;
+        let file_size = image_size + 54;
+        let mut bytes = Vec::with_capacity(file_size as usize);
+        bytes.extend_from_slice(b"BM");
+        bytes.extend_from_slice(&file_size.to_le_bytes());
+        bytes.extend_from_slice(&[0u8; 4]); // reserved
+        bytes.extend_from_slice(&54u32.to_le_bytes()); // pixel data offset
+        bytes.extend_from_slice(&40u32.to_le_bytes()); // BITMAPINFOHEADER size
+        bytes.extend_from_slice(&(width as i32).to_le_bytes());
+        bytes.extend_from_slice(&(height as i32).to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // color planes
+        bytes.extend_from_slice(&32u16.to_le_bytes()); // bits per pixel
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB, uncompressed
+        bytes.extend_from_slice(&image_size.to_le_bytes());
+        bytes.extend_from_slice(&[0u8; 16]); // DPI and palette
+        for row in pixels.chunks_exact(width as usize).rev() {
+            for pixel in row {
+                bytes.extend_from_slice(&[pixel.blue, pixel.green, pixel.red, 0]);
+            }
+        }
+        std::fs::write(path, bytes).expect("write headless UI screenshot");
+    }
+
     #[test]
     fn main_window_lays_out_and_renders_without_a_binding_loop() {
-        let (width, height) = (1100, 700);
         let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
         slint::platform::set_platform(Box::new(HeadlessPlatform(window.clone()))).expect("headless platform installs");
         let ui = MainWindow::new().expect("main window builds");
         ui.show().expect("main window shows");
-        window.set_size(PhysicalSize::new(width, height));
-        let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
-        let drew = window.draw_if_needed(|renderer| {
-            renderer.render(&mut pixels, width as usize);
-        });
-        assert!(drew, "main window rendered a frame");
+
+        // Exercise resize transitions in one test: Slint's platform can only
+        // be installed once per process, and a single initial render cannot
+        // detect resize-triggered binding loops or renderer failures.
+        for (width, height) in [(1100, 700), (800, 600), (640, 480), (1440, 900), (1100, 700)] {
+            window.set_size(PhysicalSize::new(width, height));
+            eprintln!(
+                "HERON_UI_GEOMETRY requested={}x{} window={:?} content={:?} composer_y={:?}",
+                width, height,
+                ui.get_debug_window_height(),
+                ui.get_debug_content_height(),
+                ui.get_debug_composer_y()
+            );
+            // For viewport sizes within the supported native minimum,
+            // reject an intrinsic Slint root taller than the actual frame.
+            // The previous missing-composer regression had a 2752px root
+            // for a requested 700px window while every draw call succeeded.
+            if width >= 880 && height >= 560 {
+                let shell_height = ui.get_debug_window_height();
+                let composer_y = ui.get_debug_composer_y();
+                assert!(
+                    shell_height <= height as f32 + 1.0,
+                    "Slint shell height {shell_height} overflows requested {height}px frame"
+                );
+                assert!(
+                    composer_y >= 0.0 && composer_y + 94.0 <= height as f32,
+                    "composer at y={composer_y} is outside the {height}px frame"
+                );
+            }
+            let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
+            let drew = window.draw_if_needed(|renderer| {
+                renderer.render(&mut pixels, width as usize);
+            });
+            assert!(drew, "main window did not render after resizing to {width}x{height}");
+            // A draw call alone can succeed while presenting a completely
+            // blank window. Require at least two distinct RGB values so a
+            // broken compositor or hidden top-level view is caught.
+            let reference = (pixels[0].red, pixels[0].green, pixels[0].blue);
+            assert!(
+                pixels.iter().any(|pixel| (pixel.red, pixel.green, pixel.blue) != reference),
+                "main window drew a uniform/blank frame at {width}x{height}"
+            );
+            if let Ok(directory) = std::env::var("HERON_UI_SNAPSHOTS_DIR") {
+                // CI saves an intentionally empty-session screen only.
+                // No runtime account, message, or credential data is rendered.
+                std::fs::create_dir_all(&directory).expect("create screenshot artifact directory");
+                let path = std::path::Path::new(&directory)
+                    .join(format!("heron-main-{width}x{height}.bmp"));
+                write_bmp(&path, width, height, &pixels);
+            }
+        }
     }
 }
