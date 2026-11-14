@@ -59,17 +59,14 @@ component ComposerView inherits FocusScope {
             alignment: stretch;
             spacing: 8px;
             Rectangle {
-                horizontal-stretch: 1;
-                min-height: 46px;
                 border-color: input.has-focus ? Theme.slate : Theme.line;
                 border-width: 1px; border-radius: 10px;
                 background: Theme.surface;
                 animate border-color { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
                 input := TextEdit {
-                    width: parent.width;
-                    height: parent.height;
                     placeholder-text: "Ask Heron to do something";
                     wrap: word-wrap;
+                    min-height: 46px;
                     key-pressed(event) => {
                         if (event.text == Key.Escape && root.busy) {
                             root.cancel-reply();
@@ -90,7 +87,6 @@ component ComposerView inherits FocusScope {
                 }
             }
             ActionButton {
-                width: 96px;
                 label: busy ? "Stop" : "Send";
                 kind: busy ? "danger" : "primary";
                 enabled: busy || input.text != "";
@@ -279,6 +275,7 @@ export component ChatView inherits FocusScope {
         width: parent.width;
         height: parent.height;
         spacing: 10px;
+        padding-bottom: 96px;
         // Header: title, Undo, mode group.
         // Keep the session title/actions separate from the four mode
         // controls. Putting all six controls on one row overflowed the
@@ -317,12 +314,9 @@ export component ChatView inherits FocusScope {
 
         // Thread.
         thread-scroll := ScrollView {
-            // Bound this viewport to avoid the empty-state content's
-            // preferred height expanding indefinitely and hiding the
-            // composer. Avoid root.height arithmetic here: Slint derives
-            // the Window's size from layout hints and that forms a loop.
-            height: 300px;
-            vertical-stretch: 0;
+            preferred-height: 240px;
+            min-height: 0px;
+            vertical-stretch: 1;
             // This fires for user scrolling, not a layout-height change.
             // That preserves follow-mode across large streaming deltas.
             scrolled() => {
@@ -358,11 +352,18 @@ export component ChatView inherits FocusScope {
             ActionButton { label: "↓ Newest message"; kind: "primary"; pill: true; reduce-motion: reduce-motion; clicked => { root.follow = true; thread-scroll.content-y = thread-box.height > thread-scroll.height ? thread-scroll.height - thread-box.height : 0px; } }
         }
 
-        // Composer.
-        ComposerView {
-            busy: busy; hint: hint; reduce-motion: reduce-motion;
-            send-message(t) => { root.send-message(t); }
-            cancel-reply => { root.cancel-reply(); }
-        }
+    }
+
+    // Anchor the composer outside the thread's scrolling layout. With an
+    // absolutely positioned child, Slint excludes it from the layout's
+    // preferred-size calculation and thread growth cannot push it away.
+    ComposerView {
+        x: 0px;
+        y: root.height - 92px;
+        width: root.width;
+        height: 90px;
+        busy: busy; hint: hint; reduce-motion: reduce-motion;
+        send-message(t) => { root.send-message(t); }
+        cancel-reply => { root.cancel-reply(); }
     }
 }
