@@ -2,7 +2,7 @@
 // the views only through its own forwarded properties and callbacks, so
 // each view keeps its own file and its own component.
 
-import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { SessionRow, Spacer } from "common.slint";
 import { Theme } from "../components/theme.slint";
 
@@ -63,11 +63,28 @@ export component Sidebar inherits Rectangle {
             font-weight: 600;
             color: Theme.muted;
         }
-        for session in root.sessions: Button {
-            text: session.title;
-            checkable: true;
-            checked: session.current;
-            clicked => { root.open-session(session.id); }
+        // The session list scrolls independently. Without this bounded
+        // region many sessions push the model/status footer off-screen
+        // at the window's minimum height.
+        ScrollView {
+            vertical-stretch: 1;
+            vertical-scrollbar-policy: as-needed;
+            VerticalBox {
+                width: parent.width;
+                spacing: 4px;
+                if root.sessions.length == 0: Text {
+                    text: "No recent conversations";
+                    font-size: 12px;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                for session in root.sessions: Button {
+                    text: session.title;
+                    checkable: true;
+                    checked: session.current;
+                    clicked => { root.open-session(session.id); }
+                }
+            }
         }
         Spacer { height: 10px; }
         Text {
