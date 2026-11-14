@@ -830,6 +830,7 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
         let weak = window.as_weak();
         window.on_settings_connect_oauth(move |provider, client_id| {
             let provider = provider.to_string();
+            let client_id = client_id.to_string(); // do not send Slint-owned UI values across threads
             if provider != "google" && provider != "microsoft" { return; }
             let Some(w) = weak.upgrade() else { return };
             w.set_settings_busy(true);
