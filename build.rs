@@ -11,9 +11,9 @@
 /// separate compile roots. Every .slint file under ui/ is still watched for
 /// rebuilds, so editing an imported file recompiles the UI.
 ///
-/// Widget style is pinned per target (Inan's call, 2026-11-13: "just make it
-/// good so its in your hands"): cupertino on macOS, fluent on Windows and
-/// Linux, with Heron's dark palette carried as custom theme properties in the
+/// Widget style is pinned per target: cupertino-dark on macOS and
+/// fluent-dark on Windows/Linux. This matches HERON's always-dark custom
+/// palette even when the desktop OS uses a light color scheme.
 /// .slint files. This API shape follows the scoping plan; it is NOT verified
 /// in this sandbox (no Slint crate here), so the first Mac or CI build is the
 /// check for it.
