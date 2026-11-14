@@ -433,6 +433,10 @@ export component MainWindow inherits Window {
                 if root.error-message == "" : ChatView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
+                    // Window coordinates remain bounded to the physical
+                    // desktop viewport even if the chat's intrinsic content
+                    // size grows beyond it.
+                    viewport-height: root.height - 64px;
                     title: root.session-title == "" ? "New conversation" : root.session-title;
                     thread: root.messages;
                     busy: root.busy;
