@@ -15,7 +15,12 @@ const LOCAL_DIM: usize = 384;
 /// Above this cosine similarity a new memory is treated as an update of an existing one.
 const DEDUPE_THRESHOLD: f32 = 0.88;
 /// Facts from these sources were written by other people or inferred, not stated by the user.
-pub const OUTSIDE_SOURCES: &[&str] = &["email", "calendar", "documents", "observed", "computer", "outside"];
+pub const OUTSIDE_SOURCES: &[&str] = &[
+    "email", "calendar", "documents", "observed", "computer", "outside",
+    // Provider-derived email/calendar is still untrusted outside content.
+    // Preserve the provider name for account-specific erasure and audit.
+    "google_email", "google_calendar", "microsoft_email", "microsoft_calendar",
+];
 
 #[derive(Clone)]
 pub struct Memory {
@@ -434,6 +439,24 @@ mod tests {
         let id = m.store.list_memories(Some("profile"), 5).unwrap()[0].id;
         assert!(m.store.confirm_memory(id).unwrap());
         assert_eq!(m.core(10).unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn oauth_provider_facts_remain_unconfirmed_external_sources() {
+        let m = mem();
+        for (source, label) in [
+            ("google_email", "Google inbox"),
+            ("google_calendar", "Google events"),
+            ("microsoft_email", "Microsoft inbox"),
+            ("microsoft_calendar", "Microsoft events"),
+        ] {
+            let fact = format!("An external {label} record claims the user has a special discount.");
+            let result = m.save(&fact, "fact", "", 0.5, source).await.unwrap();
+            let memory = m.store.list_memories(None, 20).unwrap()
+                .into_iter().find(|row| row.id == result.id()).unwrap();
+            assert!(!memory.confirmed, "{source} must not become a confirmed user fact");
+            assert_eq!(memory.source, source, "preserve provider erasure provenance");
+        }
     }
 
     #[tokio::test]

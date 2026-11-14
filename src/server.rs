@@ -32,6 +32,10 @@ pub struct ServerState {
     /// True unless the user deliberately bound the server to a non-loopback address.
     pub loopback_only: bool,
     approvals: Mutex<HashMap<String, (String, oneshot::Sender<Approval>)>>,
+    /// One-time, ten-minute OAuth authorization attempts. Never persisted or exposed to the model.
+    oauth_pending: Mutex<HashMap<String, crate::oauth::Pending>>,
+    /// Serialize callback token installation with account disconnect.
+    oauth_transition: tokio::sync::Mutex<()>,
     /// Replies in progress, by conversation. The number tells one reply from the next in the same
     /// conversation, so a reply that is finishing can never clear the entry of the one that followed it.
     running: Mutex<HashMap<String, (u64, tokio::task::AbortHandle, Tx)>>,
@@ -110,7 +114,7 @@ async fn auth(State(st): S, headers: HeaderMap, req: Request, next: Next) -> Res
 pub fn router(app: Arc<App>, token: String) -> Router {
     let bind = app.cfg().server.bind.clone();
     let loopback_only = matches!(bind.as_str(), "127.0.0.1" | "localhost" | "::1");
-    let state = Arc::new(ServerState { app, token, loopback_only, approvals: Default::default(), running: Default::default(), next_run: Default::default() });
+    let state = Arc::new(ServerState { app, token, loopback_only, approvals: Default::default(), oauth_pending: Default::default(), oauth_transition: Default::default(), running: Default::default(), next_run: Default::default() });
     let api = Router::new()
         .route("/state", get(get_state))
         .route("/sessions", get(list_sessions).post(new_session))
@@ -145,6 +149,10 @@ pub fn router(app: Arc<App>, token: String) -> Router {
         .route("/telegram", get(get_telegram).post(set_telegram).delete(remove_telegram))
         .route("/usage", get(get_usage).post(set_usage))
         .route("/sources", get(get_sources))
+        .route("/oauth", get(get_oauth_status))
+        .route("/oauth/{provider}/start", post(start_oauth))
+        .route("/oauth/{provider}/sync", post(sync_oauth))
+        .route("/oauth/{provider}", delete(disconnect_oauth))
         .route("/sources/{name}", post(connect_source).delete(disconnect_source))
         .route("/sources/{name}/learn", post(learn_source))
         .route("/onboarded", post(set_onboarded))
@@ -154,6 +162,9 @@ pub fn router(app: Arc<App>, token: String) -> Router {
         .layer(middleware::from_fn_with_state(state.clone(), auth));
     Router::new()
         .route("/", get(|| async { ([(header::CACHE_CONTROL, "no-store"), (header::HeaderName::from_static("content-security-policy"), "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")], Html(INDEX_HTML)) }))
+        // OAuth provider redirects cannot carry Heron\'s API bearer token; the callback is
+        // authenticated by an unguessable, single-use state and a loopback Host check.
+        .route("/oauth/callback/{provider}", get(oauth_callback))
         .nest("/api", api)
         .with_state(state)
 }
@@ -881,6 +892,125 @@ async fn remove_telegram(State(st): S) -> ApiResult {
     Ok(Json(json!({"configured": false, "paired": false})))
 }
 
+
+// ---------- optional Google / Microsoft OAuth 2.0 ----------
+
+async fn get_oauth_status(State(st): S) -> ApiResult {
+    let cfg = st.app.cfg();
+    let providers: Vec<Value> = [crate::oauth::Provider::Google, crate::oauth::Provider::Microsoft]
+        .iter().map(|p| json!({
+            "provider": p.name(), "connected": p.connected(&cfg),
+            "client_configured": cfg.secret(&format!("oauth_{}_client_id", p.name())).is_some() || match p {
+                crate::oauth::Provider::Google => option_env!("HERON_GOOGLE_OAUTH_CLIENT_ID").is_some(),
+                crate::oauth::Provider::Microsoft => option_env!("HERON_MICROSOFT_OAUTH_CLIENT_ID").is_some(),
+            },
+            "read_only": true
+        })).collect();
+    Ok(Json(json!({"providers": providers})))
+}
+
+/// A local, authenticated request starts a PKCE authorization. No arbitrary redirect URI or
+/// provider-controlled OAuth URL is accepted. The returned URL must be opened by the user.
+async fn start_oauth(State(st): S, Path(provider): Path<String>, headers: HeaderMap, Json(body): Json<Value>) -> ApiResult {
+    if !st.loopback_only || !request_is_local(&headers) {
+        return Err(ApiError(StatusCode::FORBIDDEN, "OAuth desktop connections require a loopback-only server.".into()));
+    }
+    let provider = crate::oauth::Provider::parse(&provider)?;
+    let cfg = st.app.cfg();
+    // Public desktop client IDs may be bundled by the HERON distributor (no secret).
+    // Let a user override them with their own app registration for self-hosted use.
+    let bundled = match provider {
+        crate::oauth::Provider::Google => option_env!("HERON_GOOGLE_OAUTH_CLIENT_ID"),
+        crate::oauth::Provider::Microsoft => option_env!("HERON_MICROSOFT_OAUTH_CLIENT_ID"),
+    };
+    let client_id = body.get("client_id").and_then(Value::as_str).map(str::trim)
+        .filter(|s| !s.is_empty()).map(str::to_string)
+        .or_else(|| cfg.secret(&format!("oauth_{}_client_id", provider.name())))
+        .or_else(|| bundled.map(str::to_string))
+        .ok_or_else(|| bad("This build has no public desktop OAuth client ID. Add your own client ID or ask the HERON distributor to register an app."))?;
+    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let port = host.rsplit_once(':').and_then(|(_, p)| p.parse::<u16>().ok())
+        .ok_or_else(|| bad("Cannot find this local server's OAuth callback port."))?;
+    let callback_host = if provider == crate::oauth::Provider::Google { "127.0.0.1" } else { "localhost" };
+    let redirect_uri = format!("http://{callback_host}:{port}/oauth/callback/{}", provider.name());
+    let (state, pending, url) = crate::oauth::begin(provider, &client_id, &redirect_uri)?;
+    // Linearize sign-in admission with Disconnect, which removes all
+    // pending states for this provider. Without this transition lock,
+    // Disconnect can clear the map and a concurrently starting request
+    // can insert a stale authorization afterwards.
+    let _transition = st.oauth_transition.lock().await;
+    if provider.connected(&cfg) {
+        return Err(bad("An OAuth account is already connected for this provider. Disconnect it before reconnecting."));
+    }
+    let mut waiting = st.oauth_pending.lock().unwrap_or_else(|e| e.into_inner());
+    waiting.retain(|_, p| !p.expired());
+    if waiting.len() >= 8 {
+        return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Too many unfinished sign-ins. Try again later.".into()));
+    }
+    waiting.insert(state, pending);
+    Ok(Json(json!({"provider": provider.name(), "authorization_url": url.as_str(), "expires_in_seconds": 600})))
+}
+
+/// The provider sends a GET through the system browser. Its code is never rendered or logged.
+/// Each state can be redeemed only once. We do not infer success from a browser navigation alone.
+async fn oauth_callback(State(st): S, Path(provider): Path<String>, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Response {
+    if !st.loopback_only || !request_is_local(&headers) {
+        return (StatusCode::FORBIDDEN, Html("OAuth callback is only available on localhost.")).into_response();
+    }
+    let Ok(provider) = crate::oauth::Provider::parse(&provider) else {
+        return (StatusCode::BAD_REQUEST, Html("Unknown OAuth provider.")).into_response();
+    };
+    let Some(state) = query.get("state") else {
+        return (StatusCode::BAD_REQUEST, Html("Missing OAuth state. Start sign-in in HERON again.")).into_response();
+    };
+    // Disconnect invalidates pending states and waits for any callback already underway.
+    let _transition = st.oauth_transition.lock().await;
+    let pending = {
+        let mut waiting = st.oauth_pending.lock().unwrap_or_else(|e| e.into_inner());
+        waiting.remove(state)
+    };
+    let Some(pending) = pending else {
+        return (StatusCode::BAD_REQUEST, Html("OAuth sign-in expired or was already used. Start again in HERON.")).into_response();
+    };
+    if pending.provider != provider || pending.expired() {
+        return (StatusCode::BAD_REQUEST, Html("OAuth sign-in expired or did not match the provider.")).into_response();
+    }
+    let Some(code) = query.get("code") else {
+        return (StatusCode::BAD_REQUEST, Html("Account permission was declined. You can close this tab.")).into_response();
+    };
+    match crate::oauth::finish(&st.app.cfg(), pending, code).await {
+        Ok(()) => {
+            // Import independently of the browser redirect; a temporary Graph/Gmail
+            // error must not roll back a valid consent. The user may retry via /sync.
+            let app = st.app.clone();
+            tokio::spawn(async move { let _ = crate::oauth::sync(&app, provider).await; });
+            (StatusCode::OK, Html("<!doctype html><meta charset='utf-8'><title>HERON connected</title><h1>Account connected</h1><p>HERON has started a read-only sync. You can close this tab and return to HERON.</p>")).into_response()
+        }
+        Err(_) => (StatusCode::BAD_REQUEST, Html("Account sign-in could not be completed. Check your OAuth app registration, then retry in HERON.")).into_response(),
+    }
+}
+
+async fn sync_oauth(State(st): S, Path(provider): Path<String>) -> ApiResult {
+    let provider = crate::oauth::Provider::parse(&provider)?;
+    let (emails, events) = crate::oauth::sync(&st.app, provider).await?;
+    Ok(Json(json!({"provider": provider.name(), "emails": emails, "events": events})))
+}
+
+async fn disconnect_oauth(State(st): S, Path(provider): Path<String>) -> ApiResult {
+    let provider = crate::oauth::Provider::parse(&provider)?;
+    let _transition = st.oauth_transition.lock().await;
+    {
+        let mut pending = st.oauth_pending.lock().unwrap_or_else(|e| e.into_inner());
+        pending.retain(|_, sign_in| sign_in.provider != provider);
+    }
+    // Wait for any provider-derived memory already being embedded/saved
+    // before deleting that account's index and memories. No new provider
+    // learning can commit after the connection has been removed.
+    let _learning = crate::oauth::OAUTH_LEARNING_COMMIT.lock().await;
+    let (items, memories) = crate::oauth::disconnect(&st.app, provider)?;
+    Ok(Json(json!({"provider": provider.name(), "removed_items": items, "removed_memories": memories})))
+}
+
 // ---------- onboarding & context sources ----------
 
 async fn get_sources(State(st): S) -> ApiResult {
@@ -888,6 +1018,10 @@ async fn get_sources(State(st): S) -> ApiResult {
     let store = &st.app.store;
     let learned = |source: &str| store.memories_by_source(source, 500).map(|m| m.len()).unwrap_or(0);
     let hosts: Vec<String> = crate::sources::calendar_links(&cfg).iter().filter_map(|l| url::Url::parse(&crate::sources::normalize_calendar_url(l)).ok()).filter_map(|u| u.host_str().map(String::from)).collect();
+    let google = crate::oauth::Provider::Google.connected(&cfg);
+    let microsoft = crate::oauth::Provider::Microsoft.connected(&cfg);
+    let oauth_email_count = store.knowledge_count("google_email") + store.knowledge_count("microsoft_email");
+    let oauth_calendar_count = store.knowledge_count("google_calendar") + store.knowledge_count("microsoft_calendar");
     Ok(Json(json!({
         "onboarded": store.kv_get("onboarded").is_some(),
         "demo": crate::llm::is_demo(&cfg),
@@ -896,8 +1030,9 @@ async fn get_sources(State(st): S) -> ApiResult {
         "about": {"saved": learned("onboarding"), "indexed": store.knowledge_count("about"), "learned": learned("about")},
         "computer": {"connected": store.knowledge_count("computer") > 0, "indexed": store.knowledge_count("computer"), "learned": learned("computer")},
         "documents": {"connected": !cfg.sources.folders.is_empty(), "folders": cfg.sources.folders, "indexed": store.knowledge_count("documents"), "learned": learned("documents")},
-        "calendar": {"connected": !hosts.is_empty(), "hosts": hosts, "indexed": store.knowledge_count("calendar"), "learned": learned("calendar")},
-        "email": {"connected": cfg.sources.email.is_some(), "address": cfg.sources.email.as_ref().map(|e| e.username.clone()), "indexed": store.knowledge_count("email"), "learned": learned("email")},
+        "calendar": {"connected": !hosts.is_empty() || google || microsoft, "hosts": hosts, "indexed": store.knowledge_count("calendar") + oauth_calendar_count, "learned": learned("calendar")},
+        "email": {"connected": cfg.sources.email.is_some() || google || microsoft, "address": cfg.sources.email.as_ref().map(|e| e.username.clone()), "indexed": store.knowledge_count("email") + oauth_email_count, "learned": learned("email")},
+        "oauth": {"google": google, "microsoft": microsoft},
     })))
 }
 
@@ -970,7 +1105,21 @@ async fn disconnect_source(State(st): S, Path(name): Path<String>) -> ApiResult 
     if !crate::sources::SOURCES.contains(&name.as_str()) {
         return Err(ApiError(StatusCode::NOT_FOUND, "Unknown source.".into()));
     }
+    // A provider-specific source cannot be safely removed through the
+    // legacy route: its OAuth credentials and background sync remain live.
+    // Only the OAuth disconnect endpoint acquires the transition/learning
+    // gates, revokes local credentials and erases both associated sources.
+    if matches!(name.as_str(), "google_email" | "google_calendar" |
+                             "microsoft_email" | "microsoft_calendar") {
+        return Err(bad("Disconnect Google or Microsoft under Settings > Google and Microsoft accounts to remove its data."));
+    }
     let mut cfg = (*st.app.cfg()).clone();
+    // OAuth consent covers both mail and calendar. Do not silently claim that
+    // clicking a legacy source's Disconnect button revoked an OAuth account.
+    if (name == "email" || name == "calendar") &&
+        (crate::oauth::Provider::Google.connected(&cfg) || crate::oauth::Provider::Microsoft.connected(&cfg)) {
+        return Err(bad("An OAuth account is still connected. Disconnect Google or Microsoft under Settings > Google and Microsoft accounts first."));
+    }
     match name.as_str() {
         "email" => {
             cfg.sources.email = None;

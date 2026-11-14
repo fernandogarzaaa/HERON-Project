@@ -94,6 +94,14 @@ export component SettingsView inherits VerticalBox {
     // Connected apps.
     in property <[McpLine]> mcp_lines;
     in property <string> mcp_note;
+    // OAuth account connections (public desktop client IDs, never client secrets).
+    in-out property <string> google-client-id;
+    in-out property <string> microsoft-client-id;
+    in property <bool> google-connected;
+    in property <bool> microsoft-connected;
+    in property <string> oauth-status;
+    in-out property <bool> confirm-google-disconnect: false;
+    in-out property <bool> confirm-microsoft-disconnect: false;
     // Phone.
     in property <bool> telegram_configured;
     in property <bool> telegram_paired;
@@ -118,6 +126,10 @@ export component SettingsView inherits VerticalBox {
     callback reset_persona();
     callback set_tool(string, int);
     callback accept_mcp(string);
+    callback connect-oauth(string, string);
+    callback sync-oauth(string);
+    callback disconnect-oauth(string);
+    callback refresh-oauth();
     callback connect_telegram();
     callback disconnect_telegram();
     callback make_backup();
@@ -278,6 +290,70 @@ export component SettingsView inherits VerticalBox {
             visible: mcp_note != "";
             text: mcp_note;
             color: Theme.ok;
+            wrap: word-wrap;
+        }
+    }
+
+    // Google and Microsoft 365 accounts. OAuth consent always takes place in
+    // the user's system browser; Heron never asks for their sign-in password.
+    VerticalBox {
+        spacing: 8px;
+        SectionTitle { label: "Google and Microsoft accounts"; }
+        Text {
+            text: "Connect email and calendar read-only in your browser. A distributor-registered app connects with one click; enter your own public client ID only if needed. HERON never sees your account password. Synced content stays locally indexed, but may be sent to your chosen AI model when you ask HERON about it.";
+            color: Theme.muted;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+        Text { text: google-connected ? "Google: connected" : "Google: not connected"; color: google-connected ? Theme.ok : Theme.muted; }
+        LabeledInput { label: "Google OAuth desktop client ID"; hint: "Public client ID (not a secret)"; value <=> google-client-id; }
+        HorizontalBox {
+            spacing: 8px;
+            Button { text: google-connected ? "Reconnect Google" : "Connect Google"; enabled: !busy; clicked => { root.connect-oauth("google", root.google-client-id); } }
+            Button { text: "Sync Google"; visible: google-connected; enabled: !busy; clicked => { root.sync-oauth("google"); } }
+            Button {
+                text: confirm-google-disconnect ? "Confirm disconnect" : "Disconnect Google";
+                visible: google-connected;
+                enabled: !busy;
+                clicked => {
+                    if (root.confirm-google-disconnect) {
+                        root.confirm-google-disconnect = false;
+                        root.disconnect-oauth("google");
+                    } else {
+                        root.confirm-google-disconnect = true;
+                    }
+                }
+            }
+        }
+        Text { text: microsoft-connected ? "Microsoft 365: connected" : "Microsoft 365: not connected"; color: microsoft-connected ? Theme.ok : Theme.muted; }
+        LabeledInput { label: "Microsoft public desktop client ID"; hint: "Public application client ID"; value <=> microsoft-client-id; }
+        HorizontalBox {
+            spacing: 8px;
+            Button { text: microsoft-connected ? "Reconnect Microsoft" : "Connect Microsoft"; enabled: !busy; clicked => { root.connect-oauth("microsoft", root.microsoft-client-id); } }
+            Button { text: "Sync Microsoft"; visible: microsoft-connected; enabled: !busy; clicked => { root.sync-oauth("microsoft"); } }
+            Button {
+                text: confirm-microsoft-disconnect ? "Confirm disconnect" : "Disconnect Microsoft";
+                visible: microsoft-connected;
+                enabled: !busy;
+                clicked => {
+                    if (root.confirm-microsoft-disconnect) {
+                        root.confirm-microsoft-disconnect = false;
+                        root.disconnect-oauth("microsoft");
+                    } else {
+                        root.confirm-microsoft-disconnect = true;
+                    }
+                }
+            }
+        }
+        HorizontalBox {
+            spacing: 8px;
+            Button { text: "Refresh account status"; enabled: !busy; clicked => { root.refresh-oauth(); } }
+        }
+        Text { visible: oauth-status != ""; text: oauth-status; color: Theme.ink; wrap: word-wrap; }
+        Text {
+            text: "Disconnect removes local access tokens and indexed account data; it does not revoke consent at Google or Microsoft. Revoke access in your provider's account security settings if needed.";
+            font-size: 12px;
+            color: Theme.muted;
             wrap: word-wrap;
         }
     }

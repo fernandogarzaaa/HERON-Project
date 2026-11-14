@@ -36,6 +36,8 @@ use super::setup::{
 use super::setup_bridge::HeronSetupBridge;
 use crate::{MainWindow, McpLine, SourceItem, ToolItem};
 use slint::{ComponentHandle, ModelRc, VecModel};
+use reqwest::Method;
+use serde_json::{json, Value};
 use std::sync::Arc;
 
 /// The two Setup states, held beside the window. The driver is built
@@ -380,11 +382,11 @@ fn source_items(snap: &SourcesSnapshot) -> Vec<SourceItem> {
             ),
             SourceKind::Calendar => (
                 "Calendar",
-                "Paste the private ICS link of your calendar. Google Calendar: Settings → your calendar → “Secret address in iCal format”. iCloud and Outlook offer a similar link when you share or publish a calendar.",
+                "For Google Calendar or Microsoft 365, use the OAuth account controls under Settings. You can also paste a private ICS calendar link here; iCloud and other providers offer one when sharing a calendar.",
             ),
             SourceKind::Email => (
                 "Email",
-                "Heron reads your recent inbox so it knows who you are talking to and what is pending. It can never send, delete or mark anything. Use an app password, not your normal password: Gmail, iCloud, Fastmail and Yahoo create one under their security settings. Outlook.com and Microsoft 365 no longer allow this kind of sign-in, so they cannot be connected yet.",
+                "HERON indexes recent messages read-only. For Google Gmail or Microsoft 365, connect securely with OAuth under Settings (no app password needed). Other IMAP providers can use a provider-generated app password here. HERON never sends, deletes or marks messages.",
             ),
         };
         let st = row(snap, kind);
@@ -797,7 +799,138 @@ fn restore_api_key(window: &MainWindow, key: &str) {
     }
 }
 
+
+fn apply_oauth_status(window: &MainWindow, payload: &Value) {
+    let connected = |provider: &str| -> bool {
+        payload["providers"].as_array().into_iter().flatten()
+            .any(|row| row["provider"].as_str() == Some(provider) && row["connected"].as_bool() == Some(true))
+    };
+    window.set_settings_google_connected(connected("google"));
+    window.set_settings_microsoft_connected(connected("microsoft"));
+}
+
 fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
+    // Account connections use the local authenticated bridge and the system browser.
+    // Only the public desktop client ID is typed in the UI. No OAuth token or
+    // authorization code is sent back to the Slint component.
+    {
+        let client = bridge.client().clone();
+        let weak = window.as_weak();
+        bridge.spawn(async move {
+            if let Ok(status) = client.api(Method::GET, "/api/oauth", None).await {
+                let _ = weak.upgrade_in_event_loop(move |window| {
+                    apply_oauth_status(&window, &status);
+                });
+            }
+        });
+    }
+    {
+        let client = bridge.client().clone();
+        let bridge = bridge.clone();
+        let weak = window.as_weak();
+        window.on_settings_connect_oauth(move |provider, client_id| {
+            let provider = provider.to_string();
+            let client_id = client_id.to_string(); // do not send Slint-owned UI values across threads
+            if provider != "google" && provider != "microsoft" { return; }
+            let Some(w) = weak.upgrade() else { return };
+            w.set_settings_busy(true);
+            w.set_settings_oauth_status(format!("Opening {provider} sign-in in your browser…").into());
+            let client = client.clone();
+            let weak_task = weak.clone();
+            bridge.spawn(async move {
+                let outcome: anyhow::Result<String> = async {
+                    let reply = client.api(Method::POST, &format!("/api/oauth/{provider}/start"),
+                        Some(json!({"client_id": client_id.to_string()}))).await?;
+                    let url = reply["authorization_url"].as_str()
+                        .ok_or_else(|| anyhow::anyhow!("No authorization URL returned."))?;
+                    open::that(url).map_err(|e| anyhow::anyhow!("Could not open your system browser: {e}"))?;
+                    Ok(format!("Opened {provider} sign-in. After granting read-only consent, return here and select Refresh account status."))
+                }.await;
+                let message = outcome.unwrap_or_else(|e| format!("Could not connect {provider}: {e}"));
+                let _ = weak_task.upgrade_in_event_loop(move |window| {
+                    window.set_settings_oauth_status(message.into());
+                    window.set_settings_busy(false);
+                });
+            });
+        });
+    }
+    {
+        let client = bridge.client().clone();
+        let bridge = bridge.clone();
+        let weak = window.as_weak();
+        window.on_settings_sync_oauth(move |provider| {
+            let provider = provider.to_string();
+            if provider != "google" && provider != "microsoft" { return; }
+            let Some(w) = weak.upgrade() else { return };
+            w.set_settings_busy(true);
+            let client = client.clone();
+            let weak_task = weak.clone();
+            bridge.spawn(async move {
+                let result = client.api(Method::POST, &format!("/api/oauth/{provider}/sync"), None).await;
+                let status = client.api(Method::GET, "/api/oauth", None).await.ok();
+                let message = match result {
+                    Ok(v) => format!("Synced {provider}: {} inbox messages and {} calendar entries.", v["emails"].as_u64().unwrap_or(0), v["events"].as_u64().unwrap_or(0)),
+                    Err(e) => format!("{provider} sync failed: {e}"),
+                };
+                let _ = weak_task.upgrade_in_event_loop(move |window| {
+                    if let Some(status) = &status { apply_oauth_status(&window, status); }
+                    window.set_settings_oauth_status(message.into());
+                    window.set_settings_busy(false);
+                });
+            });
+        });
+    }
+    {
+        let client = bridge.client().clone();
+        let bridge = bridge.clone();
+        let weak = window.as_weak();
+        window.on_settings_disconnect_oauth(move |provider| {
+            let provider = provider.to_string();
+            if provider != "google" && provider != "microsoft" { return; }
+            let Some(w) = weak.upgrade() else { return };
+            w.set_settings_busy(true);
+            let client = client.clone();
+            let weak_task = weak.clone();
+            bridge.spawn(async move {
+                let result = client.api(Method::DELETE, &format!("/api/oauth/{provider}"), None).await;
+                let status = client.api(Method::GET, "/api/oauth", None).await.ok();
+                let message = match result {
+                    Ok(_) => format!("{provider} disconnected. The account's local index and source memories were removed."),
+                    Err(e) => format!("Could not disconnect {provider}: {e}"),
+                };
+                let _ = weak_task.upgrade_in_event_loop(move |window| {
+                    if let Some(status) = &status { apply_oauth_status(&window, status); }
+                    window.set_settings_oauth_status(message.into());
+                    window.set_settings_busy(false);
+                });
+            });
+        });
+    }
+    {
+        let client = bridge.client().clone();
+        let bridge = bridge.clone();
+        let weak = window.as_weak();
+        window.on_settings_refresh_oauth(move || {
+            let Some(w) = weak.upgrade() else { return };
+            w.set_settings_busy(true);
+            let client = client.clone();
+            let weak_task = weak.clone();
+            bridge.spawn(async move {
+                let result = client.api(Method::GET, "/api/oauth", None).await;
+                let _ = weak_task.upgrade_in_event_loop(move |window| {
+                    match result {
+                        Ok(status) => {
+                            apply_oauth_status(&window, &status);
+                            window.set_settings_oauth_status("Account status refreshed.".into());
+                        }
+                        Err(e) => window.set_settings_oauth_status(format!("Could not check accounts: {e}").into()),
+                    }
+                    window.set_settings_busy(false);
+                });
+            });
+        });
+    }
+
     // Preset buttons fill the service address and model only. They
     // do not save.
     {

@@ -13,7 +13,7 @@ use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone};
 use serde::Deserialize;
 use std::path::Path;
 
-pub const SOURCES: &[&str] = &["email", "calendar", "documents", "computer", "about"];
+pub const SOURCES: &[&str] = &["email", "calendar", "documents", "computer", "about", "google_email", "google_calendar", "microsoft_email", "microsoft_calendar"];
 const DAY: i64 = 86_400;
 
 // ---------------- calendar (ICS) ----------------
@@ -392,8 +392,8 @@ pub async fn save_about(app: &App, about: &About) -> Result<Vec<String>> {
 
 fn source_label(source: &str) -> &'static str {
     match source {
-        "email" => "recent emails from the user's inbox",
-        "calendar" => "events from the user's calendar",
+        "email" | "google_email" | "microsoft_email" => "recent emails from the user's inbox",
+        "calendar" | "google_calendar" | "microsoft_calendar" => "events from the user's calendar",
         "documents" => "the user's notes and documents",
         "about" => "text the user wrote about themselves",
         _ => "information about the user's computer",
@@ -403,6 +403,37 @@ fn source_label(source: &str) -> &'static str {
 /// Turn not-yet-read items of a source into lasting memories. Sends excerpts to the model, so it runs
 /// only when the user asked for it. Returns what was learned.
 pub async fn learn(app: &App, source: &str) -> Result<Vec<String>> {
+    // The visible Email/Calendar cards combine legacy and OAuth sources.
+    // Learn separately from each provider so memories retain accurate source
+    // provenance and are deleted when that account is disconnected.
+    let members: &[&str] = match source {
+        "email" => &["email", "google_email", "microsoft_email"],
+        "calendar" => &["calendar", "google_calendar", "microsoft_calendar"],
+        _ => &[],
+    };
+    if !members.is_empty() {
+        let mut all = vec![];
+        let cfg = app.cfg();
+        for member in members {
+            let provider = match *member {
+                "google_email" | "google_calendar" => Some(crate::oauth::Provider::Google),
+                "microsoft_email" | "microsoft_calendar" => Some(crate::oauth::Provider::Microsoft),
+                _ => None,
+            };
+            // Aggregate learning includes legacy sources and only currently
+            // connected OAuth providers. One unconnected provider must not
+            // abort the other provider's valid learning pass.
+            if provider.is_some_and(|p| !p.connected(&cfg)) {
+                continue;
+            }
+            all.extend(learn_one(app, member).await?);
+        }
+        return Ok(all);
+    }
+    learn_one(app, source).await
+}
+
+async fn learn_one(app: &App, source: &str) -> Result<Vec<String>> {
     if !SOURCES.contains(&source) {
         bail!("Unknown source.");
     }
@@ -410,6 +441,20 @@ pub async fn learn(app: &App, source: &str) -> Result<Vec<String>> {
     if crate::llm::is_demo(&cfg) {
         bail!("Demo mode cannot learn from your information. Connect a model first.");
     }
+    let oauth_provider = match source {
+        "google_email" | "google_calendar" => Some(crate::oauth::Provider::Google),
+        "microsoft_email" | "microsoft_calendar" => Some(crate::oauth::Provider::Microsoft),
+        _ => None,
+    };
+    // Snapshot the account before awaiting the model. A disconnect followed
+    // by reconnect must not let old-account content enter new-account memory.
+    let source_account_epoch = if let Some(provider) = oauth_provider {
+        Some(provider.account_epoch(&cfg).ok_or_else(|| anyhow::anyhow!(
+            "OAuth account disconnected or needs reconnection before learning."
+        ))?)
+    } else {
+        None
+    };
     let items = app.store.knowledge_of(source, true, 120)?;
     let mut batches: Vec<Vec<&KnowledgeItem>> = vec![vec![]];
     let mut size = 0;
@@ -447,7 +492,22 @@ pub async fn learn(app: &App, source: &str) -> Result<Vec<String>> {
                 let kind = it["kind"].as_str().filter(|k| ["profile", "preference", "workflow", "project", "person", "fact"].contains(k)).unwrap_or("fact");
                 // What the user wrote about themselves is trusted; what arrived from outside is capped lower.
                 let cap = if source == "about" { 0.9 } else { 0.6 };
-                if let SaveOutcome::Created(_) = app.memory.save(content, kind, source, it["importance"].as_f64().unwrap_or(0.5).min(cap), source).await? {
+                let importance = it["importance"].as_f64().unwrap_or(0.5).min(cap);
+                let result = if let Some(provider) = oauth_provider {
+                    // Serialize the actual memory commit (including any
+                    // awaited embeddings) with user-facing Disconnect.
+                    // If disconnect won first, refuse to recreate memories.
+                    let _guard = crate::oauth::OAUTH_LEARNING_COMMIT.lock().await;
+                    let current = app.cfg();
+                    if !provider.connected(&current)
+                        || provider.account_epoch(&current).as_ref() != source_account_epoch.as_ref() {
+                        bail!("OAuth account was disconnected or changed during source learning.");
+                    }
+                    app.memory.save(content, kind, source, importance, source).await?
+                } else {
+                    app.memory.save(content, kind, source, importance, source).await?
+                };
+                if let SaveOutcome::Created(_) = result {
                     learned.push(content.to_string());
                 }
             }
@@ -471,6 +531,12 @@ pub async fn sync_due(app: &App) {
     if !calendar_links(&cfg).is_empty() {
         let _ = sync_calendar(app).await;
     }
+    // OAuth accounts are indexed independently of legacy IMAP and private ICS feeds.
+    for provider in [crate::oauth::Provider::Google, crate::oauth::Provider::Microsoft] {
+        if provider.connected(&cfg) {
+            let _ = crate::oauth::sync(app, provider).await;
+        }
+    }
     if !cfg.sources.folders.is_empty() {
         let _ = sync_documents(app).await;
     }
@@ -483,7 +549,20 @@ pub fn search(store: &Store, query: &str, source: Option<&str>, limit: usize) ->
         bail!("give a few words to search for");
     }
     let expr = tokens.iter().map(|t| format!("\"{}\"", t.replace('"', ""))).collect::<Vec<_>>().join(" OR ");
-    let hits = store.search_knowledge(&expr, source, limit)?;
+    let aliases: &[&str] = match source {
+        Some("email") => &["email", "google_email", "microsoft_email"],
+        Some("calendar") => &["calendar", "google_calendar", "microsoft_calendar"],
+        _ => &[],
+    };
+    let mut hits = if aliases.is_empty() { store.search_knowledge(&expr, source, limit)? } else {
+        let mut combined = vec![];
+        for name in aliases {
+            combined.extend(store.search_knowledge(&expr, Some(name), limit)?);
+        }
+        combined
+    };
+    hits.sort_by(|a, b| b.ts.cmp(&a.ts));
+    hits.truncate(limit);
     if hits.is_empty() {
         return Ok("nothing found in the connected sources".into());
     }
@@ -492,10 +571,13 @@ pub fn search(store: &Store, query: &str, source: Option<&str>, limit: usize) ->
 
 /// One line for the prompt describing what is connected.
 pub fn connected_summary(store: &Store) -> String {
-    let parts: Vec<String> = [("email", "emails"), ("calendar", "calendar events"), ("documents", "documents")]
-        .iter()
-        .filter_map(|(s, label)| Some(store.knowledge_count(s)).filter(|n| *n > 0).map(|n| format!("{n} {label}")))
-        .collect();
+    let counts = [
+        (store.knowledge_count("email") + store.knowledge_count("google_email") + store.knowledge_count("microsoft_email"), "emails"),
+        (store.knowledge_count("calendar") + store.knowledge_count("google_calendar") + store.knowledge_count("microsoft_calendar"), "calendar events"),
+        (store.knowledge_count("documents"), "documents"),
+    ];
+    let parts: Vec<String> = counts.iter().filter(|(count, _)| *count > 0)
+        .map(|(count, name)| format!("{count} {name}")).collect();
     parts.join(", ")
 }
 

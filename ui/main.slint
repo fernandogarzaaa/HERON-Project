@@ -305,6 +305,11 @@ export component MainWindow inherits Window {
     in-out property <[string]> settings-tool-settings: [];
     in-out property <[McpLine]> settings-mcp-lines: [];
     in-out property <string> settings-mcp-note: "";
+    in-out property <string> settings-google-client-id: "";
+    in-out property <string> settings-microsoft-client-id: "";
+    in-out property <bool> settings-google-connected: false;
+    in-out property <bool> settings-microsoft-connected: false;
+    in-out property <string> settings-oauth-status: "";
     in-out property <bool> settings-telegram-configured: false;
     in-out property <bool> settings-telegram-paired: false;
     in-out property <string> settings-telegram-status: "";
@@ -324,6 +329,10 @@ export component MainWindow inherits Window {
     callback settings-reset-persona();
     callback settings-set-tool(string, int);
     callback settings-accept-mcp(string);
+    callback settings-connect-oauth(string, string);
+    callback settings-sync-oauth(string);
+    callback settings-disconnect-oauth(string);
+    callback settings-refresh-oauth();
     callback settings-connect-telegram();
     callback settings-disconnect-telegram();
     callback settings-make-backup();
@@ -709,6 +718,11 @@ export component MainWindow inherits Window {
                     tool-settings: root.settings-tool-settings;
                     mcp-lines: root.settings-mcp-lines;
                     mcp-note: root.settings-mcp-note;
+                    google-client-id <=> root.settings-google-client-id;
+                    microsoft-client-id <=> root.settings-microsoft-client-id;
+                    google-connected: root.settings-google-connected;
+                    microsoft-connected: root.settings-microsoft-connected;
+                    oauth-status: root.settings-oauth-status;
                     telegram-configured: root.settings-telegram-configured;
                     telegram-paired: root.settings-telegram-paired;
                     telegram-status: root.settings-telegram-status;
@@ -728,6 +742,10 @@ export component MainWindow inherits Window {
                     reset-persona => { root.settings-reset-persona(); }
                     set-tool(name, index) => { root.settings-set-tool(name, index); }
                     accept-mcp(name) => { root.settings-accept-mcp(name); }
+                    connect-oauth(p, id) => { root.settings-connect-oauth(p, id); }
+                    sync-oauth(p) => { root.settings-sync-oauth(p); }
+                    disconnect-oauth(p) => { root.settings-disconnect-oauth(p); }
+                    refresh-oauth => { root.settings-refresh-oauth(); }
                     connect-telegram => { root.settings-connect-telegram(); }
                     disconnect-telegram => { root.settings-disconnect-telegram(); }
                     make-backup => { root.settings-make-backup(); }
