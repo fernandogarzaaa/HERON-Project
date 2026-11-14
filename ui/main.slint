@@ -782,6 +782,7 @@ export component MainWindow inherits Window {
                     reduce-motion: root.reduce-motion;
                     send-message(t) => { root.send-message(t); }
                     cancel-reply => { root.cancel-reply(); }
+                    new-session => { root.new-session(); }
                 }
             }
         }
