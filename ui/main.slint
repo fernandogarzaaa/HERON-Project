@@ -79,6 +79,10 @@ export component MainWindow inherits Window {
     // start, and stays empty in normal use.
     in-out property <string> backend-status: "Starting…";
     in-out property <string> error-message: "";
+    // Diagnostic geometry exported to native headless resize tests.
+    out property <length> debug-window-height: root.height;
+    out property <length> debug-content-height: content.height;
+    out property <length> debug-composer-y: composer-overlay.y;
     // Current conversation id, owned by Rust. Empty means "no session yet";
     // the server creates one lazily on the first message sent.
     in-out property <string> session-id: "";
@@ -747,10 +751,12 @@ export component MainWindow inherits Window {
             // size can exceed the viewport when an empty state grows.
             // This overlay is absent outside the Chat lane, and never
             // changes the content layout's intrinsic size.
-            Rectangle {
+            composer-overlay := Rectangle {
                 visible: root.current-view == "chat" && root.error-message == "";
                 x: 16px;
-                y: parent.height - 110px;
+                // Anchor to the physical Window, not a content-layout
+                // height that can expand to fit its scrollable descendants.
+                y: root.height - 144px;
                 width: parent.width - 32px;
                 height: 94px;
                 background: Theme.surface;
