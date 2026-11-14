@@ -464,7 +464,25 @@ async fn learn_one(app: &App, source: &str) -> Result<Vec<String>> {
                 let kind = it["kind"].as_str().filter(|k| ["profile", "preference", "workflow", "project", "person", "fact"].contains(k)).unwrap_or("fact");
                 // What the user wrote about themselves is trusted; what arrived from outside is capped lower.
                 let cap = if source == "about" { 0.9 } else { 0.6 };
-                if let SaveOutcome::Created(_) = app.memory.save(content, kind, source, it["importance"].as_f64().unwrap_or(0.5).min(cap), source).await? {
+                let importance = it["importance"].as_f64().unwrap_or(0.5).min(cap);
+                let oauth_provider = match source {
+                    "google_email" | "google_calendar" => Some(crate::oauth::Provider::Google),
+                    "microsoft_email" | "microsoft_calendar" => Some(crate::oauth::Provider::Microsoft),
+                    _ => None,
+                };
+                let result = if let Some(provider) = oauth_provider {
+                    // Serialize the actual memory commit (including any
+                    // awaited embeddings) with user-facing Disconnect.
+                    // If disconnect won first, refuse to recreate memories.
+                    let _guard = crate::oauth::OAUTH_LEARNING_COMMIT.lock().await;
+                    if !provider.connected(&app.cfg()) {
+                        bail!("OAuth account was disconnected during source learning.");
+                    }
+                    app.memory.save(content, kind, source, importance, source).await?
+                } else {
+                    app.memory.save(content, kind, source, importance, source).await?
+                };
+                if let SaveOutcome::Created(_) = result {
                     learned.push(content.to_string());
                 }
             }
