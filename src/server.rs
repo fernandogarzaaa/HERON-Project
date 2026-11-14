@@ -34,6 +34,8 @@ pub struct ServerState {
     approvals: Mutex<HashMap<String, (String, oneshot::Sender<Approval>)>>,
     /// One-time, ten-minute OAuth authorization attempts. Never persisted or exposed to the model.
     oauth_pending: Mutex<HashMap<String, crate::oauth::Pending>>,
+    /// Serialize callback token installation with account disconnect.
+    oauth_transition: tokio::sync::Mutex<()>,
     /// Replies in progress, by conversation. The number tells one reply from the next in the same
     /// conversation, so a reply that is finishing can never clear the entry of the one that followed it.
     running: Mutex<HashMap<String, (u64, tokio::task::AbortHandle, Tx)>>,
@@ -112,7 +114,7 @@ async fn auth(State(st): S, headers: HeaderMap, req: Request, next: Next) -> Res
 pub fn router(app: Arc<App>, token: String) -> Router {
     let bind = app.cfg().server.bind.clone();
     let loopback_only = matches!(bind.as_str(), "127.0.0.1" | "localhost" | "::1");
-    let state = Arc::new(ServerState { app, token, loopback_only, approvals: Default::default(), oauth_pending: Default::default(), running: Default::default(), next_run: Default::default() });
+    let state = Arc::new(ServerState { app, token, loopback_only, approvals: Default::default(), oauth_pending: Default::default(), oauth_transition: Default::default(), running: Default::default(), next_run: Default::default() });
     let api = Router::new()
         .route("/state", get(get_state))
         .route("/sessions", get(list_sessions).post(new_session))
@@ -943,6 +945,8 @@ async fn oauth_callback(State(st): S, Path(provider): Path<String>, headers: Hea
     let Some(state) = query.get("state") else {
         return (StatusCode::BAD_REQUEST, Html("Missing OAuth state. Start sign-in in HERON again.")).into_response();
     };
+    // Disconnect invalidates pending states and waits for any callback already underway.
+    let _transition = st.oauth_transition.lock().await;
     let pending = {
         let mut waiting = st.oauth_pending.lock().unwrap_or_else(|e| e.into_inner());
         waiting.remove(state)
@@ -976,6 +980,11 @@ async fn sync_oauth(State(st): S, Path(provider): Path<String>) -> ApiResult {
 
 async fn disconnect_oauth(State(st): S, Path(provider): Path<String>) -> ApiResult {
     let provider = crate::oauth::Provider::parse(&provider)?;
+    let _transition = st.oauth_transition.lock().await;
+    {
+        let mut pending = st.oauth_pending.lock().unwrap_or_else(|e| e.into_inner());
+        pending.retain(|_, sign_in| sign_in.provider != provider);
+    }
     let (items, memories) = crate::oauth::disconnect(&st.app, provider)?;
     Ok(Json(json!({"provider": provider.name(), "removed_items": items, "removed_memories": memories})))
 }
