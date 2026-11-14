@@ -161,7 +161,7 @@ pub async fn finish(cfg: &Config, pending: Pending, code: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn access_token(cfg: &Config, provider: Provider) -> Result<String> {
+async fn access_token_with_generation(cfg: &Config, provider: Provider) -> Result<(String, String)> {
     let id = cfg.secret(&provider.secret_key("client_id"))
         .ok_or_else(|| anyhow!("This OAuth connection has no client ID. Please reconnect."))?;
     let refresh = cfg.secret(&provider.secret_key("refresh_token"))
@@ -176,11 +176,21 @@ pub async fn access_token(cfg: &Config, provider: Provider) -> Result<String> {
         if cfg.secret(&provider.secret_key("refresh_token")).as_deref() != Some(refresh.as_str()) {
             bail!("Account was disconnected or changed while renewing access.");
         }
-        if let Some(next) = token.get("refresh_token").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        let generation = if let Some(next) = token.get("refresh_token").and_then(Value::as_str).filter(|s| !s.is_empty()) {
             cfg.store_secret(&provider.secret_key("refresh_token"), next)?;
-        }
+            next.to_string()
+        } else {
+            refresh
+        };
+        return Ok((token["access_token"].as_str().unwrap_or_default().to_string(), generation));
     }
-    Ok(token["access_token"].as_str().unwrap_or_default().to_string())
+}
+
+/// The credential generation is captured atomically with the access token.
+/// Callers syncing account data must validate that generation when committing
+/// fetched records, rather than sampling it after the token was issued.
+pub async fn access_token(cfg: &Config, provider: Provider) -> Result<String> {
+    access_token_with_generation(cfg, provider).await.map(|(token, _)| token)
 }
 
 pub fn disconnect(app: &App, provider: Provider) -> Result<(usize, usize)> {
@@ -298,9 +308,10 @@ async fn microsoft_calendar(http: &reqwest::Client, token: &str) -> Result<Vec<R
 /// so a failed API request does not erase the previous offline index.
 pub async fn sync(app: &App, provider: Provider) -> Result<(usize, usize)> {
     let cfg = app.cfg();
-    let token = access_token(&cfg, provider).await?;
-    let refresh_at_start = cfg.secret(&provider.secret_key("refresh_token"))
-        .ok_or_else(|| anyhow!("Account was disconnected before sync."))?;
+    // Bind the fetched account data to the exact credential generation
+    // that issued this access token. Disconnect/reconnect during the
+    // network fetch must never write old-account data into new indexes.
+    let (token, refresh_at_start) = access_token_with_generation(&cfg, provider).await?;
     let http = oauth_http()?;
     let (email, calendar) = match provider {
         Provider::Google => (google_mail(&http, &token).await?, google_calendar(&http, &token).await?),
