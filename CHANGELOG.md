@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.3.1 — 2026-11-14
+
+macOS packaging fix:
+
+- The macOS bundle shipped the CLI as `Contents/MacOS/heron`, which is the same file as the desktop executable `Heron` on the default case-insensitive macOS filesystem. The CLI silently overwrote the desktop binary, so double-clicking the app showed nothing and the bundle contained no GUI at all. The CLI now ships as `heron-cli` inside the bundle (matching the Windows name `heron-cli.exe`), and the build fails if the two executables ever come out identical again.
+- The macOS installer (`scripts/install.sh`) now links `~/.local/bin/heron` to the renamed `heron-cli` binary inside the bundle.
+
 ## 0.3.0 — 2026-11-14
 
 Native desktop beta (Slint):
