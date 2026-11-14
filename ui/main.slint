@@ -15,7 +15,7 @@
 import { AboutSlint, StandardButton } from "std-widgets.slint";
 import { Theme } from "components/theme.slint";
 import { ChatMsg } from "components/message.slint";
-import { ChatView } from "views/chat.slint";
+import { ChatView, ComposerView } from "views/chat.slint";
 import { Sidebar } from "views/sidebar.slint";
 import { MemoryView } from "views/memory.slint";
 import { TasksView } from "views/tasks.slint";
@@ -433,10 +433,6 @@ export component MainWindow inherits Window {
                 if root.error-message == "" : ChatView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
-                    // Window coordinates remain bounded to the physical
-                    // desktop viewport even if the chat's intrinsic content
-                    // size grows beyond it.
-                    viewport-height: root.height - 64px;
                     title: root.session-title == "" ? "New conversation" : root.session-title;
                     thread: root.messages;
                     busy: root.busy;
@@ -742,6 +738,37 @@ export component MainWindow inherits Window {
                     connect-telegram => { root.settings-connect-telegram(); }
                     disconnect-telegram => { root.settings-disconnect-telegram(); }
                     make-backup => { root.settings-make-backup(); }
+                }
+            }
+
+            // Pin the composer to the shell's *actual content rectangle*.
+            // It is the last, absolutely positioned child (topmost layer).
+            // Anchoring to ChatView/root.height was incorrect: its preferred
+            // size can exceed the viewport when an empty state grows.
+            // This overlay is absent outside the Chat lane, and never
+            // changes the content layout's intrinsic size.
+            Rectangle {
+                visible: root.current-view == "chat" && root.error-message == "";
+                x: 16px;
+                y: parent.height - 110px;
+                width: parent.width - 32px;
+                height: 94px;
+                background: Theme.surface;
+                border-color: Theme.line;
+                border-width: 1px;
+                border-radius: 10px;
+                ComposerView {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    busy: root.busy;
+                    hint: root.busy
+                        ? "Heron is working. Press Esc or Stop to halt it."
+                        : "Enter to send, Shift+Enter for a new line";
+                    reduce-motion: root.reduce-motion;
+                    send-message(t) => { root.send-message(t); }
+                    cancel-reply => { root.cancel-reply(); }
                 }
             }
         }
