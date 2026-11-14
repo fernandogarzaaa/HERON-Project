@@ -382,11 +382,11 @@ fn source_items(snap: &SourcesSnapshot) -> Vec<SourceItem> {
             ),
             SourceKind::Calendar => (
                 "Calendar",
-                "Paste the private ICS link of your calendar. Google Calendar: Settings → your calendar → “Secret address in iCal format”. iCloud and Outlook offer a similar link when you share or publish a calendar.",
+                "For Google Calendar or Microsoft 365, use the OAuth account controls under Settings. You can also paste a private ICS calendar link here; iCloud and other providers offer one when sharing a calendar.",
             ),
             SourceKind::Email => (
                 "Email",
-                "Heron reads your recent inbox so it knows who you are talking to and what is pending. It can never send, delete or mark anything. Use an app password, not your normal password: Gmail, iCloud, Fastmail and Yahoo create one under their security settings. Outlook.com and Microsoft 365 no longer allow this kind of sign-in, so they cannot be connected yet.",
+                "HERON indexes recent messages read-only. For Google Gmail or Microsoft 365, connect securely with OAuth under Settings (no app password needed). Other IMAP providers can use a provider-generated app password here. HERON never sends, deletes or marks messages.",
             ),
         };
         let st = row(snap, kind);
