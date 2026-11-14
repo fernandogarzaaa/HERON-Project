@@ -40,6 +40,31 @@ Every tool call, from every entry point, is classified into one `Effect` and dec
 
 The full table is the test `permissions::tests::the_decision_table`.
 
+## Web-fetch address and redirect boundary
+
+HERON's `web_fetch` and `web_search` use an independent HTTP client, separate from any
+external browser or model-provider HTTP calls. By default it ignores inherited
+`HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` variables and resolves each origin
+through `PublicOnlyResolver` at connection time. Initial and redirected requests
+reject internal/literal hosts; redirects also reject credentials in the URL,
+unexpected URL schemes, and HTTPS-to-HTTP downgrades. These checks reduce DNS
+rebinding and redirect-based server-side request forgery (SSRF).
+
+`HERON_ALLOW_LOCAL_FETCH` must explicitly equal `1`, `true`, or `yes` to
+permit local targets; defining it as `0` or `false` does not enable it. This is
+an intentional high-trust override and must not be used in ordinary operation.
+`HERON_TRUST_WEB_PROXY=1` deliberately re-enables inherited system proxies.
+**That is a trust transfer**: for proxied destinations the proxy resolves the
+origin, so HERON cannot enforce its own connect-time origin-IP filter. Only
+enable it with a proxy that reliably blocks internal/metadata destinations;
+the synchronous hostname/IP checks and redirect host checks remain defense
+in depth but are insufficient against DNS rebinding via a permissive proxy.
+
+These are tool-specific transport controls, not a solution for T3 (shell
+network egress) or T4 (browser subresource interception). Tests:
+`web_fetch_exceptions_require_explicit_true_values`,
+`redirect_cannot_escape_origin_safety_policy`, and `ssrf_guard`.
+
 ## Known weaknesses (not mitigated)
 
 | # | Weakness | Consequence |
