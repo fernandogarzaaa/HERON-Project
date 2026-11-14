@@ -43,18 +43,9 @@ component ComposerView inherits FocusScope {
     in property <bool> reduce-motion;
     callback send-message(string);
     callback cancel-reply();
-    // Enter sends, Shift+Enter inserts a newline. Other keys bubble up
-    // to the ChatView scope (Esc stops, Cmd/Ctrl+N starts a new
-    // conversation). If the TextEdit consumes Return before this scope
-    // sees it, the Send button still works; see ui/WIRING.md.
-    key-pressed(event) => {
-        if (event.text == "\n" && !event.modifiers.shift) {
-            if (input.text != "") { root.send-message(input.text); input.text = ""; }
-            accept
-        } else {
-            reject
-        }
-    }
+    // Handle Enter on TextEdit itself: parent FocusScope key handlers
+    // may never receive keys already accepted by the text editor.
+    // Shift+Enter is delegated to the editor for a newline.
     // The composer is the obvious place to type. It takes focus when
     // the view appears.
     init => { input.focus(); }
@@ -71,6 +62,23 @@ component ComposerView inherits FocusScope {
                     placeholder-text: "Ask Heron to do something";
                     wrap: word-wrap;
                     min-height: 46px;
+                    key-pressed(event) => {
+                        if (event.text == Key.Escape && root.busy) {
+                            root.cancel-reply();
+                            accept
+                        } else if ((event.text == Key.Return || event.text == "\n")
+                                   && !event.modifiers.shift && !event.modifiers.control
+                                   && !event.modifiers.meta) {
+                            // Ignore repeated Enter and never submit while busy.
+                            if (!root.busy && !event.repeat && self.text != "") {
+                                root.send-message(self.text);
+                                self.text = "";
+                            }
+                            accept
+                        } else {
+                            reject
+                        }
+                    }
                 }
             }
             ActionButton {
@@ -118,7 +126,7 @@ component EmptyStateView inherits VerticalBox {
     callback try-demo();
     callback resume();
     callback use-starter(string);
-    if !has-key: Rectangle {
+    if !has-key && !demo: Rectangle {
         background: Theme.talon-soft; border-color: Theme.talon; border-width: 1px; border-radius: 10px;
         VerticalBox {
             Text { text: "Heron needs an AI model before it can reply. Add an API key, or point it at a model running on this computer."; wrap: word-wrap; }
@@ -182,7 +190,7 @@ export component ChatView inherits FocusScope {
     in-out property <bool> follow: true;
     property <bool> show-latest: !follow;
     changed thread-version => {
-        if (root.follow) { thread-scroll.content-y = thread-scroll.height - thread-box.height; }
+        if (root.follow) { thread-scroll.content-y = thread-box.height > thread-scroll.height ? thread-scroll.height - thread-box.height : 0px; }
     }
 
     // Cmd/Ctrl+N starts a new conversation. Esc stops a running reply.
@@ -218,11 +226,18 @@ export component ChatView inherits FocusScope {
 
     VerticalBox {
         // Header: title, Undo, mode group.
-        HorizontalBox {
-            alignment: space-between;
-            Text { text: title; font-size: 20px; font-weight: 600; font-family: Theme.heading-font; }
-            if can-undo: Button { text: "Undo last file change"; clicked => { root.undo(); } }
+        // Keep the session title/actions separate from the four mode
+        // controls. Putting all six controls on one row overflowed the
+        // minimum-width desktop window when titles were long.
+        VerticalBox {
+            spacing: 6px;
             HorizontalBox {
+                alignment: space-between;
+                Text { text: title; font-size: 20px; font-weight: 600; font-family: Theme.heading-font; wrap: word-wrap; horizontal-stretch: 1; }
+                if can-undo: Button { text: "Undo last file change"; clicked => { root.undo(); } }
+            }
+            HorizontalBox {
+                spacing: 6px;
                 ModeButton { mode: "readonly"; current-mode: root.mode; clicked-mode(m) => { root.set-mode(m); } }
                 ModeButton { mode: "ask"; current-mode: root.mode; clicked-mode(m) => { root.set-mode(m); } }
                 ModeButton { mode: "auto"; current-mode: root.mode; clicked-mode(m) => { root.set-mode(m); } }
@@ -275,7 +290,7 @@ export component ChatView inherits FocusScope {
         }
         if show-latest: HorizontalBox {
             alignment: center;
-            ActionButton { label: "↓ Newest message"; kind: "primary"; pill: true; reduce-motion: reduce-motion; clicked => { thread-scroll.content-y = thread-scroll.height - thread-box.height; } }
+            ActionButton { label: "↓ Newest message"; kind: "primary"; pill: true; reduce-motion: reduce-motion; clicked => { root.follow = true; thread-scroll.content-y = thread-box.height > thread-scroll.height ? thread-scroll.height - thread-box.height : 0px; } }
         }
 
         // Composer.
