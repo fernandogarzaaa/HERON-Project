@@ -55,18 +55,24 @@ component ComposerView inherits FocusScope {
         width: parent.width;
         height: parent.height;
         spacing: 6px;
+        padding: 4px;
         HorizontalBox {
+            width: parent.width;
+            height: 54px;
             alignment: stretch;
             spacing: 8px;
             Rectangle {
+                horizontal-stretch: 1;
+                height: 54px;
                 border-color: input.has-focus ? Theme.slate : Theme.line;
                 border-width: 1px; border-radius: 10px;
                 background: Theme.surface;
                 animate border-color { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
                 input := TextEdit {
+                    width: parent.width;
+                    height: parent.height;
                     placeholder-text: "Ask Heron to do something";
                     wrap: word-wrap;
-                    min-height: 46px;
                     key-pressed(event) => {
                         if (event.text == Key.Escape && root.busy) {
                             root.cancel-reply();
@@ -87,6 +93,7 @@ component ComposerView inherits FocusScope {
                 }
             }
             ActionButton {
+                width: 96px;
                 label: busy ? "Stop" : "Send";
                 kind: busy ? "danger" : "primary";
                 enabled: busy || input.text != "";
@@ -207,6 +214,10 @@ component EmptyStateView inherits VerticalBox {
 }
 
 export component ChatView inherits FocusScope {
+    // Stop deeply nested scroll content inflating this child beyond the
+    // actual desktop viewport: the outer layout owns the real height.
+    min-height: 0px;
+    preferred-height: 280px;
     in property <string> title;
     in property <string> mode;
     in property <bool> busy;
