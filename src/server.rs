@@ -934,6 +934,11 @@ async fn start_oauth(State(st): S, Path(provider): Path<String>, headers: Header
     let callback_host = if provider == crate::oauth::Provider::Google { "127.0.0.1" } else { "localhost" };
     let redirect_uri = format!("http://{callback_host}:{port}/oauth/callback/{}", provider.name());
     let (state, pending, url) = crate::oauth::begin(provider, &client_id, &redirect_uri)?;
+    // Linearize sign-in admission with Disconnect, which removes all
+    // pending states for this provider. Without this transition lock,
+    // Disconnect can clear the map and a concurrently starting request
+    // can insert a stale authorization afterwards.
+    let _transition = st.oauth_transition.lock().await;
     let mut waiting = st.oauth_pending.lock().unwrap_or_else(|e| e.into_inner());
     waiting.retain(|_, p| !p.expired());
     if waiting.len() >= 8 {
