@@ -764,16 +764,21 @@ mod window_layout_tests {
 
     #[test]
     fn main_window_lays_out_and_renders_without_a_binding_loop() {
-        let (width, height) = (1100, 700);
         let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
         slint::platform::set_platform(Box::new(HeadlessPlatform(window.clone()))).expect("headless platform installs");
         let ui = MainWindow::new().expect("main window builds");
         ui.show().expect("main window shows");
-        window.set_size(PhysicalSize::new(width, height));
-        let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
-        let drew = window.draw_if_needed(|renderer| {
-            renderer.render(&mut pixels, width as usize);
-        });
-        assert!(drew, "main window rendered a frame");
+
+        // Exercise resize transitions in one test: Slint's platform can only
+        // be installed once per process, and a single initial render cannot
+        // detect resize-triggered binding loops or renderer failures.
+        for (width, height) in [(1100, 700), (800, 600), (640, 480), (1440, 900), (1100, 700)] {
+            window.set_size(PhysicalSize::new(width, height));
+            let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
+            let drew = window.draw_if_needed(|renderer| {
+                renderer.render(&mut pixels, width as usize);
+            });
+            assert!(drew, "main window did not render after resizing to {width}x{height}");
+        }
     }
 }
