@@ -1,11 +1,11 @@
 # Heron installer for Windows. Downloads the release, checks it against the published checksums,
 # and installs it for the current user (no administrator rights needed).
 #
-#   irm https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.0/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.1/scripts/install.ps1 | iex
 #
 # Set $env:HERON_VERSION to install a different release (default below).
 $ErrorActionPreference = "Stop"
-$version = if ($env:HERON_VERSION) { $env:HERON_VERSION } else { "v0.3.0" }
+$version = if ($env:HERON_VERSION) { $env:HERON_VERSION } else { "v0.3.1" }
 $base = if ($env:HERON_DOWNLOAD_BASE) { $env:HERON_DOWNLOAD_BASE } else { "https://github.com/fernandogarzaaa/HERON-Project/releases/download/$version" }
 $asset = "Heron-windows-x64.zip"
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("heron-" + [System.Guid]::NewGuid().ToString("N"))

@@ -32,6 +32,19 @@ jobs:
         run: cargo build --locked --features desktop --bins
       - name: Desktop bridge and SSE tests
         run: cargo test --locked --features desktop --bin heron-desktop
+      - name: Capture Slint headless UI snapshots
+        if: runner.os == 'Linux'
+        run: cargo test --locked --features desktop --bin heron-desktop window_layout_tests::main_window_lays_out_and_renders_without_a_binding_loop -- --exact --nocapture
+        env:
+          HERON_UI_SNAPSHOTS_DIR: target/ui-snapshots
+      - name: Upload UI snapshot evidence
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slint-ui-snapshots-${{ github.sha }}
+          path: target/ui-snapshots/*.bmp
+          if-no-files-found: error
+          retention-days: 14
       - name: Linux installer smoke test
         if: runner.os == 'Linux'
         run: bash tests/linux-install-smoke.sh

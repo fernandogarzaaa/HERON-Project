@@ -649,7 +649,22 @@ async fn run_capture(
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
-    let mut child = cmd.spawn()?;
+    // Newly created test shims can transiently fail with ETXTBSY on
+    // overlayfs even after the writer has closed. This also affects
+    // user-installed CLI wrappers that have just been replaced. Retry
+    // only that transient Unix errno; other spawn errors fail normally.
+    let mut attempt = 0;
+    let mut child = loop {
+        match cmd.spawn() {
+            Ok(child) => break child,
+            #[cfg(unix)]
+            Err(e) if e.raw_os_error() == Some(26) && attempt < 5 => {
+                attempt += 1;
+                tokio::time::sleep(Duration::from_millis(20 * attempt)).await;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    };
     let pgid = child.id();
     // Kills the group if this future is dropped (for example by a
     // cancelled probe). Lives until run_capture returns.
