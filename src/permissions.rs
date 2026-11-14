@@ -675,8 +675,6 @@ impl reqwest::dns::Resolve for PublicOnlyResolver {
     }
 }
 
-/// True when web requests leave through a proxy. The proxy then looks names up, not this program, so
-/// the connect-time check above cannot apply (and would wrongly reject a proxy on the local network).
 /// A security-sensitive override must be deliberately enabled. Merely
 /// defining HERON_ALLOW_LOCAL_FETCH=0/false must not turn off the SSRF guard.
 fn explicit_opt_in(value: &str) -> bool {
@@ -698,6 +696,8 @@ pub fn trusted_web_proxy_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// Whether the process has inherited a system proxy configuration. The
+/// web-fetch client ignores it unless HERON_TRUST_WEB_PROXY is explicitly true.
 pub fn web_goes_through_proxy() -> bool {
     ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"].iter().any(|v| std::env::var(v).map(|p| !p.trim().is_empty()).unwrap_or(false))
 }
