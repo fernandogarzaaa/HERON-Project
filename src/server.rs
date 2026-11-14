@@ -987,6 +987,10 @@ async fn get_sources(State(st): S) -> ApiResult {
     let store = &st.app.store;
     let learned = |source: &str| store.memories_by_source(source, 500).map(|m| m.len()).unwrap_or(0);
     let hosts: Vec<String> = crate::sources::calendar_links(&cfg).iter().filter_map(|l| url::Url::parse(&crate::sources::normalize_calendar_url(l)).ok()).filter_map(|u| u.host_str().map(String::from)).collect();
+    let google = crate::oauth::Provider::Google.connected(&cfg);
+    let microsoft = crate::oauth::Provider::Microsoft.connected(&cfg);
+    let oauth_email_count = store.knowledge_count("google_email") + store.knowledge_count("microsoft_email");
+    let oauth_calendar_count = store.knowledge_count("google_calendar") + store.knowledge_count("microsoft_calendar");
     Ok(Json(json!({
         "onboarded": store.kv_get("onboarded").is_some(),
         "demo": crate::llm::is_demo(&cfg),
@@ -995,8 +999,9 @@ async fn get_sources(State(st): S) -> ApiResult {
         "about": {"saved": learned("onboarding"), "indexed": store.knowledge_count("about"), "learned": learned("about")},
         "computer": {"connected": store.knowledge_count("computer") > 0, "indexed": store.knowledge_count("computer"), "learned": learned("computer")},
         "documents": {"connected": !cfg.sources.folders.is_empty(), "folders": cfg.sources.folders, "indexed": store.knowledge_count("documents"), "learned": learned("documents")},
-        "calendar": {"connected": !hosts.is_empty(), "hosts": hosts, "indexed": store.knowledge_count("calendar"), "learned": learned("calendar")},
-        "email": {"connected": cfg.sources.email.is_some(), "address": cfg.sources.email.as_ref().map(|e| e.username.clone()), "indexed": store.knowledge_count("email"), "learned": learned("email")},
+        "calendar": {"connected": !hosts.is_empty() || google || microsoft, "hosts": hosts, "indexed": store.knowledge_count("calendar") + oauth_calendar_count, "learned": learned("calendar")},
+        "email": {"connected": cfg.sources.email.is_some() || google || microsoft, "address": cfg.sources.email.as_ref().map(|e| e.username.clone()), "indexed": store.knowledge_count("email") + oauth_email_count, "learned": learned("email")},
+        "oauth": {"google": google, "microsoft": microsoft},
     })))
 }
 
