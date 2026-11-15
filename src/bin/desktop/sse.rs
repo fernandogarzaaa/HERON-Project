@@ -3,6 +3,12 @@
 //! into events, so the parsing is testable without a server or a window.
 
 use super::bridge::ChatEvent;
+use anyhow::{bail, Result};
+
+// One malformed or hostile SSE response must not consume unlimited memory.
+// Normal chat token deltas are far smaller than this limit.
+const MAX_SSE_LINE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_EVENTS_PER_CHUNK: usize = 1024;
 
 /// Parse one SSE line. Returns `None` for lines that carry no event: blank
 /// lines, keep-alive comments (`:`), lines without a `data:` prefix, the
@@ -33,17 +39,34 @@ impl SseParser {
         SseParser { buf: Vec::new() }
     }
 
-    /// Feed a chunk of bytes. Returns every event completed by this chunk.
-    pub fn feed(&mut self, chunk: &[u8]) -> Vec<ChatEvent> {
-        self.buf.extend_from_slice(chunk);
+    /// Feed bytes without buffering an unlimited newline-free frame.
+    /// The caller treats a frame error as a broken stream and fails the turn
+    /// rather than silently discarding data or leaving the UI busy.
+    pub fn feed(&mut self, chunk: &[u8]) -> Result<Vec<ChatEvent>> {
+        let mut remaining = chunk;
         let mut events = Vec::new();
-        while let Some(pos) = self.buf.iter().position(|b| *b == b'\n') {
-            let line: Vec<u8> = self.buf.drain(..=pos).collect();
-            if let Some(event) = parse_event_line(&String::from_utf8_lossy(&line)) {
-                events.push(event);
+        while let Some(pos) = remaining.iter().position(|b| *b == b'\n') {
+            if self.buf.len().saturating_add(pos) > MAX_SSE_LINE_BYTES {
+                self.buf.clear();
+                bail!("chat SSE line exceeded {MAX_SSE_LINE_BYTES} bytes");
             }
+            self.buf.extend_from_slice(&remaining[..pos]);
+            if let Some(event) = parse_event_line(&String::from_utf8_lossy(&self.buf)) {
+                events.push(event);
+                if events.len() > MAX_EVENTS_PER_CHUNK {
+                    self.buf.clear();
+                    bail!("chat SSE chunk contained too many events");
+                }
+            }
+            self.buf.clear();
+            remaining = &remaining[pos + 1..];
         }
-        events
+        if self.buf.len().saturating_add(remaining.len()) > MAX_SSE_LINE_BYTES {
+            self.buf.clear();
+            bail!("chat SSE line exceeded {MAX_SSE_LINE_BYTES} bytes");
+        }
+        self.buf.extend_from_slice(remaining);
+        Ok(events)
     }
 }
 
@@ -60,7 +83,7 @@ mod tests {
     #[test]
     fn parser_skips_comments_blanks_and_done() {
         let mut parser = SseParser::new();
-        let events = parser.feed(b": keep-alive\n\ndata: [DONE]\n");
+        let events = parser.feed(b": keep-alive\n\ndata: [DONE]\n").unwrap();
         assert!(
             events.is_empty(),
             "comments, blanks, and [DONE] carry no event"
@@ -70,9 +93,9 @@ mod tests {
     #[test]
     fn parser_splits_lines_across_chunks() {
         let mut parser = SseParser::new();
-        let first = parser.feed(b"data: {\"type\": \"tex");
+        let first = parser.feed(b"data: {\"type\": \"tex").unwrap();
         assert!(first.is_empty(), "a partial line yields nothing yet");
-        let second = parser.feed(b"t\", \"text\": \"Hel\"}\n\ndata: {\"type\": \"done\", \"text\": \"Hello\", \"title\": \"Hi\"}\n");
+        let second = parser.feed(b"t\", \"text\": \"Hel\"}\n\ndata: {\"type\": \"done\", \"text\": \"Hello\", \"title\": \"Hi\"}\n").unwrap();
         assert_eq!(
             second.len(),
             2,
@@ -83,10 +106,29 @@ mod tests {
     }
 
     #[test]
+    fn parser_rejects_oversized_partial_frame_across_chunks() {
+        let mut parser = SseParser::new();
+        // A server that never sends a newline cannot grow memory forever.
+        assert!(parser.feed(&vec![b'a'; MAX_SSE_LINE_BYTES]).unwrap().is_empty());
+        assert!(parser.feed(b"a").is_err());
+        // Clearing the rejected buffer permits a later valid reply.
+        let events = parser.feed(b"data: {\"type\":\"cancelled\"}\n").unwrap();
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn parser_accepts_large_chunks_of_small_valid_events() {
+        let mut parser = SseParser::new();
+        let frame = b"data: {\"type\":\"text\",\"text\":\"ok\"}\n";
+        let chunk = frame.repeat(100);
+        assert_eq!(parser.feed(&chunk).unwrap().len(), 100);
+    }
+
+    #[test]
     fn parser_skips_malformed_lines() {
         let mut parser = SseParser::new();
         let events =
-            parser.feed(b"data: not json\n\ndata: {\"type\": \"text\", \"text\": \"ok\"}\n");
+            parser.feed(b"data: not json\n\ndata: {\"type\": \"text\", \"text\": \"ok\"}\n").unwrap();
         assert_eq!(events.len(), 1, "one malformed line never kills the turn");
     }
 }
