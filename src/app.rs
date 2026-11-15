@@ -557,7 +557,7 @@ impl App {
         // The bar for speaking up adapts to how the user has responded: mostly declined -> be pickier.
         let answered: Vec<bool> = history.iter().filter(|s| matches!(s.status.as_str(), "accepted" | "dismissed")).take(10).map(|s| s.status == "accepted").collect();
         let accept_rate = answered.iter().filter(|a| **a).count() as f64 / answered.len().max(1) as f64;
-        let bar = if answered.len() >= 4 && accept_rate < 0.3 { 0.8 } else if answered.len() >= 4 && accept_rate > 0.7 { 0.5 } else { 0.6 };
+        let bar: f64 = if answered.len() >= 4 && accept_rate < 0.3 { 0.8 } else if answered.len() >= 4 && accept_rate > 0.7 { 0.5 } else { 0.6 };
         let soon = crate::sources::upcoming(&self.store, 48, 6).join("\n");
         let list = |status: &[&str]| history.iter().filter(|s| status.contains(&s.status.as_str())).map(|s| format!("- {}", s.title)).collect::<Vec<_>>().join("\n");
         let prompt = format!(
