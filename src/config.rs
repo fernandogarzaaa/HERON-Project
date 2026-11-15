@@ -452,28 +452,33 @@ impl Config {
         // Manager. A damaged file must never turn a failed API response into
         // a newly installed secret that the user believes was rejected.
         let mut file = self.read_file_secrets()?;
-        let previous = vault::get(&self.home, name);
-        if !vault::set(&self.home, name, value) {
-            // An OS vault can fail after partially writing. Restore the old
-            // value when possible; otherwise revoke the attempted entry.
-            if let Some(ref prior) = previous {
-                let _ = vault::set(&self.home, name, prior);
-            } else {
-                let _ = vault::delete(&self.home, name);
+        // Unlike the legacy getter, this distinguishes no entry from a
+        // failing keychain read. Refuse to overwrite any key that cannot be
+        // inspected first, so a failed read never silently discards it.
+        let previous = vault::get_checked(&self.home, name)
+            .map_err(|e| anyhow::anyhow!("Cannot inspect OS credential before replacement: {e}"))?;
+        let restore = || -> Result<()> {
+            match &previous {
+                Some(prior) => vault::set_verified(&self.home, name, prior)
+                    .map_err(|e| anyhow::anyhow!("Could not restore earlier OS credential: {e}")),
+                None => vault::delete(&self.home, name)
+                    .map_err(|e| anyhow::anyhow!("Could not revoke failed OS credential write: {e}")),
             }
-            anyhow::bail!("Could not verify credential storage in the operating system vault.");
+        };
+        if let Err(e) = vault::set_verified(&self.home, name, value) {
+            if let Err(cleanup) = restore() {
+                anyhow::bail!("OS credential verification failed ({e}) AND rollback failed ({cleanup}). Credential state is uncertain; revoke this connector key manually in the OS credential manager.");
+            }
+            anyhow::bail!("OS credential write or verification failed ({e}); previous credential state restored.");
         }
         // If an earlier version used the legacy fallback for the same name,
         // remove that plaintext copy before reporting success.
         if file.remove(name).is_some() {
             if let Err(error) = self.write_file_secrets(&file) {
-                // Preserve a pre-existing connector credential on rollback.
-                if let Some(ref prior) = previous {
-                    let _ = vault::set(&self.home, name, prior);
-                } else {
-                    let _ = vault::delete(&self.home, name);
+                if let Err(cleanup) = restore() {
+                    anyhow::bail!("Legacy secret cleanup failed ({error}) AND credential rollback failed ({cleanup}); revoke this connector key manually in the OS credential manager.");
                 }
-                return Err(error).context("Could not remove legacy plaintext credential copy.");
+                return Err(error).context("Could not remove legacy plaintext credential copy; restored earlier OS credential.");
             }
         }
         Ok(())
@@ -609,8 +614,25 @@ mod vault {
         entry(home, name)?.get_password().ok().filter(|v| !v.is_empty())
     }
     pub fn set(home: &Path, name: &str, value: &str) -> bool {
-        // Only report success if the value really reads back, so a broken store falls back to the file.
-        entry(home, name).map(|e| e.set_password(value).is_ok() && e.get_password().map(|v| v == value).unwrap_or(false)).unwrap_or(false)
+        // Legacy model keys may fall back to an owner-only file.
+        set_verified(home, name, value).is_ok()
+    }
+    pub fn get_checked(home: &Path, name: &str) -> Result<Option<String>, String> {
+        let e = entry(home, name).ok_or_else(|| "OS vault entry cannot be opened".to_string())?;
+        match e.get_password() {
+            Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+    pub fn set_verified(home: &Path, name: &str, value: &str) -> Result<(), String> {
+        let e = entry(home, name).ok_or_else(|| "OS vault entry cannot be opened".to_string())?;
+        e.set_password(value).map_err(|error| format!("OS credential write rejected: {error}"))?;
+        let saved = e.get_password().map_err(|error| format!("OS credential read-back failed after write: {error}"))?;
+        if saved != value {
+            return Err("OS credential read-back did not match the attempted value.".into());
+        }
+        Ok(())
     }
     pub fn delete(home: &Path, name: &str) -> Result<(), String> {
         match entry(home, name).map(|e| e.delete_credential()) {
@@ -632,6 +654,12 @@ mod vault {
     }
     pub fn set(_: &Path, _: &str, _: &str) -> bool {
         false
+    }
+    pub fn get_checked(_: &Path, _: &str) -> Result<Option<String>, String> {
+        Err("Secure OS vault is not available on this platform.".into())
+    }
+    pub fn set_verified(_: &Path, _: &str, _: &str) -> Result<(), String> {
+        Err("Secure OS vault is not available on this platform.".into())
     }
     pub fn delete(_: &Path, _: &str) -> Result<(), String> {
         Ok(())
