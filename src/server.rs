@@ -657,6 +657,8 @@ async fn get_awareness(State(st): S) -> ApiResult {
         "budget_used": st.app.background_budget().0, "budget_limit": st.app.background_budget().1, "demo": crate::llm::is_demo(&cfg),
         "focus": seen.focus, "active_hours": seen.active_hours, "branch": seen.branch, "journal": journal,
         "insights": st.app.store.memories_by_source("observed", 20)?, "workspace": st.app.workspace.display().to_string(),
+        "proactive_status": st.app.store.kv_get("proactive_last_status").unwrap_or_else(|| "not_checked".to_string()),
+        "proactive_status_at": st.app.store.kv_get("proactive_last_status_at").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0),
     })))
 }
 
