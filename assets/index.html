@@ -725,9 +725,9 @@ async function send(text) {
         else if (ev.type === 'notice') turn.note(ev.text);
         else if (ev.type === 'model') turn.note(`Using ${ev.name}: ${ev.why}.`);
         else if (ev.type === 'learned') turn.note('Saved to memory: ' + ev.items.join(' / '));
-        else if (ev.type === 'error') { turn.done(); turn.fail(ev.message); finished = true; setBusy(false); }
-        else if (ev.type === 'cancelled') { turn.done(); turn.note('Stopped.'); finished = true; setBusy(false); }
-        else if (ev.type === 'done') { turn.done(); finished = true; setBusy(false); if (ev.title) setTitle(ev.title); refreshSessions(); refreshState(); }
+        else if (ev.type === 'error') { turn.done(); turn.fail(ev.message); finished = true; if (abortCtl === requestCtl) setBusy(false); }
+        else if (ev.type === 'cancelled') { turn.done(); turn.note('Stopped.'); finished = true; if (abortCtl === requestCtl) setBusy(false); }
+        else if (ev.type === 'done') { turn.done(); finished = true; if (abortCtl === requestCtl) { setBusy(false); if (ev.title) setTitle(ev.title); refreshSessions(); refreshState(); } }
         if (between && !finished) { $('span', waiting).textContent = between; turn.el.append(waiting); }
         scroll();
       }
