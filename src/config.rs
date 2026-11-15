@@ -448,12 +448,15 @@ impl Config {
             anyhow::bail!("Secure connector vault is not available on this OS. A native Secret Service or encrypted vault must be configured first.");
         }
         self.ensure_home()?;
+        // Inspect the legacy store BEFORE writing to Keychain/Credential
+        // Manager. A damaged file must never turn a failed API response into
+        // a newly installed secret that the user believes was rejected.
+        let mut file = self.read_file_secrets()?;
         if !vault::set(&self.home, name, value) {
             anyhow::bail!("Could not verify credential storage in the operating system vault. Nothing was saved to plaintext.");
         }
         // If an earlier version used the legacy fallback for the same name,
         // remove that plaintext copy before reporting success.
-        let mut file = self.read_file_secrets()?;
         if file.remove(name).is_some() {
             if let Err(error) = self.write_file_secrets(&file) {
                 let _ = vault::delete(&self.home, name);
@@ -461,6 +464,14 @@ impl Config {
             }
         }
         Ok(())
+    }
+
+    /// Revoke an OS-vault-only connector key even if an unrelated legacy
+    /// secrets.json is unreadable. Connector keys in this namespace are
+    /// NEVER stored in that file; there is no fallback to reconcile.
+    pub fn delete_vault_only_secret(&self, name: &str) -> Result<()> {
+        vault::delete(&self.home, name)
+            .map_err(|e| anyhow::anyhow!("Could not remove connector key from OS vault: {e}"))
     }
 
     /// Metadata-only status; never exposes the actual credential to an API.
