@@ -1085,3 +1085,30 @@ async fn get_audit(State(st): S) -> ApiResult {
     let (checked, altered) = st.app.store.verify_audit()?;
     Ok(Json(json!({"entries": st.app.store.audit_log(200)?, "checked": checked, "intact": altered.is_none()})))
 }
+
+#[cfg(test)]
+mod stream_backpressure_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn stalled_chat_reader_cannot_accumulate_unlimited_events() {
+        let (tx, mut rx) = mpsc::channel::<Value>(CHAT_EVENT_CAPACITY);
+        for i in 0..CHAT_EVENT_CAPACITY {
+            tx.try_send(json!({"type":"text","text":i.to_string()}))
+                .expect("the channel must accept up to its fixed capacity");
+        }
+        assert!(matches!(
+            tx.try_send(json!({"type":"text","text":"overflow"})),
+            Err(mpsc::error::TrySendError::Full(_))
+        ));
+        // A resumed client frees exactly one slot.
+        assert!(rx.recv().await.is_some());
+        assert!(tx.try_send(json!({"type":"notice","text":"resumed"})).is_ok());
+        rx.close();
+        while rx.try_recv().is_ok() {}
+        assert!(matches!(
+            tx.try_send(json!({"type":"text","text":"late"})),
+            Err(mpsc::error::TrySendError::Closed(_))
+        ));
+    }
+}
