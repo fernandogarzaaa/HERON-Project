@@ -5,6 +5,7 @@ pub mod app;
 pub mod browser;
 pub mod cli_llm;
 pub mod config;
+pub mod connectors;
 pub mod embed;
 pub mod eval;
 pub mod llm;
