@@ -703,10 +703,14 @@ async function send(text) {
     const res = await fetch('/api/chat', { method: 'POST', signal: abortCtl.signal, headers: { 'content-type': 'application/json', 'x-heron-token': token || '' }, body: JSON.stringify({ session_id: current, message: text }) });
     if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `Request failed (${res.status})`); }
     const reader = res.body.getReader(), dec = new TextDecoder(); let buf = '';
+    const maxSseFrameChars = 4 * 1024 * 1024;
     for (;;) {
       const { done, value } = await reader.read(); if (done) break;
       buf += dec.decode(value, { stream: true }); let i;
       while ((i = buf.indexOf('\n\n')) >= 0) {
+        // Reject oversized frames rather than keeping an arbitrary amount
+        // of attacker-controlled or malformed SSE data in the browser.
+        if (i > maxSseFrameChars) throw new Error('Heron sent an oversized chat event.');
         const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
         const data = chunk.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join(''); if (!data) continue;
         const ev = JSON.parse(data); waiting.remove();
@@ -727,9 +731,15 @@ async function send(text) {
         if (between && !finished) { $('span', waiting).textContent = between; turn.el.append(waiting); }
         scroll();
       }
+      if (buf.length > maxSseFrameChars) throw new Error('Heron sent an oversized chat event.');
     }
     if (!finished) { turn.done(); turn.note('The connection to Heron closed before the reply finished.'); }
-  } catch (e) { turn.done(); if (e.name !== 'AbortError') turn.fail(e.message); }
+  } catch (e) {
+    // Also abort the underlying fetch on parse/size failures, so the
+    // server's response-owned drop guard cancels the abandoned run.
+    abortCtl?.abort();
+    turn.done(); if (e.name !== 'AbortError') turn.fail(e.message);
+  }
   waiting.remove();
   setBusy(false); refreshState().catch(() => {}); input.focus();
 }
