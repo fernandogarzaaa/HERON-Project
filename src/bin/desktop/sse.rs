@@ -8,7 +8,6 @@ use anyhow::{bail, Result};
 // One malformed or hostile SSE response must not consume unlimited memory.
 // Normal chat token deltas are far smaller than this limit.
 const MAX_SSE_LINE_BYTES: usize = 4 * 1024 * 1024;
-const MAX_EVENTS_PER_CHUNK: usize = 1024;
 
 /// Parse one SSE line. Returns `None` for lines that carry no event: blank
 /// lines, keep-alive comments (`:`), lines without a `data:` prefix, the
@@ -53,10 +52,6 @@ impl SseParser {
             self.buf.extend_from_slice(&remaining[..pos]);
             if let Some(event) = parse_event_line(&String::from_utf8_lossy(&self.buf)) {
                 events.push(event);
-                if events.len() > MAX_EVENTS_PER_CHUNK {
-                    self.buf.clear();
-                    bail!("chat SSE chunk contained too many events");
-                }
             }
             self.buf.clear();
             remaining = &remaining[pos + 1..];
@@ -120,8 +115,10 @@ mod tests {
     fn parser_accepts_large_chunks_of_small_valid_events() {
         let mut parser = SseParser::new();
         let frame = b"data: {\"type\":\"text\",\"text\":\"ok\"}\n";
-        let chunk = frame.repeat(100);
-        assert_eq!(parser.feed(&chunk).unwrap().len(), 100);
+        // Transport chunk boundaries are arbitrary; 1,500 valid events
+        // arriving together must behave like 1,500 separate reads.
+        let chunk = frame.repeat(1500);
+        assert_eq!(parser.feed(&chunk).unwrap().len(), 1500);
     }
 
     #[test]
