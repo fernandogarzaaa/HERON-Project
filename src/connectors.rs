@@ -83,6 +83,23 @@ fn registry_path(cfg: &Config) -> PathBuf {
     cfg.home.join("connectors.json")
 }
 
+/// A process-local mutex cannot serialize separate HERON instances sharing
+/// one home. Hold an OS file lock throughout each read-modify-write and vault
+/// mutation, preventing silent loss of successfully registered connectors.
+fn lock_registry(cfg: &Config) -> Result<std::fs::File> {
+    cfg.ensure_home()?;
+    let mut opts = OpenOptions::new();
+    opts.write(true).create(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let file = opts.open(cfg.home.join("connectors.lock"))?;
+    file.try_lock().context("Connector registry is busy in another HERON instance; please retry.")?;
+    Ok(file)
+}
+
 pub fn validate_id(id: &str) -> Result<()> {
     if !(3..=48).contains(&id.len())
         || !id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
@@ -193,6 +210,7 @@ fn save(cfg: &Config, doc: &RegistryFile) -> Result<()> {
 pub fn register(cfg: &Config, spec: CustomConnector) -> Result<()> {
     validate(&spec)?;
     let _write = WRITES.lock().unwrap_or_else(|e| e.into_inner());
+    let _file_lock = lock_registry(cfg)?;
     let mut doc = load(cfg)?;
     if doc.custom.len() >= MAX_CUSTOM {
         bail!("Maximum number of custom connectors reached.");
@@ -222,21 +240,24 @@ pub fn put_api_key(cfg: &Config, id: &str, value: &str) -> Result<()> {
         bail!("Supply a valid connector API key (maximum 8192 characters).");
     }
     let _write = WRITES.lock().unwrap_or_else(|e| e.into_inner());
+    let _file_lock = lock_registry(cfg)?;
     require_custom(cfg, id)?;
     cfg.store_vault_only_secret(&key_name(id), value)
 }
 
 pub fn remove_api_key(cfg: &Config, id: &str) -> Result<()> {
     let _write = WRITES.lock().unwrap_or_else(|e| e.into_inner());
+    let _file_lock = lock_registry(cfg)?;
     require_custom(cfg, id)?;
-    cfg.store_secret(&key_name(id), "")
+    cfg.delete_vault_only_secret(&key_name(id))
 }
 
 pub fn remove_custom(cfg: &Config, id: &str) -> Result<()> {
     let _write = WRITES.lock().unwrap_or_else(|e| e.into_inner());
+    let _file_lock = lock_registry(cfg)?;
     require_custom(cfg, id)?;
     // Credential removal succeeds before hiding its associated connector.
-    cfg.store_secret(&key_name(id), "")?;
+    cfg.delete_vault_only_secret(&key_name(id))?;
     let mut doc = load(cfg)?;
     doc.custom.retain(|entry| entry.id != id);
     save(cfg, &doc)
@@ -338,6 +359,19 @@ mod tests {
         let before = fs::read(registry_path(&cfg)).unwrap();
         assert!(register(&cfg, sample()).is_err());
         assert_eq!(fs::read(registry_path(&cfg)).unwrap(), before);
+    }
+
+    #[test]
+    fn another_process_lock_refuses_racy_mutations() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = temp.path().join("heron");
+        let held = lock_registry(&cfg).unwrap();
+        // The OS lock protects multiple processes, and also prevents a
+        // second independent handle from overwriting another transaction.
+        assert!(lock_registry(&cfg).is_err());
+        drop(held);
+        assert!(lock_registry(&cfg).is_ok());
     }
 
     #[test]
