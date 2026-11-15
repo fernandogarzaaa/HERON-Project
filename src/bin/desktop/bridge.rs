@@ -279,7 +279,7 @@ impl HeronClient {
         &self,
         session_id: Option<&str>,
         message: &str,
-        tx: mpsc::UnboundedSender<ChatEvent>,
+        tx: mpsc::Sender<ChatEvent>,
     ) -> Result<()> {
         let body = serde_json::json!({"session_id": session_id.unwrap_or(""), "message": message});
         let resp = self
@@ -318,7 +318,7 @@ impl HeronClient {
                 ) {
                     saw_terminal_event = true;
                 }
-                if tx.send(event).is_err() {
+                if tx.send(event).await.is_err() {
                     return Ok(()); // the UI went away; stop reading
                 }
             }
@@ -607,7 +607,7 @@ mod tests {
         });
 
         let client = HeronClient::new(&origin, "test-token");
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::channel(64);
         let error = client.stream_chat(None, "hello", tx).await.unwrap_err();
         assert!(
             error.to_string().contains("closed before Heron finished"),
@@ -690,7 +690,7 @@ mod tests {
         );
 
         // Chat: a full turn streams events and ends with done.
-        let (tx, mut rx) = mpsc::unbounded_channel::<ChatEvent>();
+        let (tx, mut rx) = mpsc::channel::<ChatEvent>(64);
         let chat_client = client.clone();
         let stream = tokio::spawn(async move { chat_client.stream_chat(None, "hello", tx).await });
         let mut seen_session = false;
