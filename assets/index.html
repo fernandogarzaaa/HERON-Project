@@ -698,9 +698,9 @@ function setBusy(b) { busy = b; const go = $('#go'); go.textContent = b ? 'Stop'
 function thinking(label) { const t = el('div', 'thinking'); t.setAttribute('role', 'status'); t.append(el('i'), el('i'), el('i'), el('span', '', label || 'Thinking…')); return t; }
 async function send(text) {
   addUser(text); const turn = newTurn(); const waiting = thinking(); turn.el.append(waiting); scroll(true); setBusy(true);
-  abortCtl = new AbortController(); let finished = false;
+  const requestCtl = new AbortController(); abortCtl = requestCtl; let finished = false;
   try {
-    const res = await fetch('/api/chat', { method: 'POST', signal: abortCtl.signal, headers: { 'content-type': 'application/json', 'x-heron-token': token || '' }, body: JSON.stringify({ session_id: current, message: text }) });
+    const res = await fetch('/api/chat', { method: 'POST', signal: requestCtl.signal, headers: { 'content-type': 'application/json', 'x-heron-token': token || '' }, body: JSON.stringify({ session_id: current, message: text }) });
     if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `Request failed (${res.status})`); }
     const reader = res.body.getReader(), dec = new TextDecoder(); let buf = '';
     const maxSseFrameChars = 4 * 1024 * 1024;
@@ -737,11 +737,17 @@ async function send(text) {
   } catch (e) {
     // Also abort the underlying fetch on parse/size failures, so the
     // server's response-owned drop guard cancels the abandoned run.
-    abortCtl?.abort();
+    requestCtl.abort();
     turn.done(); if (e.name !== 'AbortError') turn.fail(e.message);
   }
   waiting.remove();
-  setBusy(false); refreshState().catch(() => {}); input.focus();
+  // An old stream can remain open after its "done" event while a newer
+  // turn is already running. Its late EOF/error must not clear the newer
+  // turn's busy state, steal focus or abort its controller.
+  if (abortCtl === requestCtl) {
+    abortCtl = null;
+    setBusy(false); refreshState().catch(() => {}); input.focus();
+  }
 }
 async function stop() { if (current) await api('/cancel', { method: 'POST', body: { session_id: current } }).catch(() => {}); else abortCtl?.abort(); }
 function grow() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight + 2, innerHeight * .38) + 'px'; }
