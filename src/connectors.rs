@@ -103,7 +103,7 @@ fn lock_registry(cfg: &Config) -> Result<std::fs::File> {
 pub fn validate_id(id: &str) -> Result<()> {
     if !(3..=48).contains(&id.len())
         || !id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
-        || id.starts_with('-') || id.starts_with('_')
+        || id.starts_with('-') || id.starts_with('_') || id.starts_with("mcp_")
         || CATALOG.iter().any(|(key, _, _, _)| *key == id)
     {
         bail!("Connector ID must be a unique 3–48 character lowercase slug.");
@@ -325,6 +325,8 @@ mod tests {
         assert!(validate(&c).is_err(), "must not shadow built-in OAuth");
         c.id = "../escape".into();
         assert!(validate(&c).is_err(), "must not escape vault namespace");
+        c.id = "mcp_filesystem".into();
+        assert!(validate(&c).is_err(), "must not shadow configured MCP server IDs");
     }
 
     #[test]
