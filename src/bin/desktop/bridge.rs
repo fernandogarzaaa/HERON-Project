@@ -309,7 +309,7 @@ impl HeronClient {
         let mut saw_terminal_event = false;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.context("the chat stream broke")?;
-            for event in parser.feed(&chunk) {
+            for event in parser.feed(&chunk).context("the chat server sent an oversized SSE frame")? {
                 // A clean HTTP EOF is not necessarily a completed turn. Without
                 // a terminal event, the UI would keep its busy flag indefinitely.
                 if matches!(
