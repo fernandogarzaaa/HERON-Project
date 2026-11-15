@@ -105,10 +105,14 @@ fn send_message(
         }
         begin_send(window, &mut chat, &text)
     };
-    let (tx, mut rx) = mpsc::unbounded_channel::<ChatEvent>();
+    // Cap both the wire-to-bridge buffer and pending UI-thread events.
+    // Otherwise a responsive network with an unresponsive window can
+    // accumulate an unlimited number of closures and token deltas.
+    let (tx, mut rx) = mpsc::channel::<ChatEvent>(64);
     let weak_events = window.as_weak();
     let chat_events = chat.clone();
     bridge.spawn(async move {
+        let ui_slots = Arc::new(tokio::sync::Semaphore::new(64));
         let mut saw_terminal = false;
         while let Some(event) = rx.recv().await {
             if matches!(
@@ -117,12 +121,21 @@ fn send_message(
             ) {
                 saw_terminal = true;
             }
+            let permit = match ui_slots.clone().acquire_owned().await {
+                Ok(permit) => permit,
+                Err(_) => break,
+            };
             let weak = weak_events.clone();
             let chat = chat_events.clone();
-            let _ = weak.upgrade_in_event_loop(move |window| {
+            if weak.upgrade_in_event_loop(move |window| {
                 let mut chat = chat.lock().unwrap();
                 models::apply_chat_event(&window, &mut chat, turn_id, event);
-            });
+                // Release capacity only after the native event loop actually
+                // applied the update, not when the callback was scheduled.
+                drop(permit);
+            }).is_err() {
+                break; // window closed; dropping rx stops the HTTP reader
+            }
         }
         if !saw_terminal {
             let weak = weak_events.clone();
@@ -143,7 +156,7 @@ fn send_message(
         if let Err(e) = client.stream_chat(session_id.as_deref(), &text, tx).await {
             let _ = tx_err.send(ChatEvent::Error {
                 message: format!("{e:#}"),
-            });
+            }).await;
         }
     });
 }
