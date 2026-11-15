@@ -38,6 +38,23 @@ const INTERRUPTED_JOB_NOTICE: &str = "Heron stopped while this job was running, 
 
 const RULES_KEY: &str = "allow_rules";
 
+/// Require the model to provide a finite, explicit confidence in [0,1].
+/// Missing confidence is not consent to execute background work.
+fn proactive_confidence(value: &serde_json::Value) -> Option<f64> {
+    value.get("confidence").and_then(serde_json::Value::as_f64)
+        .filter(|v| v.is_finite() && (0.0..=1.0).contains(v))
+}
+
+/// Third-party MCP tool descriptions are untrusted and currently lack
+/// dependable read/write annotations. Even a "trusted" MCP tool can have
+/// network egress classified as a read. No self-started job may invoke it
+/// until per-tool, per-account risk classification is implemented.
+fn proactive_deny_rules(existing: &[String]) -> Vec<String> {
+    let mut deny = existing.to_vec();
+    deny.push("mcp__*:*".to_string());
+    deny
+}
+
 impl App {
     pub async fn build(cfg: Config, workspace: PathBuf) -> Result<App> {
         cfg.ensure_home()?;
@@ -459,6 +476,13 @@ impl App {
         Ok(insights)
     }
 
+    /// Only fixed diagnostic codes are persisted; never write observed file
+    /// names, provider data, prompt contents or user secrets to this status.
+    fn note_proactive_status(&self, reason: &str, when: i64) {
+        let _ = self.store.kv_set("proactive_last_status", reason);
+        let _ = self.store.kv_set("proactive_last_status_at", &when.to_string());
+    }
+
     fn budget_key() -> String {
         format!("bg_tokens:{}", chrono::Local::now().format("%Y-%m-%d"))
     }
@@ -490,19 +514,39 @@ impl App {
         let level = cfg.agent.proactive.as_str();
         let now = crate::util::now_ts();
         let last: i64 = self.store.kv_get("proactive_last").and_then(|v| v.parse().ok()).unwrap_or(0);
-        if self.paused() || !matches!(level, "suggest" | "prepare" | "takeover") || crate::llm::is_demo(&cfg) || now - last < cfg.agent.proactive_interval_mins as i64 * 60 || !self.background_budget_left() {
+        let reason = if self.paused() {
+            Some("paused")
+        } else if !matches!(level, "suggest" | "prepare" | "takeover") {
+            Some("disabled")
+        } else if crate::llm::is_demo(&cfg) {
+            Some("demo_mode")
+        } else if now - last < cfg.agent.proactive_interval_mins as i64 * 60 {
+            Some("cooldown")
+        } else if !self.background_budget_left() {
+            Some("budget_exhausted")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            self.note_proactive_status(reason, now);
             return Ok(vec![]);
         }
         // Only think when there is something new to think about, and never pile up unanswered offers.
         let fresh = self.store.observations_since(last.max(now - 86_400), 200)?;
         let tasks = self.store.list_tasks(Some("open"))?;
         let open = self.store.list_suggestions(true, 50)?;
-        if (fresh.len() < 3 && (last != 0 || tasks.is_empty())) || open.iter().filter(|s| s.status == "new").count() >= 5 {
+        if fresh.len() < 3 && (last != 0 || tasks.is_empty()) {
+            self.note_proactive_status("no_new_evidence", now);
+            return Ok(vec![]);
+        }
+        if open.iter().filter(|s| s.status == "new").count() >= 5 {
+            self.note_proactive_status("suggestion_backlog", now);
             return Ok(vec![]);
         }
         // Timing matters as much as content: never interrupt someone mid-task. Wait for a lull.
         let quiet = cfg.agent.proactive_quiet_secs as i64;
         if quiet > 0 && fresh.iter().any(|(ts, kind, _)| kind == "file" && now - ts < quiet) {
+            self.note_proactive_status("waiting_for_quiet", now);
             return Ok(vec![]);
         }
         self.store.kv_set("proactive_last", &now.to_string())?;
@@ -543,7 +587,13 @@ impl App {
         let mut ids = vec![];
         for it in items.iter().take(2) {
             let (Some(title), Some(task)) = (it["title"].as_str().filter(|t| t.len() > 3), it["prompt"].as_str().filter(|p| p.len() > 10)) else { continue };
-            if history.iter().any(|s| s.title.eq_ignore_ascii_case(title)) || it["confidence"].as_f64().unwrap_or(0.6) < bar {
+            // Unsolicited Takeover needs stronger evidence than a suggestion.
+            // No model may omit confidence and silently inherit the default.
+            let bar = if level == "takeover" { bar.max(0.85) } else { bar };
+            if history.iter().any(|s| s.title.eq_ignore_ascii_case(title))
+                || proactive_confidence(it).is_none_or(|c| c < bar)
+                || title.len() > 80 || task.len() > 4_000
+            {
                 continue;
             }
             let id = self.store.add_suggestion(&preview(title, 80), it["why"].as_str().unwrap_or(""), task)?;
@@ -554,6 +604,7 @@ impl App {
                 self.act_on_suggestion(id, level == "takeover").await;
             }
         }
+        self.note_proactive_status(if ids.is_empty() { "scanned_no_proposals" } else { "suggestions_created" }, now);
         Ok(ids)
     }
 
@@ -562,7 +613,10 @@ impl App {
     async fn act_on_suggestion(&self, id: i64, takeover: bool) {
         let Some(s) = self.store.get_suggestion(id) else { return };
         let cfg = self.cfg();
-        let policy = if takeover { Policy::new(Mode::Ask, &cfg.agent.proactive_allow, &self.policy.deny_rules()) } else { Policy::new(Mode::ReadOnly, &[], &self.policy.deny_rules()) };
+        // Permission rules for an attended conversation do not automatically
+        // authorize a background connection to someone else's service.
+        let deny = proactive_deny_rules(&self.policy.deny_rules());
+        let policy = if takeover { Policy::new(Mode::Ask, &cfg.agent.proactive_allow, &deny) } else { Policy::new(Mode::ReadOnly, &[], &deny) };
         // In takeover mode, steps beyond what was granted wait for the user instead of being lost.
         let mut agent = self.agent(Arc::new(crate::permissions::ParkingApprover { store: self.store.clone(), origin: s.title.clone() }));
         agent.policy = Arc::new(policy);
@@ -910,6 +964,30 @@ mod tests {
         assert_eq!(llm.requests.lock().unwrap().len(), 1);
     }
 
+    #[test]
+    fn proactive_confidence_is_explicit_and_safe() {
+        use serde_json::json;
+        assert_eq!(proactive_confidence(&json!({"confidence": 0.95})), Some(0.95));
+        for value in [
+            json!({}), json!({"confidence": "0.95"}),
+            json!({"confidence": -0.5}), json!({"confidence": 2.0}),
+            json!({"confidence": null}),
+        ] {
+            assert!(proactive_confidence(&value).is_none(), "{value}");
+        }
+    }
+
+    #[test]
+    fn self_started_work_never_calls_unreviewed_mcp_tools() {
+        use crate::permissions::{Effect, Verdict};
+        let deny = proactive_deny_rules(&[]);
+        let policy = Policy::new(Mode::Ask, &["mcp__social__post:*".to_string()], &deny);
+        assert!(matches!(
+            policy.decide("mcp__social__post", "Publish to social media", Effect::NetworkEgress),
+            Verdict::Deny(_)
+        ));
+    }
+
     #[tokio::test]
     async fn proactive_levels_suggest_then_take_over_within_bounds() {
         let dir = tempfile::tempdir().unwrap();
@@ -917,7 +995,7 @@ mod tests {
         cfg.home = dir.path().join("home");
         cfg.agent.auto_memory = false;
         cfg.agent.proactive_quiet_secs = 0;
-        let offer = |title: &str| Message::assistant(format!("[{{\"title\":\"{title}\",\"why\":\"You edited three chapter files today\",\"prompt\":\"Write a summary of the chapter files into summary.md\"}}]"));
+        let offer = |title: &str| Message::assistant(format!("[{{\"title\":\"{title}\",\"why\":\"You edited three chapter files today\",\"prompt\":\"Write a summary of the chapter files into summary.md\",\"confidence\":0.95}}]"));
         let llm = Arc::new(ScriptedLlm::new(vec![
             offer("Summarize chapter 3"),
             offer("Draft the chapter index"),
