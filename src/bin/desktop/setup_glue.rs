@@ -942,8 +942,18 @@ fn bind_connector_hub(window: &MainWindow, bridge: &Bridge) {
                             w.set_settings_connector_api_key("".into());
                             w.set_settings_connector_feedback("API key saved in the OS credential vault. Connector remains inactive.".into());
                         }
-                        Err(_) => w.set_settings_connector_feedback(
-                            "Could not save key. Check OS vault support or connector ID; the key was not exposed to the model.".into()),
+                        Err(e) => {
+                            // Never echo a provider or keyring error that could
+                            // contain a credential. Do surface the distinct
+                            // uncertain-state warning: users must know to
+                            // revoke the key manually after failed rollback.
+                            let message = if e.to_string().contains("Credential state is uncertain") {
+                                "Credential state is uncertain: the OS vault could not confirm rollback. Revoke this connector key manually in Keychain or Credential Manager before retrying."
+                            } else {
+                                "Could not save key. Check OS vault support and connector ID. The key was not sent to the model."
+                            };
+                            w.set_settings_connector_feedback(message.into());
+                        },
                     }
                     w.set_settings_busy(false);
                 });
