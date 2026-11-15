@@ -452,14 +452,27 @@ impl Config {
         // Manager. A damaged file must never turn a failed API response into
         // a newly installed secret that the user believes was rejected.
         let mut file = self.read_file_secrets()?;
+        let previous = vault::get(&self.home, name);
         if !vault::set(&self.home, name, value) {
-            anyhow::bail!("Could not verify credential storage in the operating system vault. Nothing was saved to plaintext.");
+            // An OS vault can fail after partially writing. Restore the old
+            // value when possible; otherwise revoke the attempted entry.
+            if let Some(ref prior) = previous {
+                let _ = vault::set(&self.home, name, prior);
+            } else {
+                let _ = vault::delete(&self.home, name);
+            }
+            anyhow::bail!("Could not verify credential storage in the operating system vault.");
         }
         // If an earlier version used the legacy fallback for the same name,
         // remove that plaintext copy before reporting success.
         if file.remove(name).is_some() {
             if let Err(error) = self.write_file_secrets(&file) {
-                let _ = vault::delete(&self.home, name);
+                // Preserve a pre-existing connector credential on rollback.
+                if let Some(ref prior) = previous {
+                    let _ = vault::set(&self.home, name, prior);
+                } else {
+                    let _ = vault::delete(&self.home, name);
+                }
                 return Err(error).context("Could not remove legacy plaintext credential copy.");
             }
         }
