@@ -437,6 +437,37 @@ impl Config {
         vault::NAME
     }
 
+    /// Store a connector credential only in a verified OS credential vault.
+    ///
+    /// Config::store_secret intentionally has a file fallback for legacy model
+    /// keys. Connector/web-login credentials MUST NOT use that fallback:
+    /// on Linux, until a native Secret Service or encrypted vault backend is
+    /// implemented, storing a new connector API key is refused.
+    pub fn store_vault_only_secret(&self, name: &str, value: &str) -> Result<()> {
+        if !cfg!(any(target_os = "macos", windows)) {
+            anyhow::bail!("Secure connector vault is not available on this OS. A native Secret Service or encrypted vault must be configured first.");
+        }
+        self.ensure_home()?;
+        if !vault::set(&self.home, name, value) {
+            anyhow::bail!("Could not verify credential storage in the operating system vault. Nothing was saved to plaintext.");
+        }
+        // If an earlier version used the legacy fallback for the same name,
+        // remove that plaintext copy before reporting success.
+        let mut file = self.read_file_secrets()?;
+        if file.remove(name).is_some() {
+            if let Err(error) = self.write_file_secrets(&file) {
+                let _ = vault::delete(&self.home, name);
+                return Err(error).context("Could not remove legacy plaintext credential copy.");
+            }
+        }
+        Ok(())
+    }
+
+    /// Metadata-only status; never exposes the actual credential to an API.
+    pub fn vault_only_secret_present(&self, name: &str) -> bool {
+        vault::get(&self.home, name).is_some()
+    }
+
     pub fn stored_api_key(&self) -> Option<String> {
         self.secret("api_key")
     }
@@ -726,6 +757,17 @@ mod tests {
     fn mcp_servers_parse() {
         let c: Config = toml::from_str("[mcp.servers.fs]\ncommand='x'\nargs=['a']\ntrust=true\n").unwrap();
         assert!(c.mcp.servers["fs"].trust);
+    }
+
+    #[test]
+    #[cfg(not(any(target_os = "macos", windows)))]
+    fn connector_vault_fails_closed_without_an_os_backend() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = tmp.path().join("home");
+        assert!(cfg.store_vault_only_secret("connector_test_api_key", "never-write-me").is_err());
+        assert!(!cfg.vault_only_secret_present("connector_test_api_key"));
+        assert!(!cfg.home.join("secrets.json").exists());
     }
 
     #[test]
