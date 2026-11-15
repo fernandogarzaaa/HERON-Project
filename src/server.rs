@@ -536,7 +536,10 @@ async fn cancel(State(st): S, Json(b): Json<SessionBody>) -> ApiResult {
     st.approvals.lock().unwrap().retain(|_, (sid, _)| *sid != b.session_id);
     if let Some((_, handle, tx)) = entry {
         handle.abort();
-        let _ = tx.send(json!({"type": "cancelled"}));
+        // With a bounded queue this send is async. Give the SSE receiver a
+        // brief chance to consume its explicit cancellation event, but never
+        // make Stop wait indefinitely behind an unresponsive client.
+        let _ = tokio::time::timeout(Duration::from_secs(2), tx.send(json!({"type": "cancelled"}))).await;
     }
     Ok(Json(json!({"ok": true})))
 }
