@@ -20,11 +20,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::wrappers::ReceiverStream;
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
 
-type Tx = mpsc::UnboundedSender<Value>;
+// A stalled HTTP client must not accumulate unbounded streaming events.
+const CHAT_EVENT_CAPACITY: usize = 128;
+type Tx = mpsc::Sender<Value>;
 
 pub struct ServerState {
     pub app: Arc<App>,
@@ -342,6 +344,44 @@ async fn delete_session(State(st): S, Path(id): Path<String>) -> ApiResult {
 
 // ---------- chat ----------
 
+/// Abort only this run, never a newer reply in the same conversation.
+fn abort_matching_run(state: &ServerState, sid: &str, run_id: u64) {
+    let stopped = {
+        let mut running = state.running.lock().unwrap();
+        if running.get(sid).is_some_and(|(id, _, _)| *id == run_id) {
+            if let Some((_, abort, _)) = running.remove(sid) {
+                abort.abort();
+                true
+            } else { false }
+        } else { false }
+    };
+    if stopped {
+        state.approvals.lock().unwrap().retain(|_, (session, _)| session != sid);
+    }
+}
+
+/// A disconnected SSE response cancels its run and pending approvals.
+struct ChatEventStream {
+    rx: ReceiverStream<Value>,
+    state: Arc<ServerState>,
+    session_id: String,
+    run_id: u64,
+}
+
+impl futures_util::Stream for ChatEventStream {
+    type Item = Value;
+
+    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+        futures_util::Stream::poll_next(std::pin::Pin::new(&mut self.get_mut().rx), cx)
+    }
+}
+
+impl Drop for ChatEventStream {
+    fn drop(&mut self) {
+        abort_matching_run(&self.state, &self.session_id, self.run_id);
+    }
+}
+
 struct WebApprover {
     state: Arc<ServerState>,
     session_id: String,
@@ -354,8 +394,14 @@ impl Approver for WebApprover {
         let id = uuid::Uuid::new_v4().simple().to_string();
         let (tx, rx) = oneshot::channel();
         self.state.approvals.lock().unwrap().insert(id.clone(), (self.session_id.clone(), tx));
-        let _ = self.tx.send(json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
-            "always_rule": crate::permissions::always_rule(&req.tool, &req.summary), "can_always": !req.risk.high() && !req.tainted, "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted}));
+        let prompt = json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
+            "always_rule": crate::permissions::always_rule(&req.tool, &req.summary), "can_always": !req.risk.high() && !req.tainted, "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted});
+        // Do not leave an invisible approval pending if the SSE receiver is
+        // stalled or gone; a sensitive action must fail closed.
+        if !matches!(tokio::time::timeout(Duration::from_secs(15), self.tx.send(prompt)).await, Ok(Ok(()))) {
+            self.state.approvals.lock().unwrap().remove(&id);
+            return Approval::Deny(Some("could not deliver the approval request to the client".into()));
+        }
         // If nobody answers (window closed), decline rather than hang forever.
         let answer = tokio::time::timeout(Duration::from_secs(900), rx).await;
         self.state.approvals.lock().unwrap().remove(&id);
@@ -393,14 +439,14 @@ async fn chat(State(st): S, Json(body): Json<ChatBody>) -> std::result::Result<R
         None => Session::create(&st.app.store, "")?,
     };
     let sid = session.id.clone();
-    let (tx, rx) = mpsc::unbounded_channel::<Value>();
+    let (tx, rx) = mpsc::channel::<Value>(CHAT_EVENT_CAPACITY);
+    let run_id = st.next_run.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     {
         let mut running = st.running.lock().unwrap();
         if running.contains_key(&sid) {
             return Err(ApiError(StatusCode::CONFLICT, "Heron is still replying in this conversation. Stop it first, or wait.".into()));
         }
-        let _ = tx.send(json!({"type": "session", "id": sid}));
-        let run_id = st.next_run.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        tx.try_send(json!({"type": "session", "id": sid.clone()})).map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "chat event queue unavailable".into()))?;
         let finished = move |state: &ServerState, sid: &str| {
             let mut running = state.running.lock().unwrap();
             if running.get(sid).map(|(id, _, _)| *id == run_id).unwrap_or(false) {
@@ -413,29 +459,51 @@ async fn chat(State(st): S, Json(body): Json<ChatBody>) -> std::result::Result<R
         let handle = tokio::spawn(async move {
             let agent = state.app.agent(Arc::new(WebApprover { state: state.clone(), session_id: task_sid.clone(), tx: task_tx.clone() }));
             let sink_tx = task_tx.clone();
+            let sink_state = state.clone();
+            let sink_sid = task_sid.clone();
+            let notified = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            // EventSink is synchronous and may be called from a worker thread.
+            let sink_runtime = tokio::runtime::Handle::current();
             let sink: EventSink = Arc::new(move |e| {
-                let _ = sink_tx.send(event_json(e));
+                let Err(failure) = sink_tx.try_send(event_json(e)) else { return };
+                // No silent event loss or unbounded buffering. A full queue
+                // means the consumer is not keeping up: stop this reply.
+                if notified.swap(true, std::sync::atomic::Ordering::SeqCst) { return; }
+                if matches!(failure, mpsc::error::TrySendError::Full(_)) {
+                    let error_tx = sink_tx.clone();
+                    sink_runtime.spawn(async move {
+                        let error = json!({"type": "error", "message": "Streaming stopped: the client could not keep up with Heron's reply."});
+                        // One best-effort error after the already queued events.
+                        // A fully stalled connection cannot hold this task forever.
+                        let _ = tokio::time::timeout(Duration::from_secs(5), error_tx.send(error)).await;
+                    });
+                }
+                abort_matching_run(&sink_state, &sink_sid, run_id);
             });
             match agent.run_turn(&mut session, &message, &sink).await {
                 Ok(text) => {
-                    let _ = task_tx.send(json!({"type": "done", "text": text, "title": state.app.store.session_title(&task_sid)}));
+                    if task_tx.send(json!({"type": "done", "text": text, "title": state.app.store.session_title(&task_sid)})).await.is_err() {
+                        finished(&state, &task_sid);
+                        return;
+                    }
                     state.app.persist_rules();
                     // Free the conversation before the (slower) background learning step.
                     finished(&state, &task_sid);
                     let learned = agent.learn(&session, &message, &text).await;
                     if !learned.is_empty() {
-                        let _ = task_tx.send(json!({"type": "learned", "items": learned}));
+                        let _ = task_tx.send(json!({"type": "learned", "items": learned})).await;
                     }
                 }
                 Err(e) => {
-                    let _ = task_tx.send(json!({"type": "error", "message": format!("{e:#}")}));
+                    let _ = task_tx.send(json!({"type": "error", "message": format!("{e:#}")})).await;
                 }
             }
             finished(&state, &task_sid);
         });
-        running.insert(sid, (run_id, handle.abort_handle(), tx));
+        running.insert(sid.clone(), (run_id, handle.abort_handle(), tx));
     }
-    let stream = UnboundedReceiverStream::new(rx).map(|v| Ok::<_, std::convert::Infallible>(SseEvent::default().data(v.to_string())));
+    let stream = ChatEventStream { rx: ReceiverStream::new(rx), state: st, session_id: sid, run_id }
+        .map(|v| Ok::<_, std::convert::Infallible>(SseEvent::default().data(v.to_string())));
     Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))).into_response())
 }
 
