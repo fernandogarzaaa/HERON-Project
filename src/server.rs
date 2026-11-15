@@ -536,8 +536,14 @@ struct SessionBody {
 }
 
 async fn cancel(State(st): S, Json(b): Json<SessionBody>) -> ApiResult {
-    let entry = st.running.lock().unwrap().remove(&b.session_id);
-    st.approvals.lock().unwrap().retain(|_, (sid, _)| *sid != b.session_id);
+    let entry = {
+        let mut running = st.running.lock().unwrap();
+        let entry = running.remove(&b.session_id);
+        // A new chat must not register its approval between removing the
+        // previous run and clearing that previous run's approvals.
+        st.approvals.lock().unwrap().retain(|_, (sid, _)| *sid != b.session_id);
+        entry
+    };
     if let Some((_, handle, tx)) = entry {
         handle.abort();
         // With a bounded queue this send is async. Give the SSE receiver a
