@@ -86,7 +86,7 @@ fn registry_path(cfg: &Config) -> PathBuf {
 pub fn validate_id(id: &str) -> Result<()> {
     if !(3..=48).contains(&id.len())
         || !id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
-        || id.starts_with(['-', '_'])
+        || id.starts_with('-') || id.starts_with('_')
         || CATALOG.iter().any(|(key, _, _, _)| *key == id)
     {
         bail!("Connector ID must be a unique 3–48 character lowercase slug.");
@@ -119,7 +119,7 @@ fn validate_endpoint(endpoint: &str) -> Result<()> {
 
 pub fn validate(spec: &CustomConnector) -> Result<()> {
     validate_id(&spec.id)?;
-    if !(2..=80).contains(&spec.name.trim().len()) || spec.name.contains(['\n', '\r']) {
+    if !(2..=80).contains(&spec.name.trim().len()) || spec.name.contains('\n') || spec.name.contains('\r') {
         bail!("Connector name must contain 2–80 characters on one line.");
     }
     if !["communication", "files", "productivity", "development", "social", "crm",
@@ -218,7 +218,7 @@ fn key_name(id: &str) -> String {
 
 /// API keys are never exposed by a model tool or returned from this module.
 pub fn put_api_key(cfg: &Config, id: &str, value: &str) -> Result<()> {
-    if value.is_empty() || value.len() > 8192 || value.contains(['\r', '\n']) {
+    if value.is_empty() || value.len() > 8192 || value.contains('\r') || value.contains('\n') {
         bail!("Supply a valid connector API key (maximum 8192 characters).");
     }
     let _write = WRITES.lock().unwrap_or_else(|e| e.into_inner());
