@@ -34,7 +34,7 @@ use super::setup::{
     ToolSetting,
 };
 use super::setup_bridge::HeronSetupBridge;
-use crate::{MainWindow, McpLine, SourceItem, ToolItem};
+use crate::{ConnectorLine, MainWindow, McpLine, SourceItem, ToolItem};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::sync::Arc;
 
@@ -797,7 +797,187 @@ fn restore_api_key(window: &MainWindow, key: &str) {
     }
 }
 
+
+fn apply_connector_catalog(window: &MainWindow, body: &serde_json::Value) {
+    let lines: Vec<ConnectorLine> = body["connectors"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| {
+            let field = |key: &str| row[key].as_str().unwrap_or_default();
+            let custom = field("source") == "custom";
+            let has_credential = row["has_credential"].as_bool().unwrap_or(false);
+            let state = field("status");
+            ConnectorLine {
+                id: field("id").into(),
+                label: field("name").into(),
+                detail: if custom {
+                    format!("{} · {}{}", field("transport"), state,
+                        if has_credential { " · key saved" } else { "" }).into()
+                } else {
+                    format!("{} · {}", field("category"), state).into()
+                },
+                custom,
+                has_credential,
+            }
+        })
+        .collect();
+    window.set_settings_connector_lines(model_of(lines));
+    let backend = body["vault"]["backend"].as_str().unwrap_or("not available");
+    let usable = body["vault"]["os_keychain_supported"].as_bool().unwrap_or(false);
+    window.set_settings_connector_vault_note(
+        format!("Credential storage: {backend}. {}",
+            if usable { "Verified OS vault required for API keys." }
+            else { "No secure connector-key vault available on this OS." }).into()
+    );
+}
+
+/// All mutations go to the locally authenticated API. No key is ever
+/// included in the model, logs or catalog response; new manifests do
+/// not dynamically start executable third-party tools.
+fn bind_connector_hub(window: &MainWindow, bridge: &Bridge) {
+    {
+        let client = bridge.client().clone();
+        let weak = window.as_weak();
+        bridge.spawn(async move {
+            let result = client.api(reqwest::Method::GET, "/api/connectors", None).await;
+            let _ = weak.upgrade_in_event_loop(move |w| {
+                if let Ok(payload) = result {
+                    apply_connector_catalog(&w, &payload);
+                } else {
+                    w.set_settings_connector_feedback("Could not load connector directory.".into());
+                }
+            });
+        });
+    }
+    {
+        let client = bridge.client().clone();
+        let b = bridge.clone();
+        let weak = window.as_weak();
+        window.on_settings_refresh_connectors(move || {
+            let client = client.clone();
+            let weak = weak.clone();
+            b.spawn(async move {
+                let result = client.api(reqwest::Method::GET, "/api/connectors", None).await;
+                let _ = weak.upgrade_in_event_loop(move |w| {
+                    match result {
+                        Ok(payload) => { apply_connector_catalog(&w, &payload); w.set_settings_connector_feedback("Directory refreshed.".into()); }
+                        Err(e) => w.set_settings_connector_feedback(format!("Directory unavailable: {e}").into()),
+                    }
+                });
+            });
+        });
+    }
+    {
+        let client = bridge.client().clone();
+        let b = bridge.clone();
+        let weak = window.as_weak();
+        window.on_settings_add_connector(move |id, name, endpoint| {
+            let (id, name, endpoint) = (id.to_string(), name.to_string(), endpoint.to_string());
+            let client = client.clone();
+            let weak = weak.clone();
+            if let Some(w) = weak.upgrade() { w.set_settings_busy(true); }
+            b.spawn(async move {
+                let result = client.api(reqwest::Method::POST, "/api/connectors/custom",
+                    Some(serde_json::json!({"id":id, "name":name, "endpoint":endpoint,
+                        "category":"other", "transport":"rest_api", "permission":"read_only"}))).await;
+                let latest = if result.is_ok() { client.api(reqwest::Method::GET, "/api/connectors", None).await.ok() } else { None };
+                let _ = weak.upgrade_in_event_loop(move |w| {
+                    if let Some(latest) = latest { apply_connector_catalog(&w, &latest); }
+                    match result {
+                        Ok(_) => {
+                            w.set_settings_connector_feedback("Registration saved, not active. No connection was made.".into());
+                            w.set_settings_connector_new_id("".into());
+                            w.set_settings_connector_new_name("".into());
+                            w.set_settings_connector_new_endpoint("".into());
+                        }
+                        Err(e) => w.set_settings_connector_feedback(format!("Registration failed: {e}").into()),
+                    }
+                    w.set_settings_busy(false);
+                });
+            });
+        });
+    }
+    {
+        let client = bridge.client().clone();
+        let b = bridge.clone();
+        let weak = window.as_weak();
+        window.on_settings_remove_connector(move |id| {
+            let id = id.to_string();
+            let client = client.clone();
+            let weak = weak.clone();
+            if let Some(w) = weak.upgrade() { w.set_settings_busy(true); }
+            b.spawn(async move {
+                let result = client.api(reqwest::Method::DELETE, &format!("/api/connectors/custom/{id}"), None).await;
+                let latest = if result.is_ok() { client.api(reqwest::Method::GET, "/api/connectors", None).await.ok() } else { None };
+                let _ = weak.upgrade_in_event_loop(move |w| {
+                    if let Some(latest) = latest { apply_connector_catalog(&w, &latest); }
+                    w.set_settings_connector_feedback(match result {
+                        Ok(_) => "Connector and associated credential removed.".into(),
+                        Err(e) => format!("Could not remove connector: {e}").into(),
+                    });
+                    w.set_settings_busy(false);
+                });
+            });
+        });
+    }
+    {
+        let client = bridge.client().clone();
+        let b = bridge.clone();
+        let weak = window.as_weak();
+        window.on_settings_save_connector_key(move |id, key| {
+            let id = id.to_string();
+            let key = key.to_string();
+            let client = client.clone();
+            let weak = weak.clone();
+            if let Some(w) = weak.upgrade() { w.set_settings_busy(true); }
+            b.spawn(async move {
+                let result = client.api(reqwest::Method::POST, &format!("/api/connectors/custom/{id}/api-key"),
+                    Some(serde_json::json!({"api_key":key}))).await;
+                let latest = if result.is_ok() { client.api(reqwest::Method::GET, "/api/connectors", None).await.ok() } else { None };
+                let _ = weak.upgrade_in_event_loop(move |w| {
+                    if let Some(latest) = latest { apply_connector_catalog(&w, &latest); }
+                    match result {
+                        Ok(_) => {
+                            w.set_settings_connector_api_key("".into());
+                            w.set_settings_connector_feedback("API key saved in the OS credential vault. Connector remains inactive.".into());
+                        }
+                        Err(_) => w.set_settings_connector_feedback(
+                            "Could not save key. Check OS vault support or connector ID; the key was not exposed to the model.".into()),
+                    }
+                    w.set_settings_busy(false);
+                });
+            });
+        });
+    }
+    {
+        let client = bridge.client().clone();
+        let b = bridge.clone();
+        let weak = window.as_weak();
+        window.on_settings_remove_connector_key(move |id| {
+            let id = id.to_string();
+            let client = client.clone();
+            let weak = weak.clone();
+            if let Some(w) = weak.upgrade() { w.set_settings_busy(true); }
+            b.spawn(async move {
+                let result = client.api(reqwest::Method::DELETE, &format!("/api/connectors/custom/{id}/api-key"), None).await;
+                let latest = if result.is_ok() { client.api(reqwest::Method::GET, "/api/connectors", None).await.ok() } else { None };
+                let _ = weak.upgrade_in_event_loop(move |w| {
+                    if let Some(latest) = latest { apply_connector_catalog(&w, &latest); }
+                    w.set_settings_connector_feedback(match result {
+                        Ok(_) => "Connector credential revoked.".into(),
+                        Err(e) => format!("Could not revoke key: {e}").into(),
+                    });
+                    w.set_settings_busy(false);
+                });
+            });
+        });
+    }
+}
+
 fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
+    bind_connector_hub(window, bridge);
+
     // Preset buttons fill the service address and model only. They
     // do not save.
     {
