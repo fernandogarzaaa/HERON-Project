@@ -1094,6 +1094,59 @@ mod stream_backpressure_tests {
     use super::*;
 
     #[tokio::test]
+    async fn dropped_chat_stream_aborts_only_its_original_run_and_clears_approvals() {
+        use crate::config::Config;
+        use crate::llm::ScriptedLlm;
+        use crate::store::Store;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        cfg.agent.auto_memory = false;
+        let app = Arc::new(App::assemble(
+            cfg,
+            dir.path().join("workspace"),
+            Store::in_memory().unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap());
+        let state = Arc::new(ServerState {
+            app,
+            token: "test".into(),
+            loopback_only: true,
+            approvals: Default::default(),
+            running: Default::default(),
+            next_run: Default::default(),
+        });
+        let task = tokio::spawn(async { std::future::pending::<()>().await });
+        let (tx, rx) = mpsc::channel(1);
+        state.running.lock().unwrap().insert("s".into(), (42, task.abort_handle(), tx));
+
+        // A stale SSE connection from a previous run cannot abort a newer one.
+        drop(ChatEventStream {
+            rx: ReceiverStream::new(rx),
+            state: state.clone(),
+            session_id: "s".into(),
+            run_id: 41,
+        });
+        assert!(state.running.lock().unwrap().contains_key("s"));
+        assert!(!task.is_finished());
+
+        let (approval_tx, approval_rx) = oneshot::channel();
+        state.approvals.lock().unwrap().insert("a".into(), ("s".into(), approval_tx));
+        let (_unused_tx, current_rx) = mpsc::channel(1);
+        drop(ChatEventStream {
+            rx: ReceiverStream::new(current_rx),
+            state: state.clone(),
+            session_id: "s".into(),
+            run_id: 42,
+        });
+        assert!(!state.running.lock().unwrap().contains_key("s"));
+        assert!(state.approvals.lock().unwrap().is_empty());
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(approval_rx.await.is_err());
+    }
+
+    #[tokio::test]
     async fn stalled_chat_reader_cannot_accumulate_unlimited_events() {
         let (tx, mut rx) = mpsc::channel::<Value>(CHAT_EVENT_CAPACITY);
         for i in 0..CHAT_EVENT_CAPACITY {
