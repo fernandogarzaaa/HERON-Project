@@ -346,17 +346,21 @@ async fn delete_session(State(st): S, Path(id): Path<String>) -> ApiResult {
 
 /// Abort only this run, never a newer reply in the same conversation.
 fn abort_matching_run(state: &ServerState, sid: &str, run_id: u64) {
-    let stopped = {
+    let abort = {
         let mut running = state.running.lock().unwrap();
         if running.get(sid).is_some_and(|(id, _, _)| *id == run_id) {
-            if let Some((_, abort, _)) = running.remove(sid) {
-                abort.abort();
-                true
-            } else { false }
-        } else { false }
+            let entry = running.remove(sid);
+            if entry.is_some() {
+                // Keep the running lock until old approvals are removed.
+                // Otherwise the next run can insert a new approval for the
+                // same session between removal and cleanup.
+                state.approvals.lock().unwrap().retain(|_, (session, _)| session != sid);
+            }
+            entry.map(|(_, abort, _)| abort)
+        } else { None }
     };
-    if stopped {
-        state.approvals.lock().unwrap().retain(|_, (session, _)| session != sid);
+    if let Some(abort) = abort {
+        abort.abort();
     }
 }
 
