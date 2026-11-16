@@ -173,13 +173,21 @@ pub async fn finish(cfg: &Config, pending: Pending, code: &str) -> Result<()> {
     cfg.store_secret(&pending.provider.secret_key("client_id"), &pending.client_id)?;
     cfg.store_secret(&pending.provider.secret_key("account_epoch"), &random_secret())?;
     // Publish the connection last, after its stable epoch is durable.
-    cfg.store_secret(&pending.provider.secret_key("refresh_token"), refresh)?;
+    // Unlike the legacy settings secret API this fails closed if Keychain or
+    // Credential Manager is unavailable, and removes any old file fallback.
+    cfg.store_vault_only_secret(&pending.provider.secret_key("refresh_token"), refresh)?;
     Ok(())
 }
 
 async fn access_token_with_generation(cfg: &Config, provider: Provider) -> Result<(String, String)> {
     let id = cfg.secret(&provider.secret_key("client_id"))
         .ok_or_else(|| anyhow!("This OAuth connection has no client ID. Please reconnect."))?;
+    // Provider refresh tokens must never use Config::store_secret's legacy
+    // owner-only plaintext-file fallback. Legacy installations must explicitly
+    // disconnect and reconnect before their tokens may be used again.
+    if !cfg.vault_only_secret_present(&provider.secret_key("refresh_token")) {
+        bail!("OAuth credential is not in a verified native credential vault. Disconnect and reconnect this account.");
+    }
     let refresh = cfg.secret(&provider.secret_key("refresh_token"))
         .ok_or_else(|| anyhow!("This OAuth account is not connected."))?;
     let original_epoch = provider.account_epoch(cfg)
@@ -197,7 +205,7 @@ async fn access_token_with_generation(cfg: &Config, provider: Provider) -> Resul
         }
         let generation = original_epoch;
         if let Some(next) = token.get("refresh_token").and_then(Value::as_str).filter(|s| !s.is_empty()) {
-            cfg.store_secret(&provider.secret_key("refresh_token"), next)?;
+            cfg.store_vault_only_secret(&provider.secret_key("refresh_token"), next)?;
         }
         return Ok((token["access_token"].as_str().unwrap_or_default().to_string(), generation));
     }
