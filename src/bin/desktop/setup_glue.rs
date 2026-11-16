@@ -1046,6 +1046,7 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
     {
         let client = bridge.client().clone();
         let bridge = bridge.clone();
+        let onb = driver.onboarding.clone();
         let weak = window.as_weak();
         window.on_settings_sync_oauth(move |provider| {
             let provider = provider.to_string();
@@ -1054,15 +1055,25 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
             w.set_settings_busy(true);
             let client = client.clone();
             let weak_task = weak.clone();
+            let onb_task = onb.clone();
             bridge.spawn(async move {
                 let result = client.api(Method::POST, &format!("/api/oauth/{provider}/sync"), None).await;
                 let status = client.api(Method::GET, "/api/oauth", None).await.ok();
+                let source_cards = {
+                    let mut st = onb_task.lock().await;
+                    if st.refresh().await.is_ok() {
+                        st.sources.as_ref().map(source_items)
+                    } else { None }
+                };
                 let message = match result {
                     Ok(v) => format!("Synced {provider}: {} inbox messages and {} calendar entries.", v["emails"].as_u64().unwrap_or(0), v["events"].as_u64().unwrap_or(0)),
                     Err(e) => format!("{provider} sync failed: {e}"),
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
                     if let Some(status) = &status { apply_oauth_status(&window, status); }
+                    if let Some(cards) = source_cards {
+                        window.set_onboarding_sources(model_of(cards));
+                    }
                     window.set_settings_oauth_status(message.into());
                     window.set_settings_busy(false);
                 });
@@ -1072,6 +1083,7 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
     {
         let client = bridge.client().clone();
         let bridge = bridge.clone();
+        let onb = driver.onboarding.clone();
         let weak = window.as_weak();
         window.on_settings_disconnect_oauth(move |provider| {
             let provider = provider.to_string();
@@ -1080,15 +1092,25 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
             w.set_settings_busy(true);
             let client = client.clone();
             let weak_task = weak.clone();
+            let onb_task = onb.clone();
             bridge.spawn(async move {
                 let result = client.api(Method::DELETE, &format!("/api/oauth/{provider}"), None).await;
                 let status = client.api(Method::GET, "/api/oauth", None).await.ok();
+                let source_cards = {
+                    let mut st = onb_task.lock().await;
+                    if st.refresh().await.is_ok() {
+                        st.sources.as_ref().map(source_items)
+                    } else { None }
+                };
                 let message = match result {
                     Ok(_) => format!("{provider} disconnected. The account's local index and source memories were removed."),
                     Err(e) => format!("Could not disconnect {provider}: {e}"),
                 };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
                     if let Some(status) = &status { apply_oauth_status(&window, status); }
+                    if let Some(cards) = source_cards {
+                        window.set_onboarding_sources(model_of(cards));
+                    }
                     window.set_settings_oauth_status(message.into());
                     window.set_settings_busy(false);
                 });
@@ -1098,14 +1120,22 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
     {
         let client = bridge.client().clone();
         let bridge = bridge.clone();
+        let onb = driver.onboarding.clone();
         let weak = window.as_weak();
         window.on_settings_refresh_oauth(move || {
             let Some(w) = weak.upgrade() else { return };
             w.set_settings_busy(true);
             let client = client.clone();
             let weak_task = weak.clone();
+            let onb_task = onb.clone();
             bridge.spawn(async move {
                 let result = client.api(Method::GET, "/api/oauth", None).await;
+                let source_cards = {
+                    let mut st = onb_task.lock().await;
+                    if st.refresh().await.is_ok() {
+                        st.sources.as_ref().map(source_items)
+                    } else { None }
+                };
                 let _ = weak_task.upgrade_in_event_loop(move |window| {
                     match result {
                         Ok(status) => {
@@ -1113,6 +1143,9 @@ fn bind_settings(window: &MainWindow, bridge: &Bridge, driver: &SetupDriver) {
                             window.set_settings_oauth_status("Account status refreshed.".into());
                         }
                         Err(e) => window.set_settings_oauth_status(format!("Could not check accounts: {e}").into()),
+                    }
+                    if let Some(cards) = source_cards {
+                        window.set_onboarding_sources(model_of(cards));
                     }
                     window.set_settings_busy(false);
                 });
