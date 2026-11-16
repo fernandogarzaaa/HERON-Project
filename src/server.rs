@@ -1065,6 +1065,13 @@ async fn start_oauth(State(st): S, Path(provider): Path<String>, headers: Header
     if !st.loopback_only || !request_is_local(&headers) {
         return Err(ApiError(StatusCode::FORBIDDEN, "OAuth desktop connections require a loopback-only server.".into()));
     }
+    // OAuth account tokens must not be persisted through the legacy plaintext
+    // fallback. Until a verified Linux Secret Service backend exists, do not
+    // initiate a consent flow that could never be stored securely.
+    if !cfg!(any(target_os = "macos", windows)) {
+        return Err(ApiError(StatusCode::NOT_IMPLEMENTED,
+            "Google/Microsoft OAuth requires a verified native credential vault (macOS Keychain or Windows Credential Manager).".into()));
+    }
     let provider = crate::oauth::Provider::parse(&provider)?;
     let cfg = st.app.cfg();
     // Public desktop client IDs may be bundled by the HERON distributor (no secret).
