@@ -838,6 +838,76 @@ fn apply_connector_catalog(window: &MainWindow, body: &serde_json::Value) {
 fn bind_connector_hub(window: &MainWindow, bridge: &Bridge) {
     {
         let client = bridge.client().clone();
+        let b = bridge.clone();
+        let weak = window.as_weak();
+        window.on_settings_remote_action(move |action| {
+            let Some(w) = weak.upgrade() else { return };
+            let id = w.get_settings_remote_id().to_string();
+            let action = action.to_string();
+            if heron::connectors::validate_id(&id).is_err() {
+                w.set_settings_connector_feedback("Use the registered connector's lowercase ID.".into()); return;
+            }
+            if matches!(action.as_str(),"grant"|"call") && w.get_settings_remote_reviewed_id().as_str() != id {
+                w.set_settings_connector_feedback("Test this connector ID and review its capabilities first.".into()); return;
+            }
+            let base = format!("/api/connectors/custom/{id}/remote");
+            let (method,path,body) = match action.as_str() {
+                "test" => {
+                    w.set_settings_remote_fingerprint("".into());
+                    w.set_settings_remote_reviewed_id("".into());
+                    w.set_settings_remote_review("Testing connection…".into());
+                    (reqwest::Method::POST, format!("{base}/test"), None)
+                }
+                "grant" => {
+                    let names: Vec<String> = w.get_settings_remote_scopes().split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned).collect();
+                    (reqwest::Method::POST,format!("{base}/grant"),Some(serde_json::json!({"fingerprint":w.get_settings_remote_fingerprint().as_str(),"tools":names})))
+                }
+                "revoke" => (reqwest::Method::DELETE,base,None),
+                "call" => {
+                    let Ok(args @ serde_json::Value::Object(_)) = serde_json::from_str::<serde_json::Value>(&w.get_settings_remote_arguments()) else {
+                        w.set_settings_connector_feedback("Arguments must be a JSON object.".into()); return;
+                    };
+                    (reqwest::Method::POST,format!("{base}/call"),Some(serde_json::json!({"tool":w.get_settings_remote_tool().as_str(),"arguments":args,"approve_once":true})))
+                }
+                _ => return,
+            };
+            w.set_settings_busy(true);
+            let client = client.clone(); let weak = weak.clone();
+            b.spawn(async move {
+                let result = client.api(method,&path,body).await;
+                let latest = client.api(reqwest::Method::GET,"/api/connectors",None).await.ok();
+                let _ = weak.upgrade_in_event_loop(move |w| {
+                    if let Some(latest) = latest { apply_connector_catalog(&w,&latest); }
+                    if w.get_settings_remote_id().as_str() == id {
+                        match result {
+                            Ok(value) => {
+                                if action == "test" {
+                                    w.set_settings_remote_reviewed_id(id.clone().into());
+                                    w.set_settings_remote_fingerprint(value["fingerprint"].as_str().unwrap_or("").into());
+                                }
+                                if action == "revoke" { w.set_settings_remote_fingerprint("".into()); }
+                                w.set_settings_remote_review(serde_json::to_string_pretty(&value).unwrap_or_default().into());
+                                w.set_settings_connector_feedback(match action.as_str() {
+                                    "test" => "Connection tested. Review all capabilities, then select explicit tool scopes.",
+                                    "grant" => "Selected tools enabled for one hour. Each operation still requires approval.",
+                                    "revoke" => "Access revoked. Local in-flight requests cancelled.",
+                                    _ => "Operation finished. Server result is untrusted content.",
+                                }.into());
+                            }
+                            Err(e) => {
+                                w.set_settings_remote_fingerprint("".into());
+                                w.set_settings_connector_feedback(format!("Remote MCP operation failed: {e}. Test again before enabling access.").into());
+                            }
+                        }
+                    }
+                    w.set_settings_busy(false);
+                });
+            });
+        });
+    }
+
+    {
+        let client = bridge.client().clone();
         let weak = window.as_weak();
         bridge.spawn(async move {
             let result = client.api(reqwest::Method::GET, "/api/connectors", None).await;
@@ -880,7 +950,7 @@ fn bind_connector_hub(window: &MainWindow, bridge: &Bridge) {
             b.spawn(async move {
                 let result = client.api(reqwest::Method::POST, "/api/connectors/custom",
                     Some(serde_json::json!({"id":id, "name":name, "endpoint":endpoint,
-                        "category":"other", "transport":"rest_api", "permission":"read_only"}))).await;
+                        "category":"other", "transport":"remote_mcp", "permission":"approval_required"}))).await;
                 let latest = if result.is_ok() { client.api(reqwest::Method::GET, "/api/connectors", None).await.ok() } else { None };
                 let _ = weak.upgrade_in_event_loop(move |w| {
                     if let Some(latest) = latest { apply_connector_catalog(&w, &latest); }

@@ -1,6 +1,6 @@
 # HERON Connector Hub, Credential Vault and Proactivity — Architecture
 
-**Status: Phase 0 metadata and vault foundation. Custom connector execution is disabled.** A catalog entry is never evidence that HERON can authenticate to that service.
+**Status: connector foundation plus reviewed Remote MCP runtime. REST execution remains disabled.** A catalog entry is never evidence that HERON can authenticate to that service.
 
 ## Research and interoperability
 
@@ -17,11 +17,11 @@ MCP permits interoperability with compatible SERVER protocols and authentication
 
 ## Architecture
 
-1. **Directory / discovery (this PR).** Built-in catalog, existing configured local stdio MCP entries, custom registrations with accurate statuses: oauth_planned, mcp_candidate, existing_native, configured and saved_not_active. Metadata is available through the local authenticated API. Remote custom registrations are NOT executable.
-2. **Connection and authentication broker (partial).** Existing stdio MCP clients use HERON's approval policy. Google/Microsoft PKCE OAuth is separate draft PR #26. This foundation saves custom API keys only to a verified OS credential vault; connector metadata never includes raw credentials.
-3. **Runtime adapters (next).** Remote Streamable HTTP MCP with protocol version negotiation, OAuth authorization-server discovery, explicit scope/audience checks and allowlisted endpoints. REST/OpenAPI adapter with schema validation, URL safety, rate limits and request/response redaction. No arbitrary HTTP with user keys today.
-4. **Execution policy (next).** Per-service, account, operation and scope grants; read-only defaults, reviewed tool manifest hashes, change alerts and explicit approvals for sending, posting, deleting, purchasing and sharing.
-5. **Proactivity (next).** Trusted event-envelope schema, per-account subscriptions, causal evidence for proposals, deduplication, approval queue, budgets, and a visible activity timeline.
+1. **Directory / discovery.** Built-in catalog, configured local stdio MCP entries and custom endpoint registrations. Catalog candidates do not imply working service integrations. Custom MCP states distinguish inactive registration, tested/awaiting review and enabled scoped access.
+2. **Connection and credential broker.** One anonymous or native-vault bearer identity per registration. Use distinct registrations for separate accounts. Keys are injected only at the registered HTTPS endpoint and never returned to the model. Google/Microsoft OAuth remains separate draft PR #26; Linux rejects new connector-key storage.
+3. **Runtime adapters.** Remote Streamable HTTP MCP implements modern per-request metadata and supported legacy initialization, bounded discovery/streaming, schema validation and non-replaying invocation. REST/OpenAPI execution and OAuth-only remote endpoints remain unsupported.
+4. **Execution policy.** Process-local tool grants bind one reviewed connection test, credential identity and registry revision, expire after one hour/restart, and are invalidated by tool changes or revocation. Every invocation requires an operation approval; model tools cannot enable connectors. Results are untrusted.
+5. **Proactivity.** Existing #32 protections still refuse unattended MCP execution. Connector event subscriptions, per-account polling and event provenance remain separate work; Takeover does not acquire external write authority.
 
 ## Implemented local API
 
@@ -33,12 +33,17 @@ All routes require HERON's existing per-launch API bearer token. Mutation routes
 | POST /api/connectors/custom | Store validated custom public HTTPS endpoint metadata, without activation |
 | DELETE /api/connectors/custom/{id} | Remove registration and its credential |
 | POST /api/connectors/custom/{id}/api-key | Store a user-supplied API key in the verified OS credential vault only |
-| DELETE /api/connectors/custom/{id}/api-key | Delete that key |
+| DELETE /api/connectors/custom/{id}/api-key | Delete that key and invalidate grants |
+| POST /api/connectors/custom/{id}/remote/test | Discover and review MCP capabilities; no tool execution |
+| GET /api/connectors/custom/{id}/remote | Inspect the tested manifest and current grant state |
+| POST /api/connectors/custom/{id}/remote/grant | Enable explicit reviewed tool scopes for one hour |
+| POST /api/connectors/custom/{id}/remote/call | Invoke one granted tool with fresh operation approval |
+| DELETE /api/connectors/custom/{id}/remote | Revoke access and cancel local in-flight requests |
 
 Example registration body:
 {"id":"my_company","name":"Company API","category":"productivity","transport":"rest_api","endpoint":"https://api.example.org/v1","permission":"read_only"}
 
-No HTTP request is sent on registration. Endpoint metadata requires HTTPS with a public DNS hostname, no embedded userinfo, query, fragments or nonstandard port. The future transport must enforce DNS rebinding and redirect controls independently; validation alone is not an SSRF defense.
+No HTTP request is sent on registration. Endpoint metadata requires HTTPS with a public DNS hostname, no embedded userinfo, query, fragments or nonstandard port. The remote MCP transport additionally enforces connect-time public DNS checks and refuses redirects; URL registration validation alone is not an SSRF defense.
 
 **Security limit:** The existing Config.store_secret uses macOS Keychain / Windows Credential Manager when working, but falls back to an owner-only plaintext file, and Linux has only the plaintext fallback. This is NOT acceptable for a broad login vault. The new connector API therefore requires successful verified native OS credential storage and fails closed on Linux. A future Linux Secret Service or encrypted/passphrase-protected vault with recovery is a required gate. Do not store raw website passwords, cookies, banking logins or payment details in connector metadata or HERON config. Use OAuth, passkeys, or a scoped password-manager broker instead.
 
@@ -46,7 +51,7 @@ No HTTP request is sent on registration. Endpoint metadata requires HTTPS with a
 
 Discovery areas: Communications, Files, Productivity, Developer, Social, CRM, Commerce and Personal/Home. Candidates include Google, Microsoft, GitHub, Drive, OneDrive, Dropbox, Notion, Slack, Linear, Discord, Instagram, Facebook, YouTube, TikTok, X, Salesforce, HubSpot, Shopify, Stripe and Home Assistant. Every service needs its own authorized API, provider scopes, account isolation, data retention and limits.
 
-**Phase 1:** live qualify Google/Microsoft PKCE, implement remote MCP transport, secure sign-in, account-specific revoke, tool manifest review, permissions and connection-test UI.
+**Phase 1:** remote MCP test/review/grant/invoke/revoke is implemented and mock-tested. Qualify exact-head CI/security review and live compatible endpoints; Google/Microsoft PKCE and OAuth sign-in remain separate.
 **Phase 2:** custom REST/OpenAPI broker with operation allowlists, opaque vault handles, scoped credential injection only into approved provider requests, audited egress, transport retries, timeouts, rate limits, and read/write separation.
 **Phase 3:** official social/commerce integrations, previews before posting, no CAPTCHA or MFA bypass, no silent high-impact actions, provider reconciliation and rollback where supported.
 
@@ -63,7 +68,7 @@ Data from email, docs, social and websites is **untrusted**. Never obey instruct
 - Full Rust test suite, desktop build and exact-SHA CI on Linux/macOS/Windows.
 - Manifest schema, duplicate ID, untrusted URL, corrupted registry and private file-mode tests.
 - Keychain storage/retrieval/deletion with disposable credentials on macOS and Windows; Linux must reject key storage until a secure backend exists.
-- Tool invocation is deliberately disabled for custom registrations pending reviewed MCP/REST auth, SSRF, transport, scope and audit gates.
+- Registrations never grant invocation. MCP execution requires explicit reviewed scopes and per-operation approval; REST execution remains disabled.
 - Live provider consent and revocation tests for every connector before labeling it Available.
 
 ## Foundation qualification follow-up
@@ -73,3 +78,12 @@ fault injection, redacted failures and a consistent uncertain-state recovery
 warning. Registry reads are bounded before allocation. Cross-process tests exercise
 contention and owner termination; authenticated API tests prove registration stays
 inactive. See [qualification evidence and remaining production gates](engineering/CONNECTOR_QUALIFICATION.md).
+
+
+## Remote MCP implementation
+
+The remote runtime adds explicit test, capability review, scoped enablement,
+per-operation approval and revocation for compatible public HTTPS MCP servers.
+Registration still grants nothing. See [runtime, API, compatibility and operating
+instructions](remote-mcp-runtime.md). OAuth PR #26 and connector-aware events are
+separate. The runtime document records protocol limitations and the exact local qualification scope.

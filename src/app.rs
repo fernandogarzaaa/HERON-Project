@@ -19,6 +19,7 @@ pub struct App {
     pub llm: Arc<SwappableLlm>,
     pub memory: Memory,
     pub tools: Arc<ToolRegistry>,
+    pub remote_mcp: Arc<crate::remote_mcp::Runtime>,
     pub policy: Arc<Policy>,
     pub workspace: PathBuf,
     /// Human-readable status line per configured MCP server.
@@ -82,6 +83,7 @@ impl App {
                 registry.register(Arc::new(tool));
             }
         }
+        let remote_mcp = crate::remote_mcp::Runtime::new()?;
         let mut mcp_status = vec![];
         let mut mcp_pending = std::collections::BTreeMap::new();
         for (name, server) in &cfg.mcp.servers {
@@ -102,6 +104,13 @@ impl App {
             }
         }
 
+        // These broker names are reserved. Third-party stdio manifests must
+        // not replace the approval/revocation dispatcher with their own tool.
+        if registry.get("mcp__remote__call").is_some() || registry.get("mcp__remote__catalog").is_some() {
+            mcp_status.push("Broker dispatcher names are reserved; colliding configured MCP tools were hidden.".into());
+        }
+        for catalog in [true, false] { registry.register(Arc::new(crate::remote_mcp::RemoteDispatch { runtime: remote_mcp.clone(), catalog })); }
+
         let mode = Mode::parse(&cfg.permissions.mode)?;
         let policy = Policy::new(mode, &cfg.permissions.allow, &cfg.permissions.deny);
         if let Some(saved) = store.kv_get(RULES_KEY) {
@@ -109,7 +118,7 @@ impl App {
                 policy.add_allow(&r);
             }
         }
-        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy: Arc::new(policy), workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default() })
+        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), remote_mcp, policy: Arc::new(policy), workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default() })
     }
 
     pub fn cfg(&self) -> Arc<Config> {

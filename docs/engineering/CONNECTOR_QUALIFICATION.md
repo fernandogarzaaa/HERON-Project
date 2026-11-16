@@ -1,3 +1,7 @@
+> Historical foundation report: PR #31 subsequently merged at `eae4cb3` after
+> six successful jobs and a clean exact-head review on `c9d0314`, including native
+> vault tests. See [Remote MCP runtime](../remote-mcp-runtime.md) for the next phase.
+
 # Connector foundation qualification — 2026-11-16
 
 ## Repository evidence

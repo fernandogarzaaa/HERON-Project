@@ -475,6 +475,14 @@ impl Config {
         }
     }
 
+    /// Broker-only access. Never use the legacy file fallback for connector keys.
+    pub(crate) fn connector_broker_secret(&self, name: &str) -> Result<Option<String>> {
+        #[cfg(any(target_os = "macos", windows))]
+        { vault::get_checked(&self.home, name).map_err(|_| anyhow::anyhow!("Connector vault is locked or unavailable.")) }
+        #[cfg(not(any(target_os = "macos", windows)))]
+        { let _ = name; Ok(None) }
+    }
+
     /// Metadata-only status; never exposes the actual credential to an API.
     pub fn vault_only_secret_present(&self, name: &str) -> bool {
         vault::get(&self.home, name).is_some()

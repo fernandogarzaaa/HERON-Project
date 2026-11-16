@@ -137,6 +137,13 @@ export component SettingsView inherits VerticalBox {
     callback reset_persona();
     callback set_tool(string, int);
     callback accept_mcp(string);
+    in-out property <string> remote-id: "";
+    in-out property <string> remote-review: "";
+    in-out property <string> remote-fingerprint: "";
+    in-out property <string> remote-scopes: "";
+    in-out property <string> remote-tool: "";
+    in-out property <string> remote-arguments: "{}";
+    callback remote-action(string);
     callback refresh-connectors();
     callback add-connector(string, string, string);
     callback remove-connector(string);
@@ -311,7 +318,7 @@ export component SettingsView inherits VerticalBox {
         spacing: 8px;
         SectionTitle { label: "Connector Hub"; }
         Text {
-            text: "Explore supported protocols and potential services. Catalog entries are not connected accounts. Custom connectors are saved inactive until a reviewed adapter is available.";
+            text: "Explore supported protocols and potential services. Catalog entries are not connected accounts. Remote MCP endpoints start inactive. Test the connection, review the untrusted capabilities and select tools before enabling access.";
             color: Theme.muted;
             wrap: word-wrap;
         }
@@ -342,15 +349,30 @@ export component SettingsView inherits VerticalBox {
                 clicked => { root.remove-connector(c.id); }
             }
         }
-        Text { text: "Register a custom API (metadata only)"; color: Theme.ink; font-weight: 600; }
+        Text { text: "Register a remote MCP endpoint"; color: Theme.ink; font-weight: 600; }
         LabeledInput { label: "ID (lowercase slug)"; value <=> root.connector-new-id; }
         LabeledInput { label: "Display name"; value <=> root.connector-new-name; }
         LabeledInput { label: "Public HTTPS endpoint"; value <=> root.connector-new-endpoint; }
         Button {
-            text: "Save inactive connector";
+            text: "Save inactive MCP endpoint";
             enabled: !root.busy && root.connector-new-id != "" && root.connector-new-name != "" && root.connector-new-endpoint != "";
             clicked => { root.add-connector(root.connector-new-id, root.connector-new-name, root.connector-new-endpoint); }
         }
+        SectionTitle { label: "Remote MCP access"; }
+        Text { text: "Server descriptions and results below are untrusted content. Enable only tools you recognize. Grants expire in one hour or when Heron restarts. Every invocation asks separately; disabling access cancels local requests."; wrap: word-wrap; color: Theme.muted; }
+        LabeledInput { label: "Registered MCP connector ID"; value <=> root.remote-id; enabled: !root.busy; }
+        HorizontalBox {
+            Button { text: "Test and review capabilities"; enabled: !root.busy && root.remote-id != ""; clicked => { root.remote-action("test"); } }
+            Button { text: "Revoke access"; enabled: !root.busy && root.remote-id != ""; clicked => { root.remote-action("revoke"); } }
+        }
+        Text { text: "Untrusted capability manifest / operation result"; color: Theme.ink; }
+        TextEdit { text: root.remote-review; read-only: true; height: 180px; accessible-label: "Untrusted MCP capability manifest and result"; }
+        Text { text: root.remote-fingerprint; wrap: word-wrap; color: Theme.muted; }
+        LabeledInput { label: "Tool scopes to enable (comma-separated names)"; value <=> root.remote-scopes; enabled: !root.busy; }
+        Button { text: "Approve selected tool scopes for one hour"; enabled: !root.busy && root.remote-fingerprint != "" && root.remote-scopes != ""; clicked => { root.remote-action("grant"); } }
+        LabeledInput { label: "Tool to invoke"; value <=> root.remote-tool; enabled: !root.busy; }
+        LabeledInput { label: "Arguments (JSON object)"; value <=> root.remote-arguments; enabled: !root.busy; }
+        Button { text: "Approve and invoke once"; enabled: !root.busy && root.remote-tool != "" && root.remote-fingerprint != ""; clicked => { root.remote-action("call"); } }
         Text { text: "Vault: API keys are never displayed to the model or saved in connector metadata. Only custom connector IDs can receive keys. Linux currently requires a secure vault backend before API keys can be saved."; wrap: word-wrap; color: Theme.muted; }
         LabeledInput { label: "Custom connector ID"; value <=> root.connector-key-id; }
         LabeledInput { label: "API key (stored in the OS vault)"; password: true; value <=> root.connector-api-key; }

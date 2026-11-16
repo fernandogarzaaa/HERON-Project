@@ -46,10 +46,12 @@ pub struct ConnectorCard {
     pub source: String,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RegistryFile {
     version: u32,
+    #[serde(default)]
+    revision: String,
     custom: Vec<CustomConnector>,
 }
 
@@ -157,7 +159,7 @@ fn load(cfg: &Config) -> Result<RegistryFile> {
     let file = match fs::File::open(&path) {
         Ok(file) => file,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(RegistryFile { version: VERSION, custom: Vec::new() });
+            return Ok(RegistryFile { version: VERSION, revision: String::new(), custom: Vec::new() });
         }
         Err(e) => return Err(e).context("Cannot read connector registry."),
     };
@@ -185,7 +187,9 @@ fn save(cfg: &Config, doc: &RegistryFile) -> Result<()> {
     cfg.ensure_home()?;
     let path = registry_path(cfg);
     let tmp = cfg.home.join(format!("connectors.json.tmp-{}", uuid::Uuid::new_v4().simple()));
-    let text = serde_json::to_vec_pretty(doc)?;
+    let mut next = doc.clone();
+    next.revision = uuid::Uuid::new_v4().to_string();
+    let text = serde_json::to_vec_pretty(&next)?;
     if text.len() as u64 > MAX_FILE_BYTES {
         bail!("Connector registry exceeds its safe size limit.");
     }
@@ -245,6 +249,8 @@ pub fn put_api_key(cfg: &Config, id: &str, value: &str) -> Result<()> {
     let _write = WRITES.lock().unwrap_or_else(|e| e.into_inner());
     let _file_lock = lock_registry(cfg)?;
     require_custom(cfg, id)?;
+    // Invalidate grants in every process before any credential mutation.
+    save(cfg, &load(cfg)?)?;
     cfg.store_vault_only_secret(&key_name(id), value)
 }
 
@@ -252,6 +258,7 @@ pub fn remove_api_key(cfg: &Config, id: &str) -> Result<()> {
     let _write = WRITES.lock().unwrap_or_else(|e| e.into_inner());
     let _file_lock = lock_registry(cfg)?;
     require_custom(cfg, id)?;
+    save(cfg, &load(cfg)?)?;
     cfg.delete_vault_only_secret(&key_name(id))
 }
 
@@ -259,7 +266,9 @@ pub fn remove_custom(cfg: &Config, id: &str) -> Result<()> {
     let _write = WRITES.lock().unwrap_or_else(|e| e.into_inner());
     let _file_lock = lock_registry(cfg)?;
     require_custom(cfg, id)?;
-    // Credential removal succeeds before hiding its associated connector.
+    // Invalidate all prior grants before removing the credential. Only hide
+    // the registration after credential removal succeeds.
+    save(cfg, &load(cfg)?)?;
     cfg.delete_vault_only_secret(&key_name(id))?;
     let mut doc = load(cfg)?;
     doc.custom.retain(|entry| entry.id != id);
@@ -294,6 +303,24 @@ pub fn list(cfg: &Config) -> Result<Vec<ConnectorCard>> {
         });
     }
     Ok(result)
+}
+
+/// Revoke grants in other processes before returning a successful disconnect.
+pub(crate) fn invalidate_grants(cfg: &Config, id: &str) -> Result<()> {
+    let _guard = lock_registry(cfg)?;
+    require_custom(cfg, id)?;
+    save(cfg, &load(cfg)?)
+}
+
+/// A revision fences grants across independent HERON processes. Read credentials
+/// only inside the registry lock and never through the legacy plaintext fallback.
+pub(crate) fn remote_snapshot(cfg: &Config, id: &str, with_key: bool) -> Result<(CustomConnector, String, Option<String>)> {
+    let _guard = lock_registry(cfg)?;
+    let doc = load(cfg)?;
+    let spec = doc.custom.iter().find(|s| s.id == id && s.transport == "remote_mcp")
+        .cloned().ok_or_else(|| anyhow::anyhow!("Unknown remote MCP connector."))?;
+    let key = if with_key { cfg.connector_broker_secret(&key_name(id))? } else { None };
+    Ok((spec, doc.revision, key))
 }
 
 #[cfg(test)]

@@ -226,7 +226,7 @@ impl HeronClient {
         }
         let message = value
             .get("error")
-            .and_then(|e| e.as_str())
+            .and_then(|e| e.as_str().or_else(|| e.get("message").and_then(Value::as_str)))
             .unwrap_or("the Heron server refused the request")
             .to_string();
         Err(anyhow!("{message} (HTTP {})", status.as_u16()))
@@ -299,7 +299,7 @@ impl HeronClient {
             let value: Value = resp.json().await.unwrap_or(Value::Null);
             let message = value
                 .get("error")
-                .and_then(|e| e.as_str())
+                .and_then(|e| e.as_str().or_else(|| e.get("message").and_then(Value::as_str)))
                 .unwrap_or("the chat request failed")
                 .to_string();
             return Err(anyhow!("{message}"));

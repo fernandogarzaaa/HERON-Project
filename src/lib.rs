@@ -12,6 +12,7 @@ pub mod eval;
 pub mod llm;
 pub mod mail;
 pub mod mcp;
+pub mod remote_mcp;
 pub mod memory;
 pub mod permissions;
 pub mod persona;

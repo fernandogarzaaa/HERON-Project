@@ -140,6 +140,10 @@ pub fn router(app: Arc<App>, token: String) -> Router {
         // storing API keys never activates a remote tool or exposes a key.
         .route("/connectors", get(list_connectors))
         .route("/connectors/custom", post(add_custom_connector))
+        .route("/connectors/custom/{id}/remote", get(remote_status).delete(remote_revoke))
+        .route("/connectors/custom/{id}/remote/test", post(remote_test))
+        .route("/connectors/custom/{id}/remote/grant", post(remote_grant))
+        .route("/connectors/custom/{id}/remote/call", post(remote_call))
         .route("/connectors/custom/{id}", delete(delete_custom_connector))
         .route("/connectors/custom/{id}/api-key", post(set_connector_api_key).delete(delete_connector_api_key))
         .route("/persona", get(get_persona).post(set_persona).delete(reset_persona))
@@ -788,14 +792,23 @@ async fn accept_mcp(State(st): S, Path(name): Path<String>) -> ApiResult {
 
 async fn list_connectors(State(st): S) -> ApiResult {
     let cfg = st.app.cfg();
+    let mut cards = crate::connectors::list(&cfg)?;
+    for card in &mut cards {
+        if card.source == "custom" && card.transport == "remote_mcp" {
+            if let Ok(status) = st.app.remote_mcp.status(&cfg,&card.id) {
+                card.status = if status["enabled"] == true {"enabled"} else {"tested_awaiting_review"}.into();
+            }
+        }
+    }
     Ok(Json(json!({
-        "connectors": crate::connectors::list(&cfg)?,
+        "connectors": cards,
         "vault": {
             "backend": cfg.secret_storage(),
             "os_keychain_supported": cfg!(any(target_os = "macos", windows)),
             "credentials_readable_by_agent": false
         },
-        "custom_execution_enabled": false,
+        "custom_execution_enabled": true,
+        "remote_grants": st.app.remote_mcp.catalog(&cfg),
     })))
 }
 
@@ -821,6 +834,7 @@ async fn add_custom_connector(
 
 async fn delete_custom_connector(State(st): S, Path(id): Path<String>, headers: HeaderMap) -> ApiResult {
     local_connector_admin(&st, &headers)?;
+    st.app.remote_mcp.revoke(&id);
     crate::connectors::remove_custom(&st.app.cfg(), &id)?;
     st.app.store.audit("connectors", "connector.delete", &id, "user-local", "credential removed");
     Ok(Json(json!({"id": id, "deleted": true})))
@@ -833,6 +847,7 @@ async fn set_connector_api_key(
     let key = body.get("api_key").and_then(Value::as_str)
         .ok_or_else(|| bad("Supply the connector API key."))?;
     // There must be no audit entry containing an input key or HTTP body.
+    st.app.remote_mcp.revoke(&id);
     crate::connectors::put_api_key(&st.app.cfg(), &id, key)?;
     st.app.store.audit("connectors", "credential.store", &id, "user-local", "stored in OS vault");
     Ok(Json(json!({"id": id, "has_credential": true})))
@@ -840,9 +855,64 @@ async fn set_connector_api_key(
 
 async fn delete_connector_api_key(State(st): S, Path(id): Path<String>, headers: HeaderMap) -> ApiResult {
     local_connector_admin(&st, &headers)?;
+    st.app.remote_mcp.revoke(&id);
     crate::connectors::remove_api_key(&st.app.cfg(), &id)?;
     st.app.store.audit("connectors", "credential.delete", &id, "user-local", "removed");
     Ok(Json(json!({"id": id, "has_credential": false})))
+}
+
+fn remote_response(result: std::result::Result<Value, crate::remote_mcp::Error>) -> Response {
+    match result {
+        Ok(value) => Json(value).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, Json(json!({"error":error}))).into_response(),
+    }
+}
+fn local_remote_admin(st: &ServerState, headers: &HeaderMap, id: &str) -> std::result::Result<(),ApiError> {
+    crate::connectors::validate_id(id).map_err(|_| bad("Invalid connector ID."))?;
+    local_connector_admin(st,headers)
+}
+async fn remote_status(State(st): S, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    if let Err(error) = local_remote_admin(&st,&headers,&id) { return error.into_response(); }
+    remote_response(st.app.remote_mcp.status(&st.app.cfg(),&id))
+}
+async fn remote_test(State(st): S, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    if let Err(error) = local_remote_admin(&st,&headers,&id) { return error.into_response(); }
+    let result = st.app.remote_mcp.test(&st.app.cfg(),&id).await;
+    st.app.store.audit("connectors", "connector.test", &id, "user-local", if result.is_ok() {"manifest awaiting review"} else {"connection test failed"});
+    remote_response(result)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemoteGrant { fingerprint: String, tools: Vec<String> }
+async fn remote_grant(State(st): S, Path(id): Path<String>, headers: HeaderMap, Json(body): Json<RemoteGrant>) -> Response {
+    if let Err(error) = local_remote_admin(&st,&headers,&id) { return error.into_response(); }
+    let result = st.app.remote_mcp.grant(&st.app.cfg(),&id,&body.fingerprint,&body.tools);
+    st.app.store.audit("connectors", "connector.grant", &id, "user-local", if result.is_ok() {"scoped tools enabled for one hour"} else {"grant rejected"});
+    remote_response(result)
+}
+async fn remote_revoke(State(st): S, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    if let Err(error) = local_remote_admin(&st,&headers,&id) { return error.into_response(); }
+    st.app.remote_mcp.revoke(&id);
+    if crate::connectors::invalidate_grants(&st.app.cfg(),&id).is_err() {
+        return bad("Local access stopped; could not persist revocation for other HERON instances. Retry before assuming all instances are disconnected.").into_response();
+    }
+    st.app.store.audit("connectors", "connector.revoke", &id, "user-local", "grants revoked; in-flight local requests cancelled");
+    Json(json!({"enabled":false,"revoked":true})).into_response()
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemoteCall { tool: String, arguments: Value, approve_once: bool }
+async fn remote_call(State(st): S, Path(id): Path<String>, headers: HeaderMap, Json(body): Json<RemoteCall>) -> Response {
+    if let Err(error) = local_remote_admin(&st,&headers,&id) { return error.into_response(); }
+    if !body.approve_once { return bad("Explicit approval for this operation is required.").into_response(); }
+    if let crate::permissions::Verdict::Deny(_) = st.app.policy.decide("mcp__remote__call", "native invocation", crate::permissions::Effect::SensitiveWrite) {
+        return ApiError(StatusCode::FORBIDDEN,"This operation is blocked by the current mode or tool policy.".into()).into_response();
+    }
+    // This authenticated local admin action is the native user's operation
+    // approval. Agent calls use RemoteDispatch and the ordinary permission gate.
+    let result = st.app.remote_mcp.call(&st.app.cfg(),&id,&body.tool,body.arguments).await;
+    st.app.store.audit("connectors", "connector.invoke", &id, "user-approved-once", if result.is_ok() {"completed"} else {"failed or cancelled; not retried"});
+    remote_response(result)
 }
 
 async fn get_persona(State(st): S) -> ApiResult {

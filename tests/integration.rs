@@ -57,7 +57,8 @@ async fn connector_control_plane_requires_local_auth_and_never_activates_metadat
     assert_eq!(response.json::<Value>().await.unwrap()["status"], "saved_not_active");
     let catalog: Value = http.get(format!("{base}/api/connectors"))
         .bearer_auth("connector-test-token").send().await.unwrap().json().await.unwrap();
-    assert_eq!(catalog["custom_execution_enabled"], false);
+    assert_eq!(catalog["custom_execution_enabled"], true);
+    assert!(catalog["remote_grants"].as_array().unwrap().is_empty(), "registration must not enable execution");
     let card = catalog["connectors"].as_array().unwrap().iter()
         .find(|c| c["id"] == "test_remote").unwrap();
     assert_eq!(card["status"], "saved_not_active");
@@ -78,8 +79,10 @@ async fn connector_control_plane_requires_local_auth_and_never_activates_metadat
     assert!(!audit.contains("never-leak-this-test-key"));
     // An unrelated damaged legacy file must not prevent emergency revocation.
     std::fs::write(cfg.home.join("secrets.json"), b"{corrupt").unwrap();
-    assert!(http.delete(format!("{endpoint}/test_remote")).bearer_auth("connector-test-token")
-        .send().await.unwrap().status().is_success());
+    let deleted = http.delete(format!("{endpoint}/test_remote")).bearer_auth("connector-test-token").send().await.unwrap();
+    let status = deleted.status();
+    let message = deleted.text().await.unwrap();
+    assert!(status.is_success(), "connector deletion failed: {status} {message}");
 
     cfg.server.bind = "0.0.0.0".into();
     let remote = Arc::new(App::build(cfg, dir.path().join("other-work")).await.unwrap());

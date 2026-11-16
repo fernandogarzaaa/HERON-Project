@@ -343,6 +343,14 @@ export component MainWindow inherits Window {
     callback settings-reset-persona();
     callback settings-set-tool(string, int);
     callback settings-accept-mcp(string);
+    in-out property <string> settings-remote-id: "";
+    in-out property <string> settings-remote-review: "";
+    in-out property <string> settings-remote-fingerprint: "";
+    in-out property <string> settings-remote-scopes: "";
+    in-out property <string> settings-remote-tool: "";
+    in-out property <string> settings-remote-arguments: "{}";
+    in-out property <string> settings-remote-reviewed-id: "";
+    callback settings-remote-action(string);
     callback settings-refresh-connectors();
     callback settings-add-connector(string, string, string);
     callback settings-remove-connector(string);
@@ -746,6 +754,13 @@ export component MainWindow inherits Window {
                     tool-settings: root.settings-tool-settings;
                     mcp-lines: root.settings-mcp-lines;
                     mcp-note: root.settings-mcp-note;
+                    remote-id <=> root.settings-remote-id;
+                    remote-review <=> root.settings-remote-review;
+                    remote-fingerprint <=> root.settings-remote-fingerprint;
+                    remote-scopes <=> root.settings-remote-scopes;
+                    remote-tool <=> root.settings-remote-tool;
+                    remote-arguments <=> root.settings-remote-arguments;
+                    remote-action(action) => { root.settings-remote-action(action); }
                     connector-lines: root.settings-connector-lines;
                     connector-vault-note: root.settings-connector-vault-note;
                     connector-feedback: root.settings-connector-feedback;
