@@ -470,7 +470,11 @@ mod tests {
         assert_eq!(store.count_pending().unwrap(), 0);
         let second = store.enqueue(&expected, None, "Reply", "reply-2", 100).unwrap();
         for i in 0..MAX_ATTEMPTS {
-            store.retry(second, &expected, i * 1000).unwrap();
+            let at = 100 + i * 1000;
+            let claimed = store.due(ChannelKind::Telegram, "bot-1", at, 10).unwrap();
+            assert_eq!(claimed.len(), 1);
+            assert_eq!(claimed[0].id, second);
+            store.retry(second, &expected, at).unwrap();
         }
         assert_eq!(store.count_failed().unwrap(), 1);
         store.purge_account(ChannelKind::Telegram, "bot-1").unwrap();
