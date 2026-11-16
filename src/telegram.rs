@@ -445,6 +445,14 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
         spool,
         dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
+    // Old builds could persist approval questions. No prior process still
+    // holds those pending approvals, so never deliver them after restart.
+    if let Err(err) = bot.spool.discard_stale_approval_prompts(
+        ChannelKind::Telegram, &bot.account_id
+    ) {
+        eprintln!("HERON Telegram: could not clear obsolete approval prompts: {err}");
+        return;
+    }
     // An accepted turn left unfinished by a crash may have performed a tool
     // action before stopping. Do not re-execute it automatically.
     if let Ok(count) = bot.spool.mark_interrupted(ChannelKind::Telegram, &bot.account_id) {
