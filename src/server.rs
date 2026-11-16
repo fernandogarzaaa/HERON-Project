@@ -1024,6 +1024,8 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
         // pairing or dispatch messages queued for the old Telegram identity.
         crate::telegram::stop(&st.app);
         crate::telegram::unpair(&st.app);
+        // A new bot token has an independent provider update sequence.
+        let _ = st.app.store.kv_set("telegram_offset", "0");
     }
     st.app.cfg().store_secret("telegram_token", token)?;
     // Restarts the connection, so a replaced token is the one in use and there is only ever one reader.
