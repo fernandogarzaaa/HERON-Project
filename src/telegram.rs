@@ -262,7 +262,8 @@ pub fn unpair(app: &App) {
     // A new pairing (or replaced bot token) must never reuse a previous
     // owner's conversation, cached notifications, or Telegram update cursor.
     let _ = app.store.kv_set("telegram_session", "");
-    let _ = app.store.kv_set("telegram_offset", "0");
+    // Preserve the update cursor for the *same bot*: replaying old owner
+    // commands on re-pairing can re-run non-idempotent tool actions.
     let _ = app.store.kv_set("telegram_inbox_last", "0");
     let _ = app.store.kv_set("telegram_chat", "");
     let _ = app.store.kv_set("telegram_code", &new_code());
