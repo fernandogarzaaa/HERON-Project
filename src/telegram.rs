@@ -73,20 +73,23 @@ impl Bot {
 
     /// Fail-closed on local persistence errors: do not send a message that
     /// cannot be recovered if HERON stops before delivery completes.
-    async fn queue(&self, chat: i64, text: &str) -> Result<()> {
+    async fn queue_with_key(&self, chat: i64, text: &str, key: &str) -> Result<()> {
         if paired_chat(&self.app) != Some(chat)
             || self.app.store.kv_get("telegram_code").as_deref() != Some(self.pairing_epoch.as_str())
         {
             return Err(anyhow!("The chat was unpaired or pairing was rotated; refusing to queue a reply"));
         }
         let identity = self.identity(chat);
-        for part in Self::chunks(text) {
-            let key = uuid::Uuid::new_v4().simple().to_string();
-            self.spool.enqueue(&identity, None, &part, &key, crate::util::now_ts())?;
-        }
-        // A provider timeout does not discard a queued message; it is retried.
+        let parts = Self::chunks(text);
+        self.spool.enqueue_parts(&identity, None, &parts, key, crate::util::now_ts())?;
+        // Send failures leave the entire message queued in order.
         self.flush().await;
         Ok(())
+    }
+
+    async fn queue(&self, chat: i64, text: &str) -> Result<()> {
+        let key = uuid::Uuid::new_v4().simple().to_string();
+        self.queue_with_key(chat, text, &key).await
     }
 
     async fn send(&self, chat: i64, text: &str) {
@@ -99,19 +102,25 @@ impl Bot {
     /// Serialize flushes to avoid sending the same unacknowledged row twice.
     async fn flush(&self) {
         let _lock = self.dispatch_lock.lock().await;
-        let due = match self.spool.due(
-            ChannelKind::Telegram,
-            &self.account_id,
-            crate::util::now_ts(),
-            40,
-        ) {
-            Ok(rows) => rows,
-            Err(err) => {
-                eprintln!("HERON Telegram: cannot load queued replies: {err}");
-                return;
-            }
-        };
-        for msg in due {
+        // Claim immediately before the HTTP request. Leases last 60s while
+        // this client's request times out after 40s. Never pre-lease a slow
+        // batch that can expire while earlier messages are being delivered.
+        for _ in 0..40 {
+            let msg = match self.spool.due(
+                ChannelKind::Telegram,
+                &self.account_id,
+                crate::util::now_ts(),
+                1,
+            ) {
+                Ok(batch) => match batch.into_iter().next() {
+                    Some(msg) => msg,
+                    None => break,
+                },
+                Err(err) => {
+                    eprintln!("HERON Telegram: cannot load queued replies: {err}");
+                    break;
+                }
+            };
             let chat = match msg.identity.chat_id.parse::<i64>() {
                 Ok(chat) => chat,
                 Err(_) => {
@@ -369,7 +378,7 @@ async fn forward_inbox(app: &App, bot: &Bot, chat: i64) {
     items.retain(|m| m.id > last);
     items.sort_by_key(|m| m.id);
     for m in items {
-        if bot.queue(chat, &format!("{}\n\n{}", m.title, m.body)).await.is_ok() {
+        if bot.queue_with_key(chat, &format!("{}\n\n{}", m.title, m.body), &format!("inbox:{}", m.id)).await.is_ok() {
             // Inbox advancement means durably queued, not necessarily delivered.
             let _ = app.store.kv_set("telegram_inbox_last", &m.id.to_string());
         } else {
