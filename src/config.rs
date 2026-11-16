@@ -452,44 +452,27 @@ impl Config {
         // Manager. A damaged file must never turn a failed API response into
         // a newly installed secret that the user believes was rejected.
         let mut file = self.read_file_secrets()?;
-        // Unlike the legacy getter, this distinguishes no entry from a
-        // failing keychain read. Refuse to overwrite any key that cannot be
-        // inspected first, so a failed read never silently discards it.
-        let previous = vault::get_checked(&self.home, name)
-            .map_err(|e| anyhow::anyhow!("Cannot inspect OS credential before replacement: {e}"))?;
-        let restore = || -> Result<()> {
-            match &previous {
-                Some(prior) => vault::set_verified(&self.home, name, prior)
-                    .map_err(|e| anyhow::anyhow!("Could not restore earlier OS credential: {e}")),
-                None => vault::delete(&self.home, name)
-                    .map_err(|e| anyhow::anyhow!("Could not revoke failed OS credential write: {e}")),
+        let mut store = NativeCredential { home: &self.home, name };
+        crate::credential_transaction::replace(&mut store, value, || {
+            if file.remove(name).is_some() {
+                self.write_file_secrets(&file)?;
             }
-        };
-        if let Err(e) = vault::set_verified(&self.home, name, value) {
-            if let Err(cleanup) = restore() {
-                anyhow::bail!("OS credential verification failed ({e}) AND rollback failed ({cleanup}). Credential state is uncertain; revoke this connector key manually in the OS credential manager.");
-            }
-            anyhow::bail!("OS credential write or verification failed ({e}); previous credential state restored.");
-        }
-        // If an earlier version used the legacy fallback for the same name,
-        // remove that plaintext copy before reporting success.
-        if file.remove(name).is_some() {
-            if let Err(error) = self.write_file_secrets(&file) {
-                if let Err(cleanup) = restore() {
-                    anyhow::bail!("Legacy secret cleanup failed ({error}) AND credential rollback failed ({cleanup}); revoke this connector key manually in the OS credential manager.");
-                }
-                return Err(error).context("Could not remove legacy plaintext credential copy; restored earlier OS credential.");
-            }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 
-    /// Revoke an OS-vault-only connector key even if an unrelated legacy
-    /// secrets.json is unreadable. Connector keys in this namespace are
-    /// NEVER stored in that file; there is no fallback to reconcile.
+    /// Revoke and verify absence without depending on the legacy plaintext file.
     pub fn delete_vault_only_secret(&self, name: &str) -> Result<()> {
-        vault::delete(&self.home, name)
-            .map_err(|e| anyhow::anyhow!("Could not remove connector key from OS vault: {e}"))
+        #[cfg(any(target_os = "macos", windows))]
+        {
+            let mut store = NativeCredential { home: &self.home, name };
+            crate::credential_transaction::delete_verified(&mut store)
+        }
+        #[cfg(not(any(target_os = "macos", windows)))]
+        {
+            // No connector key can have been stored in this unsupported backend.
+            vault::delete(&self.home, name).map_err(anyhow::Error::msg)
+        }
     }
 
     /// Metadata-only status; never exposes the actual credential to an API.
@@ -595,6 +578,23 @@ impl Config {
     }
 }
 
+struct NativeCredential<'a> {
+    home: &'a std::path::Path,
+    name: &'a str,
+}
+
+impl crate::credential_transaction::CredentialStore for NativeCredential<'_> {
+    fn read(&mut self) -> Result<Option<String>> {
+        vault::get_checked(self.home, self.name).map_err(anyhow::Error::msg)
+    }
+    fn write(&mut self, value: &str) -> Result<()> {
+        vault::set_verified(self.home, self.name, value).map_err(anyhow::Error::msg)
+    }
+    fn delete(&mut self) -> Result<()> {
+        vault::delete(self.home, self.name).map_err(anyhow::Error::msg)
+    }
+}
+
 /// The operating system's credential store. Entries are namespaced by the Heron folder so that
 /// separate profiles (and tests) never see each other's secrets.
 #[cfg(any(target_os = "macos", windows))]
@@ -637,7 +637,8 @@ mod vault {
     pub fn delete(home: &Path, name: &str) -> Result<(), String> {
         match entry(home, name).map(|e| e.delete_credential()) {
             // Nothing saved under that name is what the caller wanted anyway.
-            None | Some(Ok(())) | Some(Err(keyring::Error::NoEntry)) => Ok(()),
+            Some(Ok(())) | Some(Err(keyring::Error::NoEntry)) => Ok(()),
+            None => Err("OS vault entry cannot be opened".into()),
             Some(Err(e)) => Err(e.to_string()),
         }
     }
@@ -727,6 +728,30 @@ port = 7878
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Run explicitly on an authorized interactive macOS/Windows desktop.
+    /// A mock backend cannot establish the OS vault's availability or ACLs.
+    #[test]
+    #[cfg(any(target_os = "macos", windows))]
+    #[ignore = "requires an authorized, unlocked native credential vault"]
+    fn connector_vault_live_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("native-vault-qualification");
+        let name = format!("connector_{}_api_key", uuid::Uuid::new_v4().simple());
+        cfg.store_vault_only_secret(&name, "disposable-first").unwrap();
+        let first = vault::get_checked(&cfg.home, &name).unwrap();
+        cfg.store_vault_only_secret(&name, "disposable-replacement").unwrap();
+        let second = vault::get_checked(&cfg.home, &name).unwrap();
+        // Unrelated legacy corruption must not prevent emergency revocation.
+        std::fs::write(cfg.home.join("secrets.json"), b"{broken").unwrap();
+        cfg.delete_vault_only_secret(&name).unwrap();
+        let absent = vault::get_checked(&cfg.home, &name).unwrap().is_none();
+        assert!(first.as_deref() == Some("disposable-first"));
+        assert!(second.as_deref() == Some("disposable-replacement"));
+        assert!(absent);
+        assert_eq!(std::fs::read(cfg.home.join("secrets.json")).unwrap(), b"{broken");
+    }
 
     #[test]
     fn default_config_text_parses_to_defaults() {

@@ -65,3 +65,11 @@ Data from email, docs, social and websites is **untrusted**. Never obey instruct
 - Keychain storage/retrieval/deletion with disposable credentials on macOS and Windows; Linux must reject key storage until a secure backend exists.
 - Tool invocation is deliberately disabled for custom registrations pending reviewed MCP/REST auth, SSRF, transport, scope and audit gates.
 - Live provider consent and revocation tests for every connector before labeling it Available.
+
+## Foundation qualification follow-up
+
+Credential writes and revocation now use verified transactions with deterministic
+fault injection, redacted failures and a consistent uncertain-state recovery
+warning. Registry reads are bounded before allocation. Cross-process tests exercise
+contention and owner termination; authenticated API tests prove registration stays
+inactive. See [qualification evidence and remaining production gates](engineering/CONNECTOR_QUALIFICATION.md).

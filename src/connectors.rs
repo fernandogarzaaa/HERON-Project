@@ -7,7 +7,7 @@ use crate::config::Config;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use url::{Host, Url};
@@ -89,7 +89,7 @@ fn registry_path(cfg: &Config) -> PathBuf {
 fn lock_registry(cfg: &Config) -> Result<std::fs::File> {
     cfg.ensure_home()?;
     let mut opts = OpenOptions::new();
-    opts.write(true).create(true);
+    opts.write(true).create(true).truncate(false);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -136,7 +136,7 @@ fn validate_endpoint(endpoint: &str) -> Result<()> {
 
 pub fn validate(spec: &CustomConnector) -> Result<()> {
     validate_id(&spec.id)?;
-    if !(2..=80).contains(&spec.name.trim().len()) || spec.name.contains('\n') || spec.name.contains('\r') {
+    if !(2..=80).contains(&spec.name.trim().len()) || spec.name.chars().any(char::is_control) {
         bail!("Connector name must contain 2–80 characters on one line.");
     }
     if !["communication", "files", "productivity", "development", "social", "crm",
@@ -154,13 +154,16 @@ pub fn validate(spec: &CustomConnector) -> Result<()> {
 
 fn load(cfg: &Config) -> Result<RegistryFile> {
     let path = registry_path(cfg);
-    let bytes = match fs::read(&path) {
-        Ok(bytes) => bytes,
+    let file = match fs::File::open(&path) {
+        Ok(file) => file,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(RegistryFile { version: VERSION, custom: Vec::new() });
         }
         Err(e) => return Err(e).context("Cannot read connector registry."),
     };
+    let mut bytes = Vec::new();
+    file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)
+        .context("Cannot read connector registry.")?;
     if bytes.len() as u64 > MAX_FILE_BYTES {
         bail!("Connector registry exceeds its safe size limit.");
     }
@@ -388,5 +391,96 @@ mod tests {
         let card = list(&cfg).unwrap().into_iter().find(|x| x.id == "my_api").unwrap();
         assert_eq!(card.status, "saved_not_active");
         assert_eq!(card.permission, "approval_required");
+    }
+
+    // Spawn the test executable itself, not a shell or an in-process second
+    // file handle. This exercises the actual OS lock on every CI platform.
+    #[test]
+    fn registry_child_process() {
+        let Ok(home) = std::env::var("HERON_REGISTRY_TEST_HOME") else { return };
+        let mut cfg = Config::default();
+        cfg.home = home.into();
+        match std::env::var("HERON_REGISTRY_TEST_ACTION").unwrap().as_str() {
+            "blocked" => {
+                let err = register(&cfg, sample()).unwrap_err();
+                assert!(format!("{err:#}").contains("busy in another HERON instance"));
+            }
+            "register" => register(&cfg, sample()).unwrap(),
+            "hold" => {
+                let _held = lock_registry(&cfg).unwrap();
+                fs::write(cfg.home.join("child-ready"), b"ready").unwrap();
+                // Parent terminates us after observing the readiness marker.
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                panic!("parent failed to terminate lock owner");
+            }
+            _ => panic!("unknown test action"),
+        }
+    }
+
+    fn child(cfg: &Config, action: &str) -> std::process::Child {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "connectors::tests::registry_child_process", "--nocapture"])
+            .env("HERON_REGISTRY_TEST_HOME", &cfg.home)
+            .env("HERON_REGISTRY_TEST_ACTION", action)
+            .spawn().unwrap()
+    }
+
+    #[test]
+    fn two_process_transactions_fail_closed_then_preserve_both_registrations() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = temp.path().join("heron");
+        let mut first = sample();
+        first.id = "first_api".into();
+        register(&cfg, first).unwrap();
+        let before = fs::read(registry_path(&cfg)).unwrap();
+        let held = lock_registry(&cfg).unwrap();
+        assert!(child(&cfg, "blocked").wait().unwrap().success());
+        assert_eq!(fs::read(registry_path(&cfg)).unwrap(), before);
+        drop(held);
+        assert!(child(&cfg, "register").wait().unwrap().success());
+        let cards = list(&cfg).unwrap();
+        for id in ["first_api", "my_api"] {
+            assert!(cards.iter().any(|card| card.id == id));
+        }
+    }
+
+    #[test]
+    fn terminated_process_releases_registry_lock_without_stale_lock_cleanup() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = temp.path().join("heron");
+        cfg.ensure_home().unwrap();
+        let mut owner = child(&cfg, "hold");
+        let ready = cfg.home.join("child-ready");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !ready.exists() && std::time::Instant::now() < deadline {
+            assert!(owner.try_wait().unwrap().is_none(), "lock owner exited before readiness");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let was_ready = ready.exists();
+        let was_locked = lock_registry(&cfg).is_err();
+        owner.kill().unwrap();
+        owner.wait().unwrap();
+        assert!(was_ready, "child never acquired registry lock");
+        assert!(was_locked, "another process bypassed the lock");
+        register(&cfg, sample()).unwrap();
+    }
+
+    #[test]
+    fn oversized_registry_and_control_characters_fail_closed() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = temp.path().into();
+        let path = registry_path(&cfg);
+        fs::File::create(&path).unwrap().set_len(MAX_FILE_BYTES + 1).unwrap();
+        assert!(list(&cfg).is_err());
+        assert!(register(&cfg, sample()).is_err());
+        assert_eq!(fs::metadata(path).unwrap().len(), MAX_FILE_BYTES + 1);
+        for c in ['\0', '\t', '\u{1b}', '\u{7f}'] {
+            let mut spec = sample();
+            spec.name.push(c);
+            assert!(validate(&spec).is_err());
+        }
     }
 }
