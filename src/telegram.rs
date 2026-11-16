@@ -168,7 +168,7 @@ impl Bot {
 #[derive(Default)]
 struct Shared {
     /// A question waiting for the owner's yes/no.
-    pending: Mutex<Option<oneshot::Sender<bool>>>,
+    pending: Mutex<Option<(String, oneshot::Sender<bool>)>>,
     /// The reply in progress, with a number so a finished reply can only clear its own entry.
     running: Mutex<Option<(u64, tokio::task::AbortHandle)>>,
     next_run: std::sync::atomic::AtomicU64,
@@ -196,9 +196,22 @@ impl Approver for TelegramApprover {
             self.bot.send(self.chat, &format!("Heron wanted to use {} but did not: {why}, so it can only be approved at your computer.", req.tool)).await;
             return Approval::Deny(Some("this can only be approved at the user's computer, not from a phone".into()));
         }
+        // Approval questions are deliberately NOT placed in the durable
+        // outbound spool: an expired, stopped or rebooted request must never
+        // surface as a live question after delivery recovers.
+        let challenge = new_code().to_ascii_lowercase();
         let (tx, rx) = oneshot::channel();
-        *self.shared.pending.lock().unwrap() = Some(tx);
-        self.bot.send(self.chat, &format!("Heron wants permission ({}):\n\n{}\n\nReply yes or no.", req.tool, crate::util::truncate_middle(&req.detail, 1200))).await;
+        *self.shared.pending.lock().unwrap() = Some((challenge.clone(), tx));
+        let prompt = format!(
+            "Heron wants permission ({}):\n\n{}\n\nReply yes {challenge} or no {challenge}.",
+            req.tool, crate::util::truncate_middle(&req.detail, 1200)
+        );
+        if self.bot.call("sendMessage", json!({"chat_id": self.chat, "text": prompt}))
+            .await.is_err()
+        {
+            self.shared.pending.lock().unwrap().take();
+            return Approval::Deny(Some("The permission prompt could not be delivered; no action was authorized.".into()));
+        }
         let answer = tokio::time::timeout(Duration::from_secs(600), rx).await;
         self.shared.pending.lock().unwrap().take();
         match answer {
@@ -317,10 +330,33 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
         bot.send(chat, "Paused. Heron will start nothing on its own (reminders, triggers, suggestions) until you send /resume.").await;
         return;
     }
-    // A pending yes/no question takes the next message.
-    if let Some(tx) = shared.pending.lock().unwrap().take() {
-        let _ = tx.send(matches!(lower.as_str(), "yes" | "y" | "ok" | "allow"));
-        return;
+    // A late response to a prior prompt must not approve whichever action
+    // happens to be waiting now. Replies require the challenge displayed
+    // in that precise approval request, and bare "yes" is not enough.
+    let reply = {
+        let mut pending = shared.pending.lock().unwrap();
+        match pending.as_ref() {
+            Some((challenge, _)) => {
+                let words: Vec<_> = lower.split_whitespace().collect();
+                let is_yes = words.first().is_some_and(|w| matches!(*w, "yes" | "y" | "ok" | "allow"));
+                let is_no = words.first().is_some_and(|w| matches!(*w, "no" | "n" | "deny"));
+                if words.len() == 2 && words[1] == challenge && (is_yes || is_no) {
+                    let (_, tx) = pending.take().expect("approval pending was just checked");
+                    Some(Ok((tx, is_yes)))
+                } else {
+                    Some(Err(()))
+                }
+            }
+            None => None,
+        }
+    };
+    match reply {
+        Some(Ok((tx, allow))) => { let _ = tx.send(allow); return; }
+        Some(Err(())) => {
+            bot.send(chat, "An approval is pending. Reply using the exact yes/no code displayed in the permission question, or send /stop.").await;
+            return;
+        }
+        None => {}
     }
     match lower.as_str() {
         "/new" => {
