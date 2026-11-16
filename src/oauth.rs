@@ -158,6 +158,21 @@ pub async fn finish(cfg: &Config, pending: Pending, code: &str) -> Result<()> {
         ("client_id", &pending.client_id), ("code", code), ("code_verifier", &pending.verifier),
         ("redirect_uri", &pending.redirect_uri), ("grant_type", "authorization_code"),
     ]).await?;
+    if pending.provider == Provider::Google {
+        // Google allows granular consent. A token with Gmail but without
+        // Calendar would otherwise look connected while every sync fails.
+        // Never install an unusable, partially authorized connection.
+        let granted = token.get("scope").and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("Google did not report granted OAuth scopes. Reconnect and grant both Gmail and Calendar read access."))?;
+        let granted: std::collections::HashSet<&str> = granted.split_whitespace().collect();
+        let required = [
+            "https://www.googleapis.com/auth/gmail.readonly",
+            "https://www.googleapis.com/auth/calendar.readonly",
+        ];
+        if required.iter().any(|scope| !granted.contains(scope)) {
+            bail!("Google account consent was incomplete. Grant both Gmail and Calendar read-only access, then reconnect.");
+        }
+    }
     let refresh = token.get("refresh_token").and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| anyhow!("No offline access was granted. Remove the existing app consent and connect again."))?;
@@ -355,20 +370,23 @@ pub async fn sync(app: &App, provider: Provider) -> Result<(usize, usize)> {
     if provider.account_epoch(&cfg).as_deref() != Some(epoch_at_start.as_str()) || !provider.connected(&cfg) {
         bail!("Account was disconnected or changed while the sync was running.");
     }
-    app.store.clear_knowledge(provider.mail_source())?;
-    for rec in &email {
-        app.store.upsert_knowledge(provider.mail_source(), &rec.id, &rec.title, &rec.body, rec.timestamp)?;
-    }
-    app.store.clear_knowledge(provider.calendar_source())?;
-    for rec in &calendar {
-        app.store.upsert_knowledge(provider.calendar_source(), &rec.id, &rec.title, &rec.body, rec.timestamp)?;
-    }
+    let rows = |items: &[Record]| -> Vec<(String, String, String, i64)> {
+        items.iter().map(|rec| (rec.id.clone(), rec.title.clone(), rec.body.clone(), rec.timestamp)).collect()
+    };
+    app.store.replace_knowledge_snapshot(provider.mail_source(), &rows(&email))?;
+    app.store.replace_knowledge_snapshot(provider.calendar_source(), &rows(&calendar))?;
     Ok((email.len(), calendar.len()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn incomplete_granular_google_consent_is_not_accepted_as_full_sync() {
+        let required = Provider::Google.scopes();
+        assert!(required.contains("gmail.readonly"));
+        assert!(required.contains("calendar.readonly"));
+    }
     #[test]
     fn pkce_is_sha256_base64url_without_padding() {
         assert_eq!(challenge("hello"), "LPJNul-wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ");
