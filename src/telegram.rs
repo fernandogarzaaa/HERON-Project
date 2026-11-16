@@ -23,6 +23,7 @@ const MAX_MESSAGE: usize = 3800;
 struct Bot {
     client: reqwest::Client,
     base: String,
+    app: Arc<App>,
     account_id: String,
     spool: ChannelStore,
     dispatch_lock: Arc<tokio::sync::Mutex<()>>,
@@ -70,6 +71,9 @@ impl Bot {
     /// Fail-closed on local persistence errors: do not send a message that
     /// cannot be recovered if HERON stops before delivery completes.
     async fn queue(&self, chat: i64, text: &str) -> Result<()> {
+        if paired_chat(&self.app) != Some(chat) {
+            return Err(anyhow!("The chat is not paired; refusing to queue a reply"));
+        }
         let identity = self.identity(chat);
         for part in Self::chunks(text) {
             let key = uuid::Uuid::new_v4().simple().to_string();
@@ -110,6 +114,11 @@ impl Bot {
                     continue;
                 }
             };
+            if paired_chat(&self.app) != Some(chat) {
+                // Revocation must not leak a delayed response to a former owner.
+                let _ = self.spool.purge_account(ChannelKind::Telegram, &self.account_id);
+                break;
+            }
             match self.call("sendMessage", json!({"chat_id": chat, "text": msg.text})).await {
                 Ok(response) => {
                     let remote_id = response["message_id"].as_i64().map(|id| id.to_string());
@@ -365,6 +374,7 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
     let bot = Bot {
         client: reqwest::Client::builder().timeout(Duration::from_secs(40)).build().expect("http client"),
         base: format!("{}/bot{token}", api_base.trim_end_matches('/')),
+        app: app.clone(),
         account_id: format!("{:x}", Sha256::digest(token.as_bytes())),
         spool,
         dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
