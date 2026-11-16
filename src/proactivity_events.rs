@@ -139,7 +139,21 @@ impl ProactivityJournal {
                UNIQUE(event_id)
              );
              CREATE INDEX IF NOT EXISTS idx_connector_suggestions_budget
-               ON connector_suggestions(connector, account, queued_at);",
+               ON connector_suggestions(connector, account, queued_at);
+             -- A notification budget is audit/accounting state, independent of
+             -- evidence rows that expire or are purged at consent rotation.
+             CREATE TABLE IF NOT EXISTS connector_budget_ledger(
+               connector TEXT NOT NULL,
+               account TEXT NOT NULL,
+               event_hash TEXT NOT NULL,
+               queued_at INTEGER NOT NULL,
+               PRIMARY KEY(connector, account, event_hash)
+             );
+             CREATE INDEX IF NOT EXISTS idx_connector_budget_window
+               ON connector_budget_ledger(connector, account, queued_at);
+             INSERT OR IGNORE INTO connector_budget_ledger(connector,account,event_hash,queued_at)
+             SELECT s.connector,s.account,e.provider_event_hash,s.queued_at
+             FROM connector_suggestions s JOIN connector_events e ON s.event_id=e.id;",
         )?;
         db.execute_batch("PRAGMA foreign_keys=ON;")?;
         Ok(Self { db: Mutex::new(db) })
@@ -291,13 +305,29 @@ impl ProactivityJournal {
         if existing > 0 {
             return Ok(false);
         }
+        // Consent rotation and evidence retention must never reset this
+        // rolling window. The independent ledger is pruned after the window.
+        tx.execute(
+            "DELETE FROM connector_budget_ledger WHERE queued_at<=?1",
+            [now.saturating_sub(DAY)],
+        )?;
         let count: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM connector_suggestions
+            "SELECT COUNT(*) FROM connector_budget_ledger
              WHERE connector=?1 AND account=?2 AND queued_at>?3",
             params![connector, account, now.saturating_sub(DAY)],
             |row| row.get(0),
         )?;
         if count >= MAX_PENDING_PER_DAY {
+            return Ok(false);
+        }
+        // Ensure this provider event has not been counted already even after
+        // its evidence was purged, then charge the budget atomically.
+        let ledger_added = tx.execute(
+            "INSERT OR IGNORE INTO connector_budget_ledger
+             (connector,account,event_hash,queued_at) VALUES (?1,?2,?3,?4)",
+            params![connector, account, digest(provider_event_id), now],
+        )?;
+        if ledger_added == 0 {
             return Ok(false);
         }
         tx.execute(
@@ -374,6 +404,28 @@ mod tests {
         sensitive.sensitivity = Sensitivity::Sensitive;
         assert_eq!(journal.admit(&sensitive, 100).unwrap(), EventAdmission::Accepted);
         assert!(!journal.propose("gmail", "personal", "private", 100).unwrap());
+    }
+
+    #[test]
+    fn pruning_or_rotating_consent_does_not_reset_daily_budget() {
+        let journal = ProactivityJournal::in_memory().unwrap();
+        journal.register_consent("gmail", "personal", "v1", 10_000, 100).unwrap();
+        for i in 0..5 {
+            let mut e = event(&format!("first-{i}"));
+            e.ttl_seconds = 1;
+            assert_eq!(journal.admit(&e, 100).unwrap(), EventAdmission::Accepted);
+            assert!(journal.propose("gmail", "personal", &e.provider_event_id, 100).unwrap());
+        }
+        assert_eq!(journal.prune_expired(102).unwrap(), 5);
+        journal.register_consent("gmail", "personal", "v2", 10_000, 102).unwrap();
+        let mut fresh = event("sixth");
+        fresh.consent_version = "v2".into();
+        fresh.observed_at = 102;
+        assert_eq!(journal.admit(&fresh, 102).unwrap(), EventAdmission::Accepted);
+        assert!(!journal.propose("gmail", "personal", "sixth", 102).unwrap(),
+            "evidence deletion and new consent cannot replenish the budget");
+        assert!(journal.propose("gmail", "personal", "sixth", 100 + DAY + 1).unwrap() == false,
+            "expired evidence cannot be proposed after the budget period");
     }
 
     #[test]
