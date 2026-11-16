@@ -28,6 +28,11 @@ jobs:
         env:
           # Also drive the machine's real browser (Chrome or Edge) against a local test site.
           HERON_TEST_BROWSER: "1"
+      - name: Qualify native connector credential vault
+        if: runner.os == 'macOS' || runner.os == 'Windows'
+        # Exercise the real OS backend with disposable, profile-isolated keys.
+        # Keep this required: a locked/unavailable backend is not a passing gate.
+        run: cargo test --locked --lib config::tests::connector_vault_live_round_trip -- --ignored --exact
       - name: Build the desktop app
         run: cargo build --locked --features desktop --bins
       - name: Desktop bridge and SSE tests

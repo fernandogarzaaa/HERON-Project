@@ -136,6 +136,12 @@ pub fn router(app: Arc<App>, token: String) -> Router {
         .route("/audit", get(get_audit))
         .route("/awareness", get(get_awareness).post(set_awareness).delete(clear_awareness))
         .route("/mcp/{name}/accept", post(accept_mcp))
+        // Connector directory is metadata only. Creating registrations or
+        // storing API keys never activates a remote tool or exposes a key.
+        .route("/connectors", get(list_connectors))
+        .route("/connectors/custom", post(add_custom_connector))
+        .route("/connectors/custom/{id}", delete(delete_custom_connector))
+        .route("/connectors/custom/{id}/api-key", post(set_connector_api_key).delete(delete_connector_api_key))
         .route("/persona", get(get_persona).post(set_persona).delete(reset_persona))
         .route("/pause", post(set_pause))
         .route("/backup", post(make_backup))
@@ -777,6 +783,67 @@ async fn accept_mcp(State(st): S, Path(name): Path<String>) -> ApiResult {
 }
 
 // ---------- character, pause, waiting approvals, per-tool settings, today ----------
+
+// ---------- Connector directory + isolated credential vault ----------
+
+async fn list_connectors(State(st): S) -> ApiResult {
+    let cfg = st.app.cfg();
+    Ok(Json(json!({
+        "connectors": crate::connectors::list(&cfg)?,
+        "vault": {
+            "backend": cfg.secret_storage(),
+            "os_keychain_supported": cfg!(any(target_os = "macos", windows)),
+            "credentials_readable_by_agent": false
+        },
+        "custom_execution_enabled": false,
+    })))
+}
+
+fn local_connector_admin(st: &ServerState, headers: &HeaderMap) -> std::result::Result<(), ApiError> {
+    if st.loopback_only && request_is_local(headers) {
+        Ok(())
+    } else {
+        Err(ApiError(StatusCode::FORBIDDEN,
+            "Connector and credential changes require HERON's authenticated local desktop server.".into()))
+    }
+}
+
+async fn add_custom_connector(
+    State(st): S, headers: HeaderMap,
+    Json(spec): Json<crate::connectors::CustomConnector>
+) -> ApiResult {
+    local_connector_admin(&st, &headers)?;
+    let id = spec.id.clone();
+    crate::connectors::register(&st.app.cfg(), spec)?;
+    st.app.store.audit("connectors", "connector.register", &id, "user-local", "metadata saved; not activated");
+    Ok(Json(json!({"id": id, "status": "saved_not_active"})))
+}
+
+async fn delete_custom_connector(State(st): S, Path(id): Path<String>, headers: HeaderMap) -> ApiResult {
+    local_connector_admin(&st, &headers)?;
+    crate::connectors::remove_custom(&st.app.cfg(), &id)?;
+    st.app.store.audit("connectors", "connector.delete", &id, "user-local", "credential removed");
+    Ok(Json(json!({"id": id, "deleted": true})))
+}
+
+async fn set_connector_api_key(
+    State(st): S, Path(id): Path<String>, headers: HeaderMap, Json(body): Json<Value>
+) -> ApiResult {
+    local_connector_admin(&st, &headers)?;
+    let key = body.get("api_key").and_then(Value::as_str)
+        .ok_or_else(|| bad("Supply the connector API key."))?;
+    // There must be no audit entry containing an input key or HTTP body.
+    crate::connectors::put_api_key(&st.app.cfg(), &id, key)?;
+    st.app.store.audit("connectors", "credential.store", &id, "user-local", "stored in OS vault");
+    Ok(Json(json!({"id": id, "has_credential": true})))
+}
+
+async fn delete_connector_api_key(State(st): S, Path(id): Path<String>, headers: HeaderMap) -> ApiResult {
+    local_connector_admin(&st, &headers)?;
+    crate::connectors::remove_api_key(&st.app.cfg(), &id)?;
+    st.app.store.audit("connectors", "credential.delete", &id, "user-local", "removed");
+    Ok(Json(json!({"id": id, "has_credential": false})))
+}
 
 async fn get_persona(State(st): S) -> ApiResult {
     let cfg = st.app.cfg();
