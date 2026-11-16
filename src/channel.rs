@@ -37,6 +37,27 @@ impl ChannelKind {
     }
 }
 
+/// Adapter-reported features must be negotiated, never assumed from a
+/// provider name. Future message channels may support different media.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ChannelCapabilities {
+    pub threads: bool,
+    pub attachments: bool,
+    pub typing_indicator: bool,
+    pub progressive_edits: bool,
+    pub remote_approvals: bool,
+}
+
+/// A platform adapter must authenticate its incoming messages using the
+/// platform's supported SDK/webhook signature and map them to InboundMessage.
+/// This trait handles delivery only; it confers no agent tool privileges.
+#[async_trait::async_trait]
+pub trait ChannelAdapter: Send + Sync {
+    fn kind(&self) -> ChannelKind;
+    fn capabilities(&self) -> ChannelCapabilities;
+    async fn deliver(&self, message: &OutboundMessage) -> Result<Option<String>>;
+}
+
 /// Provider-authenticated identity. Account, chat and user are independent:
 /// never route a shared-channel event using chat ID alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
