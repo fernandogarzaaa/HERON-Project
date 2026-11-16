@@ -133,7 +133,10 @@ impl Bot {
                 }
                 Err(err) => {
                     let _ = self.spool.retry(msg.id, &msg.identity, crate::util::now_ts());
-                    eprintln!("HERON Telegram: delivery failed; retry queued: {err}");
+                    // reqwest errors may contain the bot URL (which embeds its token).
+                    // Never log raw provider errors or request URLs.
+                    let _ = err;
+                    eprintln!("HERON Telegram: delivery failed; retry queued.");
                     break;
                 }
             }
@@ -256,6 +259,11 @@ pub fn unpair(app: &App) {
             let _ = spool.purge_account(ChannelKind::Telegram, &account);
         }
     }
+    // A new pairing (or replaced bot token) must never reuse a previous
+    // owner's conversation, cached notifications, or Telegram update cursor.
+    let _ = app.store.kv_set("telegram_session", "");
+    let _ = app.store.kv_set("telegram_offset", "0");
+    let _ = app.store.kv_set("telegram_inbox_last", "0");
     let _ = app.store.kv_set("telegram_chat", "");
     let _ = app.store.kv_set("telegram_code", &new_code());
     let _ = app.store.kv_set("telegram_wrong", "0");
@@ -379,6 +387,15 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
         spool,
         dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
+    // An accepted turn left unfinished by a crash may have performed a tool
+    // action before stopping. Do not re-execute it automatically.
+    if let Ok(count) = bot.spool.mark_interrupted(ChannelKind::Telegram, &bot.account_id) {
+        if count > 0 {
+            if let Some(chat) = paired_chat(&app) {
+                bot.send(chat, &format!("{count} prior request(s) may have been interrupted. Please resend anything still needed.")).await;
+            }
+        }
+    }
     let shared: Arc<Shared> = Default::default();
     let mut offset: i64 = app.store.kv_get("telegram_offset").and_then(|v| v.parse().ok()).unwrap_or(0);
     let poll_secs = if api_base.contains("127.0.0.1") { 0 } else { 25 };
@@ -391,11 +408,14 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
             }
         };
         for u in updates.as_array().cloned().unwrap_or_default() {
-            let update_id = u["update_id"].as_i64().unwrap_or(0);
+            let Some(update_id) = u["update_id"].as_i64().filter(|id| *id > 0) else {
+                continue;
+            };
             let next_offset = offset.max(update_id + 1);
             if let Some(chat) = u["message"]["chat"]["id"].as_i64() {
                 // Never authorize groups: someone else could post a command.
-                if u["message"]["chat"]["type"].as_str().unwrap_or("private") == "private" {
+                if u["message"]["chat"]["type"].as_str() == Some("private")
+                    && u["message"]["from"]["id"].as_i64() == Some(chat) {
                     let text = u["message"]["text"].as_str().map(str::to_string);
                     match paired_chat(&app) {
                         Some(owner) if owner == chat => match text {

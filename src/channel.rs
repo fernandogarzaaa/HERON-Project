@@ -115,6 +115,11 @@ impl ChannelStore {
                 Err(err) => return Err(err.into()),
             }
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
         let db = Connection::open(path)?;
         Self::init(db)
     }
@@ -127,7 +132,9 @@ impl ChannelStore {
     fn init(db: Connection) -> Result<Self> {
         db.busy_timeout(std::time::Duration::from_secs(5))?;
         db.execute_batch(
-            "PRAGMA journal_mode=WAL;
+            "PRAGMA journal_mode=DELETE;
+             PRAGMA synchronous=FULL;
+             PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS channel_inbox(
                kind TEXT NOT NULL, account_id TEXT NOT NULL, chat_id TEXT NOT NULL,
                sender_id TEXT NOT NULL, provider_message_id TEXT NOT NULL,
@@ -194,13 +201,26 @@ impl ChannelStore {
         check_id(provider_message_id)?;
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
-            "UPDATE channel_inbox SET status='done'
+            "UPDATE channel_inbox SET status='done',text=''
              WHERE kind=?1 AND account_id=?2 AND chat_id=?3 AND sender_id=?4
              AND provider_message_id=?5",
             params![identity.kind.name(), identity.account_id, identity.chat_id,
                     identity.sender_id, provider_message_id],
         )?;
         Ok(())
+    }
+
+    /// On restart an accepted-but-incomplete turn is uncertain: it may have
+    /// already used tools. Suppress automatic replay and ask the owner to
+    /// resend instead of silently executing potentially non-idempotent work.
+    pub fn mark_interrupted(&self, kind: ChannelKind, account: &str) -> Result<usize> {
+        check_id(account)?;
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.execute(
+            "UPDATE channel_inbox SET status='interrupted',text=''
+             WHERE kind=?1 AND account_id=?2 AND status='accepted'",
+            params![kind.name(), account],
+        )?)
     }
 
     /// Queues an at-least-once response. Callers supply an event-specific
@@ -224,8 +244,19 @@ impl ChannelStore {
         check_text(text)?;
         let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction()?;
+        // A replay of an existing key must remain idempotent even when
+        // the backlog has reached its admission limit.
+        let prior: Option<i64> = tx.query_row(
+            "SELECT id FROM channel_outbox WHERE kind=?1 AND account_id=?2 AND idempotency_key=?3",
+            params![identity.kind.name(), identity.account_id, key],
+            |row| row.get(0),
+        ).optional()?;
+        if let Some(id) = prior {
+            tx.commit()?;
+            return Ok(id);
+        }
         let pending: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM channel_outbox WHERE status='pending'",
+            "SELECT COUNT(*) FROM channel_outbox WHERE status IN ('pending','leased')",
             [], |row| row.get(0)
         )?;
         if pending >= MAX_PENDING {
@@ -247,30 +278,46 @@ impl ChannelStore {
         Ok(id)
     }
 
+    /// Lease messages atomically across processes. A crashed sender can retry
+    /// only after its lease expires. Telegram does not offer idempotent sends,
+    /// so a crash after provider acceptance but before ack can still repeat
+    /// the message; every outbound action must remain non-high-impact.
     pub fn due(&self, kind: ChannelKind, account: &str, now: i64, limit: usize) -> Result<Vec<OutboundMessage>> {
         check_id(account)?;
-        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let mut stmt = db.prepare(
-            "SELECT id,chat_id,sender_id,thread_id,text,attempts
-             FROM channel_outbox
-             WHERE kind=?1 AND account_id=?2 AND status='pending' AND next_attempt<=?3
-             ORDER BY id LIMIT ?4"
-        )?;
-        let rows = stmt.query_map(params![kind.name(), account, now, limit.min(100) as i64], |row| {
-            Ok(OutboundMessage {
-                id: row.get(0)?,
-                identity: ChannelIdentity {
-                    kind,
-                    account_id: account.to_string(),
-                    chat_id: row.get(1)?,
-                    sender_id: row.get(2)?,
-                },
-                thread_id: row.get(3)?,
-                text: row.get(4)?,
-                attempts: row.get(5)?,
-            })
-        })?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = db.transaction()?;
+        let batch: Vec<OutboundMessage> = {
+            let mut stmt = tx.prepare(
+                "SELECT id,chat_id,sender_id,thread_id,text,attempts
+                 FROM channel_outbox
+                 WHERE kind=?1 AND account_id=?2
+                   AND status IN ('pending','leased') AND next_attempt<=?3
+                 ORDER BY id LIMIT ?4"
+            )?;
+            let rows = stmt.query_map(params![kind.name(), account, now, limit.min(100) as i64], |row| {
+                Ok(OutboundMessage {
+                    id: row.get(0)?,
+                    identity: ChannelIdentity {
+                        kind,
+                        account_id: account.to_string(),
+                        chat_id: row.get(1)?,
+                        sender_id: row.get(2)?,
+                    },
+                    thread_id: row.get(3)?,
+                    text: row.get(4)?,
+                    attempts: row.get(5)?,
+                })
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for msg in &batch {
+            tx.execute(
+                "UPDATE channel_outbox SET status='leased',next_attempt=?2 WHERE id=?1",
+                params![msg.id, now.saturating_add(60)],
+            )?;
+        }
+        tx.commit()?;
+        Ok(batch)
     }
 
     /// Acknowledge only the named outbox row for the expected account.
@@ -281,9 +328,9 @@ impl ChannelStore {
         }
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
-            "UPDATE channel_outbox SET status='sent',provider_message_id=?1
+            "UPDATE channel_outbox SET status='sent',text='',provider_message_id=?1
              WHERE id=?2 AND kind=?3 AND account_id=?4 AND chat_id=?5 AND sender_id=?6
-             AND status='pending'",
+             AND status='leased'",
             params![message_id, id, identity.kind.name(), identity.account_id,
                     identity.chat_id, identity.sender_id],
         )?;
@@ -295,7 +342,7 @@ impl ChannelStore {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let attempts: Option<i64> = db.query_row(
             "SELECT attempts FROM channel_outbox WHERE id=?1 AND kind=?2
-             AND account_id=?3 AND chat_id=?4 AND sender_id=?5 AND status='pending'",
+             AND account_id=?3 AND chat_id=?4 AND sender_id=?5 AND status='leased'",
             params![id, identity.kind.name(), identity.account_id, identity.chat_id,
                     identity.sender_id],
             |row| row.get(0),
@@ -305,7 +352,8 @@ impl ChannelStore {
             let status = if next >= MAX_ATTEMPTS { "failed" } else { "pending" };
             let delay = 2_i64.pow(next.min(8) as u32).min(300);
             db.execute(
-                "UPDATE channel_outbox SET attempts=?1,next_attempt=?2,status=?3 WHERE id=?4",
+                "UPDATE channel_outbox SET attempts=?1,next_attempt=?2,status=?3,
+                 text=CASE WHEN ?3='failed' THEN '' ELSE text END WHERE id=?4",
                 params![next, now.saturating_add(delay), status, id],
             )?;
         }
@@ -332,7 +380,7 @@ impl ChannelStore {
 
     pub fn count_pending(&self) -> Result<i64> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        db.query_row("SELECT COUNT(*) FROM channel_outbox WHERE status='pending'", [], |r| r.get(0))
+        db.query_row("SELECT COUNT(*) FROM channel_outbox WHERE status IN ('pending','leased')", [], |r| r.get(0))
             .context("Cannot inspect channel outbox")
     }
 
@@ -406,6 +454,32 @@ mod tests {
         assert_eq!(store.count_failed().unwrap(), 1);
         store.purge_account(ChannelKind::Telegram, "bot-1").unwrap();
         assert_eq!(store.count_failed().unwrap(), 0);
+    }
+
+    #[test]
+    fn leased_outbox_cannot_be_claimed_twice_until_expiry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("channels.db");
+        let first = ChannelStore::open(&path).unwrap();
+        let second = ChannelStore::open(&path).unwrap();
+        let owner = owner();
+        let id = first.enqueue(&owner, None, "hello", "one", 100).unwrap();
+        assert_eq!(first.due(ChannelKind::Telegram, "bot-1", 100, 3).unwrap().len(), 1);
+        assert!(second.due(ChannelKind::Telegram, "bot-1", 100, 3).unwrap().is_empty());
+        assert!(second.due(ChannelKind::Telegram, "bot-1", 159, 3).unwrap().is_empty());
+        assert_eq!(second.due(ChannelKind::Telegram, "bot-1", 160, 3).unwrap().len(), 1);
+        first.delivered(id, &owner, Some("remote-1")).unwrap();
+        assert_eq!(first.count_pending().unwrap(), 0);
+    }
+
+    #[test]
+    fn interrupted_requests_are_not_replayed_automatically() {
+        let store = ChannelStore::in_memory().unwrap();
+        let owner = owner();
+        store.accept_inbound(&owner, &inbound("u1"), 100).unwrap();
+        assert_eq!(store.mark_interrupted(ChannelKind::Telegram, "bot-1").unwrap(), 1);
+        assert_eq!(store.mark_interrupted(ChannelKind::Telegram, "bot-1").unwrap(), 0);
+        assert!(!store.accept_inbound(&owner, &inbound("u1"), 101).unwrap());
     }
 
     #[test]
