@@ -387,7 +387,7 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
             return;
         }
     };
-    let bot = Bot {
+    let mut bot = Bot {
         client: reqwest::Client::builder().timeout(Duration::from_secs(40)).build().expect("http client"),
         base: format!("{}/bot{token}", api_base.trim_end_matches('/')),
         app: app.clone(),
@@ -469,6 +469,10 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
                             } else if same_code(sent, &pairing_code(&app)) {
                                 let _ = app.store.kv_set("telegram_wrong", "0");
                                 let _ = app.store.kv_set("telegram_chat", &chat.to_string());
+                                // The running transport adopts the new pairing code;
+                                // older cloned Bots retain their previous epoch and cannot
+                                // send queued results after re-pairing.
+                                bot.pairing_epoch = pairing_code(&app);
                                 let last_inbox = app.store.inbox(false, 1).ok().and_then(|i| i.first().map(|m| m.id)).unwrap_or(0);
                                 let _ = app.store.kv_set("telegram_inbox_last", &last_inbox.to_string());
                                 bot.send(chat, "Paired. This chat now talks to your Heron, and nobody else's messages will be answered.").await;
