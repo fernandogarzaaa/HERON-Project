@@ -401,7 +401,7 @@ async fn telegram_gateway_pairs_one_chat_ignores_strangers_and_asks_before_actin
 
     let say = |chat: i64, text: &str, kind: &str| {
         let id = mock.next.fetch_add(1, Ordering::SeqCst) as i64 + 1;
-        mock.updates.lock().unwrap().push_back(json!({"update_id": id, "message": {"chat": {"id": chat, "type": kind}, "text": text}}));
+        mock.updates.lock().unwrap().push_back(json!({"update_id": id, "message": {"chat": {"id": chat, "type": kind}, "from": {"id": chat}, "text": text}}));
     };
     let wait_for = |what: &'static str, cond: Box<dyn Fn(&[(i64, String)]) -> bool + Send>| {
         let mock = mock.clone();
