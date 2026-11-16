@@ -212,12 +212,21 @@ pub fn normalize_calendar_url(raw: &str) -> String {
 /// Calendar events in the next `hours`, as short lines for the prompt.
 pub fn upcoming(store: &Store, hours: i64, limit: usize) -> Vec<String> {
     let now = now_ts();
-    store
-        .knowledge_between("calendar", now - 3600, now + hours * 3600, limit)
-        .unwrap_or_default()
+    let mut all: Vec<KnowledgeItem> = ["calendar", "google_calendar", "microsoft_calendar"]
         .iter()
-        .map(|k| format!("{} — {}", preview(&k.title, 80), preview(k.body.lines().next().unwrap_or("").trim_start_matches("When: "), 60)))
-        .collect()
+        .flat_map(|source| store.knowledge_between(source, now - 3600, now + hours.saturating_mul(3600), limit).unwrap_or_default())
+        .collect();
+    all.sort_by(|a, b| a.ts.cmp(&b.ts).then(a.source.cmp(&b.source)));
+    all.truncate(limit);
+    all.iter().map(|k| {
+        let label = match k.source.as_str() {
+            "google_calendar" => "Google Calendar",
+            "microsoft_calendar" => "Microsoft Calendar",
+            _ => "Calendar",
+        };
+        format!("[{label}] {} — {}", preview(&k.title, 80),
+            preview(k.body.lines().next().unwrap_or("").trim_start_matches("When: "), 60))
+    }).collect()
 }
 
 // ---------------- email ----------------
