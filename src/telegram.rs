@@ -71,12 +71,18 @@ impl Bot {
         }
     }
 
+    /// Current pairing gate, including the specific generation captured by
+    /// this Bot. Detached agent turns cannot send to a revoked owner.
+    fn is_current_owner(&self, chat: i64) -> bool {
+        paired_chat(&self.app) == Some(chat)
+            && self.app.store.kv_get("telegram_code").as_deref()
+                == Some(self.pairing_epoch.as_str())
+    }
+
     /// Fail-closed on local persistence errors: do not send a message that
     /// cannot be recovered if HERON stops before delivery completes.
     async fn queue_with_key(&self, chat: i64, text: &str, key: &str) -> Result<()> {
-        if paired_chat(&self.app) != Some(chat)
-            || self.app.store.kv_get("telegram_code").as_deref() != Some(self.pairing_epoch.as_str())
-        {
+        if !self.is_current_owner(chat) {
             return Err(anyhow!("The chat was unpaired or pairing was rotated; refusing to queue a reply"));
         }
         let identity = self.identity(chat);
@@ -128,9 +134,7 @@ impl Bot {
                     continue;
                 }
             };
-            if paired_chat(&self.app) != Some(chat)
-                || self.app.store.kv_get("telegram_code").as_deref() != Some(self.pairing_epoch.as_str())
-            {
+            if !self.is_current_owner(chat) {
                 // Revocation must not leak a delayed response to a former owner.
                 let _ = self.spool.purge_account(ChannelKind::Telegram, &self.account_id);
                 break;
@@ -182,6 +186,15 @@ impl Shared {
     }
 }
 
+// Settings can abort the gateway while separately spawned agent turns are
+// still running. Dropping the gateway also aborts those child tasks.
+struct AbortAgentsOnDrop(Arc<Shared>);
+impl Drop for AbortAgentsOnDrop {
+    fn drop(&mut self) {
+        self.0.stop();
+    }
+}
+
 struct TelegramApprover {
     bot: Bot,
     chat: i64,
@@ -199,6 +212,9 @@ impl Approver for TelegramApprover {
         // Approval questions are deliberately NOT placed in the durable
         // outbound spool: an expired, stopped or rebooted request must never
         // surface as a live question after delivery recovers.
+        if !self.bot.is_current_owner(self.chat) {
+            return Approval::Deny(Some("Telegram pairing was revoked before approval.".into()));
+        }
         let challenge = new_code().to_ascii_lowercase();
         let (tx, rx) = oneshot::channel();
         *self.shared.pending.lock().unwrap() = Some((challenge.clone(), tx));
@@ -206,6 +222,10 @@ impl Approver for TelegramApprover {
             "Heron wants permission ({}):\n\n{}\n\nReply yes {challenge} or no {challenge}.",
             req.tool, crate::util::truncate_middle(&req.detail, 1200)
         );
+        if !self.bot.is_current_owner(self.chat) {
+            self.shared.pending.lock().unwrap().take();
+            return Approval::Deny(Some("Telegram pairing changed before prompt delivery.".into()));
+        }
         if self.bot.call("sendMessage", json!({"chat_id": self.chat, "text": prompt}))
             .await.is_err()
         {
@@ -215,7 +235,7 @@ impl Approver for TelegramApprover {
         let answer = tokio::time::timeout(Duration::from_secs(600), rx).await;
         self.shared.pending.lock().unwrap().take();
         match answer {
-            Ok(Ok(true)) => Approval::Once,
+            Ok(Ok(true)) if self.bot.is_current_owner(self.chat) => Approval::Once,
             Ok(_) => Approval::Deny(None),
             Err(_) => Approval::Deny(Some("no answer within ten minutes".into())),
         }
@@ -463,6 +483,7 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
         }
     }
     let shared: Arc<Shared> = Default::default();
+    let _abort_children_on_shutdown = AbortAgentsOnDrop(shared.clone());
     let mut offset: i64 = app.store.kv_get("telegram_offset").and_then(|v| v.parse().ok()).unwrap_or(0);
     let poll_secs = if api_base.contains("127.0.0.1") { 0 } else { 25 };
     loop {
@@ -595,6 +616,61 @@ mod tests {
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks.concat(), text);
         assert!(chunks.iter().all(|part| part.encode_utf16().count() <= MAX_MESSAGE));
+    }
+
+    #[tokio::test]
+    async fn revoked_chat_cannot_receive_direct_approval_prompt() {
+        use crate::permissions::Effect;
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        let app = Arc::new(App::assemble(
+            cfg, dir.path().join("ws"),
+            Store::in_memory().unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap());
+        let code = pairing_code(&app);
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        let bot = Bot {
+            client: reqwest::Client::new(),
+            base: "http://127.0.0.1:1/botDISABLED".into(),
+            app: app.clone(),
+            account_id: "disposable-bot".into(),
+            pairing_epoch: code,
+            spool: ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap(),
+            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        assert!(bot.is_current_owner(42));
+        // Simulate disconnect/replacement after the turn started but before
+        // the LLM requested tool permission.
+        unpair(&app);
+        assert!(!bot.is_current_owner(42));
+        let shared = Arc::<Shared>::default();
+        let approver = TelegramApprover { bot, chat: 42, shared: shared.clone() };
+        let approval = approver.approve(&ApprovalRequest {
+            tool: "write_file".into(),
+            summary: "change a file".into(),
+            risk: Effect::WorkspaceWrite,
+            detail: "This content must never be delivered to the old owner".into(),
+            tainted: false,
+            args: json!({"path":"private.txt"}),
+            session_id: "stale-turn".into(),
+        }).await;
+        assert!(matches!(approval, Approval::Deny(Some(reason)) if reason.contains("revoked")));
+        assert!(shared.pending.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn stopping_gateway_aborts_detached_agent_turns() {
+        let shared = Arc::<Shared>::default();
+        let task = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_secs(120)).await;
+        });
+        *shared.running.lock().unwrap() = Some((1, task.abort_handle()));
+        let guard = AbortAgentsOnDrop(shared.clone());
+        drop(guard);
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(shared.running.lock().unwrap().is_none());
     }
 
     #[tokio::test]
