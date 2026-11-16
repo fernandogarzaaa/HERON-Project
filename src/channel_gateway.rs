@@ -111,6 +111,7 @@ pub struct VerifiedBinding {
     pub channel: Channel,
     pub profile_id: String,
     pub account_id: String,
+    pub chat_id: String,
     pub sender_id: String,
 }
 
@@ -119,9 +120,11 @@ impl VerifiedBinding {
         self.channel == envelope.channel
             && self.profile_id == envelope.profile_id
             && self.account_id == envelope.account_id
+            && self.chat_id == envelope.chat_id
             && self.sender_id == envelope.sender_id
             && valid_id(&self.profile_id)
             && valid_id(&self.account_id)
+            && valid_id(&self.chat_id)
             && valid_id(&self.sender_id)
     }
 }
@@ -307,6 +310,21 @@ impl ChannelQueue {
         Ok(leased)
     }
 
+    /// Revoke the named account *within one profile* and immediately erase its
+    /// local messages, including leased work. Callers must also cancel any
+    /// in-flight adapter tasks and revoke the provider credential itself.
+    pub fn purge_account(&self, profile: &str, channel: Channel, account: &str) -> Result<usize> {
+        if !valid_id(profile) || !valid_id(account) {
+            bail!("Invalid channel account scope.");
+        }
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let deleted = db.execute(
+            "DELETE FROM channel_messages WHERE profile=?1 AND channel=?2 AND account=?3",
+            params![profile, channel.as_str(), account],
+        )?;
+        Ok(deleted)
+    }
+
     /// Idempotently mark a lease complete and erase its local text while
     /// retaining the event identity as a replay/dedup tombstone.
     pub fn acknowledge(&self, id: i64) -> Result<bool> {
@@ -363,6 +381,7 @@ mod tests {
             channel: Channel::Telegram,
             profile_id: "default".into(),
             account_id: "personal-bot".into(),
+            chat_id: "1001".into(),
             sender_id: "1001".into(),
         }
     }
@@ -373,6 +392,9 @@ mod tests {
         let q = ChannelQueue::open(tmp.path()).unwrap();
         let mut e = envelope();
         e.sender_id = "attacker".into();
+        assert!(q.enqueue_inbound(&owner(), &e).is_err());
+        e = envelope();
+        e.chat_id = "attacker-chat".into();
         assert!(q.enqueue_inbound(&owner(), &e).is_err());
         e = envelope();
         e.profile_id = "other".into();
@@ -444,6 +466,23 @@ mod tests {
         assert_eq!(status, "dead");
         drop(db);
         assert_eq!(q.claim(now + 2000, 5, 30).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn account_revoke_is_scoped_and_invalidates_leased_work() {
+        let tmp = tempdir().unwrap();
+        let q = ChannelQueue::open(tmp.path()).unwrap();
+        let now = crate::util::now_ts();
+        let one = envelope();
+        let mut two = envelope();
+        two.profile_id = "other-profile".into();
+        q.enqueue_inbound(&owner(), &one).unwrap();
+        q.enqueue_outbound(&two).unwrap();
+        let leased = q.claim(now, 1, 20).unwrap();
+        assert_eq!(leased.len(), 1);
+        assert_eq!(q.purge_account("default", Channel::Telegram, "personal-bot").unwrap(), 1);
+        assert!(!q.acknowledge(leased[0].id).unwrap());
+        assert_eq!(q.claim(now + 25, 5, 20).unwrap().len(), 1);
     }
 
     #[cfg(unix)]
