@@ -493,6 +493,15 @@ mod tests {
     use crate::llm::ScriptedLlm;
     use crate::store::Store;
 
+    #[test]
+    fn splits_telegram_replies_by_utf16_not_unicode_scalar_count() {
+        let text = "😃".repeat(2400);
+        let chunks = Bot::chunks(&text);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks.concat(), text);
+        assert!(chunks.iter().all(|part| part.encode_utf16().count() <= MAX_MESSAGE));
+    }
+
     #[tokio::test]
     async fn guessing_the_pairing_code_locks_pairing_until_the_owner_looks_at_the_app() {
         let dir = tempfile::tempdir().unwrap();
