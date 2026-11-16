@@ -136,7 +136,7 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
             (entry.file_name().to_string_lossy().to_string(), path.join("SKILL.md"))
         } else if kind.is_file() && path.extension().is_some_and(|ext| ext == "md") {
             (
-                path.file_stem().unwrap_or_default().to_string_lossy().to_string(),
+                path.file_stem().map(|stem| stem.to_string_lossy().to_string()).unwrap_or_default(),
                 path.clone(),
             )
         } else {
