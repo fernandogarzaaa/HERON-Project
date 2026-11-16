@@ -254,11 +254,75 @@ impl ChannelStore {
         )?)
     }
 
-    /// Queues an at-least-once response. Callers supply an event-specific
-    /// idempotency key; an existing key returns the original entry.
-    /// Sending and ack happen separately so a crash does not silently lose
-    /// an outbound reply. Provider APIs without idempotent sends can rarely
-    /// display a duplicate if HERON crashes *after* sending but before ack.
+    /// A whole logical message is stored in a single transaction. A two-part
+    /// reply cannot leave its prefix behind when the queue is almost full.
+    /// Key is stable across caller retries (inbox ID), or random for one-off
+    /// conversational responses. The suffix is deterministic per chunk.
+    pub fn enqueue_parts(
+        &self,
+        identity: &ChannelIdentity,
+        thread_id: Option<&str>,
+        chunks: &[String],
+        key: &str,
+        now: i64,
+    ) -> Result<Vec<i64>> {
+        identity.validate()?;
+        if let Some(thread) = thread_id { check_id(thread)?; }
+        check_id(key)?;
+        if key.len() > MAX_ID_LEN.saturating_sub(12) ||
+            chunks.is_empty() || chunks.len() > 512 {
+            bail!("Invalid logical outbound message");
+        }
+        for part in chunks { check_text(part)?; }
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = db.transaction()?;
+        let keys: Vec<String> = (0..chunks.len())
+            .map(|i| format!("{key}:{i}")).collect();
+        let mut missing = 0;
+        for (index, chunk_key) in keys.iter().enumerate() {
+            let prior: Option<(String, String, String)> = tx.query_row(
+                "SELECT chat_id,sender_id,text FROM channel_outbox
+                 WHERE kind=?1 AND account_id=?2 AND idempotency_key=?3",
+                params![identity.kind.name(), identity.account_id, chunk_key],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            ).optional()?;
+            if let Some((chat,sender,text)) = prior {
+                if chat != identity.chat_id || sender != identity.sender_id
+                    || (!text.is_empty() && text != chunks[index]) {
+                    bail!("Outbound key was reused for different message content or identity");
+                }
+            } else {
+                missing += 1;
+            }
+        }
+        let occupied: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM channel_outbox WHERE status IN ('pending','leased')",
+            [], |r| r.get(0)
+        )?;
+        if occupied + missing > MAX_PENDING {
+            bail!("Channel outbox lacks capacity for the complete reply");
+        }
+        let mut ids = Vec::with_capacity(chunks.len());
+        for (text, chunk_key) in chunks.iter().zip(keys.iter()) {
+            tx.execute(
+                "INSERT OR IGNORE INTO channel_outbox
+                 (kind,account_id,chat_id,sender_id,thread_id,text,idempotency_key,queued_at,next_attempt)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?8)",
+                params![identity.kind.name(), identity.account_id, identity.chat_id,
+                        identity.sender_id, thread_id, text, chunk_key, now],
+            )?;
+            ids.push(tx.query_row(
+                "SELECT id FROM channel_outbox
+                 WHERE kind=?1 AND account_id=?2 AND idempotency_key=?3",
+                params![identity.kind.name(), identity.account_id, chunk_key],
+                |row| row.get(0),
+            )?);
+        }
+        tx.commit()?;
+        Ok(ids)
+    }
+
+    /// Compatibility API for one-part messages.
     pub fn enqueue(
         &self,
         identity: &ChannelIdentity,
@@ -267,46 +331,8 @@ impl ChannelStore {
         key: &str,
         now: i64,
     ) -> Result<i64> {
-        identity.validate()?;
-        if let Some(thread) = thread_id {
-            check_id(thread)?;
-        }
-        check_id(key)?;
-        check_text(text)?;
-        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let tx = db.transaction()?;
-        // A replay of an existing key must remain idempotent even when
-        // the backlog has reached its admission limit.
-        let prior: Option<i64> = tx.query_row(
-            "SELECT id FROM channel_outbox WHERE kind=?1 AND account_id=?2 AND idempotency_key=?3",
-            params![identity.kind.name(), identity.account_id, key],
-            |row| row.get(0),
-        ).optional()?;
-        if let Some(id) = prior {
-            tx.commit()?;
-            return Ok(id);
-        }
-        let pending: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM channel_outbox WHERE status IN ('pending','leased')",
-            [], |row| row.get(0)
-        )?;
-        if pending >= MAX_PENDING {
-            bail!("Channel outbox is full; message not queued");
-        }
-        tx.execute(
-            "INSERT OR IGNORE INTO channel_outbox
-             (kind,account_id,chat_id,sender_id,thread_id,text,idempotency_key,queued_at,next_attempt)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?8)",
-            params![identity.kind.name(), identity.account_id, identity.chat_id,
-                    identity.sender_id, thread_id, text, key, now],
-        )?;
-        let id = tx.query_row(
-            "SELECT id FROM channel_outbox WHERE kind=?1 AND account_id=?2 AND idempotency_key=?3",
-            params![identity.kind.name(), identity.account_id, key],
-            |row| row.get(0),
-        )?;
-        tx.commit()?;
-        Ok(id)
+        let parts = [text.to_owned()];
+        Ok(self.enqueue_parts(identity, thread_id, &parts, key, now)?[0])
     }
 
     /// Lease messages atomically across processes. A crashed sender can retry
@@ -323,6 +349,14 @@ impl ChannelStore {
                  FROM channel_outbox
                  WHERE kind=?1 AND account_id=?2
                    AND status IN ('pending','leased') AND next_attempt<=?3
+                   AND NOT EXISTS (
+                     SELECT 1 FROM channel_outbox earlier
+                     WHERE earlier.kind=channel_outbox.kind
+                       AND earlier.account_id=channel_outbox.account_id
+                       AND earlier.chat_id=channel_outbox.chat_id
+                       AND earlier.id<channel_outbox.id
+                       AND earlier.status IN ('pending','leased')
+                   )
                  ORDER BY id LIMIT ?4"
             )?;
             let rows = stmt.query_map(params![kind.name(), account, now, limit.min(100) as i64], |row| {
@@ -515,6 +549,51 @@ mod tests {
         assert_eq!(store.mark_interrupted(ChannelKind::Telegram, "bot-1").unwrap(), 1);
         assert_eq!(store.mark_interrupted(ChannelKind::Telegram, "bot-1").unwrap(), 0);
         assert!(!store.accept_inbound(&owner, &inbound("u1"), 101).unwrap());
+    }
+
+    #[test]
+    fn partial_multi_chunk_queue_admission_rolls_back_completely() {
+        let q = ChannelStore::in_memory().unwrap();
+        let identity = owner();
+        // Use direct insertion to reproduce the edge at max capacity without
+        // allocating hundreds of large chunks.
+        {
+            let db = q.db.lock().unwrap();
+            for i in 0..(MAX_PENDING - 1) {
+                db.execute(
+                    "INSERT INTO channel_outbox(kind,account_id,chat_id,sender_id,
+                    thread_id,text,idempotency_key,queued_at,next_attempt)
+                    VALUES ('telegram','bot-1','42','42',NULL,'p',?1,100,100)",
+                    [format!("fill-{i}")],
+                ).unwrap();
+            }
+        }
+        assert!(q.enqueue_parts(&identity, None,
+            &["one".into(), "two".into()], "logical", 100).is_err());
+        let db = q.db.lock().unwrap();
+        let count: i64 = db.query_row(
+            "SELECT COUNT(*) FROM channel_outbox WHERE idempotency_key LIKE 'logical:%'",
+            [], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(count, 0, "no partial reply should be committed");
+    }
+
+    #[test]
+    fn a_delayed_first_chunk_blocks_later_chunks_in_the_same_chat() {
+        let q = ChannelStore::in_memory().unwrap();
+        let identity = owner();
+        let ids = q.enqueue_parts(&identity, None,
+            &["first".into(), "second".into()], "reply", 100).unwrap();
+        assert_eq!(q.due(ChannelKind::Telegram, "bot-1", 100, 40).unwrap().len(), 1);
+        q.retry(ids[0], &identity, 100).unwrap();
+        assert!(q.due(ChannelKind::Telegram, "bot-1", 101, 40).unwrap().is_empty());
+        let retried = q.due(ChannelKind::Telegram, "bot-1", 102, 40).unwrap();
+        assert_eq!(retried.len(), 1);
+        assert_eq!(retried[0].id, ids[0]);
+        q.delivered(ids[0], &identity, Some("tg-1")).unwrap();
+        let second = q.due(ChannelKind::Telegram, "bot-1", 103, 40).unwrap();
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].id, ids[1]);
     }
 
     #[test]
