@@ -704,12 +704,13 @@ mod tests {
         app.store.upsert_knowledge("calendar", "a", "Dentist", "When: Friday 2026-11-13 09:00–09:30", now_ts() + 3600).unwrap();
         app.store.upsert_knowledge("calendar", "b", "Far away", "When: later", now_ts() + 30 * DAY).unwrap();
         assert_eq!(upcoming(&app.store, 72, 5), vec!["Dentist — Friday 2026-11-13 09:00–09:30"]);
+        assert_eq!(connected_summary(&app.store), "2 calendar events");
         app.store.upsert_knowledge("google_calendar", "g", "Google visit", "When: Soon", now_ts() + 1800).unwrap();
         app.store.upsert_knowledge("microsoft_calendar", "m", "Microsoft visit", "When: Later", now_ts() + 7200).unwrap();
         let upcoming_items = upcoming(&app.store, 72, 2);
         assert_eq!(upcoming_items.len(), 2, "limit applies across all calendar providers");
         assert!(upcoming_items[0].starts_with("[Google Calendar] Google visit"));
         assert!(upcoming_items[1].starts_with("Dentist —"), "legacy calendar stays unprefixed");
-        assert_eq!(connected_summary(&app.store), "2 calendar events");
+        assert_eq!(connected_summary(&app.store), "4 calendar events");
     }
 }
