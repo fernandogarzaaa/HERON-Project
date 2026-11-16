@@ -1347,6 +1347,8 @@ mod stream_backpressure_tests {
             token: "test".into(),
             loopback_only: true,
             approvals: Default::default(),
+            oauth_pending: Default::default(),
+            oauth_transition: Default::default(),
             running: Default::default(),
             next_run: Default::default(),
         });
