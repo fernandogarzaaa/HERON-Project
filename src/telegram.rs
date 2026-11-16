@@ -7,12 +7,14 @@
 
 use crate::agent::{null_sink, Session};
 use crate::app::App;
+use crate::channel::{ChannelIdentity, ChannelKind, ChannelStore, InboundMessage};
 use crate::permissions::{Approval, ApprovalRequest, Approver};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 
 const MAX_MESSAGE: usize = 3800;
@@ -21,6 +23,9 @@ const MAX_MESSAGE: usize = 3800;
 struct Bot {
     client: reqwest::Client,
     base: String,
+    account_id: String,
+    spool: ChannelStore,
+    dispatch_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl Bot {
@@ -33,11 +38,102 @@ impl Bot {
         Ok(v["result"].clone())
     }
 
-    async fn send(&self, chat: i64, text: &str) {
-        let chars: Vec<char> = text.chars().collect();
-        for chunk in chars.chunks(MAX_MESSAGE) {
-            let _ = self.call("sendMessage", json!({"chat_id": chat, "text": chunk.iter().collect::<String>()})).await;
+    /// Each platform message must fit Telegram's UTF-16 length limit.
+    fn chunks(text: &str) -> Vec<String> {
+        let mut parts = Vec::new();
+        let mut current = String::new();
+        let mut units = 0;
+        for ch in text.chars() {
+            let n = ch.len_utf16();
+            if units + n > MAX_MESSAGE {
+                parts.push(std::mem::take(&mut current));
+                units = 0;
+            }
+            current.push(ch);
+            units += n;
         }
+        if !current.is_empty() {
+            parts.push(current);
+        }
+        parts
+    }
+
+    fn identity(&self, chat: i64) -> ChannelIdentity {
+        ChannelIdentity {
+            kind: ChannelKind::Telegram,
+            account_id: self.account_id.clone(),
+            chat_id: chat.to_string(),
+            sender_id: chat.to_string(),
+        }
+    }
+
+    /// Fail-closed on local persistence errors: do not send a message that
+    /// cannot be recovered if HERON stops before delivery completes.
+    async fn queue(&self, chat: i64, text: &str) -> Result<()> {
+        let identity = self.identity(chat);
+        for part in Self::chunks(text) {
+            let key = uuid::Uuid::new_v4().simple().to_string();
+            self.spool.enqueue(&identity, None, &part, &key, crate::util::now_ts())?;
+        }
+        // A provider timeout does not discard a queued message; it is retried.
+        self.flush().await;
+        Ok(())
+    }
+
+    async fn send(&self, chat: i64, text: &str) {
+        if let Err(err) = self.queue(chat, text).await {
+            eprintln!("HERON Telegram: could not persist a reply: {err}");
+        }
+    }
+
+    /// Polling and concurrent agent completions can trigger this together.
+    /// Serialize flushes to avoid sending the same unacknowledged row twice.
+    async fn flush(&self) {
+        let _lock = self.dispatch_lock.lock().await;
+        let due = match self.spool.due(
+            ChannelKind::Telegram,
+            &self.account_id,
+            crate::util::now_ts(),
+            40,
+        ) {
+            Ok(rows) => rows,
+            Err(err) => {
+                eprintln!("HERON Telegram: cannot load queued replies: {err}");
+                return;
+            }
+        };
+        for msg in due {
+            let chat = match msg.identity.chat_id.parse::<i64>() {
+                Ok(chat) => chat,
+                Err(_) => {
+                    let _ = self.spool.retry(msg.id, &msg.identity, crate::util::now_ts());
+                    continue;
+                }
+            };
+            match self.call("sendMessage", json!({"chat_id": chat, "text": msg.text})).await {
+                Ok(response) => {
+                    let remote_id = response["message_id"].as_i64().map(|id| id.to_string());
+                    if let Err(err) = self.spool.delivered(
+                        msg.id,
+                        &msg.identity,
+                        remote_id.as_deref(),
+                    ) {
+                        eprintln!("HERON Telegram: reply acknowledgement failed: {err}");
+                        break;
+                    }
+                }
+                Err(err) => {
+                    let _ = self.spool.retry(msg.id, &msg.identity, crate::util::now_ts());
+                    eprintln!("HERON Telegram: delivery failed; retry queued: {err}");
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Do not persist responses to callers who have not completed pairing.
+    async fn notice_unpaired(&self, chat: i64, text: &str) {
+        let _ = self.call("sendMessage", json!({"chat_id": chat, "text": text})).await;
     }
 }
 
@@ -143,6 +239,14 @@ pub fn paired_chat(app: &App) -> Option<i64> {
 }
 
 pub fn unpair(app: &App) {
+    // Clear unsent replies and inbound identifiers when the trusted pairing
+    // is revoked. A newly paired person must not inherit another chat's data.
+    if let Some(token) = app.cfg().secret("telegram_token") {
+        let account = format!("{:x}", Sha256::digest(token.as_bytes()));
+        if let Ok(spool) = ChannelStore::open(&app.cfg().home.join("channels.db")) {
+            let _ = spool.purge_account(ChannelKind::Telegram, &account);
+        }
+    }
     let _ = app.store.kv_set("telegram_chat", "");
     let _ = app.store.kv_set("telegram_code", &new_code());
     let _ = app.store.kv_set("telegram_wrong", "0");
@@ -240,14 +344,31 @@ async fn forward_inbox(app: &App, bot: &Bot, chat: i64) {
     items.retain(|m| m.id > last);
     items.sort_by_key(|m| m.id);
     for m in items {
-        bot.send(chat, &format!("{}\n\n{}", m.title, m.body)).await;
-        let _ = app.store.kv_set("telegram_inbox_last", &m.id.to_string());
+        if bot.queue(chat, &format!("{}\n\n{}", m.title, m.body)).await.is_ok() {
+            // Inbox advancement means durably queued, not necessarily delivered.
+            let _ = app.store.kv_set("telegram_inbox_last", &m.id.to_string());
+        } else {
+            break;
+        }
     }
 }
 
 /// Run the gateway until the task is dropped. `api_base` is normally https://api.telegram.org.
 pub async fn run(app: Arc<App>, api_base: String, token: String) {
-    let bot = Bot { client: reqwest::Client::builder().timeout(Duration::from_secs(40)).build().expect("http client"), base: format!("{}/bot{token}", api_base.trim_end_matches('/')) };
+    let spool = match ChannelStore::open(&app.cfg().home.join("channels.db")) {
+        Ok(spool) => spool,
+        Err(err) => {
+            eprintln!("HERON Telegram: gateway disabled because its secure local queue cannot open: {err}");
+            return;
+        }
+    };
+    let bot = Bot {
+        client: reqwest::Client::builder().timeout(Duration::from_secs(40)).build().expect("http client"),
+        base: format!("{}/bot{token}", api_base.trim_end_matches('/')),
+        account_id: format!("{:x}", Sha256::digest(token.as_bytes())),
+        spool,
+        dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
+    };
     let shared: Arc<Shared> = Default::default();
     let mut offset: i64 = app.store.kv_get("telegram_offset").and_then(|v| v.parse().ok()).unwrap_or(0);
     let poll_secs = if api_base.contains("127.0.0.1") { 0 } else { 25 };
@@ -260,41 +381,72 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
             }
         };
         for u in updates.as_array().cloned().unwrap_or_default() {
-            offset = offset.max(u["update_id"].as_i64().unwrap_or(0) + 1);
-            let _ = app.store.kv_set("telegram_offset", &offset.to_string());
-            let Some(chat) = u["message"]["chat"]["id"].as_i64() else { continue };
-            // Only one-to-one chats: a group would let other members speak as the owner.
-            if u["message"]["chat"]["type"].as_str().unwrap_or("private") != "private" {
-                continue;
-            }
-            let text = u["message"]["text"].as_str().map(str::to_string);
-            match paired_chat(&app) {
-                Some(owner) if owner == chat => match text {
-                    Some(t) => handle_message(&app, &bot, &shared, chat, t).await,
-                    None => bot.send(chat, "Heron can only read text messages for now.").await,
-                },
-                Some(_) => {} // someone else: say nothing, do nothing
-                None => {
-                    let sent = text.as_deref().map(str::trim).unwrap_or("");
-                    if sent == "/start" {
-                        bot.send(chat, "This Heron is not paired yet. If it is yours, send the pairing code shown in the Heron app under Settings.").await;
-                    } else if pairing_locked(&app) {
-                        // Guesses are not even looked at until the owner has seen the new code in the app.
-                    } else if same_code(sent, &pairing_code(&app)) {
-                        let _ = app.store.kv_set("telegram_wrong", "0");
-                        let _ = app.store.kv_set("telegram_chat", &chat.to_string());
-                        let last_inbox = app.store.inbox(false, 1).ok().and_then(|i| i.first().map(|m| m.id)).unwrap_or(0);
-                        let _ = app.store.kv_set("telegram_inbox_last", &last_inbox.to_string());
-                        bot.send(chat, "Paired. This chat now talks to your Heron, and nobody else's messages will be answered.").await;
-                    } else if wrong_code(&app) {
-                        bot.send(chat, "Too many wrong codes. Pairing is locked and the code has been replaced. If this Heron is yours, open it on your computer (Settings) to see the new code.").await;
+            let update_id = u["update_id"].as_i64().unwrap_or(0);
+            let next_offset = offset.max(update_id + 1);
+            if let Some(chat) = u["message"]["chat"]["id"].as_i64() {
+                // Never authorize groups: someone else could post a command.
+                if u["message"]["chat"]["type"].as_str().unwrap_or("private") == "private" {
+                    let text = u["message"]["text"].as_str().map(str::to_string);
+                    match paired_chat(&app) {
+                        Some(owner) if owner == chat => match text {
+                            Some(t) => {
+                                let identity = bot.identity(chat);
+                                let event = InboundMessage {
+                                    identity: identity.clone(),
+                                    provider_message_id: update_id.to_string(),
+                                    thread_id: None,
+                                    text: t.clone(),
+                                };
+                                match bot.spool.accept_inbound(
+                                    &identity,
+                                    &event,
+                                    crate::util::now_ts(),
+                                ) {
+                                    Ok(true) => {
+                                        handle_message(&app, &bot, &shared, chat, t).await;
+                                        let _ = bot.spool.complete_inbound(
+                                            &identity,
+                                            &event.provider_message_id,
+                                        );
+                                    }
+                                    Ok(false) => {}
+                                    Err(err) => {
+                                        // Keep the Telegram offset unchanged so this
+                                        // update can be inspected/retried rather than lost.
+                                        eprintln!("HERON Telegram: cannot persist incoming message: {err}");
+                                        break;
+                                    }
+                                }
+                            }
+                            None => bot.send(chat, "Heron can only read text messages for now.").await,
+                        },
+                        Some(_) => {} // A different person: no response, no action
+                        None => {
+                            let sent = text.as_deref().map(str::trim).unwrap_or("");
+                            if sent == "/start" {
+                                bot.notice_unpaired(chat, "This Heron is not paired yet. If it is yours, send the pairing code shown in the Heron app under Settings.").await;
+                            } else if pairing_locked(&app) {
+                                // Ignore guesses until local Settings unlocks pairing.
+                            } else if same_code(sent, &pairing_code(&app)) {
+                                let _ = app.store.kv_set("telegram_wrong", "0");
+                                let _ = app.store.kv_set("telegram_chat", &chat.to_string());
+                                let last_inbox = app.store.inbox(false, 1).ok().and_then(|i| i.first().map(|m| m.id)).unwrap_or(0);
+                                let _ = app.store.kv_set("telegram_inbox_last", &last_inbox.to_string());
+                                bot.send(chat, "Paired. This chat now talks to your Heron, and nobody else's messages will be answered.").await;
+                            } else if wrong_code(&app) {
+                                bot.notice_unpaired(chat, "Too many wrong codes. Pairing is locked and the code has been replaced. If this Heron is yours, open it on your computer (Settings) to see the new code.").await;
+                            }
+                        }
                     }
                 }
             }
+            offset = next_offset;
+            let _ = app.store.kv_set("telegram_offset", &offset.to_string());
         }
         if let Some(chat) = paired_chat(&app) {
             forward_inbox(&app, &bot, chat).await;
         }
+        bot.flush().await;
         if poll_secs == 0 {
             tokio::time::sleep(Duration::from_millis(40)).await;
         }
