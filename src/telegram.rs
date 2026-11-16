@@ -524,6 +524,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unpair_does_not_replay_old_updates_for_the_same_bot() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        let app = App::assemble(
+            cfg,
+            dir.path().join("ws"),
+            Store::in_memory().unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap();
+        app.store.kv_set("telegram_offset", "982").unwrap();
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        app.store.kv_set("telegram_session", "abc").unwrap();
+        unpair(&app);
+        assert_eq!(app.store.kv_get("telegram_offset").as_deref(), Some("982"));
+        assert_eq!(app.store.kv_get("telegram_session").as_deref(), Some(""));
+        assert!(paired_chat(&app).is_none());
+    }
+
+    #[tokio::test]
     async fn guessing_the_pairing_code_locks_pairing_until_the_owner_looks_at_the_app() {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = Config::default();
