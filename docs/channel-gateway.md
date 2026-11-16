@@ -12,13 +12,14 @@
 
 ## Telegram compatibility
 
-The current Telegram bot remains the only Telegram adapter. Existing single-owner pairing, stop/pause/resume, on-desktop dangerous-action approvals, and session semantics remain intact.
+The current Telegram bot remains the only Telegram adapter. On supported macOS/Windows vaults, existing single-owner pairing, stop/pause/resume, on-desktop dangerous-action approvals, and session semantics remain intact. Legacy Linux bot credential fallback is intentionally disabled until a verified encrypted vault exists.
 
 - Owner updates are deduplicated by provider update ID and persisted before advancing Telegram's polling offset.
 - Outgoing text is queued locally before delivery; retries use bounded exponential delay and ten-attempt cap. The queue is flushed in the polling loop and immediately after new replies are queued.
 - Delivery is **at least once**, not exactly once. If Telegram accepts a reply immediately before HERON crashes without recording its acknowledgement, a rare duplicate may be delivered after restart.
 - Each bot token is mapped to an opaque SHA-256 account key. Replacing or removing the bot disconnects the previous pairing and deletes pending messages for its account. Outbound sends recheck pairing before dispatch.
 - Telegram message chunks respect Telegram's UTF-16 limit even when the text contains emojis.
+- Telegram bot tokens are now **native-vault-only**: macOS Keychain and Windows Credential Manager must be functioning. Linux Telegram sign-in is disabled until HERON implements a verified Linux Secret Service/encrypted vault. Existing legacy plaintext-file credentials cannot launch the gateway and must be reconnected after a verified vault becomes available. Removing a bot also clears any legacy fallback.
 - Spool is `~/.heron/channels.db` (actual path is `Config.home/channels.db`). It contains private message content; filesystem permissions on a newly created Unix file are owner-only. It is **not encrypted**. Protect the user's machine and backups accordingly.
 - Failed sends are retained as `failed` after ten attempts for local diagnostics, rather than retried forever. There is no interactive resend UI in this PR.
 - Accepted inbound updates are currently marked handled when the existing Telegram message handler returns; agent turns it starts continue asynchronously. Interrupted turns are not automatically replayed because re-running tool actions could duplicate side effects.
