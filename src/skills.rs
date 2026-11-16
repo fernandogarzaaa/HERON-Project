@@ -120,6 +120,7 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
     let mut entries: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
     entries.sort_by_key(|entry| entry.file_name());
     let mut out = Vec::new();
+    let mut names = std::collections::HashSet::new();
 
     for entry in entries {
         if out.len() >= MAX_SKILLS {
@@ -151,12 +152,25 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
         if info.file_type().is_symlink() || !info.is_file() || info.len() > MAX_SKILL_BYTES {
             continue;
         }
-        let Ok(file) = std::fs::File::open(&file) else {
-            continue;
+        // Closing the symlink check/open race on Unix is important when a
+        // concurrently changing skill directory is not trusted.
+        let handle = {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                std::fs::OpenOptions::new().read(true)
+                    .custom_flags(libc::O_NOFOLLOW).open(&file)
+            }
+            #[cfg(not(unix))]
+            {
+                std::fs::File::open(&file)
+            }
         };
+        let Ok(file) = handle else { continue };
         let mut text = String::new();
         if file.take(MAX_SKILL_BYTES + 1).read_to_string(&mut text).is_ok()
             && text.len() as u64 <= MAX_SKILL_BYTES
+            && names.insert(name.to_ascii_lowercase())
         {
             out.push(parse(&name, &text));
         }
@@ -205,6 +219,18 @@ mod tests {
         std::fs::write(dir.path().join("normal.md"), "# Local file").unwrap();
         assert_eq!(load_all(dir.path()).len(), 1);
         assert_eq!(load_all(dir.path())[0].name, "normal");
+    }
+
+    #[test]
+    fn case_folded_duplicates_do_not_shadow_other_skills() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Alpha.md"), "# First").unwrap();
+        std::fs::write(dir.path().join("alpha.md"), "# Second").unwrap();
+        std::fs::write(dir.path().join("beta.md"), "# Third").unwrap();
+        let all = load_all(dir.path());
+        assert_eq!(all.len(), 2);
+        assert!(find(dir.path(), "ALPHA").is_some());
+        assert!(find(dir.path(), "beta").is_some());
     }
 
     #[cfg(unix)]
