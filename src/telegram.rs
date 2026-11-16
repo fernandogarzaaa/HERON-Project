@@ -25,6 +25,9 @@ struct Bot {
     base: String,
     app: Arc<App>,
     account_id: String,
+    // Snapshot of the locally displayed pairing epoch. Revocation rotates it,
+    // preventing an in-flight old agent from replying after re-pairing.
+    pairing_epoch: String,
     spool: ChannelStore,
     dispatch_lock: Arc<tokio::sync::Mutex<()>>,
 }
@@ -71,8 +74,10 @@ impl Bot {
     /// Fail-closed on local persistence errors: do not send a message that
     /// cannot be recovered if HERON stops before delivery completes.
     async fn queue(&self, chat: i64, text: &str) -> Result<()> {
-        if paired_chat(&self.app) != Some(chat) {
-            return Err(anyhow!("The chat is not paired; refusing to queue a reply"));
+        if paired_chat(&self.app) != Some(chat)
+            || self.app.store.kv_get("telegram_code").as_deref() != Some(self.pairing_epoch.as_str())
+        {
+            return Err(anyhow!("The chat was unpaired or pairing was rotated; refusing to queue a reply"));
         }
         let identity = self.identity(chat);
         for part in Self::chunks(text) {
@@ -114,7 +119,9 @@ impl Bot {
                     continue;
                 }
             };
-            if paired_chat(&self.app) != Some(chat) {
+            if paired_chat(&self.app) != Some(chat)
+                || self.app.store.kv_get("telegram_code").as_deref() != Some(self.pairing_epoch.as_str())
+            {
                 // Revocation must not leak a delayed response to a former owner.
                 let _ = self.spool.purge_account(ChannelKind::Telegram, &self.account_id);
                 break;
@@ -385,6 +392,7 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
         base: format!("{}/bot{token}", api_base.trim_end_matches('/')),
         app: app.clone(),
         account_id: format!("{:x}", Sha256::digest(token.as_bytes())),
+        pairing_epoch: pairing_code(&app),
         spool,
         dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
