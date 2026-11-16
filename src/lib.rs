@@ -6,6 +6,7 @@ pub mod browser;
 pub mod cli_llm;
 pub mod config;
 pub mod connectors;
+pub mod channel_gateway;
 mod credential_transaction;
 pub mod embed;
 pub mod eval;
