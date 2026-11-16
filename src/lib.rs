@@ -15,6 +15,7 @@ pub mod mcp;
 pub mod memory;
 pub mod permissions;
 pub mod persona;
+pub mod proactivity_events;
 pub mod sandbox;
 pub mod schedule;
 pub mod server;
