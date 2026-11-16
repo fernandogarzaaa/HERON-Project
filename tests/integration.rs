@@ -437,9 +437,19 @@ async fn telegram_gateway_pairs_one_chat_ignores_strangers_and_asks_before_actin
     say(42, "delete everything", "group");
     // The owner asks for something that changes a file: Heron asks first, on the phone.
     say(42, "save a note", "private");
-    wait_for("permission question", Box::new(|s| s.iter().any(|(_, t)| t.contains("Reply yes or no")))).await;
+    wait_for("permission question", Box::new(|s| s.iter().any(|(_, t)| t.contains("Reply yes ")))).await;
     assert!(!app.workspace.join("phone.txt").exists(), "nothing is written before the owner answers");
+    // A bare approval message must never authorize whichever request is
+    // currently pending. Every approval is bound to the displayed challenge.
     say(42, "yes", "private");
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(!app.workspace.join("phone.txt").exists(), "bare yes cannot approve");
+    let challenge = {
+        let sent = mock.sent.lock().unwrap();
+        let prompt = &sent.iter().find(|(_, t)| t.contains("Reply yes ")).unwrap().1;
+        prompt.split("Reply yes ").nth(1).unwrap().split_whitespace().next().unwrap().to_string()
+    };
+    say(42, &format!("yes {challenge}"), "private");
     wait_for("final reply", Box::new(|s| s.iter().any(|(c, t)| *c == 42 && t == "Saved it."))).await;
     assert_eq!(std::fs::read_to_string(app.workspace.join("phone.txt")).unwrap(), "from my phone");
     assert_eq!(llm.requests.lock().unwrap().len(), 2, "only the owner's one request reached the model");
@@ -451,7 +461,7 @@ async fn telegram_gateway_pairs_one_chat_ignores_strangers_and_asks_before_actin
 
     // "/stop" while Heron is waiting for a yes or no halts the whole reply; it is not just a "no".
     say(42, "save another note", "private");
-    wait_for("second permission question", Box::new(|s| s.iter().filter(|(_, t)| t.contains("Reply yes or no")).count() == 2)).await;
+    wait_for("second permission question", Box::new(|s| s.iter().filter(|(_, t)| t.contains("Reply yes ")).count() == 2)).await;
     say(42, "/stop", "private");
     wait_for("stop confirmation", Box::new(|s| s.iter().any(|(_, t)| t == "Stopped."))).await;
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
