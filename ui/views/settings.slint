@@ -21,6 +21,16 @@ export struct McpLine {
     changed: bool,
 }
 
+/// Safe directory metadata. No credentials, raw responses or tools are
+/// exposed to Slint; custom endpoints remain inactive until qualified.
+export struct ConnectorLine {
+    id: string,
+    label: string,
+    detail: string,
+    custom: bool,
+    has-credential: bool,
+}
+
 // Persona editor. It has its own endpoints and its own save and reset,
 // so it stays a separate component.
 component PersonaEditor inherits VerticalBox {
@@ -102,6 +112,15 @@ export component SettingsView inherits VerticalBox {
     in property <string> oauth-status;
     in-out property <bool> confirm-google-disconnect: false;
     in-out property <bool> confirm-microsoft-disconnect: false;
+    // Catalog and custom connector metadata. Keys are write-only.
+    in property <[ConnectorLine]> connector-lines;
+    in property <string> connector-vault-note: "";
+    in property <string> connector-feedback: "";
+    in-out property <string> connector-new-id: "";
+    in-out property <string> connector-new-name: "";
+    in-out property <string> connector-new-endpoint: "";
+    in-out property <string> connector-key-id: "";
+    in-out property <string> connector-api-key: "";
     // Phone.
     in property <bool> telegram_configured;
     in property <bool> telegram_paired;
@@ -130,6 +149,11 @@ export component SettingsView inherits VerticalBox {
     callback sync-oauth(string);
     callback disconnect-oauth(string);
     callback refresh-oauth();
+    callback refresh-connectors();
+    callback add-connector(string, string, string);
+    callback remove-connector(string);
+    callback save-connector-key(string, string);
+    callback remove-connector-key(string);
     callback connect_telegram();
     callback disconnect_telegram();
     callback make_backup();
@@ -291,6 +315,75 @@ export component SettingsView inherits VerticalBox {
             text: mcp_note;
             color: Theme.ok;
             wrap: word-wrap;
+        }
+    }
+
+    // Connector directory: catalog visibility is not account access.
+    VerticalBox {
+        spacing: 8px;
+        SectionTitle { label: "Connector Hub"; }
+        Text {
+            text: "Explore supported protocols and potential services. Catalog entries are not connected accounts. Custom connectors are saved inactive until a reviewed adapter is available.";
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+        Button {
+            text: "Refresh connector directory";
+            enabled: !root.busy;
+            clicked => { root.refresh-connectors(); }
+        }
+        Text {
+            text: root.connector-vault-note;
+            color: Theme.muted;
+            wrap: word-wrap;
+            visible: root.connector-vault-note != "";
+        }
+        for c in root.connector-lines: HorizontalBox {
+            spacing: 8px;
+            Text {
+                text: c.label;
+                color: Theme.ink;
+                horizontal-stretch: 1;
+                wrap: word-wrap;
+            }
+            Text { text: c.detail; color: Theme.muted; width: 180px; wrap: word-wrap; }
+            Button {
+                text: "Remove";
+                enabled: !root.busy;
+                visible: c.custom;
+                clicked => { root.remove-connector(c.id); }
+            }
+        }
+        Text { text: "Register a custom API (metadata only)"; color: Theme.ink; font-weight: 600; }
+        LabeledInput { label: "ID (lowercase slug)"; value <=> root.connector-new-id; }
+        LabeledInput { label: "Display name"; value <=> root.connector-new-name; }
+        LabeledInput { label: "Public HTTPS endpoint"; value <=> root.connector-new-endpoint; }
+        Button {
+            text: "Save inactive connector";
+            enabled: !root.busy && root.connector-new-id != "" && root.connector-new-name != "" && root.connector-new-endpoint != "";
+            clicked => { root.add-connector(root.connector-new-id, root.connector-new-name, root.connector-new-endpoint); }
+        }
+        Text { text: "Vault: API keys are never displayed to the model or saved in connector metadata. Only custom connector IDs can receive keys. Linux currently requires a secure vault backend before API keys can be saved."; wrap: word-wrap; color: Theme.muted; }
+        LabeledInput { label: "Custom connector ID"; value <=> root.connector-key-id; }
+        LabeledInput { label: "API key (stored in the OS vault)"; password: true; value <=> root.connector-api-key; }
+        HorizontalBox {
+            spacing: 8px;
+            Button {
+                text: "Save key";
+                enabled: !root.busy && root.connector-key-id != "" && root.connector-api-key != "";
+                clicked => { root.save-connector-key(root.connector-key-id, root.connector-api-key); }
+            }
+            Button {
+                text: "Revoke key";
+                enabled: !root.busy && root.connector-key-id != "";
+                clicked => { root.remove-connector-key(root.connector-key-id); }
+            }
+        }
+        Text {
+            text: root.connector-feedback;
+            color: Theme.muted;
+            wrap: word-wrap;
+            visible: root.connector-feedback != "";
         }
     }
 

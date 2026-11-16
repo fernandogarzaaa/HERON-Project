@@ -24,7 +24,7 @@ import { AwarenessView } from "views/awareness.slint";
 import { ActivityView } from "views/activity.slint";
 import { UsageView } from "views/usage.slint";
 import { OnboardingView } from "views/onboarding.slint";
-import { SettingsView, ToolItem, McpLine } from "views/settings.slint";
+import { SettingsView, ToolItem, McpLine, ConnectorLine } from "views/settings.slint";
 import { SourceItem } from "components/source_card.slint";
 import { SessionRow, MemoryRow, TaskRow, ScheduleRow, RunStepRow, InboxRow, SuggestionRow, SimpleRow, AuditRow, UsageDayRow, ModelRow } from "views/common.slint";
 
@@ -321,6 +321,14 @@ export component MainWindow inherits Window {
     in-out property <bool> settings-google-connected: false;
     in-out property <bool> settings-microsoft-connected: false;
     in-out property <string> settings-oauth-status: "";
+    in-out property <[ConnectorLine]> settings-connector-lines: [];
+    in-out property <string> settings-connector-vault-note: "";
+    in-out property <string> settings-connector-feedback: "";
+    in-out property <string> settings-connector-new-id: "";
+    in-out property <string> settings-connector-new-name: "";
+    in-out property <string> settings-connector-new-endpoint: "";
+    in-out property <string> settings-connector-key-id: "";
+    in-out property <string> settings-connector-api-key: "";
     in-out property <bool> settings-telegram-configured: false;
     in-out property <bool> settings-telegram-paired: false;
     in-out property <string> settings-telegram-status: "";
@@ -344,6 +352,11 @@ export component MainWindow inherits Window {
     callback settings-sync-oauth(string);
     callback settings-disconnect-oauth(string);
     callback settings-refresh-oauth();
+    callback settings-refresh-connectors();
+    callback settings-add-connector(string, string, string);
+    callback settings-remove-connector(string);
+    callback settings-save-connector-key(string, string);
+    callback settings-remove-connector-key(string);
     callback settings-connect-telegram();
     callback settings-disconnect-telegram();
     callback settings-make-backup();
@@ -747,6 +760,14 @@ export component MainWindow inherits Window {
                     google-connected: root.settings-google-connected;
                     microsoft-connected: root.settings-microsoft-connected;
                     oauth-status: root.settings-oauth-status;
+                    connector-lines: root.settings-connector-lines;
+                    connector-vault-note: root.settings-connector-vault-note;
+                    connector-feedback: root.settings-connector-feedback;
+                    connector-new-id <=> root.settings-connector-new-id;
+                    connector-new-name <=> root.settings-connector-new-name;
+                    connector-new-endpoint <=> root.settings-connector-new-endpoint;
+                    connector-key-id <=> root.settings-connector-key-id;
+                    connector-api-key <=> root.settings-connector-api-key;
                     telegram-configured: root.settings-telegram-configured;
                     telegram-paired: root.settings-telegram-paired;
                     telegram-status: root.settings-telegram-status;
@@ -770,6 +791,11 @@ export component MainWindow inherits Window {
                     sync-oauth(p) => { root.settings-sync-oauth(p); }
                     disconnect-oauth(p) => { root.settings-disconnect-oauth(p); }
                     refresh-oauth => { root.settings-refresh-oauth(); }
+                    refresh-connectors => { root.settings-refresh-connectors(); }
+                    add-connector(id, name, endpoint) => { root.settings-add-connector(id, name, endpoint); }
+                    remove-connector(id) => { root.settings-remove-connector(id); }
+                    save-connector-key(id, key) => { root.settings-save-connector-key(id, key); }
+                    remove-connector-key(id) => { root.settings-remove-connector-key(id); }
                     connect-telegram => { root.settings-connect-telegram(); }
                     disconnect-telegram => { root.settings-disconnect-telegram(); }
                     make-backup => { root.settings-make-backup(); }

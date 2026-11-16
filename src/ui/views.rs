@@ -176,6 +176,12 @@ pub struct Awareness {
     pub reflect: bool,
     #[serde(default)]
     pub proactive: String,
+    /// Last fixed status code from the autonomous suggestion loop.
+    #[serde(default)]
+    pub proactive_status: String,
+    /// Unix seconds, or 0 before the first background check.
+    #[serde(default)]
+    pub proactive_status_at: i64,
     #[serde(default)]
     pub budget_used: u64,
     #[serde(default)]
@@ -977,6 +983,23 @@ impl ViewsState {
             }
             note.push('.');
         }
+        let reason = match a.proactive_status.as_str() {
+            "paused" => Some("Paused by you."),
+            "disabled" => Some("Pro Activity is off."),
+            "demo_mode" => Some("A model connection is required."),
+            "cooldown" => Some("Waiting for the next check."),
+            "budget_exhausted" => Some("Background token allowance reached."),
+            "no_new_evidence" => Some("No useful new activity yet."),
+            "suggestion_backlog" => Some("You already have five unanswered suggestions."),
+            "waiting_for_quiet" => Some("Waiting until your current work is quiet."),
+            "scanned_no_proposals" => Some("Checked; nothing worth interrupting you about."),
+            "suggestions_created" => Some("New suggestions are ready to review."),
+            _ => None,
+        };
+        if let Some(reason) = reason {
+            note.push_str(" Pro Activity status: ");
+            note.push_str(reason);
+        }
         note
     }
 }
@@ -1067,6 +1090,10 @@ mod tests {
         assert_eq!(a.focus, vec![("src".to_string(), 14)]);
         assert_eq!(a.active_hours, Some((9, 18)));
         assert_eq!(a.journal.len(), 1);
+        assert_eq!(a.proactive_status_at, 0, "older servers need a compatible default");
+        let mut st = ViewsState::new();
+        st.awareness = Some(Awareness { proactive_status: "waiting_for_quiet".into(), ..a });
+        assert!(st.proactive_note().contains("Waiting until your current work is quiet."));
     }
 
     #[test]

@@ -65,6 +65,34 @@ network egress) or T4 (browser subresource interception). Tests:
 `web_fetch_exceptions_require_explicit_true_values`,
 `redirect_cannot_escape_origin_safety_policy`, and `ssrf_guard`.
 
+## Chat stream backpressure
+
+HERON's native and web chat clients consume the same `POST /api/chat` SSE endpoint.
+The server caps each pending chat event queue at **128 events**. EventSink is
+synchronous; when a stalled consumer fills that queue, the active run is
+aborted instead of silently dropping model/tool/approval events or allocating
+unbounded memory. A best-effort terminal error is sent once capacity returns
+(with a five-second timeout), otherwise the stream ends early and the desktop
+and web clients show a failed/interrupted turn. When the SSE response is
+dropped, its guard aborts only its original run id and removes outstanding
+approvals; a newer reply in that conversation cannot be cancelled by stale
+cleanup. Approval prompts use bounded, timed delivery and fail closed if the
+client cannot receive them.
+
+The desktop limits its network-to-UI event queue and pending native UI-thread
+callbacks to **64 each**. Its incremental SSE parser rejects an individual
+line larger than **4 MiB**, even across partial response chunks. This protects
+against non-terminating lines and huge serialized messages. Both a broken
+connection and parser failure are reported to the UI rather than leaving a
+permanently busy conversation.
+
+**Residual limits:** The server channel bounds the *number* of events, not
+their individual serialized byte lengths. Other application channels and
+event transports require their own audits. A sufficiently slow client can
+still hold one reply or approval until its timeout; the guard prevents it
+from accumulating unlimited queued events, but does not replace per-client
+rate limits or a complete denial-of-service analysis.
+
 ## Known weaknesses (not mitigated)
 
 | # | Weakness | Consequence |

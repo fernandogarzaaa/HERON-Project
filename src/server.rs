@@ -20,11 +20,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::wrappers::ReceiverStream;
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
 
-type Tx = mpsc::UnboundedSender<Value>;
+// A stalled HTTP client must not accumulate unbounded streaming events.
+const CHAT_EVENT_CAPACITY: usize = 128;
+type Tx = mpsc::Sender<Value>;
 
 pub struct ServerState {
     pub app: Arc<App>,
@@ -138,6 +140,12 @@ pub fn router(app: Arc<App>, token: String) -> Router {
         .route("/audit", get(get_audit))
         .route("/awareness", get(get_awareness).post(set_awareness).delete(clear_awareness))
         .route("/mcp/{name}/accept", post(accept_mcp))
+        // Connector directory is metadata only. Creating registrations or
+        // storing API keys never activates a remote tool or exposes a key.
+        .route("/connectors", get(list_connectors))
+        .route("/connectors/custom", post(add_custom_connector))
+        .route("/connectors/custom/{id}", delete(delete_custom_connector))
+        .route("/connectors/custom/{id}/api-key", post(set_connector_api_key).delete(delete_connector_api_key))
         .route("/persona", get(get_persona).post(set_persona).delete(reset_persona))
         .route("/pause", post(set_pause))
         .route("/backup", post(make_backup))
@@ -353,6 +361,48 @@ async fn delete_session(State(st): S, Path(id): Path<String>) -> ApiResult {
 
 // ---------- chat ----------
 
+/// Abort only this run, never a newer reply in the same conversation.
+fn abort_matching_run(state: &ServerState, sid: &str, run_id: u64) {
+    let abort = {
+        let mut running = state.running.lock().unwrap();
+        if running.get(sid).is_some_and(|(id, _, _)| *id == run_id) {
+            let entry = running.remove(sid);
+            if entry.is_some() {
+                // Keep the running lock until old approvals are removed.
+                // Otherwise the next run can insert a new approval for the
+                // same session between removal and cleanup.
+                state.approvals.lock().unwrap().retain(|_, (session, _)| session != sid);
+            }
+            entry.map(|(_, abort, _)| abort)
+        } else { None }
+    };
+    if let Some(abort) = abort {
+        abort.abort();
+    }
+}
+
+/// A disconnected SSE response cancels its run and pending approvals.
+struct ChatEventStream {
+    rx: ReceiverStream<Value>,
+    state: Arc<ServerState>,
+    session_id: String,
+    run_id: u64,
+}
+
+impl futures_util::Stream for ChatEventStream {
+    type Item = Value;
+
+    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+        futures_util::Stream::poll_next(std::pin::Pin::new(&mut self.get_mut().rx), cx)
+    }
+}
+
+impl Drop for ChatEventStream {
+    fn drop(&mut self) {
+        abort_matching_run(&self.state, &self.session_id, self.run_id);
+    }
+}
+
 struct WebApprover {
     state: Arc<ServerState>,
     session_id: String,
@@ -365,8 +415,14 @@ impl Approver for WebApprover {
         let id = uuid::Uuid::new_v4().simple().to_string();
         let (tx, rx) = oneshot::channel();
         self.state.approvals.lock().unwrap().insert(id.clone(), (self.session_id.clone(), tx));
-        let _ = self.tx.send(json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
-            "always_rule": crate::permissions::always_rule(&req.tool, &req.summary), "can_always": !req.risk.high() && !req.tainted, "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted}));
+        let prompt = json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
+            "always_rule": crate::permissions::always_rule(&req.tool, &req.summary), "can_always": !req.risk.high() && !req.tainted, "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted});
+        // Do not leave an invisible approval pending if the SSE receiver is
+        // stalled or gone; a sensitive action must fail closed.
+        if !matches!(tokio::time::timeout(Duration::from_secs(15), self.tx.send(prompt)).await, Ok(Ok(()))) {
+            self.state.approvals.lock().unwrap().remove(&id);
+            return Approval::Deny(Some("could not deliver the approval request to the client".into()));
+        }
         // If nobody answers (window closed), decline rather than hang forever.
         let answer = tokio::time::timeout(Duration::from_secs(900), rx).await;
         self.state.approvals.lock().unwrap().remove(&id);
@@ -404,14 +460,14 @@ async fn chat(State(st): S, Json(body): Json<ChatBody>) -> std::result::Result<R
         None => Session::create(&st.app.store, "")?,
     };
     let sid = session.id.clone();
-    let (tx, rx) = mpsc::unbounded_channel::<Value>();
+    let (tx, rx) = mpsc::channel::<Value>(CHAT_EVENT_CAPACITY);
+    let run_id = st.next_run.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     {
         let mut running = st.running.lock().unwrap();
         if running.contains_key(&sid) {
             return Err(ApiError(StatusCode::CONFLICT, "Heron is still replying in this conversation. Stop it first, or wait.".into()));
         }
-        let _ = tx.send(json!({"type": "session", "id": sid}));
-        let run_id = st.next_run.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        tx.try_send(json!({"type": "session", "id": sid.clone()})).map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "chat event queue unavailable".into()))?;
         let finished = move |state: &ServerState, sid: &str| {
             let mut running = state.running.lock().unwrap();
             if running.get(sid).map(|(id, _, _)| *id == run_id).unwrap_or(false) {
@@ -424,29 +480,51 @@ async fn chat(State(st): S, Json(body): Json<ChatBody>) -> std::result::Result<R
         let handle = tokio::spawn(async move {
             let agent = state.app.agent(Arc::new(WebApprover { state: state.clone(), session_id: task_sid.clone(), tx: task_tx.clone() }));
             let sink_tx = task_tx.clone();
+            let sink_state = state.clone();
+            let sink_sid = task_sid.clone();
+            let notified = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            // EventSink is synchronous and may be called from a worker thread.
+            let sink_runtime = tokio::runtime::Handle::current();
             let sink: EventSink = Arc::new(move |e| {
-                let _ = sink_tx.send(event_json(e));
+                let Err(failure) = sink_tx.try_send(event_json(e)) else { return };
+                // No silent event loss or unbounded buffering. A full queue
+                // means the consumer is not keeping up: stop this reply.
+                if notified.swap(true, std::sync::atomic::Ordering::SeqCst) { return; }
+                if matches!(failure, mpsc::error::TrySendError::Full(_)) {
+                    let error_tx = sink_tx.clone();
+                    sink_runtime.spawn(async move {
+                        let error = json!({"type": "error", "message": "Streaming stopped: the client could not keep up with Heron's reply."});
+                        // One best-effort error after the already queued events.
+                        // A fully stalled connection cannot hold this task forever.
+                        let _ = tokio::time::timeout(Duration::from_secs(5), error_tx.send(error)).await;
+                    });
+                }
+                abort_matching_run(&sink_state, &sink_sid, run_id);
             });
             match agent.run_turn(&mut session, &message, &sink).await {
                 Ok(text) => {
-                    let _ = task_tx.send(json!({"type": "done", "text": text, "title": state.app.store.session_title(&task_sid)}));
+                    if task_tx.send(json!({"type": "done", "text": text, "title": state.app.store.session_title(&task_sid)})).await.is_err() {
+                        finished(&state, &task_sid);
+                        return;
+                    }
                     state.app.persist_rules();
                     // Free the conversation before the (slower) background learning step.
                     finished(&state, &task_sid);
                     let learned = agent.learn(&session, &message, &text).await;
                     if !learned.is_empty() {
-                        let _ = task_tx.send(json!({"type": "learned", "items": learned}));
+                        let _ = task_tx.send(json!({"type": "learned", "items": learned})).await;
                     }
                 }
                 Err(e) => {
-                    let _ = task_tx.send(json!({"type": "error", "message": format!("{e:#}")}));
+                    let _ = task_tx.send(json!({"type": "error", "message": format!("{e:#}")})).await;
                 }
             }
             finished(&state, &task_sid);
         });
-        running.insert(sid, (run_id, handle.abort_handle(), tx));
+        running.insert(sid.clone(), (run_id, handle.abort_handle(), tx));
     }
-    let stream = UnboundedReceiverStream::new(rx).map(|v| Ok::<_, std::convert::Infallible>(SseEvent::default().data(v.to_string())));
+    let stream = ChatEventStream { rx: ReceiverStream::new(rx), state: st, session_id: sid, run_id }
+        .map(|v| Ok::<_, std::convert::Infallible>(SseEvent::default().data(v.to_string())));
     Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))).into_response())
 }
 
@@ -475,11 +553,20 @@ struct SessionBody {
 }
 
 async fn cancel(State(st): S, Json(b): Json<SessionBody>) -> ApiResult {
-    let entry = st.running.lock().unwrap().remove(&b.session_id);
-    st.approvals.lock().unwrap().retain(|_, (sid, _)| *sid != b.session_id);
+    let entry = {
+        let mut running = st.running.lock().unwrap();
+        let entry = running.remove(&b.session_id);
+        // A new chat must not register its approval between removing the
+        // previous run and clearing that previous run's approvals.
+        st.approvals.lock().unwrap().retain(|_, (sid, _)| *sid != b.session_id);
+        entry
+    };
     if let Some((_, handle, tx)) = entry {
         handle.abort();
-        let _ = tx.send(json!({"type": "cancelled"}));
+        // With a bounded queue this send is async. Give the SSE receiver a
+        // brief chance to consume its explicit cancellation event, but never
+        // make Stop wait indefinitely behind an unresponsive client.
+        let _ = tokio::time::timeout(Duration::from_secs(2), tx.send(json!({"type": "cancelled"}))).await;
     }
     Ok(Json(json!({"ok": true})))
 }
@@ -668,6 +755,8 @@ async fn get_awareness(State(st): S) -> ApiResult {
         "budget_used": st.app.background_budget().0, "budget_limit": st.app.background_budget().1, "demo": crate::llm::is_demo(&cfg),
         "focus": seen.focus, "active_hours": seen.active_hours, "branch": seen.branch, "journal": journal,
         "insights": st.app.store.memories_by_source("observed", 20)?, "workspace": st.app.workspace.display().to_string(),
+        "proactive_status": st.app.store.kv_get("proactive_last_status").unwrap_or_else(|| "not_checked".to_string()),
+        "proactive_status_at": st.app.store.kv_get("proactive_last_status_at").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0),
     })))
 }
 
@@ -705,6 +794,67 @@ async fn accept_mcp(State(st): S, Path(name): Path<String>) -> ApiResult {
 }
 
 // ---------- character, pause, waiting approvals, per-tool settings, today ----------
+
+// ---------- Connector directory + isolated credential vault ----------
+
+async fn list_connectors(State(st): S) -> ApiResult {
+    let cfg = st.app.cfg();
+    Ok(Json(json!({
+        "connectors": crate::connectors::list(&cfg)?,
+        "vault": {
+            "backend": cfg.secret_storage(),
+            "os_keychain_supported": cfg!(any(target_os = "macos", windows)),
+            "credentials_readable_by_agent": false
+        },
+        "custom_execution_enabled": false,
+    })))
+}
+
+fn local_connector_admin(st: &ServerState, headers: &HeaderMap) -> std::result::Result<(), ApiError> {
+    if st.loopback_only && request_is_local(headers) {
+        Ok(())
+    } else {
+        Err(ApiError(StatusCode::FORBIDDEN,
+            "Connector and credential changes require HERON's authenticated local desktop server.".into()))
+    }
+}
+
+async fn add_custom_connector(
+    State(st): S, headers: HeaderMap,
+    Json(spec): Json<crate::connectors::CustomConnector>
+) -> ApiResult {
+    local_connector_admin(&st, &headers)?;
+    let id = spec.id.clone();
+    crate::connectors::register(&st.app.cfg(), spec)?;
+    st.app.store.audit("connectors", "connector.register", &id, "user-local", "metadata saved; not activated");
+    Ok(Json(json!({"id": id, "status": "saved_not_active"})))
+}
+
+async fn delete_custom_connector(State(st): S, Path(id): Path<String>, headers: HeaderMap) -> ApiResult {
+    local_connector_admin(&st, &headers)?;
+    crate::connectors::remove_custom(&st.app.cfg(), &id)?;
+    st.app.store.audit("connectors", "connector.delete", &id, "user-local", "credential removed");
+    Ok(Json(json!({"id": id, "deleted": true})))
+}
+
+async fn set_connector_api_key(
+    State(st): S, Path(id): Path<String>, headers: HeaderMap, Json(body): Json<Value>
+) -> ApiResult {
+    local_connector_admin(&st, &headers)?;
+    let key = body.get("api_key").and_then(Value::as_str)
+        .ok_or_else(|| bad("Supply the connector API key."))?;
+    // There must be no audit entry containing an input key or HTTP body.
+    crate::connectors::put_api_key(&st.app.cfg(), &id, key)?;
+    st.app.store.audit("connectors", "credential.store", &id, "user-local", "stored in OS vault");
+    Ok(Json(json!({"id": id, "has_credential": true})))
+}
+
+async fn delete_connector_api_key(State(st): S, Path(id): Path<String>, headers: HeaderMap) -> ApiResult {
+    local_connector_admin(&st, &headers)?;
+    crate::connectors::remove_api_key(&st.app.cfg(), &id)?;
+    st.app.store.audit("connectors", "credential.delete", &id, "user-local", "removed");
+    Ok(Json(json!({"id": id, "has_credential": false})))
+}
 
 async fn get_persona(State(st): S) -> ApiResult {
     let cfg = st.app.cfg();
@@ -1163,4 +1313,84 @@ async fn answer_suggestion(State(st): S, Path(id): Path<i64>, Json(b): Json<Valu
 async fn get_audit(State(st): S) -> ApiResult {
     let (checked, altered) = st.app.store.verify_audit()?;
     Ok(Json(json!({"entries": st.app.store.audit_log(200)?, "checked": checked, "intact": altered.is_none()})))
+}
+
+#[cfg(test)]
+mod stream_backpressure_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn dropped_chat_stream_aborts_only_its_original_run_and_clears_approvals() {
+        use crate::config::Config;
+        use crate::llm::ScriptedLlm;
+        use crate::store::Store;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        cfg.agent.auto_memory = false;
+        let app = Arc::new(App::assemble(
+            cfg,
+            dir.path().join("workspace"),
+            Store::in_memory().unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap());
+        let state = Arc::new(ServerState {
+            app,
+            token: "test".into(),
+            loopback_only: true,
+            approvals: Default::default(),
+            running: Default::default(),
+            next_run: Default::default(),
+        });
+        let task = tokio::spawn(async { std::future::pending::<()>().await });
+        let (tx, rx) = mpsc::channel(1);
+        state.running.lock().unwrap().insert("s".into(), (42, task.abort_handle(), tx));
+
+        // A stale SSE connection from a previous run cannot abort a newer one.
+        drop(ChatEventStream {
+            rx: ReceiverStream::new(rx),
+            state: state.clone(),
+            session_id: "s".into(),
+            run_id: 41,
+        });
+        assert!(state.running.lock().unwrap().contains_key("s"));
+        assert!(!task.is_finished());
+
+        let (approval_tx, approval_rx) = oneshot::channel();
+        state.approvals.lock().unwrap().insert("a".into(), ("s".into(), approval_tx));
+        let (_unused_tx, current_rx) = mpsc::channel(1);
+        drop(ChatEventStream {
+            rx: ReceiverStream::new(current_rx),
+            state: state.clone(),
+            session_id: "s".into(),
+            run_id: 42,
+        });
+        assert!(!state.running.lock().unwrap().contains_key("s"));
+        assert!(state.approvals.lock().unwrap().is_empty());
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(approval_rx.await.is_err());
+    }
+
+    #[tokio::test]
+    async fn stalled_chat_reader_cannot_accumulate_unlimited_events() {
+        let (tx, mut rx) = mpsc::channel::<Value>(CHAT_EVENT_CAPACITY);
+        for i in 0..CHAT_EVENT_CAPACITY {
+            tx.try_send(json!({"type":"text","text":i.to_string()}))
+                .expect("the channel must accept up to its fixed capacity");
+        }
+        assert!(matches!(
+            tx.try_send(json!({"type":"text","text":"overflow"})),
+            Err(mpsc::error::TrySendError::Full(_))
+        ));
+        // A resumed client frees exactly one slot.
+        assert!(rx.recv().await.is_some());
+        assert!(tx.try_send(json!({"type":"notice","text":"resumed"})).is_ok());
+        rx.close();
+        while rx.try_recv().is_ok() {}
+        assert!(matches!(
+            tx.try_send(json!({"type":"text","text":"late"})),
+            Err(mpsc::error::TrySendError::Closed(_))
+        ));
+    }
 }

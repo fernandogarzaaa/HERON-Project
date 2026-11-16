@@ -437,6 +437,49 @@ impl Config {
         vault::NAME
     }
 
+    /// Store a connector credential only in a verified OS credential vault.
+    ///
+    /// Config::store_secret intentionally has a file fallback for legacy model
+    /// keys. Connector/web-login credentials MUST NOT use that fallback:
+    /// on Linux, until a native Secret Service or encrypted vault backend is
+    /// implemented, storing a new connector API key is refused.
+    pub fn store_vault_only_secret(&self, name: &str, value: &str) -> Result<()> {
+        if !cfg!(any(target_os = "macos", windows)) {
+            anyhow::bail!("Secure connector vault is not available on this OS. A native Secret Service or encrypted vault must be configured first.");
+        }
+        self.ensure_home()?;
+        // Inspect the legacy store BEFORE writing to Keychain/Credential
+        // Manager. A damaged file must never turn a failed API response into
+        // a newly installed secret that the user believes was rejected.
+        let mut file = self.read_file_secrets()?;
+        let mut store = NativeCredential { home: &self.home, name };
+        crate::credential_transaction::replace(&mut store, value, || {
+            if file.remove(name).is_some() {
+                self.write_file_secrets(&file)?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Revoke and verify absence without depending on the legacy plaintext file.
+    pub fn delete_vault_only_secret(&self, name: &str) -> Result<()> {
+        #[cfg(any(target_os = "macos", windows))]
+        {
+            let mut store = NativeCredential { home: &self.home, name };
+            crate::credential_transaction::delete_verified(&mut store)
+        }
+        #[cfg(not(any(target_os = "macos", windows)))]
+        {
+            // No connector key can have been stored in this unsupported backend.
+            vault::delete(&self.home, name).map_err(anyhow::Error::msg)
+        }
+    }
+
+    /// Metadata-only status; never exposes the actual credential to an API.
+    pub fn vault_only_secret_present(&self, name: &str) -> bool {
+        vault::get(&self.home, name).is_some()
+    }
+
     pub fn stored_api_key(&self) -> Option<String> {
         self.secret("api_key")
     }
@@ -535,6 +578,23 @@ impl Config {
     }
 }
 
+struct NativeCredential<'a> {
+    home: &'a std::path::Path,
+    name: &'a str,
+}
+
+impl crate::credential_transaction::CredentialStore for NativeCredential<'_> {
+    fn read(&mut self) -> Result<Option<String>> {
+        vault::get_checked(self.home, self.name).map_err(anyhow::Error::msg)
+    }
+    fn write(&mut self, value: &str) -> Result<()> {
+        vault::set_verified(self.home, self.name, value).map_err(anyhow::Error::msg)
+    }
+    fn delete(&mut self) -> Result<()> {
+        vault::delete(self.home, self.name).map_err(anyhow::Error::msg)
+    }
+}
+
 /// The operating system's credential store. Entries are namespaced by the Heron folder so that
 /// separate profiles (and tests) never see each other's secrets.
 #[cfg(any(target_os = "macos", windows))]
@@ -554,13 +614,31 @@ mod vault {
         entry(home, name)?.get_password().ok().filter(|v| !v.is_empty())
     }
     pub fn set(home: &Path, name: &str, value: &str) -> bool {
-        // Only report success if the value really reads back, so a broken store falls back to the file.
-        entry(home, name).map(|e| e.set_password(value).is_ok() && e.get_password().map(|v| v == value).unwrap_or(false)).unwrap_or(false)
+        // Legacy model keys may fall back to an owner-only file.
+        set_verified(home, name, value).is_ok()
+    }
+    pub fn get_checked(home: &Path, name: &str) -> Result<Option<String>, String> {
+        let e = entry(home, name).ok_or_else(|| "OS vault entry cannot be opened".to_string())?;
+        match e.get_password() {
+            Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+    pub fn set_verified(home: &Path, name: &str, value: &str) -> Result<(), String> {
+        let e = entry(home, name).ok_or_else(|| "OS vault entry cannot be opened".to_string())?;
+        e.set_password(value).map_err(|error| format!("OS credential write rejected: {error}"))?;
+        let saved = e.get_password().map_err(|error| format!("OS credential read-back failed after write: {error}"))?;
+        if saved != value {
+            return Err("OS credential read-back did not match the attempted value.".into());
+        }
+        Ok(())
     }
     pub fn delete(home: &Path, name: &str) -> Result<(), String> {
         match entry(home, name).map(|e| e.delete_credential()) {
             // Nothing saved under that name is what the caller wanted anyway.
-            None | Some(Ok(())) | Some(Err(keyring::Error::NoEntry)) => Ok(()),
+            Some(Ok(())) | Some(Err(keyring::Error::NoEntry)) => Ok(()),
+            None => Err("OS vault entry cannot be opened".into()),
             Some(Err(e)) => Err(e.to_string()),
         }
     }
@@ -577,6 +655,12 @@ mod vault {
     }
     pub fn set(_: &Path, _: &str, _: &str) -> bool {
         false
+    }
+    pub fn get_checked(_: &Path, _: &str) -> Result<Option<String>, String> {
+        Err("Secure OS vault is not available on this platform.".into())
+    }
+    pub fn set_verified(_: &Path, _: &str, _: &str) -> Result<(), String> {
+        Err("Secure OS vault is not available on this platform.".into())
     }
     pub fn delete(_: &Path, _: &str) -> Result<(), String> {
         Ok(())
@@ -644,6 +728,30 @@ port = 7878
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Run explicitly on an authorized interactive macOS/Windows desktop.
+    /// A mock backend cannot establish the OS vault's availability or ACLs.
+    #[test]
+    #[cfg(any(target_os = "macos", windows))]
+    #[ignore = "requires an authorized, unlocked native credential vault"]
+    fn connector_vault_live_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("native-vault-qualification");
+        let name = format!("connector_{}_api_key", uuid::Uuid::new_v4().simple());
+        cfg.store_vault_only_secret(&name, "disposable-first").unwrap();
+        let first = vault::get_checked(&cfg.home, &name).unwrap();
+        cfg.store_vault_only_secret(&name, "disposable-replacement").unwrap();
+        let second = vault::get_checked(&cfg.home, &name).unwrap();
+        // Unrelated legacy corruption must not prevent emergency revocation.
+        std::fs::write(cfg.home.join("secrets.json"), b"{broken").unwrap();
+        cfg.delete_vault_only_secret(&name).unwrap();
+        let absent = vault::get_checked(&cfg.home, &name).unwrap().is_none();
+        assert!(first.as_deref() == Some("disposable-first"));
+        assert!(second.as_deref() == Some("disposable-replacement"));
+        assert!(absent);
+        assert_eq!(std::fs::read(cfg.home.join("secrets.json")).unwrap(), b"{broken");
+    }
 
     #[test]
     fn default_config_text_parses_to_defaults() {
@@ -726,6 +834,17 @@ mod tests {
     fn mcp_servers_parse() {
         let c: Config = toml::from_str("[mcp.servers.fs]\ncommand='x'\nargs=['a']\ntrust=true\n").unwrap();
         assert!(c.mcp.servers["fs"].trust);
+    }
+
+    #[test]
+    #[cfg(not(any(target_os = "macos", windows)))]
+    fn connector_vault_fails_closed_without_an_os_backend() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = tmp.path().join("home");
+        assert!(cfg.store_vault_only_secret("connector_test_api_key", "never-write-me").is_err());
+        assert!(!cfg.vault_only_secret_present("connector_test_api_key"));
+        assert!(!cfg.home.join("secrets.json").exists());
     }
 
     #[test]

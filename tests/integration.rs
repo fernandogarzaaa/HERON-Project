@@ -34,6 +34,61 @@ fn cfg_for(base: &str, home: &std::path::Path) -> Config {
 }
 
 #[tokio::test]
+async fn connector_control_plane_requires_local_auth_and_never_activates_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = cfg_for("demo", &dir.path().join("home"));
+    cfg.llm.base_url = "demo".into();
+    let app = Arc::new(App::build(cfg.clone(), dir.path().join("work")).await.unwrap());
+    let base = spawn(heron::server::router(app.clone(), "connector-test-token".into())).await;
+    let http = reqwest::Client::new();
+    let endpoint = format!("{base}/api/connectors/custom");
+    let spec = json!({"id":"test_remote", "name":"Test MCP", "category":"other",
+        "transport":"remote_mcp", "endpoint":"https://example.org/mcp", "permission":"approval_required"});
+    assert_eq!(http.post(&endpoint).json(&spec).send().await.unwrap().status(), 401);
+    assert_eq!(http.post(&endpoint).bearer_auth("connector-test-token")
+        .header("Origin", "https://evil.example.org").json(&spec).send().await.unwrap().status(), 403);
+    assert_eq!(http.post(&endpoint).bearer_auth("connector-test-token")
+        .header("Host", "evil.example.org").json(&spec).send().await.unwrap().status(), 403);
+    assert!(!cfg.home.join("connectors.json").exists());
+
+    let response = http.post(&endpoint).bearer_auth("connector-test-token")
+        .json(&spec).send().await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!(response.json::<Value>().await.unwrap()["status"], "saved_not_active");
+    let catalog: Value = http.get(format!("{base}/api/connectors"))
+        .bearer_auth("connector-test-token").send().await.unwrap().json().await.unwrap();
+    assert_eq!(catalog["custom_execution_enabled"], false);
+    let card = catalog["connectors"].as_array().unwrap().iter()
+        .find(|c| c["id"] == "test_remote").unwrap();
+    assert_eq!(card["status"], "saved_not_active");
+    assert_eq!(card["has_credential"], false);
+    assert!(app.tools.names().iter().all(|name| !name.contains("test_remote")));
+
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let response = http.post(format!("{endpoint}/test_remote/api-key"))
+            .bearer_auth("connector-test-token").json(&json!({"api_key":"never-leak-this-test-key"}))
+            .send().await.unwrap();
+        assert!(!response.status().is_success());
+        assert!(!response.text().await.unwrap().contains("never-leak-this-test-key"));
+        assert!(!cfg.home.join("secrets.json").exists());
+    }
+    let audit = serde_json::to_string(&app.store.audit_log(100).unwrap()).unwrap();
+    assert!(audit.contains("connector.register"));
+    assert!(!audit.contains("never-leak-this-test-key"));
+    // An unrelated damaged legacy file must not prevent emergency revocation.
+    std::fs::write(cfg.home.join("secrets.json"), b"{corrupt").unwrap();
+    assert!(http.delete(format!("{endpoint}/test_remote")).bearer_auth("connector-test-token")
+        .send().await.unwrap().status().is_success());
+
+    cfg.server.bind = "0.0.0.0".into();
+    let remote = Arc::new(App::build(cfg, dir.path().join("other-work")).await.unwrap());
+    let base = spawn(heron::server::router(remote, "remote-test-token".into())).await;
+    assert_eq!(http.post(format!("{base}/api/connectors/custom"))
+        .bearer_auth("remote-test-token").json(&spec).send().await.unwrap().status(), 403);
+}
+
+#[tokio::test]
 async fn http_client_streams_retries_and_falls_back() {
     static CALLS: AtomicUsize = AtomicUsize::new(0);
     let router = Router::new().route(
