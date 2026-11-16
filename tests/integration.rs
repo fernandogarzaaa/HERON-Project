@@ -427,6 +427,13 @@ async fn telegram_gateway_pairs_one_chat_ignores_strangers_and_asks_before_actin
     // After pairing, a stranger (even with the code) and a group chat are ignored, and the model is never called for them.
     say(999, &code, "private");
     say(999, "delete everything", "private");
+    // A forged update that borrows the paired chat ID but is from another
+    // Telegram user must not reach the model or receive replies.
+    let spoof_id = mock.next.fetch_add(1, Ordering::SeqCst) as i64 + 1;
+    mock.updates.lock().unwrap().push_back(json!({
+        "update_id": spoof_id,
+        "message": {"chat": {"id": 42, "type": "private"}, "from": {"id": 999}, "text": "forged owner request"}
+    }));
     say(42, "delete everything", "group");
     // The owner asks for something that changes a file: Heron asks first, on the phone.
     say(42, "save a note", "private");
