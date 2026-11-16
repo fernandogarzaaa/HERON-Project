@@ -124,6 +124,16 @@ impl ChannelStore {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        // Never follow a pre-existing symlink to an arbitrary database or
+        // chmod another file through a symlinked channels.db path.
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_symlink() || !meta.is_file() => {
+                bail!("The channel spool path must be a regular file, not a symlink");
+            }
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err.into()),
+        }
         // Only the current OS user may inspect the channel spool.
         #[cfg(unix)]
         if !path.exists() {
@@ -520,6 +530,19 @@ mod tests {
         let reopened = ChannelStore::open(&db).unwrap();
         assert!(!reopened.accept_inbound(&expected, &inbound("u9"), 101).unwrap());
         assert_eq!(reopened.count_pending().unwrap(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_spool_paths() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("unrelated.sqlite3");
+        std::fs::write(&target, b"not a spool").unwrap();
+        let alias = temp.path().join("channels.db");
+        symlink(&target, &alias).unwrap();
+        assert!(ChannelStore::open(&alias).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"not a spool");
     }
 
     #[test]
