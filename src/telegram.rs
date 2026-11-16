@@ -266,14 +266,18 @@ pub fn paired_chat(app: &App) -> Option<i64> {
     app.store.kv_get("telegram_chat").and_then(|c| c.parse().ok())
 }
 
+pub(crate) fn purge_token_spool(app: &App, token: &str) {
+    let account = format!("{:x}", Sha256::digest(token.as_bytes()));
+    if let Ok(spool) = ChannelStore::open(&app.cfg().home.join("channels.db")) {
+        let _ = spool.purge_account(ChannelKind::Telegram, &account);
+    }
+}
+
 pub fn unpair(app: &App) {
-    // Clear unsent replies and inbound identifiers when the trusted pairing
-    // is revoked. A newly paired person must not inherit another chat's data.
+    // Clear unsent replies and inbound identifiers when trusted pairing
+    // is revoked. A new chat must never inherit an old owner's messages.
     if let Some(token) = app.cfg().secret("telegram_token") {
-        let account = format!("{:x}", Sha256::digest(token.as_bytes()));
-        if let Ok(spool) = ChannelStore::open(&app.cfg().home.join("channels.db")) {
-            let _ = spool.purge_account(ChannelKind::Telegram, &account);
-        }
+        purge_token_spool(app, &token);
     }
     // A new pairing (or replaced bot token) must never reuse a previous
     // owner's conversation, cached notifications, or Telegram update cursor.
@@ -511,6 +515,11 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
 pub fn spawn_if_configured(app: &Arc<App>) -> bool {
     stop(app);
     let cfg = app.cfg();
+    if !cfg.vault_only_secret_present("telegram_token") {
+        // Legacy plaintext/file fallback is not an acceptable new messaging
+        // credential source. User must reconnect through the verified vault.
+        return false;
+    }
     match cfg.secret("telegram_token") {
         Some(token) => {
             let task = tokio::spawn(run(app.clone(), cfg.telegram.api_base.clone(), token));
