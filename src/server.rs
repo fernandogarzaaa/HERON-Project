@@ -1018,6 +1018,13 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
     if !valid {
         return Err(bad("That does not look like a bot token. Create a bot with @BotFather in Telegram and paste the token it gives you."));
     }
+    let old_token = st.app.cfg().secret("telegram_token");
+    if old_token.as_deref() != Some(token) {
+        // A replacement bot is a different account. Never inherit the old
+        // pairing or dispatch messages queued for the old Telegram identity.
+        crate::telegram::stop(&st.app);
+        crate::telegram::unpair(&st.app);
+    }
     st.app.cfg().store_secret("telegram_token", token)?;
     // Restarts the connection, so a replaced token is the one in use and there is only ever one reader.
     crate::telegram::spawn_if_configured(&st.app);
@@ -1025,9 +1032,11 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
 }
 
 async fn remove_telegram(State(st): S) -> ApiResult {
-    st.app.cfg().store_secret("telegram_token", "")?;
     crate::telegram::stop(&st.app);
+    // Revocation must purge the account's channel spool before erasing
+    // the bot token that identifies its records.
     crate::telegram::unpair(&st.app);
+    st.app.cfg().store_secret("telegram_token", "")?;
     Ok(Json(json!({"configured": false, "paired": false})))
 }
 
