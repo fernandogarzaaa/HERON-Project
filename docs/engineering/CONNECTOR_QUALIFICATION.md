@@ -127,7 +127,7 @@ reported separately from compilation/test failures.
 Do not merge the qualification changes based on CI for `b2ba00f`. Require tests,
 Slint compilation and fresh security review on the resulting exact commit, with
 Linux/macOS/Windows jobs and disposable native vault round trips on supported OSes.
-Run `cargo test --locked --lib config::tests::connector_vault_live_round_trip -- --ignored --exact` on each authorized macOS/Windows desktop; this opt-in test is explicitly not executed on Linux or by default CI. Use non-force pushes. API permission/network denial and unavailable OS/account
+Run `cargo test --locked --lib config::tests::connector_vault_live_round_trip -- --ignored --exact` on each authorized macOS/Windows desktop; this test is not executed on Linux. The standard macOS/Windows CI jobs now invoke it explicitly as a required step; a locked or unavailable native backend must fail qualification. Use non-force pushes. API permission/network denial and unavailable OS/account
 authorization are external blockers, not passing checks.
 
 After the foundation gate, deliver remote runtime, OAuth/broker, native connection
@@ -166,3 +166,14 @@ Fault tests include failures before mutation, partially successful writes,
 read-back errors, legacy cleanup errors, both forms of failed rollback, a lying
 delete backend, and unreadable post-delete state. Removing the verification,
 OS lock, authentication or inactive-registration checks breaks these assertions.
+
+
+### Follow-up CI gate
+
+Run `43794035178` completed with all six jobs successful for `e6a47ab`.
+That run did not execute the ignored native-vault round trip. CI now explicitly
+runs it on macOS and Windows, without `continue-on-error`, using only disposable
+profile-isolated credentials. Results must be checked on the new commit before
+claiming native vault qualification. The latest visible security review still
+covers `b2ba00f`, not the qualification changes. GitHub API access remains denied;
+no fresh review or merge has been performed.
