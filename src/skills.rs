@@ -10,7 +10,15 @@ use std::io::Read;
 use std::path::Path;
 
 const MAX_SKILLS: usize = 128;
-const MAX_SKILL_BYTES: u64 = 64 * 1024;
+pub const MAX_SKILL_BYTES: u64 = 64 * 1024;
+
+/// Reject a save before modifying any existing skill if the loader would
+/// refuse the resulting file.
+pub fn validate_skill_size(text: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(text.len() as u64 <= MAX_SKILL_BYTES,
+        "skill is too large (max {} bytes)", MAX_SKILL_BYTES);
+    Ok(())
+}
 const MAX_NAME_BYTES: usize = 80;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,10 +48,12 @@ fn summary(text: &str) -> String {
 
 fn metadata(value: &str, max: usize) -> Option<String> {
     let cleaned = value.trim().trim_matches(['"', '\'']);
-    (!cleaned.is_empty()
-        && cleaned.len() <= max
-        && !cleaned.chars().any(char::is_control))
-        .then(|| cleaned.to_string())
+    if cleaned.is_empty() || cleaned.chars().any(char::is_control) {
+        return None;
+    }
+    // Truncate by Unicode scalar count; do not silently lose otherwise
+    // useful skill descriptions because of long UTF-8 byte sequences.
+    Some(cleaned.chars().take(max).collect())
 }
 
 fn parse(name: &str, text: &str) -> Skill {
@@ -51,8 +61,11 @@ fn parse(name: &str, text: &str) -> Skill {
     let mut version = None;
     let mut source = None;
     let mut declared_tools = Vec::new();
-    let mut body = text;
-    if let Some(rest) = text.strip_prefix("---\n") {
+    // Windows-authored files may have CRLF front matter; parsing normalizes
+    // delimiters without changing the SHA-256 of the original source.
+    let normalized = text.replace("\r\n", "\n");
+    let mut body = normalized.as_str();
+    if let Some(rest) = normalized.strip_prefix("---\n") {
         if let Some((front, after)) = rest.split_once("\n---") {
             for line in front.lines() {
                 if let Some((key, raw)) = line.split_once(':') {
@@ -107,6 +120,54 @@ fn within_skills_directory(root: &Path, path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(unix)]
+fn secure_open(root: &Path, folder: Option<&std::ffi::OsStr>, filename: &std::ffi::OsStr) -> std::io::Result<std::fs::File> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+
+    let croot = CString::new(root.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    let cfile = CString::new(filename.as_bytes())
+        .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    // SAFETY: CString pointers remain valid for the duration of each call;
+    // returned owned File closes its descriptor on every path.
+    let root_fd = unsafe {
+        libc::open(croot.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+    };
+    if root_fd < 0 { return Err(std::io::Error::last_os_error()); }
+    let root_file = unsafe { std::fs::File::from_raw_fd(root_fd) };
+
+    let nested = if let Some(folder) = folder {
+        let cname = CString::new(folder.as_bytes())
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+        let fd = unsafe {
+            libc::openat(root_file.as_raw_fd(), cname.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        };
+        if fd < 0 { return Err(std::io::Error::last_os_error()); }
+        Some(unsafe { std::fs::File::from_raw_fd(fd) })
+    } else {
+        None
+    };
+    let parent = nested.as_ref().unwrap_or(&root_file);
+    let fd = unsafe {
+        libc::openat(parent.as_raw_fd(), cfile.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+    };
+    if fd < 0 { return Err(std::io::Error::last_os_error()); }
+    Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+#[cfg(not(unix))]
+fn secure_open(root: &Path, folder: Option<&std::ffi::OsStr>, filename: &std::ffi::OsStr) -> std::io::Result<std::fs::File> {
+    let path = match folder {
+        Some(dir) => root.join(dir).join(filename),
+        None => root.join(filename),
+    };
+    std::fs::File::open(path)
+}
+
 /// Read skills deterministically, imposing a limit on each file and the
 /// number of skills. Direct symlinks and nested SKILL.md symlinks are ignored.
 /// This deliberately does NOT install skills from URLs or trust their content.
@@ -152,23 +213,24 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
         if info.file_type().is_symlink() || !info.is_file() || info.len() > MAX_SKILL_BYTES {
             continue;
         }
-        // Closing the symlink check/open race on Unix is important when a
-        // concurrently changing skill directory is not trusted.
-        let handle = {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                std::fs::OpenOptions::new().read(true)
-                    .custom_flags(libc::O_NOFOLLOW).open(&file)
-            }
-            #[cfg(not(unix))]
-            {
-                std::fs::File::open(&file)
-            }
+        // Open relative to a verified directory descriptor on Unix.
+        // O_NOFOLLOW on a final file alone is insufficient when an attacker
+        // can replace the *parent* directory between checks and open.
+        let folder = kind.is_dir().then(|| entry.file_name());
+        let top_level_name = entry.file_name();
+        let filename = if kind.is_dir() {
+            std::ffi::OsStr::new("SKILL.md")
+        } else {
+            top_level_name.as_os_str()
         };
-        let Ok(file) = handle else { continue };
+        let handle = secure_open(&root, folder.as_deref(), filename);
+        let Ok(mut handle) = handle else { continue };
+        let Ok(opened) = handle.metadata() else { continue };
+        if !opened.is_file() || opened.len() > MAX_SKILL_BYTES {
+            continue;
+        }
         let mut text = String::new();
-        if file.take(MAX_SKILL_BYTES + 1).read_to_string(&mut text).is_ok()
+        if handle.take(MAX_SKILL_BYTES + 1).read_to_string(&mut text).is_ok()
             && text.len() as u64 <= MAX_SKILL_BYTES
             && names.insert(name.to_ascii_lowercase())
         {
@@ -210,6 +272,31 @@ mod tests {
         assert_eq!(all[1].description, "Plan a trip");
         assert!(find(dir.path(), "TRIP").is_some());
         assert!(find(dir.path(), "nope").is_none());
+    }
+
+    #[test]
+    fn crlf_preserves_metadata_but_keeps_original_content_digest() {
+        let d = tempfile::tempdir().unwrap();
+        let content = "---\r\ndescription: Windows task\r\nversion: 1.0\r\n---\r\n# Body";
+        std::fs::write(d.path().join("windows.md"), content).unwrap();
+        let result = load_all(d.path());
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].description, "Windows task");
+        assert_eq!(result[0].version.as_deref(), Some("1.0"));
+        let raw_hash: String = Sha256::digest(content.as_bytes()).iter()
+            .map(|b| format!("{b:02x}")).collect();
+        assert_eq!(result[0].sha256, raw_hash);
+    }
+
+    #[test]
+    fn unicode_long_descriptions_are_truncated_not_discarded() {
+        let d = tempfile::tempdir().unwrap();
+        let description = "é".repeat(160);
+        std::fs::write(d.path().join("unicode.md"),
+            format!("---\ndescription: {description}\n---\n# Body")).unwrap();
+        let skills = load_all(d.path());
+        assert_eq!(skills[0].description.chars().count(), 140);
+        assert_eq!(skills[0].description, "é".repeat(140));
     }
 
     #[test]
