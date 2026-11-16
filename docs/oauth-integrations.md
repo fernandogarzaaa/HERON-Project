@@ -1,6 +1,8 @@
 # Google and Microsoft 365 connections (OAuth beta)
 
 **Status: implementation under review, not a qualified provider integration.**
+
+**Credential safety:** Google/Microsoft refresh tokens require the verified macOS Keychain or Windows Credential Manager backend. OAuth sign-in fails closed when that backend is unavailable; the legacy owner-only plaintext-file fallback is not permitted for new provider tokens. Linux sign-in is disabled until a verified Secret Service or encrypted vault is implemented. Existing legacy-file OAuth credentials must be disconnected and reconnected before they can be used. Live provider interoperability is still unqualified.
 Native Slint Settings now includes Connect/Sync/Disconnect/Refresh account controls, while
 onboarding also supports legacy IMAP and private ICS sources. Real Google/Microsoft app
 registrations, browser consent tests, provider-specific errors and cross-platform runtime
