@@ -173,7 +173,7 @@ impl ChannelStore {
         Self::init(Connection::open_in_memory()?)
     }
 
-    fn init(db: Connection) -> Result<Self> {
+    fn init(mut db: Connection) -> Result<Self> {
         db.busy_timeout(std::time::Duration::from_secs(5))?;
         db.execute_batch(
             "PRAGMA journal_mode=DELETE;
@@ -211,7 +211,27 @@ impl ChannelStore {
                 db.execute_batch(&format!("ALTER TABLE channel_outbox ADD COLUMN {column} TEXT"))?;
             }
         }
+        Self::backfill_message_keys(&mut db)?;
         Ok(Self { db: Arc::new(Mutex::new(db)) })
+    }
+
+    /// Chunks queued before message_key existed carry it only inside their own key ("reply:0",
+    /// "reply:1"). Without it, giving up a message would fail its head chunk and still send the tail.
+    fn backfill_message_keys(db: &mut Connection) -> Result<()> {
+        let tx = Self::write_tx(db)?;
+        let rows: Vec<(i64, String)> = tx
+            .prepare("SELECT id, idempotency_key FROM channel_outbox WHERE message_key IS NULL")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (id, key) in rows {
+            if let Some((message, index)) = key.rsplit_once(':') {
+                if !message.is_empty() && !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()) {
+                    tx.execute("UPDATE channel_outbox SET message_key=?1 WHERE id=?2", params![message, id])?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Writers take the database lock up front. A deferred transaction that reads first and
@@ -601,24 +621,30 @@ mod tests {
     }
 
     #[test]
-    fn two_processes_sharing_the_spool_never_see_database_locked() {
+    fn two_processes_sharing_the_spool_wait_for_each_other_instead_of_failing_at_once() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("channels.db");
         ChannelStore::open(&path).unwrap();
-        let errors = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        // Before the fix, about 35 of 1,200 operations failed after a millisecond. Under this much
+        // contention a slow disk (Windows CI) can still starve a writer past busy_timeout; that is
+        // the timeout working, so only a failure that did not wait it out counts.
+        let early = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let workers: Vec<_> = (0..2)
             .map(|w| {
-                let (path, errors) = (path.clone(), errors.clone());
+                let (path, early) = (path.clone(), early.clone());
                 std::thread::spawn(move || {
                     let store = ChannelStore::open(&path).unwrap();
-                    for i in 0..300 {
-                        let step = store
-                            .enqueue(&owner(), None, "hi", &format!("w{w}-{i}"), 0)
-                            .and_then(|_| store.due(ChannelKind::Telegram, "bot-1", 0, 1))
-                            .map(|_| ());
-                        if let Err(e) = step {
-                            errors.lock().unwrap().push(e.to_string());
+                    let timed = |op: &dyn Fn() -> Result<()>| {
+                        let start = std::time::Instant::now();
+                        if let Err(e) = op() {
+                            if start.elapsed() < std::time::Duration::from_secs(4) {
+                                early.lock().unwrap().push(format!("{e:#} after {:?}", start.elapsed()));
+                            }
                         }
+                    };
+                    for i in 0..300 {
+                        timed(&|| store.enqueue(&owner(), None, "hi", &format!("w{w}-{i}"), 0).map(|_| ()));
+                        timed(&|| store.due(ChannelKind::Telegram, "bot-1", 0, 1).map(|_| ()));
                     }
                 })
             })
@@ -626,8 +652,23 @@ mod tests {
         for w in workers {
             w.join().unwrap();
         }
-        let errors = errors.lock().unwrap();
-        assert!(errors.is_empty(), "{} errors, first: {:?}", errors.len(), errors.first());
+        let early = early.lock().unwrap();
+        assert!(early.is_empty(), "{} operations failed without waiting, first: {:?}", early.len(), early.first());
+    }
+
+    #[test]
+    fn replies_queued_before_the_upgrade_are_still_given_up_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("channels.db");
+        ChannelStore::open(&path).unwrap().enqueue_parts(&owner(), None, &["head".into(), "tail".into()], "old-reply", 100).unwrap();
+        // What an older build left behind: chunks with no logical message key.
+        Connection::open(&path).unwrap().execute("UPDATE channel_outbox SET message_key=NULL", []).unwrap();
+        let store = ChannelStore::open(&path).unwrap();
+        let head = store.due(ChannelKind::Telegram, "bot-1", 100, 1).unwrap().remove(0);
+        assert_eq!(head.text, "head");
+        assert_eq!(store.fail(head.id, &owner(), &head.lease).unwrap(), RetryOutcome::GaveUp);
+        assert!(store.due(ChannelKind::Telegram, "bot-1", 100, 5).unwrap().is_empty(), "the tail was sent without its head");
+        assert_eq!(store.count_failed().unwrap(), 2);
     }
 
     fn inbound(message_id: &str) -> InboundMessage {

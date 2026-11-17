@@ -167,7 +167,6 @@ impl Bot {
                 let _ = self.spool.purge_account(ChannelKind::Telegram, &self.account_id);
                 break;
             }
-            let now = crate::util::now_ts();
             // Provider errors may echo the bot URL, which embeds its token: never log them.
             let outcome = match self.send_message(chat, &msg.text).await {
                 Delivery::Sent(remote_id) => {
@@ -179,6 +178,8 @@ impl Bot {
                 }
                 Delivery::Retry { after } => {
                     eprintln!("HERON Telegram: delivery failed; retry queued.");
+                    // Telegram's retry_after counts from its answer, which can come many seconds after the request.
+                    let now = crate::util::now_ts();
                     self.spool.retry(msg.id, &msg.identity, &msg.lease, now, after.map(|s| now.saturating_add(s)))
                 }
                 Delivery::Refused => {
