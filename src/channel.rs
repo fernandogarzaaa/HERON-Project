@@ -195,8 +195,14 @@ impl ChannelStore {
         db.execute_batch(
             "PRAGMA journal_mode=DELETE;
              PRAGMA synchronous=FULL;
-             PRAGMA secure_delete=ON;
-             CREATE TABLE IF NOT EXISTS channel_inbox(
+             PRAGMA secure_delete=ON;",
+        )?;
+        // One process sets up or upgrades the schema at a time. Another opening the spool waits,
+        // then finds the work done; checking first and adding a column later would let both see
+        // it missing, and the second ALTER would fail.
+        let tx = Self::write_tx(&mut db)?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS channel_inbox(
                kind TEXT NOT NULL, account_id TEXT NOT NULL, chat_id TEXT NOT NULL,
                sender_id TEXT NOT NULL, provider_message_id TEXT NOT NULL,
                thread_id TEXT, text TEXT NOT NULL, received_at INTEGER NOT NULL,
@@ -220,22 +226,22 @@ impl ChannelStore {
                ON channel_outbox(kind, account_id, status, next_attempt, id);",
         )?;
         for column in ["lease_token", "message_key"] {
-            let present: bool = db.query_row(
+            let present: bool = tx.query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('channel_outbox') WHERE name=?1",
                 [column], |r| r.get::<_, i64>(0),
             )? > 0;
             if !present {
-                db.execute_batch(&format!("ALTER TABLE channel_outbox ADD COLUMN {column} TEXT"))?;
+                tx.execute_batch(&format!("ALTER TABLE channel_outbox ADD COLUMN {column} TEXT"))?;
             }
         }
-        Self::backfill_message_keys(&mut db)?;
+        Self::backfill_message_keys(&tx)?;
+        tx.commit()?;
         Ok(Self { db: Arc::new(Mutex::new(db)) })
     }
 
     /// Chunks queued before message_key existed carry it only inside their own key ("reply:0",
     /// "reply:1"). Without it, giving up a message would fail its head chunk and still send the tail.
-    fn backfill_message_keys(db: &mut Connection) -> Result<()> {
-        let tx = Self::write_tx(db)?;
+    fn backfill_message_keys(tx: &rusqlite::Transaction<'_>) -> Result<()> {
         let rows: Vec<(i64, String)> = tx
             .prepare("SELECT id, idempotency_key FROM channel_outbox WHERE message_key IS NULL")?
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -247,7 +253,6 @@ impl ChannelStore {
                 }
             }
         }
-        tx.commit()?;
         Ok(())
     }
 
@@ -645,13 +650,17 @@ mod tests {
         // Before the fix, about 35 of 1,200 operations failed after a millisecond. Under this much
         // contention a slow disk (Windows CI) can still starve a writer past busy_timeout; that is
         // the timeout working, so only a failure that did not wait it out counts.
+        // Both processes start up first, as Heron's do, then work at the same time.
         let early = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let started = std::sync::Arc::new(std::sync::Barrier::new(2));
         let workers: Vec<_> = (0..2)
             .map(|w| {
-                let (path, early) = (path.clone(), early.clone());
+                let (path, early, started) = (path.clone(), early.clone(), started.clone());
                 std::thread::spawn(move || {
                     let start = std::time::Instant::now();
-                    let store = match ChannelStore::open(&path) {
+                    let opened = ChannelStore::open(&path);
+                    started.wait();
+                    let store = match opened {
                         Ok(store) => store,
                         Err(e) => {
                             early.lock().unwrap().push(format!("open: {e:#} after {:?}", start.elapsed()));
@@ -678,6 +687,31 @@ mod tests {
         }
         let early = early.lock().unwrap();
         assert!(early.is_empty(), "{} operations failed without waiting, first: {:?}", early.len(), early.first());
+    }
+
+    #[test]
+    fn two_processes_upgrading_an_old_spool_at_once_both_open_it() {
+        for _ in 0..20 {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("channels.db");
+            ChannelStore::open(&path).unwrap();
+            Connection::open(&path).unwrap()
+                .execute_batch("ALTER TABLE channel_outbox DROP COLUMN lease_token; ALTER TABLE channel_outbox DROP COLUMN message_key;")
+                .unwrap();
+            let go = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let openers: Vec<_> = (0..2)
+                .map(|_| {
+                    let (path, go) = (path.clone(), go.clone());
+                    std::thread::spawn(move || {
+                        go.wait();
+                        ChannelStore::open(&path).map(|_| ()).map_err(|e| format!("{e:#}"))
+                    })
+                })
+                .collect();
+            for opener in openers {
+                opener.join().unwrap().expect("a second Heron process failed to open a spool being upgraded");
+            }
+        }
     }
 
     #[test]
