@@ -751,6 +751,7 @@ impl crate::workflow::Host for JobHost<'_> {
 /// Best-effort desktop notification. Uses `notify_command` if configured, else the OS default where one exists.
 /// Wait for a helper process off to the side. A finished process that nobody waits for stays in the
 /// process table until Heron exits, and a long-running Heron would slowly fill it.
+#[cfg(not(test))]
 fn reap(child: std::io::Result<std::process::Child>) {
     if let Ok(mut child) = child {
         std::thread::spawn(move || {
@@ -760,6 +761,19 @@ fn reap(child: std::io::Result<std::process::Child>) {
 }
 
 fn notify(cfg: &Config, title: &str, body: &str) {
+    // Test builds keep notifications in memory. A real one per test run reaches the user's desktop
+    // (on macOS as "Script Editor"), and a mutation run repeats the suite hundreds of times.
+    #[cfg(test)]
+    {
+        let _ = cfg;
+        tests::SENT_NOTIFICATIONS.lock().unwrap().push((title.to_string(), preview(body, 180)));
+    }
+    #[cfg(not(test))]
+    deliver_notification(cfg, title, body);
+}
+
+#[cfg(not(test))]
+fn deliver_notification(cfg: &Config, title: &str, body: &str) {
     let message = format!("{title}: {}", preview(body, 180));
     if !cfg.agent.notify_command.is_empty() {
         #[cfg(windows)]
@@ -794,6 +808,27 @@ mod tests {
     use super::*;
     use crate::llm::{Message, ScriptedLlm};
     use serde_json::json;
+
+    /// Every notification a test asked for, as (title, body). Nothing is shown on the desktop.
+    pub(super) static SENT_NOTIFICATIONS: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+    #[tokio::test]
+    async fn tests_record_notifications_instead_of_showing_them_on_the_desktop() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        cfg.agent.auto_memory = false;
+        let llm = Arc::new(ScriptedLlm::new(vec![Message::assistant("Recorded, not shown.")]));
+        let app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm).await.unwrap();
+        let title = "notification-recorder-check";
+        app.store.add_schedule(title, "", "say it", 1, "").unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        // Copy out and release the lock before asserting: a failed assert must not poison it for other tests.
+        let sent = SENT_NOTIFICATIONS.lock().unwrap().clone();
+        let mine: Vec<_> = sent.iter().filter(|(t, _)| t == title).collect();
+        assert_eq!(mine.len(), 1, "a finished job notifies exactly once: {sent:?}");
+        assert_eq!(mine[0].1, "Recorded, not shown.");
+    }
 
     #[tokio::test]
     async fn a_due_job_is_claimed_once_recorded_and_never_silently_lost() {
