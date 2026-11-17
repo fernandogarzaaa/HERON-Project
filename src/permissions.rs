@@ -772,7 +772,7 @@ mod tests {
         ] {
             assert_eq!(classify_shell(c), Effect::Privileged, "{c}");
         }
-        for c in ["ls -la", "git status", "cat README.md | head -5", "rg TODO src | wc -l", "git log --oneline -5", "pwd", "git branch", "git branch -a", "git tag --list v*", "git remote -v", "grep -o TODO src/main.rs", "sort -u names.txt | uniq -c", "date +%F"] {
+        for c in ["ls -la", "git status", "cat README.md | head -5", "rg TODO src | wc -l", "git log --oneline -5", "pwd", "git branch", "git branch -a", "git tag --list v*", "git remote -v", "grep -o TODO src/main.rs", "sort -u names.txt | uniq -c", "date +%F", "date -u"] {
             let expect = if c.contains('%') { Effect::ProcessExec } else { Effect::LocalRead };
             assert_eq!(classify_shell(c), expect, "{c}");
         }
@@ -783,12 +783,32 @@ mod tests {
     }
 
     #[test]
+    fn long_or_heavily_chained_commands_fail_closed() {
+        // Up to ten links and 1,500 characters are judged piece by piece; beyond that, pattern matching
+        // is not trusted at all.
+        let ten_links = format!("cat a.txt{}", " | head".repeat(10));
+        assert_eq!(classify_shell(&ten_links), Effect::LocalRead, "{ten_links}");
+        for sep in [" && ", " || ", "; ", " | ", "\n"] {
+            let eleven = vec!["ls"; 12].join(sep);
+            assert_eq!(classify_shell(&eleven), Effect::Privileged, "{eleven:?}");
+        }
+        let at_limit = format!("cat {}", "a".repeat(1496));
+        assert_eq!(classify_shell(&at_limit), Effect::LocalRead);
+        let over_limit = format!("cat {}", "a".repeat(1497));
+        assert_eq!(classify_shell(&over_limit), Effect::Privileged);
+    }
+
+    #[test]
     fn read_only_commands_that_can_write_run_or_reveal_are_not_safe() {
         // Each of these starts with a "read-only" command name.
         for c in [
             "sort -o out.txt in.txt", "sort --output=out.txt in.txt", "sort --compress-program=sh big.txt", "tree -o listing.txt", "rg --pre ./run.sh TODO", "uniq in.txt out.txt",
             "git branch new-branch", "git tag v9", "git remote rename origin old", "git log --output=log.txt", "git -c core.pager=less log", "git branch --unset-upstream",
-            "date -s 2020-01-01", "hostname other-name", "file -C -m magic", "ps aux", "ps e", "echo $OPENAI_API_KEY", "cat $HOME/notes.txt", "Get-ChildItem Env:", "dir env:", "where { $_ }",
+            // Options before the subcommand can choose the program git runs.
+            "git --config-env=core.pager=EVIL log", "git --exec-path=/tmp/x status",
+            // Options that make a read-only subcommand run another program.
+            "git diff --ext-diff", "git log -p --textconv", "git show --exec=./x", "git log --upload-pack=./x",
+            "date -s 2020-01-01", "date --set=2020-01-01", "date 010112002020", "hostname other-name", "file -C -m magic", "ps aux", "ps e", "echo $OPENAI_API_KEY", "cat $HOME/notes.txt", "Get-ChildItem Env:", "dir env:", "where { $_ }",
         ] {
             assert_ne!(classify_shell(c), Effect::LocalRead, "{c}");
         }
@@ -1035,6 +1055,28 @@ mod tests {
         for hostname in ["localhost.", "LOCALHOST.", "printer.local.", "metadata.internal."] {
             let uri = url::Url::parse(&format!("http://{hostname}/")).unwrap();
             assert!(url_host_obviously_local(&uri), "{hostname}");
+        }
+    }
+
+    #[test]
+    fn special_purpose_ranges_are_internal_and_their_neighbours_are_not() {
+        // One address inside each range the guard refuses, and addresses just outside it or sharing only
+        // part of its prefix, so that each condition is needed on its own.
+        let internal = [
+            "127.1.2.3", "10.1.1.1", "172.16.0.1", "192.168.0.1", "169.254.1.1", "0.0.0.0", "255.255.255.255", "224.0.0.1",
+            "100.64.0.1", "100.127.255.254", "0.1.2.3", "192.0.0.8", "198.18.0.1", "198.19.255.254", "240.0.0.1",
+            "::1", "::", "ff02::1", "fc00::1", "fd12::1", "fe80::1", "febf::1", "fec0::1", "2001:0:4136:e378::1", "::ffff:10.0.0.1",
+        ];
+        let public = [
+            "1.0.0.1", "8.8.8.8", "8.64.0.1", "100.63.255.254", "100.128.0.1", "8.0.0.8", "193.0.0.1", "192.1.0.1", "192.0.1.1",
+            "8.18.0.1", "198.17.255.254", "198.20.0.1", "223.255.255.254",
+            "2001:4860:4860::8888", "2001:1::1", "2600::1", "2a00:1450::1",
+        ];
+        for ip in internal {
+            assert!(is_private_ip(&ip.parse().unwrap()), "{ip} must be internal");
+        }
+        for ip in public {
+            assert!(!is_private_ip(&ip.parse().unwrap()), "{ip} must be public");
         }
     }
 
