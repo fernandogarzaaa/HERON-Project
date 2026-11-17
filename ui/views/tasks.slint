@@ -23,6 +23,7 @@ export component TasksView inherits Rectangle {
         VerticalBox {
             width: parent.width;
             padding: 28px;
+            alignment: start;
             spacing: 14px;
             SectionTitle { title: "Tasks"; }
             SectionIntro { body: "Your to-do list. Heron can add to it and tick things off when you ask."; }
@@ -40,7 +41,7 @@ export component TasksView inherits Rectangle {
                 }
             }
             if root.save-error != "": Text { text: root.save-error; color: Theme.danger; wrap: word-wrap; }
-            EmptyNote { body: root.empty-text; visible: root.empty-text != ""; }
+            if root.empty-text != "": EmptyNote { body: root.empty-text; }
             for row in root.rows: RowCard {
                 reduce-motion: root.reduce-motion;
                 HorizontalBox {
@@ -61,7 +62,7 @@ export component TasksView inherits Rectangle {
                             wrap: TextWrap.word-wrap;
                             animate color { duration: root.reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
                         }
-                        RowMeta { body: row.meta; visible: row.meta != ""; }
+                        if row.meta != "": RowMeta { body: row.meta; }
                     }
                     Button {
                         text: "Remove";

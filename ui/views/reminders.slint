@@ -36,6 +36,7 @@ export component RemindersView inherits Rectangle {
         VerticalBox {
             width: parent.width;
             padding: 28px;
+            alignment: start;
             spacing: 14px;
             SectionTitle { title: "Reminders"; }
             SectionIntro { body: "Things Heron does on a schedule, or when something happens, while the app is open. Scheduled runs can read and search but not change anything, unless you allow more in Settings."; }
@@ -98,12 +99,11 @@ export component RemindersView inherits Rectangle {
                     clicked => { root.fill-inbox-watch(); }
                 }
             }
-            Text {
+            if root.form-error != "": Text {
                 text: root.form-error;
                 font-size: 14px;
                 color: Theme.danger;
                 wrap: TextWrap.word-wrap;
-                visible: root.form-error != "";
             }
             Spacer { height: 16px; }
             Text {
@@ -112,7 +112,7 @@ export component RemindersView inherits Rectangle {
                 font-weight: 600;
                 color: Theme.ink;
             }
-            EmptyNote { body: root.schedules-empty-text; visible: root.schedules-empty-text != ""; }
+            if root.schedules-empty-text != "": EmptyNote { body: root.schedules-empty-text; }
             for row in root.schedules: RowCard {
                 reduce-motion: root.reduce-motion;
                 VerticalBox {
@@ -126,13 +126,12 @@ export component RemindersView inherits Rectangle {
                         wrap: TextWrap.word-wrap;
                     }
                     RowMeta { body: row.meta; }
-                    Text {
+                    if row.has-outline: Text {
                         text: row.outline;
                         font-size: 12px;
                         font-family: "SF Mono";
                         color: Theme.ink;
                         wrap: TextWrap.word-wrap;
-                        visible: row.has-outline;
                     }
                     HorizontalBox {
                         spacing: 8px;
@@ -160,13 +159,12 @@ export component RemindersView inherits Rectangle {
                 }
             }
             Spacer { height: 8px; }
-            Text {
+            if root.last-run-title != "": Text {
                 text: root.last-run-title;
                 font-size: 15px;
                 font-weight: 600;
                 color: Theme.ink;
                 wrap: TextWrap.word-wrap;
-                visible: root.last-run-title != "";
             }
             for step in root.last-run-steps: Text {
                 text: step.text;
@@ -181,7 +179,7 @@ export component RemindersView inherits Rectangle {
                 font-weight: 600;
                 color: Theme.ink;
             }
-            EmptyNote { body: root.delivered-empty-text; visible: root.delivered-empty-text != ""; }
+            if root.delivered-empty-text != "": EmptyNote { body: root.delivered-empty-text; }
             for item in root.delivered: RowCard {
                 reduce-motion: root.reduce-motion;
                 VerticalBox {

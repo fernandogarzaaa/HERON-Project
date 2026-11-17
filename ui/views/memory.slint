@@ -27,6 +27,7 @@ export component MemoryView inherits Rectangle {
         VerticalBox {
             width: parent.width;
             padding: 28px;
+            alignment: start;
             spacing: 14px;
             SectionTitle { title: "Memory"; }
             SectionIntro { body: "What Heron knows about you. It stays in a file on this computer, and you can remove anything."; }
@@ -56,7 +57,7 @@ export component MemoryView inherits Rectangle {
                 edited(text) => { root.search-changed(text); }
             }
             if root.save-error != "": Text { text: root.save-error; color: Theme.danger; wrap: word-wrap; }
-            EmptyNote { body: root.empty-text; visible: root.empty-text != ""; }
+            if root.empty-text != "": EmptyNote { body: root.empty-text; }
             for row in root.rows: RowCard {
                 reduce-motion: root.reduce-motion;
                 VerticalBox {
