@@ -1058,6 +1058,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn special_purpose_ranges_are_internal_and_their_neighbours_are_not() {
+        // One address inside each range the guard refuses, and addresses just outside it or sharing only
+        // part of its prefix, so that each condition is needed on its own.
+        let internal = [
+            "127.1.2.3", "10.1.1.1", "172.16.0.1", "192.168.0.1", "169.254.1.1", "0.0.0.0", "255.255.255.255", "224.0.0.1",
+            "100.64.0.1", "100.127.255.254", "0.1.2.3", "192.0.0.8", "198.18.0.1", "198.19.255.254", "240.0.0.1",
+            "::1", "::", "ff02::1", "fc00::1", "fd12::1", "fe80::1", "febf::1", "fec0::1", "2001:0:4136:e378::1", "::ffff:10.0.0.1",
+        ];
+        let public = [
+            "1.0.0.1", "8.8.8.8", "8.64.0.1", "100.63.255.254", "100.128.0.1", "8.0.0.8", "193.0.0.1", "192.1.0.1", "192.0.1.1",
+            "8.18.0.1", "198.17.255.254", "198.20.0.1", "223.255.255.254",
+            "2001:4860:4860::8888", "2001:1::1", "2600::1", "2a00:1450::1",
+        ];
+        for ip in internal {
+            assert!(is_private_ip(&ip.parse().unwrap()), "{ip} must be internal");
+        }
+        for ip in public {
+            assert!(!is_private_ip(&ip.parse().unwrap()), "{ip} must be public");
+        }
+    }
+
     #[tokio::test]
     async fn ssrf_guard() {
         for u in ["http://127.0.0.1:8080/admin", "http://localhost/", "http://169.254.169.254/latest/meta-data/", "http://[::1]/", "http://10.0.0.5/", "http://192.168.1.1/", "file:///etc/passwd", "ftp://x.com/", "http://user:pw@example.com/", "http://[::ffff:127.0.0.1]/"] {
