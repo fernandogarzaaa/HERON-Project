@@ -702,9 +702,28 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("channels.db");
         ChannelStore::open(&path).unwrap().enqueue_parts(&owner(), None, &["head".into(), "tail".into()], "old-reply", 100).unwrap();
-        // What an older build left behind: chunks with no logical message key.
-        Connection::open(&path).unwrap().execute("UPDATE channel_outbox SET message_key=NULL", []).unwrap();
+        // What an older build left behind: no lease or message-key columns, and keys of every shape.
+        let old = Connection::open(&path).unwrap();
+        old.execute_batch("ALTER TABLE channel_outbox DROP COLUMN lease_token; ALTER TABLE channel_outbox DROP COLUMN message_key;").unwrap();
+        for key in ["note:x1", "note:", ":0", "plain"] {
+            old.execute(
+                "INSERT INTO channel_outbox(kind,account_id,chat_id,sender_id,text,idempotency_key,queued_at,next_attempt)
+                 VALUES ('telegram','bot-2','42','42','x',?1,100,100)",
+                [key],
+            ).unwrap();
+        }
+        drop(old);
         let store = ChannelStore::open(&path).unwrap();
+        let raw = Connection::open(&path).unwrap();
+        let keys: Vec<(String, Option<String>)> = raw
+            .prepare("SELECT idempotency_key, message_key FROM channel_outbox ORDER BY id").unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap()
+            .collect::<rusqlite::Result<_>>().unwrap();
+        let some = |k: &str| Some(k.to_string());
+        assert_eq!(keys, [
+            ("old-reply:0".into(), some("old-reply")), ("old-reply:1".into(), some("old-reply")),
+            ("note:x1".into(), None), ("note:".into(), None), (":0".into(), None), ("plain".into(), None),
+        ]);
         let head = store.due(ChannelKind::Telegram, "bot-1", 100, 1).unwrap().remove(0);
         assert_eq!(head.text, "head");
         assert_eq!(store.fail(head.id, &owner(), &head.lease).unwrap(), RetryOutcome::GaveUp);

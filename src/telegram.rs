@@ -22,6 +22,7 @@ const MAX_MESSAGE: usize = 3800;
 /// raise the next notice.
 const UNDELIVERED_TITLE: &str = "A Telegram reply was not delivered";
 
+#[derive(Debug, PartialEq)]
 enum Delivery {
     Sent(Option<String>),
     /// Network trouble, a server error or a rate limit; `after` is Telegram's retry_after in seconds.
@@ -769,6 +770,35 @@ mod tests {
             assert!(std::time::Instant::now() < deadline, "timed out waiting for: {what}");
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
+    }
+
+    #[tokio::test]
+    async fn telegram_answers_decide_whether_a_reply_is_sent_retried_or_given_up() {
+        let (base, _) = mock_telegram(|path| match path {
+            "/botOK/sendMessage" => (200, json!({"ok": true, "result": {"message_id": 7}})),
+            "/botSLOW/sendMessage" => (429, json!({"ok": false, "error_code": 429, "parameters": {"retry_after": 30}})),
+            "/botGONE/sendMessage" => (403, json!({"ok": false, "error_code": 403, "description": "Forbidden: bot was blocked by the user"})),
+            "/botBAD/sendMessage" => (400, json!({"ok": false, "error_code": 400})),
+            _ => (502, json!({"ok": false, "error_code": 502})),
+        }).await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = heron_process(dir.path()).await;
+        let bot = |name: &str| Bot {
+            client: reqwest::Client::new(),
+            base: format!("{base}/bot{name}"),
+            app: app.clone(),
+            account_id: "bot".into(),
+            pairing_epoch: String::new(),
+            spool: ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap(),
+            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        assert_eq!(bot("OK").send_message(42, "hi").await, Delivery::Sent(Some("7".into())));
+        assert_eq!(bot("SLOW").send_message(42, "hi").await, Delivery::Retry { after: Some(30) });
+        assert_eq!(bot("GONE").send_message(42, "hi").await, Delivery::Refused);
+        assert_eq!(bot("BAD").send_message(42, "hi").await, Delivery::Refused);
+        assert_eq!(bot("DOWN").send_message(42, "hi").await, Delivery::Retry { after: None });
+        let offline = Bot { base: "http://127.0.0.1:1/botX".into(), ..bot("X") };
+        assert_eq!(offline.send_message(42, "hi").await, Delivery::Retry { after: None });
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
