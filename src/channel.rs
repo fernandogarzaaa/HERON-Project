@@ -132,6 +132,13 @@ pub struct ChannelStore {
     db: Arc<Mutex<Connection>>,
 }
 
+fn is_busy(err: &anyhow::Error) -> bool {
+    matches!(
+        err.downcast_ref::<rusqlite::Error>(),
+        Some(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::DatabaseBusy
+    )
+}
+
 impl ChannelStore {
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
@@ -164,8 +171,18 @@ impl ChannelStore {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
         }
-        let db = Connection::open(path)?;
-        Self::init(db)
+        // On Windows, setting up the schema can fail with "database is locked" at once, without
+        // waiting on busy_timeout, while another Heron process is committing. Retry it the way
+        // busy_timeout would.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match Self::init(Connection::open(path)?) {
+                Err(err) if is_busy(&err) && std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+                other => return other,
+            }
+        }
     }
 
     #[cfg(test)]
@@ -633,18 +650,25 @@ mod tests {
             .map(|w| {
                 let (path, early) = (path.clone(), early.clone());
                 std::thread::spawn(move || {
-                    let store = ChannelStore::open(&path).unwrap();
-                    let timed = |op: &dyn Fn() -> Result<()>| {
+                    let start = std::time::Instant::now();
+                    let store = match ChannelStore::open(&path) {
+                        Ok(store) => store,
+                        Err(e) => {
+                            early.lock().unwrap().push(format!("open: {e:#} after {:?}", start.elapsed()));
+                            return;
+                        }
+                    };
+                    let timed = |what: &str, op: &dyn Fn() -> Result<()>| {
                         let start = std::time::Instant::now();
                         if let Err(e) = op() {
                             if start.elapsed() < std::time::Duration::from_secs(4) {
-                                early.lock().unwrap().push(format!("{e:#} after {:?}", start.elapsed()));
+                                early.lock().unwrap().push(format!("{what}: {e:#} after {:?}", start.elapsed()));
                             }
                         }
                     };
                     for i in 0..300 {
-                        timed(&|| store.enqueue(&owner(), None, "hi", &format!("w{w}-{i}"), 0).map(|_| ()));
-                        timed(&|| store.due(ChannelKind::Telegram, "bot-1", 0, 1).map(|_| ()));
+                        timed("enqueue", &|| store.enqueue(&owner(), None, "hi", &format!("w{w}-{i}"), 0).map(|_| ()));
+                        timed("due", &|| store.due(ChannelKind::Telegram, "bot-1", 0, 1).map(|_| ()));
                     }
                 })
             })
@@ -654,6 +678,23 @@ mod tests {
         }
         let early = early.lock().unwrap();
         assert!(early.is_empty(), "{} operations failed without waiting, first: {:?}", early.len(), early.first());
+    }
+
+    #[test]
+    fn opening_the_spool_waits_while_another_process_is_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("channels.db");
+        ChannelStore::open(&path).unwrap();
+        // Another process in the middle of a commit: nobody may read or write until it finishes.
+        let writer = Connection::open(&path).unwrap();
+        writer.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            writer.execute_batch("COMMIT").unwrap();
+        });
+        let opened = ChannelStore::open(&path);
+        release.join().unwrap();
+        opened.expect("a second Heron process could not open the spool while the first was writing");
     }
 
     #[test]
