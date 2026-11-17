@@ -14,6 +14,7 @@
 
 The current Telegram bot remains the only Telegram adapter. On supported macOS/Windows vaults, existing single-owner pairing, stop/pause/resume, on-desktop dangerous-action approvals, and session semantics remain intact. Legacy Linux bot credential fallback is intentionally disabled until a verified encrypted vault exists.
 
+- **Accepted risk (owner decision, C35-8):** a phone turn runs in the desktop's permission mode. In Ask mode every change asks on the phone, and high-risk or outside-content requests can only be approved at the computer. In Auto or Yolo mode, whoever controls the paired Telegram account can make Heron run tools, including `shell`, with no prompt.
 - Owner updates are deduplicated by provider update ID and persisted before advancing Telegram's polling offset.
 - Outgoing text is queued locally before delivery; retries use bounded exponential delay and ten-attempt cap. The queue is flushed in the polling loop and immediately after new replies are queued.
 - Delivery is **at least once**, not exactly once. If Telegram accepts a reply immediately before HERON crashes without recording its acknowledgement, a rare duplicate may be delivered after restart.
