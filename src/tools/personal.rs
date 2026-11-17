@@ -200,7 +200,9 @@ fn skill_file(args: &Value) -> Result<(String, String)> {
     if body.len() < 20 {
         bail!("the instructions are too short to be useful");
     }
-    Ok((name, format!("---\ndescription: {description}\n---\n{body}\n")))
+    let text = format!("---\ndescription: {description}\n---\n{body}\n");
+    crate::skills::validate_skill_size(&text)?;
+    Ok((name, text))
 }
 
 async fn save_skill(args: &Value, ctx: &ToolCtx) -> Result<String> {
@@ -209,7 +211,24 @@ async fn save_skill(args: &Value, ctx: &ToolCtx) -> Result<String> {
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{name}.md"));
     let existed = path.exists();
-    std::fs::write(&path, text)?;
+    // A malicious symlink in the skills folder must not turn save_skill into
+    // an arbitrary filesystem write. On Unix, O_NOFOLLOW closes the check/open race.
+    #[cfg(unix)]
+    let mut file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new().write(true).create(true).truncate(true)
+            .custom_flags(libc::O_NOFOLLOW).open(&path)?
+    };
+    #[cfg(not(unix))]
+    let mut file = {
+        if std::fs::symlink_metadata(&path).map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+            bail!("refusing to overwrite a symlinked skill");
+        }
+        std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&path)?
+    };
+    use std::io::Write as _;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()?;
     Ok(format!("{} skill '{name}'. It is available from the next message on.", if existed { "updated" } else { "saved" }))
 }
 
