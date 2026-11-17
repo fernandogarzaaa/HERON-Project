@@ -13,7 +13,8 @@
 // fires pick_folder_requested and the Rust side feeds the picked path back
 // into doc_path. There is no typed path input.
 
-import { Button, TextEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { TextEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button } from "../components/button.slint";
 import { Theme } from "../components/theme.slint";
 import { SectionTitle, LabeledInput, ChoiceCard, StepIndicator } from "../components/atoms.slint";
 import { SourceCard, SourceItem } from "../components/source_card.slint";
@@ -103,15 +104,19 @@ export component OnboardingView inherits Rectangle {
                     alignment: start;
                     padding: 0px;
                     spacing: 8px;
-                    Button { text: model_ready ? "Change model" : "Connect a model"; clicked => { root.open_settings(); } }
-                    if !model_ready && !demo: Button {
+                    Button { reduce-motion: root.reduce-motion; text: model_ready ? "Change model" : "Connect a model"; clicked => { root.open_settings(); } }
+                    if !model_ready && !demo: Button { reduce-motion: root.reduce-motion;
                         text: "Use the demo for now";
                         clicked => { root.use_demo(); }
                     }
                 }
-                if model_ready || demo: Button {
-                    text: "Continue";
-                    clicked => { root.goto_step(1); }
+                if model_ready || demo: HorizontalBox {
+                    padding: 0px;
+                    alignment: start;
+                    Button { reduce-motion: root.reduce-motion;
+                        primary: true; text: "Continue";
+                        clicked => { root.goto_step(1); }
+                    }
                 }
             }
 
@@ -133,9 +138,9 @@ export component OnboardingView inherits Rectangle {
                     alignment: start;
                     padding: 0px;
                     spacing: 10px;
-                    Button { text: "Back"; clicked => { root.goto_step(0); } }
-                    Button { text: "Save and continue"; enabled: !busy; clicked => { root.save_about(); } }
-                    Button { text: "Skip for now"; enabled: !busy; clicked => { root.goto_step(2); } }
+                    Button { reduce-motion: root.reduce-motion; text: "Back"; clicked => { root.goto_step(0); } }
+                    Button { reduce-motion: root.reduce-motion; primary: true; text: "Save and continue"; enabled: !busy; clicked => { root.save_about(); } }
+                    Button { reduce-motion: root.reduce-motion; text: "Skip for now"; enabled: !busy; clicked => { root.goto_step(2); } }
                     if about_message != "": Text {
                         text: about_message;
                         color: Theme.ok;
@@ -173,8 +178,8 @@ export component OnboardingView inherits Rectangle {
                     alignment: start;
                     padding: 0px;
                     spacing: 10px;
-                    Button { text: "Back"; clicked => { root.goto_step(1); } }
-                    Button { text: "Continue"; enabled: !busy; clicked => { root.goto_step(3); } }
+                    Button { reduce-motion: root.reduce-motion; text: "Back"; clicked => { root.goto_step(1); } }
+                    Button { reduce-motion: root.reduce-motion; primary: true; text: "Continue"; enabled: !busy; clicked => { root.goto_step(3); } }
                 }
             }
 
@@ -219,8 +224,8 @@ export component OnboardingView inherits Rectangle {
                         HorizontalBox {
                             alignment: start;
                             padding: 0px;
-                            Button { text: "Confirm take over"; clicked => { confirm-takeover = false; root.set_proactivity("takeover"); } }
-                            Button { text: "Cancel"; clicked => { confirm-takeover = false; } }
+                            Button { reduce-motion: root.reduce-motion; text: "Confirm take over"; clicked => { confirm-takeover = false; root.set_proactivity("takeover"); } }
+                            Button { reduce-motion: root.reduce-motion; text: "Cancel"; clicked => { confirm-takeover = false; } }
                         }
                     }
                 }
@@ -228,9 +233,9 @@ export component OnboardingView inherits Rectangle {
                     alignment: start;
                     padding: 0px;
                     spacing: 10px;
-                    Button { text: "Back"; clicked => { root.goto_step(2); } }
-                    Button {
-                        text: onboarded ? "Back to the conversation" : "Finish setup";
+                    Button { reduce-motion: root.reduce-motion; text: "Back"; clicked => { root.goto_step(2); } }
+                    Button { reduce-motion: root.reduce-motion;
+                        primary: true; text: onboarded ? "Back to the conversation" : "Finish setup";
                         enabled: !busy;
                         clicked => { root.finish(); }
                     }

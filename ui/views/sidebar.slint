@@ -2,7 +2,8 @@
 // the views only through its own forwarded properties and callbacks, so
 // each view keeps its own file and its own component.
 
-import { Button, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button } from "../components/button.slint";
 import { SessionRow, Spacer } from "common.slint";
 import { NavItem } from "../components/atoms.slint";
 import { Theme } from "../components/theme.slint";
@@ -42,11 +43,9 @@ export component Sidebar inherits Rectangle {
                 color: Theme.ink;
             }
         }
-        Button {
+        Button { reduce-motion: root.reduce-motion;
             text: "New conversation";
             icon: @image-url("../icons/plus.svg");
-            icon-size: 17px;
-            colorize-icon: true;
             primary: true;
             clicked => { root.new-conversation(); }
         }

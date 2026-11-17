@@ -81,12 +81,17 @@ this lane, in the lane's own terms:
   is destructive red, and the risk shows twice (card tint plus a left
   accent bar). Starter prompts are tappable cards, so the empty state
   invites the user in instead of showing a blank page.
-- What stays native: standard chrome (Undo, mode buttons, banner
-  actions) keeps the std-widgets Button and the pinned widget style
-  (cupertino on macOS, fluent on Windows and Linux). The crafted
-  button (`ui/components/action_button.slint`) is only for actions
-  whose meaning is product-specific: Send, Stop, Allow, Deny, Copy,
-  and the newest-message pill.
+- Buttons: every button is the crafted one
+  (`ui/components/action_button.slint`). Product actions (Send, Stop,
+  Allow, Deny, Copy, the newest-message pill) use it directly at 36px.
+  All other buttons (Undo and every view's actions) use the compact
+  wrapper `ui/components/button.slint`, which keeps the std-widgets
+  Button API (`text`, `primary`, `enabled`, `clicked`, `icon`) and
+  sizes to its label. This replaces the earlier rule that standard
+  chrome keeps the native std-widgets Button: the native button
+  rendered as a grey slab that ignored the theme. What stays native:
+  CheckBox, ComboBox, LineEdit and TextEdit keep the pinned widget
+  style (cupertino on macOS, fluent on Windows and Linux).
 
 ## Layout
 
