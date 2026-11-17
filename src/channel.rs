@@ -132,6 +132,18 @@ pub struct ChannelStore {
     db: Arc<Mutex<Connection>>,
 }
 
+fn retry_while_busy<T>(budget: std::time::Duration, mut attempt: impl FnMut() -> Result<T>) -> Result<T> {
+    let deadline = std::time::Instant::now() + budget;
+    loop {
+        match attempt() {
+            Err(err) if is_busy(&err) && std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            other => return other,
+        }
+    }
+}
+
 fn is_busy(err: &anyhow::Error) -> bool {
     matches!(
         err.downcast_ref::<rusqlite::Error>(),
@@ -174,15 +186,7 @@ impl ChannelStore {
         // On Windows, setting up the schema can fail with "database is locked" at once, without
         // waiting on busy_timeout, while another Heron process is committing. Retry it the way
         // busy_timeout would.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        loop {
-            match Self::init(Connection::open(path)?) {
-                Err(err) if is_busy(&err) && std::time::Instant::now() < deadline => {
-                    std::thread::sleep(std::time::Duration::from_millis(25));
-                }
-                other => return other,
-            }
-        }
+        retry_while_busy(std::time::Duration::from_secs(5), || Self::init(Connection::open(path)?))
     }
 
     #[cfg(test)]
@@ -687,6 +691,46 @@ mod tests {
         }
         let early = early.lock().unwrap();
         assert!(early.is_empty(), "{} operations failed without waiting, first: {:?}", early.len(), early.first());
+    }
+
+    fn sqlite_error(code: std::os::raw::c_int) -> anyhow::Error {
+        rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(code), None).into()
+    }
+
+    #[test]
+    fn only_a_busy_database_counts_as_busy() {
+        assert!(is_busy(&sqlite_error(rusqlite::ffi::SQLITE_BUSY)));
+        assert!(!is_busy(&sqlite_error(rusqlite::ffi::SQLITE_CONSTRAINT)));
+        assert!(!is_busy(&anyhow::anyhow!("database is locked")));
+    }
+
+    #[test]
+    fn busy_attempts_are_retried_within_the_budget_and_nothing_else_is() {
+        let budget = std::time::Duration::from_millis(300);
+        let mut calls = 0;
+        let result = retry_while_busy(budget, || {
+            calls += 1;
+            if calls < 4 { Err(sqlite_error(rusqlite::ffi::SQLITE_BUSY)) } else { Ok(calls) }
+        });
+        assert_eq!(result.unwrap(), 4);
+
+        let mut calls = 0;
+        let other = retry_while_busy(budget, || -> Result<()> {
+            calls += 1;
+            Err(sqlite_error(rusqlite::ffi::SQLITE_CONSTRAINT))
+        });
+        assert!(other.is_err());
+        assert_eq!(calls, 1, "a non-busy error was retried");
+
+        let start = std::time::Instant::now();
+        let mut calls = 0;
+        let stuck = retry_while_busy(budget, || -> Result<()> {
+            calls += 1;
+            Err(sqlite_error(rusqlite::ffi::SQLITE_BUSY))
+        });
+        assert!(stuck.is_err());
+        assert!(start.elapsed() >= budget && start.elapsed() < budget * 4, "{:?}", start.elapsed());
+        assert!(calls > 1);
     }
 
     #[test]
