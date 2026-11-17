@@ -76,6 +76,9 @@ export component Sidebar inherits Rectangle {
             VerticalBox {
                 width: parent.width;
                 spacing: 4px;
+                // Rows keep their own height; without this a short list
+                // stretches each row to fill the scroll region.
+                alignment: start;
                 if root.sessions.length == 0: Text {
                     text: "No recent conversations";
                     font-size: 12px;

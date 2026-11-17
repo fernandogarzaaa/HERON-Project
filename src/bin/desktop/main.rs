@@ -933,6 +933,51 @@ mod window_layout_tests {
                         write_bmp(&path, width, height, &pixels);
                     }
                 }
+
+                // Onboarding shows one step. A hidden step that stayed in
+                // the layout kept its height, so the first step alone
+                // measured the sum of all four and later steps sat below
+                // empty space.
+                ui.set_current_view("onboarding".into());
+                for step in 0..4 {
+                    ui.set_onboarding_current_step(step);
+                    window.request_redraw();
+                    let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
+                    window.draw_if_needed(|renderer| { renderer.render(&mut pixels, width as usize); });
+                    let content = ui.get_debug_onboarding_content_height();
+                    eprintln!("HERON_UI_GEOMETRY state={state} onboarding-step={step} requested={width}x{height} content={content:?}");
+                    if step == 0 {
+                        assert!(
+                            content <= height as f32,
+                            "onboarding step 0 content is {content}px, taller than the {height}px frame ({state})"
+                        );
+                    }
+                    if let (Ok(directory), true) = (std::env::var("HERON_UI_SNAPSHOTS_DIR"), step > 0) {
+                        let path = std::path::Path::new(&directory)
+                            .join(format!("heron-{state}-onboarding-step{step}-{width}x{height}.bmp"));
+                        write_bmp(&path, width, height, &pixels);
+                    }
+                }
+                ui.set_onboarding_current_step(0);
+
+                // Settings is taller than any supported window, so it has
+                // to scroll; its end (with the Save button) is drawn too.
+                ui.set_current_view("settings".into());
+                window.request_redraw();
+                window.draw_if_needed(|_| {});
+                let overflow = ui.get_debug_settings_overflow();
+                assert!(overflow > 0.0, "settings fits in {width}x{height}; expected it to scroll ({state})");
+                ui.set_debug_settings_scroll_y(-overflow);
+                window.request_redraw();
+                let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
+                let drew = window.draw_if_needed(|renderer| { renderer.render(&mut pixels, width as usize); });
+                assert!(drew, "settings did not render scrolled to its end at {width}x{height} ({state})");
+                if let Ok(directory) = std::env::var("HERON_UI_SNAPSHOTS_DIR") {
+                    let path = std::path::Path::new(&directory)
+                        .join(format!("heron-{state}-settings-end-{width}x{height}.bmp"));
+                    write_bmp(&path, width, height, &pixels);
+                }
+                ui.set_debug_settings_scroll_y(0.0);
             }
         }
     }
