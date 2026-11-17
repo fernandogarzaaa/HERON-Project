@@ -95,5 +95,5 @@ The 2m31s duration shown for run 43954482420 is the last job's re-run; the Test 
 
 ## Local state preserved
 
-The primary checkout `/Users/inan/Documents/PERSONAL/HERON-Project` is on branch
+The primary checkout `<repo>` is on branch
 `fix/macos-heron-cli-collision` at `023ead7`. This run did not touch it.

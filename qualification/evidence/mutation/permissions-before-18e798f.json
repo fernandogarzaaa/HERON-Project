@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "lang": "rust",
   "engine": "cargo-mutants",
-  "root": "/private/tmp/claude-501/-Users-inan-Documents-PERSONAL-HERON-Project--claude-worktrees-advisor-fable-722d28/4e523e41-0b87-407d-b382-42db22e34fbf/scratchpad/mut-main",
+  "root": "<scratch>",
   "base_ref": null,
   "test_command": [
     "cargo",

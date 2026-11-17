@@ -109,4 +109,4 @@ No P0 found. The two most serious problems are C35-2 (nothing stops two gateways
   - No reqwest error, which would contain the token in its URL, is ever printed (154-160, 168, 229-230, 490-495).
 - **Spool file:** rejects symlinks, is created with mode 0600, and uses `secure_delete` with a DELETE journal.
 
-Draft copy: /private/tmp/claude-501/-Users-inan-Documents-PERSONAL-HERON-Project--claude-worktrees-advisor-fable-722d28/4e523e41-0b87-407d-b382-42db22e34fbf/scratchpad/pr35-review.md. The repo was not modified.
+Draft copy: <scratch> The repo was not modified.

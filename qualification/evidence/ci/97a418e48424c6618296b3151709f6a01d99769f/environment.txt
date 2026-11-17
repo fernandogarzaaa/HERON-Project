@@ -2,7 +2,7 @@ sha=97a418e48424c6618296b3151709f6a01d99769f
 tree=53447284a8fba4f8b031b3073c5bb897a7089092
 tracked_changes=0
 platform=Darwin-arm64
-uname=Darwin Fernandos-MacBook-Pro.local 27.2.0 Darwin Kernel Version 27.2.0: Wed Oct 14 23:48:06 PDT 2026; root:xnu-13432.41.4~25/RELEASE_ARM64_T8142 arm64
+uname=Darwin <host> 27.2.0 Darwin Kernel Version 27.2.0: Wed Oct 14 23:48:06 PDT 2026; root:xnu-13432.41.4~25/RELEASE_ARM64_T8142 arm64
 ProductName:		macOS
 ProductVersion:		27.2
 BuildVersion:		26B123

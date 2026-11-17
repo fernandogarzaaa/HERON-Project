@@ -43,7 +43,7 @@ cargo_v=$(cargo --version)
   echo "tree=$tree"
   echo "tracked_changes=$dirty"
   echo "platform=$platform"
-  echo "uname=$(uname -a)"
+  echo "uname=$(uname -srm)"
   command -v sw_vers >/dev/null && sw_vers
   echo "rustc=$rust"
   echo "cargo=$cargo_v"

@@ -1,6 +1,6 @@
 ## Heron security audit: current main (449231f)
 
-I made no changes to the repo. All reproductions ran in an export (`git archive HEAD` into `$TMPDIR/heron-audit`). The test file is at `/private/tmp/claude-501/-Users-inan-Documents-PERSONAL-HERON-Project--claude-worktrees-advisor-fable-722d28/4e523e41-0b87-407d-b382-42db22e34fbf/scratchpad/audit.rs`. To rerun it, copy it into the export as `tests/audit.rs`, then run `CARGO_TARGET_DIR=$TMPDIR/audit-target cargo test --offline --test audit -- --nocapture`. All 6 tests pass, which means every defect below reproduces.
+I made no changes to the repo. All reproductions ran in an export (`git archive HEAD` into `$TMPDIR/heron-audit`). The test file is at `<scratch>`. To rerun it, copy it into the export as `tests/audit.rs`, then run `CARGO_TARGET_DIR=$TMPDIR/audit-target cargo test --offline --test audit -- --nocapture`. All 6 tests pass, which means every defect below reproduces.
 
 Note that `git status` in the worktree now shows `M src/ui/views.rs`, `?? qualification/` and `?? scripts/verify-local.sh`. These appeared after the session-start snapshot (which was clean), and I did not create them.
 
