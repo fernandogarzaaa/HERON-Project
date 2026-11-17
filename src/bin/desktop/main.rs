@@ -855,8 +855,9 @@ mod window_layout_tests {
                 "main window drew a uniform/blank frame at {width}x{height}"
             );
             if let Ok(directory) = std::env::var("HERON_UI_SNAPSHOTS_DIR") {
-                // CI saves an intentionally empty-session screen only.
-                // No runtime account, message, or credential data is rendered.
+                // CI saves these frames and the per-view frames below. They
+                // show the empty session and fixture rows only: no runtime
+                // account, message, or credential data is rendered.
                 std::fs::create_dir_all(&directory).expect("create screenshot artifact directory");
                 let path = std::path::Path::new(&directory)
                     .join(format!("heron-main-{width}x{height}.bmp"));
