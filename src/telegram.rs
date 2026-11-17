@@ -440,7 +440,7 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
             let task = tokio::spawn(async move {
                 let reply = async {
                     let mut session = session_for(&app2, false)?;
-                    let agent = app2.agent(Arc::new(TelegramApprover { bot: bot2.clone(), chat, shared: shared2.clone() }));
+                    let agent = app2.remote_agent(Arc::new(TelegramApprover { bot: bot2.clone(), chat, shared: shared2.clone() }));
                     let text_out = agent.run_turn(&mut session, &text, &null_sink()).await?;
                     app2.persist_rules();
                     agent.learn(&session, &text, &text_out).await;

@@ -105,7 +105,8 @@ impl Effect {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// Ordered from most to least careful, so `min` picks the stricter of two modes.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Mode {
     ReadOnly,
     Ask,
@@ -217,6 +218,12 @@ impl Policy {
     /// The order matters. Rules that protect the user come first and no mode, allow rule or setting
     /// can switch them off. Conveniences (modes, allow rules) are consulted only after those.
     pub fn decide_in(&self, tool: &str, summary: &str, effect: Effect, tainted: bool) -> Verdict {
+        self.decide_capped(tool, summary, effect, tainted, None)
+    }
+
+    /// As `decide_in`, never more permissive than `cap`: a conversation from a remote channel (a
+    /// phone) asks before acting even when the desktop runs in Auto or unrestricted mode.
+    pub fn decide_capped(&self, tool: &str, summary: &str, effect: Effect, tainted: bool, cap: Option<Mode>) -> Verdict {
         let key = format!("{tool}:{summary}");
         // 1. Never, in any mode.
         if effect == Effect::Forbidden {
@@ -226,7 +233,7 @@ impl Policy {
         if let Some((rule, _)) = self.deny.read().unwrap().iter().find(|(_, g)| g.is_match(&key)) {
             return Verdict::Deny(if *rule == format!("{tool}:*") { "the user has switched this ability off in Settings".to_string() } else { format!("blocked by deny rule '{rule}'") });
         }
-        let mode = self.mode();
+        let mode = cap.map_or(self.mode(), |cap| self.mode().min(cap));
         // 3. Read-only means nothing is changed: not files, not memory, not tasks, not reminders, not
         //    anything elsewhere.
         if mode == Mode::ReadOnly && effect.mutates() {
@@ -751,6 +758,22 @@ pub async fn check_url(raw: &str) -> Result<url::Url> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_capped_conversation_never_acts_more_freely_than_the_cap() {
+        let ask = Some(Mode::Ask);
+        for mode in [Mode::Auto, Mode::Yolo] {
+            let p = Policy::new(mode, &[], &[]);
+            for effect in [Effect::WorkspaceWrite, Effect::ProcessExec, Effect::ExternalWrite] {
+                assert_eq!(p.decide_capped("t", "s", effect, false, ask), Verdict::Ask, "{mode:?} {effect:?}");
+            }
+            assert_eq!(p.decide_capped("t", "s", Effect::WorkspaceWrite, false, None), Verdict::Allow, "{mode:?} uncapped");
+        }
+        // A cap only ever tightens: a read-only desktop stays read-only for the phone.
+        let read_only = Policy::new(Mode::ReadOnly, &[], &[]);
+        assert!(matches!(read_only.decide_capped("t", "s", Effect::WorkspaceWrite, false, ask), Verdict::Deny(_)));
+        assert!(Mode::ReadOnly < Mode::Ask && Mode::Ask < Mode::Auto && Mode::Auto < Mode::Yolo);
+    }
 
     #[test]
     fn shell_classification() {

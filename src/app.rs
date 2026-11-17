@@ -149,7 +149,14 @@ impl App {
             usage: self.usage.clone(),
             depth: 0,
             token_limit: None,
+            max_mode: None,
         }
+    }
+
+    /// An agent for a turn that arrived from a remote channel such as Telegram: it never acts in a
+    /// mode looser than Ask, whatever the desktop is set to.
+    pub fn remote_agent(&self, approver: Arc<dyn Approver>) -> Agent {
+        Agent { max_mode: Some(Mode::Ask), ..self.agent(approver) }
     }
 
     /// Remember "always allow" choices across restarts.

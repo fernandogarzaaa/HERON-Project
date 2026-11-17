@@ -4,7 +4,7 @@
 use crate::config::Config;
 use crate::llm::{ChatRequest, Llm, Message, ToolCall, Usage};
 use crate::memory::Memory;
-use crate::permissions::{always_rule, Approval, ApprovalRequest, Approver, Policy, Effect, Verdict};
+use crate::permissions::{always_rule, Approval, ApprovalRequest, Approver, Effect, Mode, Policy, Verdict};
 use crate::store::Store;
 use crate::tools::{ToolCtx, ToolRegistry};
 use crate::util::{estimate_tokens, preview, redact_secrets, truncate_middle, wrap_untrusted};
@@ -90,6 +90,10 @@ pub struct Agent {
     pub depth: usize,
     /// Stop taking further steps once this many tokens have been used (for work nobody is watching).
     pub token_limit: Option<u64>,
+    /// The most permissive mode this agent may act in, whatever the desktop is set to. Turns from a
+    /// remote channel (a phone) are capped at Ask: someone holding the phone's chat account must
+    /// not get Auto's or unrestricted mode's freedom to act without asking.
+    pub max_mode: Option<Mode>,
 }
 
 const DELEGATE: &str = "delegate";
@@ -163,6 +167,11 @@ pub fn repair_transcript(messages: &mut Vec<Message>) {
 }
 
 impl Agent {
+    /// The mode this agent actually acts in: the desktop's, lowered to `max_mode` when set.
+    pub fn mode(&self) -> Mode {
+        self.max_mode.map_or(self.policy.mode(), |cap| self.policy.mode().min(cap))
+    }
+
     fn ctx(&self, session_id: &str) -> ToolCtx {
         ToolCtx { workspace: self.workspace.clone(), store: self.store.clone(), memory: self.memory.clone(), session_id: session_id.to_string(), cfg: self.cfg.clone(), tainted: Default::default(), seen_urls: Default::default() }
     }
@@ -198,7 +207,7 @@ impl Agent {
             std::env::consts::OS,
             if cfg!(windows) { "PowerShell" } else { "bash" },
             self.workspace.display(),
-            self.policy.mode().name()
+            self.mode().name()
         ));
         p.push_str(
             "# How to work\n\
@@ -469,7 +478,7 @@ impl Agent {
             let risk = tool.risk(&args, ctx);
             let audit_args = redact_secrets(&preview(&call.function.arguments, 600));
             let tainted = ctx.tainted.load(std::sync::atomic::Ordering::SeqCst);
-            let verdict = self.policy.decide_in(name, &summary, risk, tainted);
+            let verdict = self.policy.decide_capped(name, &summary, risk, tainted, self.max_mode);
             let decision = match verdict {
                 Verdict::Allow => "allowed",
                 Verdict::Deny(reason) => {
@@ -681,6 +690,7 @@ mod tests {
             usage: Default::default(),
             depth: 0,
             token_limit: None,
+            max_mode: None,
         };
         (agent, llm)
     }
