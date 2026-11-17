@@ -90,3 +90,146 @@ export component StepIndicator inherits VerticalBox {
         }
     }
 }
+// One sidebar destination or recent conversation. Replaces the std
+// checkable Button, whose cupertino-dark checked state draws accent-blue
+// text on a grey fill (1.19:1, measured from a headless render). Selected is ink on slate-soft with a
+// slate accent bar, which reads as "you are here" at AA contrast. Tab
+// focus draws a 2px slate ring; Enter or Space activates.
+export component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <image> icon;
+    in property <bool> has-icon: true;
+    in property <bool> selected;
+    in property <bool> reduce-motion: false;
+    callback clicked();
+
+    accessible-role: button;
+    accessible-label: label;
+    accessible-checkable: true;
+    accessible-checked: selected;
+    accessible-action-default => { root.clicked(); }
+
+    // Rows give up height before the sidebar overflows the 560px window.
+    min-height: 28px;
+    preferred-height: 34px;
+    vertical-stretch: 0;
+    border-radius: 7px;
+    background: selected ? Theme.slate-soft : touch.pressed ? Theme.border-strong : touch.has-hover ? Theme.hover : transparent;
+    border-width: keyboard.has-focus ? 2px : 0px;
+    border-color: Theme.slate;
+    animate background { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+
+    Rectangle {
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        width: 3px;
+        height: 18px;
+        border-radius: 1.5px;
+        background: selected ? Theme.slate : transparent;
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 10px;
+        if has-icon: Image {
+            width: 17px;
+            source: icon;
+            image-fit: contain;
+            colorize: selected ? Theme.slate : Theme.icon;
+        }
+        Text {
+            text: label;
+            font-size: 14px;
+            font-weight: selected ? 600 : 400;
+            color: Theme.ink;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+    }
+
+    keyboard := FocusScope {
+        focus-on-click: false;
+        key-pressed(event) => {
+            if ((event.text == Key.Return || event.text == Key.Space) && !event.repeat) {
+                root.clicked();
+                accept
+            } else {
+                reject
+            }
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+// One option in a single-choice row (permission mode, proactivity level).
+// Selected fills with slate and slate-ink text (about 9:1), unselected is
+// a raised pill with a line border and ink text, so the chosen option is
+// the only filled one in the row. Focus draws a ring outside the pill so
+// it stays visible on the slate fill. Disabled keeps the selection
+// visible but quiet.
+export component ChoiceChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> enabled: true;
+    in property <bool> reduce-motion: false;
+    callback clicked();
+
+    accessible-role: button;
+    accessible-label: label;
+    accessible-checkable: true;
+    accessible-checked: selected;
+    accessible-enabled: enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+
+    height: 32px;
+    min-width: chip-text.preferred-width + 28px;
+    preferred-width: chip-text.preferred-width + 28px;
+    horizontal-stretch: 0;
+    border-radius: 16px;
+    border-width: 1px;
+    border-color: selected ? Theme.slate : touch.has-hover && enabled ? Theme.border-strong : Theme.line;
+    background: !enabled ? (selected ? Theme.slate-soft : transparent)
+        : selected ? Theme.slate
+        : touch.pressed ? Theme.border-strong
+        : touch.has-hover ? Theme.hover
+        : Theme.raised;
+    animate background { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+    animate border-color { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+
+    chip-text := Text {
+        text: label;
+        font-size: 14px;
+        font-weight: selected ? 600 : 400;
+        color: !enabled ? Theme.muted : selected ? Theme.slate-ink : Theme.ink;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    Rectangle {
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        border-radius: parent.border-radius + 3px;
+        border-width: 2px;
+        border-color: Theme.slate;
+        visible: keyboard.has-focus;
+    }
+
+    keyboard := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        key-pressed(event) => {
+            if ((event.text == Key.Return || event.text == Key.Space) && !event.repeat) {
+                root.clicked();
+                accept
+            } else {
+                reject
+            }
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}

@@ -25,15 +25,15 @@
 import { Button, TextEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
 import { ActionButton } from "../components/action_button.slint";
+import { ChoiceChip } from "../components/atoms.slint";
 import { ChatMsg, MessageView } from "../components/message.slint";
 
-component ModeButton inherits Button {
+component ModeButton inherits ChoiceChip {
     in property <string> mode;
     in property <string> current-mode;
     callback clicked-mode(string);
-    text: mode == "readonly" ? "Read only" : mode == "ask" ? "Ask first" : mode == "auto" ? "Auto" : "Unrestricted";
-    checkable: true;
-    checked: mode == current-mode;
+    label: mode == "readonly" ? "Read only" : mode == "ask" ? "Ask first" : mode == "auto" ? "Auto" : "Unrestricted";
+    selected: mode == current-mode;
     clicked => { root.clicked-mode(mode); }
 }
 
@@ -322,12 +322,13 @@ export component ChatView inherits FocusScope {
                 if can-undo: Button { text: "Undo last file change"; clicked => { root.undo(); } }
             }
             HorizontalBox {
-                spacing: 6px;
-                ModeButton { mode: "readonly"; current-mode: root.mode; clicked-mode(m) => { root.set-mode(m); } }
-                ModeButton { mode: "ask"; current-mode: root.mode; clicked-mode(m) => { root.set-mode(m); } }
-                ModeButton { mode: "auto"; current-mode: root.mode; clicked-mode(m) => { root.set-mode(m); } }
+                spacing: 8px;
+                alignment: start;
+                ModeButton { mode: "readonly"; current-mode: root.mode; reduce-motion: root.reduce-motion; clicked-mode(m) => { root.set-mode(m); } }
+                ModeButton { mode: "ask"; current-mode: root.mode; reduce-motion: root.reduce-motion; clicked-mode(m) => { root.set-mode(m); } }
+                ModeButton { mode: "auto"; current-mode: root.mode; reduce-motion: root.reduce-motion; clicked-mode(m) => { root.set-mode(m); } }
                 ModeButton {
-                    mode: "yolo"; current-mode: root.mode;
+                    mode: "yolo"; current-mode: root.mode; reduce-motion: root.reduce-motion;
                     clicked-mode(m) => {
                         if (root.mode == "yolo") { root.set-mode(m); } else { root.confirm-yolo = true; }
                     }

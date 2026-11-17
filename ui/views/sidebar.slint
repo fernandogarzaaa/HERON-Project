@@ -4,6 +4,7 @@
 
 import { Button, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { SessionRow, Spacer } from "common.slint";
+import { NavItem } from "../components/atoms.slint";
 import { Theme } from "../components/theme.slint";
 
 export component Sidebar inherits Rectangle {
@@ -50,17 +51,15 @@ export component Sidebar inherits Rectangle {
         VerticalBox {
             spacing: 1px;
             padding-top: 8px;
-            // fluent's 32px Button minimum made the sidebar 565px tall on
-            // Linux and Windows, past the 560px minimum window.
-            Button { min-height: 28px; icon: @image-url("../icons/chat.svg"); icon-size: 17px; colorize-icon: true; text: root.waiting-count > 0 ? "Conversation ({root.waiting-count})" : "Conversation"; checkable: true; checked: root.current-view == "chat"; clicked => { root.navigate("chat"); } }
-            Button { min-height: 28px; icon: @image-url("../icons/sparkles.svg"); icon-size: 17px; colorize-icon: true; text: "Getting to know you"; checkable: true; checked: root.current-view == "onboarding"; clicked => { root.navigate("onboarding"); } }
-            Button { min-height: 28px; icon: @image-url("../icons/activity.svg"); icon-size: 17px; colorize-icon: true; text: root.suggestions-count > 0 ? "Awareness ({root.suggestions-count})" : "Awareness"; checkable: true; checked: root.current-view == "awareness"; clicked => { root.navigate("awareness"); } }
-            Button { min-height: 28px; icon: @image-url("../icons/memory.svg"); icon-size: 17px; colorize-icon: true; text: "Memory"; checkable: true; checked: root.current-view == "memory"; clicked => { root.navigate("memory"); } }
-            Button { min-height: 28px; icon: @image-url("../icons/tasks.svg"); icon-size: 17px; colorize-icon: true; text: "Tasks"; checkable: true; checked: root.current-view == "tasks"; clicked => { root.navigate("tasks"); } }
-            Button { min-height: 28px; icon: @image-url("../icons/reminders.svg"); icon-size: 17px; colorize-icon: true; text: root.unread-count > 0 ? "Reminders ({root.unread-count})" : "Reminders"; checkable: true; checked: root.current-view == "reminders"; clicked => { root.navigate("reminders"); } }
-            Button { min-height: 28px; icon: @image-url("../icons/usage.svg"); icon-size: 17px; colorize-icon: true; text: "Usage"; checkable: true; checked: root.current-view == "usage"; clicked => { root.navigate("usage"); } }
-            Button { min-height: 28px; icon: @image-url("../icons/activity.svg"); icon-size: 17px; colorize-icon: true; text: "Activity log"; checkable: true; checked: root.current-view == "activity"; clicked => { root.navigate("activity"); } }
-            Button { min-height: 28px; icon: @image-url("../icons/settings.svg"); icon-size: 17px; colorize-icon: true; text: "Settings"; checkable: true; checked: root.current-view == "settings"; clicked => { root.navigate("settings"); } }
+            NavItem { icon: @image-url("../icons/chat.svg"); label: root.waiting-count > 0 ? "Conversation ({root.waiting-count})" : "Conversation"; selected: root.current-view == "chat"; reduce-motion: root.reduce-motion; clicked => { root.navigate("chat"); } }
+            NavItem { icon: @image-url("../icons/sparkles.svg"); label: "Getting to know you"; selected: root.current-view == "onboarding"; reduce-motion: root.reduce-motion; clicked => { root.navigate("onboarding"); } }
+            NavItem { icon: @image-url("../icons/activity.svg"); label: root.suggestions-count > 0 ? "Awareness ({root.suggestions-count})" : "Awareness"; selected: root.current-view == "awareness"; reduce-motion: root.reduce-motion; clicked => { root.navigate("awareness"); } }
+            NavItem { icon: @image-url("../icons/memory.svg"); label: "Memory"; selected: root.current-view == "memory"; reduce-motion: root.reduce-motion; clicked => { root.navigate("memory"); } }
+            NavItem { icon: @image-url("../icons/tasks.svg"); label: "Tasks"; selected: root.current-view == "tasks"; reduce-motion: root.reduce-motion; clicked => { root.navigate("tasks"); } }
+            NavItem { icon: @image-url("../icons/reminders.svg"); label: root.unread-count > 0 ? "Reminders ({root.unread-count})" : "Reminders"; selected: root.current-view == "reminders"; reduce-motion: root.reduce-motion; clicked => { root.navigate("reminders"); } }
+            NavItem { icon: @image-url("../icons/usage.svg"); label: "Usage"; selected: root.current-view == "usage"; reduce-motion: root.reduce-motion; clicked => { root.navigate("usage"); } }
+            NavItem { icon: @image-url("../icons/activity.svg"); label: "Activity log"; selected: root.current-view == "activity"; reduce-motion: root.reduce-motion; clicked => { root.navigate("activity"); } }
+            NavItem { icon: @image-url("../icons/settings.svg"); label: "Settings"; selected: root.current-view == "settings"; reduce-motion: root.reduce-motion; clicked => { root.navigate("settings"); } }
         }
         Text {
             text: "Recent conversations";
@@ -83,10 +82,11 @@ export component Sidebar inherits Rectangle {
                     color: Theme.muted;
                     wrap: word-wrap;
                 }
-                for session in root.sessions: Button {
-                    text: session.title;
-                    checkable: true;
-                    checked: session.current;
+                for session in root.sessions: NavItem {
+                    has-icon: false;
+                    label: session.title;
+                    selected: session.current;
+                    reduce-motion: root.reduce-motion;
                     clicked => { root.open-session(session.id); }
                 }
             }
