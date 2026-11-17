@@ -485,7 +485,78 @@ async fn forward_inbox(app: &App, bot: &Bot, chat: i64) {
 }
 
 /// Run the gateway until the task is dropped. `api_base` is normally https://api.telegram.org.
+/// Changes whenever the bot token is replaced or removed. Every Heron process that shares this
+/// home reads it, so a gateway in another process notices that its token was revoked and stops.
+const GENERATION_KEY: &str = "telegram_generation";
+
+pub fn bump_generation(app: &App) {
+    let _ = app.store.kv_set(GENERATION_KEY, &uuid::Uuid::new_v4().simple().to_string());
+}
+
+fn generation(app: &App) -> String {
+    app.store.kv_get(GENERATION_KEY).unwrap_or_default()
+}
+
+/// One gateway per Heron home, across processes: two readers of one bot split its updates and
+/// race the spool. Waits for the current holder to stop, and gives up if the token changes first.
+async fn take_gateway_lock(app: &App, started: &str) -> Option<std::fs::File> {
+    let cfg = app.cfg();
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let file = match cfg.ensure_home().and_then(|_| Ok(opts.open(cfg.home.join("telegram.lock"))?)) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("HERON Telegram: gateway disabled because its lock file cannot open: {err}");
+            return None;
+        }
+    };
+    let mut told = false;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Some(file),
+            Err(std::fs::TryLockError::WouldBlock) => {}
+            Err(std::fs::TryLockError::Error(err)) => {
+                eprintln!("HERON Telegram: gateway disabled because its lock cannot be taken: {err}");
+                return None;
+            }
+        }
+        if generation(app) != started {
+            return None;
+        }
+        if !told {
+            eprintln!("HERON Telegram: another Heron process is running the gateway; waiting for it to stop.");
+            told = true;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// Asks Telegram whether a token belongs to a live bot, before it replaces the working one.
+/// Messages never include the token: reqwest errors carry the URL, which contains it.
+pub async fn verify_token(api_base: &str, token: &str) -> std::result::Result<(), String> {
+    let url = format!("{}/bot{token}/getMe", api_base.trim_end_matches('/'));
+    let unreachable = || "Heron could not reach Telegram to check the token. Check your connection and try again.".to_string();
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(15)).build().map_err(|_| unreachable())?;
+    let resp = client.get(url).send().await.map_err(|_| unreachable())?;
+    let status = resp.status();
+    let body: Value = resp.json().await.unwrap_or(Value::Null);
+    if status.is_success() && body["ok"] == true && body["result"]["is_bot"] == true {
+        return Ok(());
+    }
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::NOT_FOUND {
+        return Err("Telegram does not recognise that bot token. Copy it again from @BotFather.".into());
+    }
+    Err(format!("Telegram could not check the token right now (HTTP {}). Try again in a moment.", status.as_u16()))
+}
+
 pub async fn run(app: Arc<App>, api_base: String, token: String) {
+    let started = generation(&app);
+    let Some(_gateway_lock) = take_gateway_lock(&app, &started).await else { return };
     let spool = match ChannelStore::open(&app.cfg().home.join("channels.db")) {
         Ok(spool) => spool,
         Err(err) => {
@@ -524,6 +595,10 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
     let mut offset: i64 = app.store.kv_get("telegram_offset").and_then(|v| v.parse().ok()).unwrap_or(0);
     let poll_secs = if api_base.contains("127.0.0.1") { 0 } else { 25 };
     loop {
+        if generation(&app) != started {
+            eprintln!("HERON Telegram: the bot token changed; this gateway stopped.");
+            return;
+        }
         let updates = match bot.call("getUpdates", json!({"offset": offset, "timeout": poll_secs, "allowed_updates": ["message"]})).await {
             Ok(u) => u,
             Err(_) => {
@@ -531,6 +606,11 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
                 continue;
             }
         };
+        // A long poll can return after the token was replaced: those messages were sent to the old bot.
+        if generation(&app) != started {
+            eprintln!("HERON Telegram: the bot token changed; this gateway stopped.");
+            return;
+        }
         for u in updates.as_array().cloned().unwrap_or_default() {
             let Some(update_id) = u["update_id"].as_i64().filter(|id| *id > 0) else {
                 continue;
@@ -653,6 +733,91 @@ mod tests {
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks.concat(), text);
         assert!(chunks.iter().all(|part| part.encode_utf16().count() <= MAX_MESSAGE));
+    }
+
+    async fn mock_telegram(reply: fn(&str) -> (u16, Value)) -> (String, Arc<Mutex<Vec<String>>>) {
+        let paths = Arc::new(Mutex::new(Vec::<String>::new()));
+        let router = axum::Router::new()
+            .fallback(move |axum::extract::State(p): axum::extract::State<Arc<Mutex<Vec<String>>>>, uri: axum::http::Uri| async move {
+                p.lock().unwrap().push(uri.path().to_string());
+                let (status, body) = reply(uri.path());
+                (axum::http::StatusCode::from_u16(status).unwrap(), axum::Json(body))
+            })
+            .with_state(paths.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        (base, paths)
+    }
+
+    /// A separate Heron process: its own App and connection, the same home and database.
+    async fn heron_process(root: &std::path::Path) -> Arc<App> {
+        let mut cfg = Config::default();
+        cfg.home = root.join("home");
+        cfg.ensure_home().unwrap();
+        Arc::new(App::assemble(
+            cfg, root.join("ws"),
+            Store::open(&root.join("home/heron.db")).unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap())
+    }
+
+    async fn until(what: &str, check: impl Fn() -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !check() {
+            assert!(std::time::Instant::now() < deadline, "timed out waiting for: {what}");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn one_gateway_per_home_and_a_replaced_token_stops_the_other_process() {
+        let (base, paths) = mock_telegram(|_| (200, json!({"ok": true, "result": []}))).await;
+        let polls = |bot: &str| {
+            let prefix = format!("/bot{bot}/getUpdates");
+            paths.lock().unwrap().iter().filter(|p| **p == prefix).count()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let daemon = heron_process(dir.path()).await;
+        let serve = heron_process(dir.path()).await;
+
+        let old = tokio::spawn(run(daemon.clone(), base.clone(), "OLD".into()));
+        until("the first gateway polls", || polls("OLD") > 0).await;
+        let second = tokio::spawn(run(serve.clone(), base.clone(), "SECOND".into()));
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert_eq!(polls("SECOND"), 0, "a second gateway polled while the first was running");
+        second.abort();
+
+        // What set_telegram does in the other process when the owner pastes a new token.
+        bump_generation(&serve);
+        let new = tokio::spawn(run(serve.clone(), base.clone(), "NEW".into()));
+        until("the old gateway stops", || old.is_finished()).await;
+        until("the new gateway takes over", || polls("NEW") > 0).await;
+        let after = polls("OLD");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(polls("OLD"), after, "the revoked bot is still being polled");
+        new.abort();
+    }
+
+    #[tokio::test]
+    async fn token_check_accepts_a_live_bot_and_never_echoes_the_token() {
+        let (base, paths) = mock_telegram(|path| match path {
+            "/botLIVE/getMe" => (200, json!({"ok": true, "result": {"id": 1, "is_bot": true}})),
+            "/botBUSY/getMe" => (500, json!({"ok": false})),
+            "/botUSER/getMe" => (200, json!({"ok": true, "result": {"id": 2, "is_bot": false}})),
+            _ => (401, json!({"ok": false, "error_code": 401, "description": "Unauthorized"})),
+        }).await;
+        assert_eq!(verify_token(&format!("{base}/"), "LIVE").await, Ok(()));
+        assert_eq!(paths.lock().unwrap().as_slice(), ["/botLIVE/getMe"]);
+        let revoked = verify_token(&base, "REVOKED").await.unwrap_err();
+        assert!(revoked.contains("does not recognise"), "{revoked}");
+        let busy = verify_token(&base, "BUSY").await.unwrap_err();
+        assert!(busy.contains("HTTP 500"), "{busy}");
+        assert!(verify_token(&base, "USER").await.is_err(), "only a bot account may be connected");
+        let offline = verify_token("http://127.0.0.1:1", "OFFLINE").await.unwrap_err();
+        for msg in [&revoked, &busy, &offline] {
+            assert!(!msg.contains("REVOKED") && !msg.contains("BUSY") && !msg.contains("OFFLINE"), "{msg}");
+        }
     }
 
     #[tokio::test]

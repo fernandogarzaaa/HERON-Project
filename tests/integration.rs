@@ -367,6 +367,40 @@ async fn mcp_client_talks_to_a_real_server_and_detects_changed_tools() {
 }
 
 #[tokio::test]
+async fn a_rejected_bot_token_leaves_the_working_pairing_alone() {
+    use axum::extract::State;
+    use std::sync::Mutex;
+    let checked = Arc::new(Mutex::new(Vec::<String>::new()));
+    let telegram = Router::new()
+        .fallback(|State(c): State<Arc<Mutex<Vec<String>>>>, uri: axum::http::Uri| async move {
+            c.lock().unwrap().push(uri.path().to_string());
+            (axum::http::StatusCode::UNAUTHORIZED, Json(json!({"ok": false, "error_code": 401, "description": "Unauthorized"})))
+        })
+        .with_state(checked.clone());
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = Config::default();
+    cfg.home = dir.path().join("home");
+    cfg.llm.api_key_env = "HERON_TEST_NO_SUCH_KEY".into();
+    cfg.telegram.api_base = spawn(telegram).await;
+    let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::open(&dir.path().join("home/heron.db")).unwrap(), Arc::new(ScriptedLlm::new(vec![]))).await.unwrap());
+    app.store.kv_set("telegram_chat", "42").unwrap();
+    app.store.kv_set("telegram_offset", "7").unwrap();
+    let token = "test-token".to_string();
+    let base = spawn(heron::server::router(app.clone(), token.clone())).await;
+    let bot_token = "123456789:AAEXAMPLEexampleEXAMPLEexample00";
+    let resp = reqwest::Client::new().post(format!("{base}/api/telegram")).header("x-heron-token", &token).json(&json!({"token": bot_token})).send().await.unwrap();
+    assert_eq!(resp.status(), 400);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("does not recognise"), "{body}");
+    assert!(!body.contains("AAEXAMPLE"), "the token leaked into the reply: {body}");
+    assert_eq!(checked.lock().unwrap().as_slice(), [format!("/bot{bot_token}/getMe")]);
+    // Nothing changed: the phone stays paired, the stream position is kept, no token was stored.
+    assert_eq!(app.store.kv_get("telegram_chat").as_deref(), Some("42"));
+    assert_eq!(app.store.kv_get("telegram_offset").as_deref(), Some("7"));
+    assert!(!app.cfg().vault_only_secret_present("telegram_token"));
+}
+
+#[tokio::test]
 async fn telegram_gateway_pairs_one_chat_ignores_strangers_and_asks_before_acting() {
     use axum::extract::State;
     use std::collections::VecDeque;
