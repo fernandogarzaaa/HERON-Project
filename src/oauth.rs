@@ -236,14 +236,26 @@ pub async fn access_token(cfg: &Config, provider: Provider) -> Result<String> {
 pub fn disconnect(app: &App, provider: Provider) -> Result<(usize, usize)> {
     let _guard = SOURCE_WRITES.lock().unwrap_or_else(|e| e.into_inner());
     let cfg = app.cfg();
-    cfg.store_secret(&provider.secret_key("refresh_token"), "")?;
-    cfg.store_secret(&provider.secret_key("account_epoch"), "")?;
-    cfg.store_secret(&provider.secret_key("client_id"), "")?;
+    // Data first. If anything fails, the account still shows as connected and Disconnect can be
+    // tried again; removing the credential first would hide that button and strand the data.
     let mut removed = 0;
     let mut memories = 0;
     for source in [provider.mail_source(), provider.calendar_source()] {
         removed += app.store.clear_knowledge(source)?;
         memories += app.store.delete_memories_by_source(source)?;
+    }
+    let refresh = provider.secret_key("refresh_token");
+    cfg.delete_vault_only_secret(&refresh)?;
+    if cfg.secret(&refresh).is_some() {
+        // A token saved before the verified vault existed lives in the fallback file.
+        cfg.store_secret(&refresh, "")?;
+    }
+    // Neither is secret, and the next connection replaces both. With the token gone, a failure
+    // here leaves nothing that can sync.
+    for leftover in ["account_epoch", "client_id"] {
+        if let Err(err) = cfg.store_secret(&provider.secret_key(leftover), "") {
+            eprintln!("HERON OAuth: {} disconnected, but its {leftover} could not be cleared: {err:#}", provider.name());
+        }
     }
     Ok((removed, memories))
 }
@@ -381,6 +393,40 @@ pub async fn sync(app: &App, provider: Provider) -> Result<(usize, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_failed_disconnect_keeps_the_account_listed_so_it_can_be_retried() {
+        use crate::llm::ScriptedLlm;
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        cfg.ensure_home().unwrap();
+        // A token from before the verified vault: the fallback file is the only copy.
+        std::fs::write(cfg.home.join("secrets.json"), serde_json::to_string(&serde_json::json!({
+            "oauth_google_refresh_token": "legacy-refresh", "oauth_google_account_epoch": "e1", "oauth_google_client_id": "cid",
+        })).unwrap()).unwrap();
+        let app = App::assemble(cfg, dir.path().join("ws"), crate::store::Store::in_memory().unwrap(), std::sync::Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
+        let p = Provider::Google;
+        assert!(p.connected(&app.cfg()));
+        app.store.replace_knowledge_snapshot(p.mail_source(), &[("m1".into(), "Invoice".into(), "Due Friday".into(), 1)]).unwrap();
+        app.memory.save("The invoice from Acme is due Friday", "fact", "", 0.5, p.mail_source()).await.unwrap();
+
+        app.store.execute_batch_for_test("CREATE TEMP TRIGGER stuck BEFORE DELETE ON knowledge BEGIN SELECT RAISE(ABORT, 'disk busy'); END;");
+        assert!(disconnect(&app, p).is_err());
+        assert!(p.connected(&app.cfg()), "the account vanished from Settings while its data stayed");
+        assert_eq!(app.store.knowledge_count(p.mail_source()), 1);
+
+        app.store.execute_batch_for_test("DROP TRIGGER stuck;");
+        assert_eq!(disconnect(&app, p).unwrap(), (1, 1));
+        let cfg = app.cfg();
+        assert!(!p.connected(&cfg));
+        assert_eq!(app.store.knowledge_count(p.mail_source()), 0);
+        assert!(cfg.secret("oauth_google_account_epoch").is_none() && cfg.secret("oauth_google_client_id").is_none());
+        assert!(!std::fs::read_to_string(cfg.home.join("secrets.json")).unwrap_or_default().contains("legacy-refresh"));
+        // Disconnecting again is harmless.
+        assert_eq!(disconnect(&app, p).unwrap(), (0, 0));
+    }
+
     #[test]
     fn incomplete_granular_google_consent_is_not_accepted_as_full_sync() {
         let required = Provider::Google.scopes();

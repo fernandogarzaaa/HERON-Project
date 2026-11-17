@@ -546,6 +546,11 @@ impl Store {
         Ok(Store { conn: Arc::new(Mutex::new(conn)), path: Some(path.to_path_buf()) })
     }
 
+    #[cfg(test)]
+    pub(crate) fn execute_batch_for_test(&self, sql: &str) {
+        self.db().execute_batch(sql).unwrap();
+    }
+
     pub fn in_memory() -> Result<Store> {
         let mut conn = Connection::open_in_memory()?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
