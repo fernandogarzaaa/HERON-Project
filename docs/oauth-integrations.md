@@ -15,11 +15,17 @@ client**. System-browser consent returns to a **loopback callback**. The callbac
 a one-time, ten-minute state created by the authenticated local API. The OAuth code, verifier,
 access token and refresh token are never included in model tool schemas, UI JSON, or query-string
 launch URLs. No client secret is used. A refresh token is kept through HERON's credential vault
-(macOS Keychain / Windows Credential Manager or private local fallback on Linux). Disconnect
-clears it and deletes that provider's locally indexed records and associated source memories.
+(macOS Keychain / Windows Credential Manager; Linux sign-in is disabled). Disconnect first
+deletes that provider's locally indexed records and associated source memories, then the token, so
+a failed disconnect leaves the account listed and can be retried. Facts the user also stated are
+kept, and facts the account had replaced come back.
+
+HERON records which account signed in (the ID token's `sub`). If a connection stops working
+(expired or revoked consent), **Reconnect** with the same account swaps the token and keeps the
+account's data. Signing in with a different account requires Disconnect first.
 
 Google permissions: Gmail read-only and Calendar read-only (plus email identity).
-Microsoft delegated permissions: Mail.Read, Calendars.Read, User.Read and offline_access.
+Microsoft delegated permissions: Mail.Read, Calendars.Read, User.Read, offline_access and openid.
 These connectors do not send mail, alter events or modify a mailbox.
 
 Google records use the sources `google_email` and `google_calendar`, and Microsoft records
@@ -45,8 +51,8 @@ Gmail read-only scopes to general users.
 
 Microsoft: register a **public desktop** application in Microsoft Entra, add the
 Mobile and desktop application platform with the `http://localhost/oauth/callback/microsoft` loopback redirect (the OS-assigned port is ignored for matching),
-allow public-client flows, and grant delegated `Mail.Read`, `Calendars.Read`, `User.Read`
-and `offline_access`. Some tenants require an administrator's consent.
+allow public-client flows, and grant delegated `Mail.Read`, `Calendars.Read`, `User.Read`,
+`offline_access` and `openid`. Some tenants require an administrator's consent.
 
 Consult:
 - https://developers.google.com/identity/protocols/oauth2/native-app

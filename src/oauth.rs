@@ -59,7 +59,8 @@ impl Provider {
     fn scopes(self) -> &'static str {
         match self {
             Self::Google => "openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly",
-            Self::Microsoft => "offline_access User.Read Mail.Read Calendars.Read",
+            // openid returns the ID token that says which account signed in.
+            Self::Microsoft => "openid offline_access User.Read Mail.Read Calendars.Read",
         }
     }
     fn secret_key(self, field: &str) -> String {
@@ -158,7 +159,47 @@ pub async fn finish(cfg: &Config, pending: Pending, code: &str) -> Result<()> {
         ("client_id", &pending.client_id), ("code", code), ("code_verifier", &pending.verifier),
         ("redirect_uri", &pending.redirect_uri), ("grant_type", "authorization_code"),
     ]).await?;
-    if pending.provider == Provider::Google {
+    install(cfg, pending.provider, &pending.client_id, &token)
+}
+
+/// Who signed in, from the ID token the token endpoint returned over TLS (OpenID Connect Core
+/// 3.1.3.7 allows skipping the signature check then). It must have been issued to this app.
+fn account_subject(client_id: &str, token: &Value) -> Result<String> {
+    let unreadable = || anyhow!("The provider did not say which account signed in. Connect again.");
+    let payload = token.get("id_token").and_then(Value::as_str)
+        .and_then(|jwt| jwt.split('.').nth(1)).ok_or_else(unreadable)?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).map_err(|_| unreadable())?;
+    let claims: Value = serde_json::from_slice(&bytes).map_err(|_| unreadable())?;
+    let for_us = match &claims["aud"] {
+        Value::String(aud) => aud == client_id,
+        Value::Array(auds) => auds.iter().any(|aud| aud == client_id),
+        _ => false,
+    };
+    if !for_us {
+        bail!("This sign-in was issued to a different app. Connect again.");
+    }
+    claims["sub"].as_str().filter(|sub| !sub.is_empty() && sub.len() <= 255)
+        .map(str::to_string).ok_or_else(unreadable)
+}
+
+#[derive(Debug, PartialEq)]
+enum Admit {
+    Fresh,
+    /// The connected account signed in again: swap its credential and keep its data.
+    SameAccount,
+}
+
+fn admit(connected: bool, stored_subject: Option<&str>, subject: &str) -> Result<Admit> {
+    match (connected, stored_subject) {
+        (false, _) => Ok(Admit::Fresh),
+        (true, Some(stored)) if stored == subject => Ok(Admit::SameAccount),
+        (true, Some(_)) => bail!("You signed in with a different account from the one connected. Sign in with that account, or disconnect it first."),
+        (true, None) => bail!("This connection was made before Heron recorded which account it belongs to. Disconnect it, then connect again."),
+    }
+}
+
+fn install(cfg: &Config, provider: Provider, client_id: &str, token: &Value) -> Result<()> {
+    if provider == Provider::Google {
         // Google allows granular consent. A token with Gmail but without
         // Calendar would otherwise look connected while every sync fails.
         // Never install an unusable, partially authorized connection.
@@ -176,21 +217,25 @@ pub async fn finish(cfg: &Config, pending: Pending, code: &str) -> Result<()> {
     let refresh = token.get("refresh_token").and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| anyhow!("No offline access was granted. Remove the existing app consent and connect again."))?;
+    let subject = account_subject(client_id, token)?;
     // Store the nonsecret client ID too so token refresh still works after an app restart.
     // The refresh token is not sent to the desktop frontend or an agent tool.
-    // Reject account replacement without an explicit Disconnect. Holding
+    // A different account needs an explicit Disconnect first. Holding
     // SOURCE_WRITES makes this credential installation atomic relative to
     // refresh-token rotation, source sync commits, and disconnect.
     let _guard = SOURCE_WRITES.lock().unwrap_or_else(|e| e.into_inner());
-    if pending.provider.connected(cfg) {
-        bail!("An account is already connected for this provider. Disconnect it before connecting a different account.");
+    let stored = cfg.secret(&provider.secret_key("account_subject"));
+    let admitted = admit(provider.connected(cfg), stored.as_deref(), &subject)?;
+    cfg.store_secret(&provider.secret_key("client_id"), client_id)?;
+    if admitted == Admit::Fresh {
+        cfg.store_secret(&provider.secret_key("account_subject"), &subject)?;
+        cfg.store_secret(&provider.secret_key("account_epoch"), &random_secret())?;
     }
-    cfg.store_secret(&pending.provider.secret_key("client_id"), &pending.client_id)?;
-    cfg.store_secret(&pending.provider.secret_key("account_epoch"), &random_secret())?;
+    // The same account keeps its epoch, so its index and memories stay valid.
     // Publish the connection last, after its stable epoch is durable.
     // Unlike the legacy settings secret API this fails closed if Keychain or
     // Credential Manager is unavailable, and removes any old file fallback.
-    cfg.store_vault_only_secret(&pending.provider.secret_key("refresh_token"), refresh)?;
+    cfg.store_vault_only_secret(&provider.secret_key("refresh_token"), refresh)?;
     Ok(())
 }
 
@@ -252,7 +297,7 @@ pub fn disconnect(app: &App, provider: Provider) -> Result<(usize, usize)> {
     }
     // Neither is secret, and the next connection replaces both. With the token gone, a failure
     // here leaves nothing that can sync.
-    for leftover in ["account_epoch", "client_id"] {
+    for leftover in ["account_epoch", "account_subject", "client_id"] {
         if let Err(err) = cfg.store_secret(&provider.secret_key(leftover), "") {
             eprintln!("HERON OAuth: {} disconnected, but its {leftover} could not be cleared: {err:#}", provider.name());
         }
@@ -393,6 +438,67 @@ pub async fn sync(app: &App, provider: Provider) -> Result<(usize, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn id_token(claims: Value) -> String {
+        format!("e30.{}.signature", URL_SAFE_NO_PAD.encode(claims.to_string()))
+    }
+
+    #[test]
+    fn the_signed_in_account_comes_from_an_id_token_issued_to_this_app() {
+        let token = |claims| serde_json::json!({"id_token": id_token(claims)});
+        use serde_json::json;
+        assert_eq!(account_subject("app", &token(json!({"aud": "app", "sub": "user-1"}))).unwrap(), "user-1");
+        assert_eq!(account_subject("app", &token(json!({"aud": ["other", "app"], "sub": "user-1"}))).unwrap(), "user-1");
+        assert!(account_subject("app", &token(json!({"aud": "other", "sub": "user-1"}))).unwrap_err().to_string().contains("different app"));
+        assert!(account_subject("app", &token(json!({"aud": ["other"], "sub": "user-1"}))).is_err());
+        let long = "x".repeat(256);
+        for bad in [json!({}), json!({"id_token": "no-dots"}), json!({"id_token": "a.!!!.c"}), json!({"id_token": "a.bm90LWpzb24.c"}),
+                    token(json!({"aud": "app"})), token(json!({"aud": "app", "sub": ""})), token(json!({"aud": "app", "sub": long}))] {
+            assert!(account_subject("app", &bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn only_the_connected_account_may_sign_in_again_without_disconnecting() {
+        assert_eq!(admit(false, None, "u1").unwrap(), Admit::Fresh);
+        assert_eq!(admit(false, Some("old"), "u1").unwrap(), Admit::Fresh);
+        assert_eq!(admit(true, Some("u1"), "u1").unwrap(), Admit::SameAccount);
+        assert!(admit(true, Some("u2"), "u1").unwrap_err().to_string().contains("different account"));
+        assert!(admit(true, None, "u1").unwrap_err().to_string().contains("Disconnect it"));
+    }
+
+    /// Installing a credential needs the OS vault: run on an authorized desktop, and in CI's vault step.
+    #[tokio::test]
+    #[cfg(any(target_os = "macos", windows))]
+    #[ignore = "requires an authorized, unlocked native credential vault"]
+    async fn reconnecting_the_same_account_keeps_its_data_vault_live() {
+        use crate::llm::ScriptedLlm;
+        use serde_json::json;
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("oauth-vault-qualification");
+        let app = App::assemble(cfg, dir.path().join("ws"), crate::store::Store::in_memory().unwrap(), std::sync::Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
+        let p = Provider::Google;
+        let token = |refresh: &str, sub: &str| json!({"scope": p.scopes(), "refresh_token": refresh, "id_token": id_token(json!({"aud": "cid", "sub": sub}))});
+        install(&app.cfg(), p, "cid", &token("first-refresh", "user-1")).unwrap();
+        let epoch = p.account_epoch(&app.cfg()).unwrap();
+        app.store.replace_knowledge_snapshot(p.mail_source(), &[("m1".into(), "Invoice".into(), "Due Friday".into(), 1)]).unwrap();
+        app.memory.save("The invoice from Acme is due Friday", "fact", "", 0.5, p.mail_source()).await.unwrap();
+
+        // The consent expired or was revoked; the same person signs in again.
+        install(&app.cfg(), p, "cid", &token("second-refresh", "user-1")).unwrap();
+        let cfg = app.cfg();
+        assert_eq!(cfg.secret("oauth_google_refresh_token").as_deref(), Some("second-refresh"));
+        assert_eq!(p.account_epoch(&cfg).as_deref(), Some(epoch.as_str()));
+        assert_eq!(app.store.knowledge_count(p.mail_source()), 1);
+        assert_eq!(app.store.memories_by_source(p.mail_source(), 10).unwrap().len(), 1);
+
+        // Another account cannot take over the connection.
+        assert!(install(&cfg, p, "cid", &token("intruder-refresh", "user-2")).is_err());
+        assert_eq!(cfg.secret("oauth_google_refresh_token").as_deref(), Some("second-refresh"));
+        disconnect(&app, p).unwrap();
+        assert!(!p.connected(&app.cfg()));
+    }
 
     #[tokio::test]
     async fn a_failed_disconnect_keeps_the_account_listed_so_it_can_be_retried() {
