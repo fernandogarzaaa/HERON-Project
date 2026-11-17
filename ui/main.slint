@@ -88,6 +88,11 @@ export component MainWindow inherits Window {
     out property <length> debug-window-height: root.height;
     out property <length> debug-content-height: content.height;
     out property <length> debug-composer-y: composer-overlay.y;
+    // Onboarding and Settings scroll. The tests read the onboarding
+    // content height and move the Settings scroll position to draw its end.
+    out property <length> debug-onboarding-content-height: onboarding-view.content-height;
+    in-out property <length> debug-settings-scroll-y <=> settings-view.scroll-y;
+    out property <length> debug-settings-overflow: settings-view.overflow;
     // Current conversation id, owned by Rust. Empty means "no session yet";
     // the server creates one lazily on the first message sent.
     in-out property <string> session-id: "";
@@ -502,7 +507,7 @@ export component MainWindow inherits Window {
                 visible: root.current-view == "onboarding";
                 opacity: root.current-view == "onboarding" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                OnboardingView {
+                onboarding-view := OnboardingView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
                     reduce-motion: root.onboarding-reduce-motion;
@@ -717,7 +722,7 @@ export component MainWindow inherits Window {
                 visible: root.current-view == "settings";
                 opacity: root.current-view == "settings" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                SettingsView {
+                settings-view := SettingsView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
                     reduce-motion: root.settings-reduce-motion;

@@ -146,9 +146,8 @@ export component RemindersView inherits Rectangle {
                                 root.set-schedule-may(row.id, value == "May also run commands" ? "commands" : value == "May also edit files in my folder" ? "write" : "read");
                             }
                         }
-                        Button {
+                        if row.has-outline && row.has-last-run: Button {
                             text: "Show last run";
-                            visible: row.has-outline && row.has-last-run;
                             clicked => { root.show-last-run(row.id); }
                         }
                         Button {
