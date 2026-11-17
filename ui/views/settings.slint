@@ -34,6 +34,7 @@ export struct ConnectorLine {
 // Persona editor. It has its own endpoints and its own save and reset,
 // so it stays a separate component.
 component PersonaEditor inherits VerticalBox {
+    padding: 0px;
     in-out property <string> agent_name;
     in-out property <string> persona_text;
     in property <bool> is_default;
@@ -41,7 +42,7 @@ component PersonaEditor inherits VerticalBox {
     in property <bool> busy;
     callback save();
     callback reset();
-    spacing: 8px;
+    spacing: 14px;
     SectionTitle { label: "Personality"; }
     LabeledInput { label: "What to call it"; value <=> agent_name; }
     Text { text: "Character"; font-size: 14px; font-weight: 600; color: Theme.ink; }
@@ -53,6 +54,8 @@ component PersonaEditor inherits VerticalBox {
         wrap: word-wrap;
     }
     HorizontalBox {
+        alignment: start;
+        padding: 0px;
         spacing: 8px;
         Button { text: "Save personality"; enabled: !busy; clicked => { root.save(); } }
         if !is_default: Button {
@@ -154,7 +157,7 @@ export component SettingsView inherits Rectangle {
         height: parent.height;
         VerticalBox {
             width: parent.width;
-            padding: 24px;
+            padding: 28px;
             spacing: 24px;
             alignment: start;
 
@@ -168,10 +171,13 @@ export component SettingsView inherits Rectangle {
 
             // AI model.
             VerticalBox {
-                spacing: 8px;
+                padding: 0px;
+                spacing: 14px;
                 SectionTitle { label: "AI model"; }
                 LabeledInput { label: "Service address"; value <=> base_url; }
                 HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
                     spacing: 6px;
                     Button { text: "OpenRouter"; clicked => { root.apply_preset("openrouter"); } }
                     Button { text: "OpenAI"; clicked => { root.apply_preset("openai"); } }
@@ -207,7 +213,8 @@ export component SettingsView inherits Rectangle {
 
             // Permissions.
             VerticalBox {
-                spacing: 8px;
+                padding: 0px;
+                spacing: 14px;
                 SectionTitle { label: "What Heron may do without asking"; }
                 ChoiceCard {
                     reduce-motion: reduce-motion;
@@ -242,6 +249,8 @@ export component SettingsView inherits Rectangle {
                     VerticalBox {
                         Text { text: "Unrestricted means Heron changes files and runs commands without asking. Continue?"; wrap: word-wrap; }
                         HorizontalBox {
+                            alignment: start;
+                            padding: 0px;
                             Button { text: "Continue"; clicked => { confirm-yolo = false; root.mode = "yolo"; } }
                             Button { text: "Cancel"; clicked => { confirm-yolo = false; } }
                         }
@@ -264,7 +273,8 @@ export component SettingsView inherits Rectangle {
 
             // Per-tool permissions.
             VerticalBox {
-                spacing: 8px;
+                padding: 0px;
+                spacing: 14px;
                 SectionTitle { label: "Each ability, one by one"; }
                 Text {
                     text: "“Ask as usual” follows the choice above. “Never ask” lets Heron use it freely, though risky uses still ask. “Never allow” switches it off.";
@@ -273,6 +283,7 @@ export component SettingsView inherits Rectangle {
                     wrap: word-wrap;
                 }
                 for tool[idx] in tools: HorizontalBox {
+                    padding: 0px;
                     spacing: 8px;
                     Text { text: tool.name; width: 200px; color: Theme.ink; }
                     Text { text: tool.about; horizontal-stretch: 1; color: Theme.ink; wrap: word-wrap; }
@@ -286,13 +297,16 @@ export component SettingsView inherits Rectangle {
 
             // Connected apps.
             VerticalBox {
-                spacing: 8px;
+                padding: 0px;
+                spacing: 14px;
                 SectionTitle { label: "Connected apps"; }
                 if mcp_lines.length == 0: Text {
                     text: "No apps connected through MCP.";
                     color: Theme.muted;
                 }
                 for line[idx] in mcp_lines: HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
                     spacing: 8px;
                     Text {
                         text: line.text;
@@ -314,7 +328,8 @@ export component SettingsView inherits Rectangle {
 
             // Connector directory: catalog visibility is not account access.
             VerticalBox {
-                spacing: 8px;
+                padding: 0px;
+                spacing: 14px;
                 SectionTitle { label: "Connector Hub"; }
                 Text {
                     text: "Explore supported protocols and potential services. Catalog entries are not connected accounts. Custom connectors are saved inactive until a reviewed adapter is available.";
@@ -332,6 +347,8 @@ export component SettingsView inherits Rectangle {
                     wrap: word-wrap;
                 }
                 for c in root.connector-lines: HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
                     spacing: 8px;
                     Text {
                         text: c.label;
@@ -359,6 +376,8 @@ export component SettingsView inherits Rectangle {
                 LabeledInput { label: "Custom connector ID"; value <=> root.connector-key-id; }
                 LabeledInput { label: "API key (stored in the OS vault)"; password: true; value <=> root.connector-api-key; }
                 HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
                     spacing: 8px;
                     Button {
                         text: "Save key";
@@ -380,10 +399,12 @@ export component SettingsView inherits Rectangle {
 
             // Phone.
             VerticalBox {
-                spacing: 8px;
+                padding: 0px;
+                spacing: 14px;
                 SectionTitle { label: "Use Heron from your phone"; }
                 Text { text: telegram_status; color: Theme.ink; wrap: word-wrap; }
                 if !telegram_configured: HorizontalBox {
+                    padding: 0px;
                     spacing: 8px;
                     LabeledInput { label: "Bot token from @BotFather"; password: true; value <=> telegram_token; }
                     Button { text: "Connect Telegram"; enabled: !busy; clicked => { root.connect_telegram(); } }
@@ -397,7 +418,8 @@ export component SettingsView inherits Rectangle {
 
             // Memory and files.
             VerticalBox {
-                spacing: 8px;
+                padding: 0px;
+                spacing: 14px;
                 SectionTitle { label: "Memory and files"; }
                 CheckBox { text: "Learn about me from conversations"; checked <=> auto_memory; }
                 if neural_available: CheckBox {
@@ -407,6 +429,8 @@ export component SettingsView inherits Rectangle {
                 LabeledInput { label: "Working folder"; value <=> workspace; }
                 Text { text: "Conversations, memory and settings are stored in " + home + "."; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
                 HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
                     spacing: 8px;
                     Button { text: "Save a copy of my data"; enabled: !busy; clicked => { root.make_backup(); } }
                     if backup_message != "": Text {
@@ -425,6 +449,8 @@ export component SettingsView inherits Rectangle {
 
             // Save.
             HorizontalBox {
+                alignment: start;
+                padding: 0px;
                 spacing: 10px;
                 Button { text: "Save settings"; enabled: !busy; clicked => { root.save_settings(); } }
                 if saved_message != "": Text {

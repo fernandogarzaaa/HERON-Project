@@ -9,7 +9,8 @@
 // Values are measured from assets/index.html, dark media query
 // (lines 21-25). The brand hexes slate #2F6690 and talon #C98F00 are the
 // light-mode values. In dark mode they lighten to #7DB3D8 and #EDB92B
-// for contrast on dark surfaces. Headings use the web UI serif stack.
+// for contrast on dark surfaces. Headings use Georgia, the serif the
+// web UI stack resolves to on both desktop platforms.
 
 export global Theme {
     in-out property <color> slate: #7DB3D8;
@@ -39,5 +40,8 @@ export global Theme {
     in-out property <color> icon: #A8B8C4;
     in-out property <color> icon-active: #E3EAF0;
     in-out property <color> badge: #EDB92B;
-    in-out property <string> heading-font: "Iowan Old Style, Sitka Display, Sitka Text, Constantia, Charter, Georgia, serif";
+    // One family name: Slint's font-family is not a CSS stack, and a
+    // comma list matches no font, so it fell back to the sans default.
+    // Georgia ships with macOS and Windows.
+    in-out property <string> heading-font: "Georgia";
 }

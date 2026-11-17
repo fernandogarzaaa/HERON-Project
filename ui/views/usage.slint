@@ -19,7 +19,7 @@ export component UsageTile inherits Rectangle {
     in property <string> small;
     in property <float> frac: -1;
     in property <string> state: "normal";
-    background: Theme.surface;
+    background: Theme.raised;
     border-color: Theme.line;
     border-width: 1px;
     border-radius: 12px;
@@ -29,11 +29,10 @@ export component UsageTile inherits Rectangle {
         Text { text: root.title; font-size: 13px; font-weight: 600; color: Theme.muted; }
         Text { text: root.big; font-size: 24px; font-weight: 600; color: Theme.ink; wrap: TextWrap.word-wrap; }
         Text { text: root.small; font-size: 13px; color: Theme.muted; wrap: TextWrap.word-wrap; }
-        Rectangle {
+        if root.frac >= 0: Rectangle {
             height: 8px;
             border-radius: 4px;
             background: Theme.slate-soft;
-            visible: root.frac >= 0;
             Rectangle {
                 width: parent.width * root.frac;
                 height: parent.height;
@@ -45,7 +44,6 @@ export component UsageTile inherits Rectangle {
 }
 
 export component UsageView inherits Rectangle {
-    background: Theme.paper;
     in property <string> level-note: "";
     in property <bool> reduce-motion: false;
     in property <string> today-big: "";
@@ -100,13 +98,14 @@ export component UsageView inherits Rectangle {
                 wrap: TextWrap.word-wrap;
             }
             HorizontalBox {
+                padding: 0px;
                 spacing: 12px;
                 UsageTile { title: "Today"; big: root.today-big; small: root.today-small; frac: root.today-frac; state: root.today-state; horizontal-stretch: 1; }
                 UsageTile { title: "This month"; big: root.month-big; small: root.month-small; frac: root.month-frac; state: root.month-state; horizontal-stretch: 1; }
                 UsageTile { title: "Heading for"; big: root.heading-big; small: root.heading-small; horizontal-stretch: 1; }
-                UsageTile { title: root.provider-title; big: root.provider-big; small: root.provider-small; frac: root.provider-frac; state: root.provider-state; horizontal-stretch: 1; visible: root.provider-visible; }
+                if root.provider-visible: UsageTile { title: root.provider-title; big: root.provider-big; small: root.provider-small; frac: root.provider-frac; state: root.provider-state; horizontal-stretch: 1; }
             }
-            Text { text: "Last 30 days"; font-size: 20px; font-weight: 600; color: Theme.ink; }
+            Text { text: "Last 30 days"; font-size: 19px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
             Rectangle {
                 height: 96px;
                 HorizontalBox {
@@ -114,6 +113,7 @@ export component UsageView inherits Rectangle {
                     height: parent.height;
                     spacing: 3px;
                     for day in root.days: VerticalBox {
+                        padding: 0px;
                         horizontal-stretch: 1;
                         height: parent.height;
                         Rectangle { vertical-stretch: 1; }
@@ -132,20 +132,26 @@ export component UsageView inherits Rectangle {
                 text: root.daily-visible ? "Hide daily figures" : "Daily figures";
                 clicked => { root.daily-visible = !root.daily-visible; }
             }
-            VerticalBox {
+            if root.daily-visible: VerticalBox {
+                padding: 0px;
                 spacing: 6px;
-                visible: root.daily-visible;
                 for row in root.daily-rows: HorizontalBox {
+                    padding: 0px;
                     spacing: 10px;
                     Text { text: row.text; font-size: 14px; color: Theme.ink; width: 110px; }
                     Text { text: row.meta; font-size: 14px; color: Theme.ink; horizontal-stretch: 1; }
                 }
             }
-            Text { text: "This month by model"; font-size: 20px; font-weight: 600; color: Theme.ink; }
+            Text { text: "This month by model"; font-size: 19px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
             if root.models-empty-text != "": EmptyNote { body: root.models-empty-text; }
-            HorizontalBox {
+            if root.models.length > 0: HorizontalBox {
+                // Column headers line up with the cell text inside each
+                // RowCard: 1px border plus 10px padding.
+                padding-left: 11px;
+                padding-right: 11px;
+                padding-top: 0px;
+                padding-bottom: 0px;
                 spacing: 10px;
-                visible: root.models.length > 0;
                 Text { text: "Model"; font-size: 13px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; }
                 Text { text: "Sent to it"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 100px; }
                 Text { text: "Written by it"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 110px; }
@@ -164,11 +170,13 @@ export component UsageView inherits Rectangle {
                 }
             }
             if root.models-note-visible: RowMeta { body: "Where a provider does not report token counts, Heron estimates them from the length of the text."; }
-            Text { text: "Your limits"; font-size: 20px; font-weight: 600; color: Theme.ink; }
+            Text { text: "Your limits"; font-size: 19px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
             SectionIntro { body: "Set a limit and Heron paces itself. With a quarter left it takes fewer steps and keeps answers short. Near the end it uses its cheapest model and stops everything it does on its own. It never refuses to answer you."; }
             HorizontalBox {
+                padding: 0px;
                 spacing: 12px;
                 VerticalBox {
+                    padding: 0px;
                     horizontal-stretch: 1;
                     spacing: 4px;
                     Text { text: "Per day"; font-size: 14px; color: Theme.ink; }
@@ -176,6 +184,7 @@ export component UsageView inherits Rectangle {
                     RowMeta { body: "Tokens. Leave empty for no limit."; }
                 }
                 VerticalBox {
+                    padding: 0px;
                     horizontal-stretch: 1;
                     spacing: 4px;
                     Text { text: "Per month"; font-size: 14px; color: Theme.ink; }
@@ -184,13 +193,15 @@ export component UsageView inherits Rectangle {
                 }
             }
             VerticalBox {
+                padding: 0px;
                 spacing: 4px;
                 Text { text: "For work Heron starts on its own, per day"; font-size: 14px; color: Theme.ink; }
                 LineEdit { text <=> root.bg-limit; placeholder-text: "No limit"; }
                 if root.bg-note != "": RowMeta { body: root.bg-note; }
             }
-            Text { text: "Choosing a model"; font-size: 20px; font-weight: 600; color: Theme.ink; }
+            Text { text: "Choosing a model"; font-size: 19px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
             VerticalBox {
+                padding: 0px;
                 spacing: 4px;
                 Text { text: "Cheaper model for simple requests"; font-size: 14px; color: Theme.ink; }
                 LineEdit { text <=> root.fast-model; placeholder-text: "e.g. openai/gpt-4o-mini"; }
@@ -203,6 +214,8 @@ export component UsageView inherits Rectangle {
             }
             RowMeta { body: "A greeting, a reminder or a quick question does not need the large model. If a request turns out to need real work, Heron moves it to the main model part-way through."; }
             HorizontalBox {
+                alignment: start;
+                padding: 0px;
                 spacing: 10px;
                 Button {
                     text: "Save limits";

@@ -9,9 +9,7 @@
 // primary, amber accent, serif headings.
 //
 // The palette lives in one place: ui/components/theme.slint. The views
-// import Theme from there. Headings use Georgia, the last family in the
-// heading stack: Slint takes one family string, so the full comma list
-// from the Shell's heading-font property cannot be used here.
+// import Theme from there. Headings use Theme.heading-font (Georgia).
 
 import { Button, CheckBox, ComboBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
@@ -102,7 +100,7 @@ export component SectionTitle inherits Text {
     in property <string> title;
     text: title;
     font-size: 30px;
-    font-family: "Georgia";
+    font-family: Theme.heading-font;
     font-weight: 600;
     color: Theme.ink;
 }
@@ -159,7 +157,9 @@ export component RowCard inherits Rectangle {
     // Enter animations are deliberately absent: refreshes rebuild the
     // row models, so a fade-in would replay on every load.
     in property <bool> reduce-motion: false;
-    background: touch.pressed || touch.has-hover ? Theme.slate-soft : Theme.surface;
+    // Cards sit one step above the content surface (paper < surface <
+    // raised); hover is the shared hover token, press the slate tint.
+    background: touch.pressed ? Theme.slate-soft : touch.has-hover ? Theme.hover : Theme.raised;
     border-color: Theme.line;
     border-width: 1px;
     border-radius: 8px;
