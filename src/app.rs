@@ -556,8 +556,7 @@ impl App {
         let history = self.store.list_suggestions(false, 30)?;
         // The bar for speaking up adapts to how the user has responded: mostly declined -> be pickier.
         let answered: Vec<bool> = history.iter().filter(|s| matches!(s.status.as_str(), "accepted" | "dismissed")).take(10).map(|s| s.status == "accepted").collect();
-        let accept_rate = answered.iter().filter(|a| **a).count() as f64 / answered.len().max(1) as f64;
-        let bar: f64 = if answered.len() >= 4 && accept_rate < 0.3 { 0.8 } else if answered.len() >= 4 && accept_rate > 0.7 { 0.5 } else { 0.6 };
+        let bar = suggestion_bar(&answered);
         // No calendar text here: event titles are written by whoever sends an invitation, and this
         // pass proposes work that may later run unattended.
         let list = |status: &[&str]| history.iter().filter(|s| status.contains(&s.status.as_str())).map(|s| format!("- {}", s.title)).collect::<Vec<_>>().join("\n");
@@ -790,6 +789,20 @@ fn notify(cfg: &Config, title: &str, body: &str) {
     let _ = message;
 }
 
+/// How sure the model must be before a suggestion is shown, from the user's last answers (true =
+/// accepted). Mostly declined: be pickier. Mostly accepted: speak up more. Under four answers is
+/// too few to judge.
+fn suggestion_bar(answered: &[bool]) -> f64 {
+    let accept_rate = answered.iter().filter(|a| **a).count() as f64 / answered.len().max(1) as f64;
+    if answered.len() >= 4 && accept_rate < 0.3 {
+        0.8
+    } else if answered.len() >= 4 && accept_rate > 0.7 {
+        0.5
+    } else {
+        0.6
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -987,6 +1000,25 @@ mod tests {
             policy.decide("mcp__social__post", "Publish to social media", Effect::NetworkEgress),
             Verdict::Deny(_)
         ));
+    }
+
+    #[test]
+    fn the_suggestion_bar_follows_how_the_user_has_answered() {
+        let answers = |accepted: usize, declined: usize| [vec![true; accepted], vec![false; declined]].concat();
+        assert_eq!(suggestion_bar(&[]), 0.6);
+        // Three answers are too few to judge, however one-sided.
+        assert_eq!(suggestion_bar(&answers(0, 3)), 0.6);
+        assert_eq!(suggestion_bar(&answers(3, 0)), 0.6);
+        // Mostly declined: pickier. 1 of 4 accepted is 25%, below 30%.
+        assert_eq!(suggestion_bar(&answers(1, 3)), 0.8);
+        assert_eq!(suggestion_bar(&answers(0, 4)), 0.8);
+        // Exactly 30% is not "mostly declined".
+        assert_eq!(suggestion_bar(&answers(3, 7)), 0.6);
+        // Mostly accepted: speak up more. 3 of 4 is 75%, above 70%.
+        assert_eq!(suggestion_bar(&answers(3, 1)), 0.5);
+        // Exactly 70% is not "mostly accepted".
+        assert_eq!(suggestion_bar(&answers(7, 3)), 0.6);
+        assert_eq!(suggestion_bar(&answers(2, 2)), 0.6);
     }
 
     #[tokio::test]
