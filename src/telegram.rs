@@ -7,7 +7,7 @@
 
 use crate::agent::{null_sink, Session};
 use crate::app::App;
-use crate::channel::{ChannelIdentity, ChannelKind, ChannelStore, InboundMessage};
+use crate::channel::{ChannelIdentity, ChannelKind, ChannelStore, InboundMessage, RetryOutcome};
 use crate::permissions::{Approval, ApprovalRequest, Approver};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -18,6 +18,17 @@ use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 
 const MAX_MESSAGE: usize = 3800;
+/// Shown in the app only: forwarding it to the chat that just failed would fail again and
+/// raise the next notice.
+const UNDELIVERED_TITLE: &str = "A Telegram reply was not delivered";
+
+enum Delivery {
+    Sent(Option<String>),
+    /// Network trouble, a server error or a rate limit; `after` is Telegram's retry_after in seconds.
+    Retry { after: Option<i64> },
+    /// Telegram rejected the message itself (a 4xx other than 429); sending it again cannot help.
+    Refused,
+}
 
 #[derive(Clone)]
 struct Bot {
@@ -40,6 +51,23 @@ impl Bot {
             return Err(anyhow!("Telegram refused {method}: {}", v["description"].as_str().unwrap_or("unknown error")));
         }
         Ok(v["result"].clone())
+    }
+
+    /// One sendMessage attempt, classified by what should happen to the queued row.
+    async fn send_message(&self, chat: i64, text: &str) -> Delivery {
+        let sent = self.client.post(format!("{}/sendMessage", self.base)).json(&json!({"chat_id": chat, "text": text})).send().await;
+        let Ok(resp) = sent else { return Delivery::Retry { after: None } };
+        let status = resp.status();
+        let Ok(v) = resp.json::<Value>().await else { return Delivery::Retry { after: None } };
+        if v["ok"].as_bool() == Some(true) {
+            return Delivery::Sent(v["result"]["message_id"].as_i64().map(|id| id.to_string()));
+        }
+        let code = v["error_code"].as_u64().map(|c| c as u16).unwrap_or(status.as_u16());
+        match code {
+            429 => Delivery::Retry { after: v["parameters"]["retry_after"].as_i64() },
+            400..=499 => Delivery::Refused,
+            _ => Delivery::Retry { after: None },
+        }
     }
 
     /// Each platform message must fit Telegram's UTF-16 length limit.
@@ -130,7 +158,7 @@ impl Bot {
             let chat = match msg.identity.chat_id.parse::<i64>() {
                 Ok(chat) => chat,
                 Err(_) => {
-                    let _ = self.spool.retry(msg.id, &msg.identity, crate::util::now_ts());
+                    let _ = self.spool.fail(msg.id, &msg.identity, &msg.lease);
                     continue;
                 }
             };
@@ -139,27 +167,32 @@ impl Bot {
                 let _ = self.spool.purge_account(ChannelKind::Telegram, &self.account_id);
                 break;
             }
-            match self.call("sendMessage", json!({"chat_id": chat, "text": msg.text})).await {
-                Ok(response) => {
-                    let remote_id = response["message_id"].as_i64().map(|id| id.to_string());
-                    if let Err(err) = self.spool.delivered(
-                        msg.id,
-                        &msg.identity,
-                        remote_id.as_deref(),
-                    ) {
+            let now = crate::util::now_ts();
+            // Provider errors may echo the bot URL, which embeds its token: never log them.
+            let outcome = match self.send_message(chat, &msg.text).await {
+                Delivery::Sent(remote_id) => {
+                    if let Err(err) = self.spool.delivered(msg.id, &msg.identity, &msg.lease, remote_id.as_deref()) {
                         eprintln!("HERON Telegram: reply acknowledgement failed: {err}");
                         break;
                     }
+                    continue;
                 }
-                Err(err) => {
-                    let _ = self.spool.retry(msg.id, &msg.identity, crate::util::now_ts());
-                    // reqwest errors may contain the bot URL (which embeds its token).
-                    // Never log raw provider errors or request URLs.
-                    let _ = err;
+                Delivery::Retry { after } => {
                     eprintln!("HERON Telegram: delivery failed; retry queued.");
-                    break;
+                    self.spool.retry(msg.id, &msg.identity, &msg.lease, now, after.map(|s| now.saturating_add(s)))
                 }
+                Delivery::Refused => {
+                    eprintln!("HERON Telegram: Telegram refused a reply; it will not be retried.");
+                    self.spool.fail(msg.id, &msg.identity, &msg.lease)
+                }
+            };
+            if matches!(outcome, Ok(RetryOutcome::GaveUp)) {
+                let _ = self.app.store.add_inbox(
+                    UNDELIVERED_TITLE,
+                    "Heron could not send a reply to your Telegram chat and stopped trying. Open the conversation in Heron to read it.",
+                );
             }
+            break;
         }
     }
 
@@ -438,6 +471,10 @@ async fn forward_inbox(app: &App, bot: &Bot, chat: i64) {
     items.retain(|m| m.id > last);
     items.sort_by_key(|m| m.id);
     for m in items {
+        if m.title == UNDELIVERED_TITLE {
+            let _ = app.store.kv_set("telegram_inbox_last", &m.id.to_string());
+            continue;
+        }
         if bot.queue_with_key(chat, &format!("{}\n\n{}", m.title, m.body), &format!("inbox:{}", m.id)).await.is_ok() {
             // Inbox advancement means durably queued, not necessarily delivered.
             let _ = app.store.kv_set("telegram_inbox_last", &m.id.to_string());

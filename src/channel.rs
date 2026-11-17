@@ -9,7 +9,7 @@
 //! route through the existing HERON Agent and Approver.
 
 use anyhow::{bail, Context, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -92,6 +92,19 @@ pub struct OutboundMessage {
     pub thread_id: Option<String>,
     pub text: String,
     pub attempts: i64,
+    /// Proof of the claim made by `due`. Only the holder of the current lease may acknowledge or
+    /// reschedule the row, so a worker whose lease expired cannot undo a newer worker's ack.
+    pub lease: String,
+}
+
+/// What became of a delivery that did not go through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryOutcome {
+    Scheduled,
+    /// The whole logical message was given up; nothing after it in the chat is held back by it.
+    GaveUp,
+    /// The caller's lease is no longer current; another worker owns the row now.
+    NotHeld,
 }
 
 fn check_id(value: &str) -> Result<()> {
@@ -182,12 +195,41 @@ impl ChannelStore {
                next_attempt INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
                status TEXT NOT NULL DEFAULT 'pending',
                provider_message_id TEXT,
+               lease_token TEXT,
+               message_key TEXT,
                UNIQUE(kind, account_id, idempotency_key)
              );
              CREATE INDEX IF NOT EXISTS idx_channel_outbox_due
                ON channel_outbox(kind, account_id, status, next_attempt, id);",
         )?;
+        for column in ["lease_token", "message_key"] {
+            let present: bool = db.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('channel_outbox') WHERE name=?1",
+                [column], |r| r.get::<_, i64>(0),
+            )? > 0;
+            if !present {
+                db.execute_batch(&format!("ALTER TABLE channel_outbox ADD COLUMN {column} TEXT"))?;
+            }
+        }
         Ok(Self { db: Arc::new(Mutex::new(db)) })
+    }
+
+    /// Writers take the database lock up front. A deferred transaction that reads first and
+    /// upgrades later fails at once with "database is locked" when another process got there
+    /// between the two, without waiting for busy_timeout.
+    fn write_tx(db: &mut Connection) -> rusqlite::Result<rusqlite::Transaction<'_>> {
+        db.transaction_with_behavior(TransactionBehavior::Immediate)
+    }
+
+    /// Fails every remaining chunk of the logical message `row` belongs to.
+    fn fail_message(tx: &rusqlite::Transaction<'_>, row: i64) -> rusqlite::Result<()> {
+        tx.execute(
+            "UPDATE channel_outbox SET status='failed',text='',lease_token=NULL
+             WHERE status IN ('pending','leased') AND (kind,account_id,COALESCE(message_key,idempotency_key)) =
+               (SELECT kind,account_id,COALESCE(message_key,idempotency_key) FROM channel_outbox WHERE id=?1)",
+            params![row],
+        )?;
+        Ok(())
     }
 
     /// Refuse unpaired or spoofed senders before writing *any* content.
@@ -275,7 +317,7 @@ impl ChannelStore {
         }
         for part in chunks { check_text(part)?; }
         let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let tx = db.transaction()?;
+        let tx = Self::write_tx(&mut db)?;
         let keys: Vec<String> = (0..chunks.len())
             .map(|i| format!("{key}:{i}")).collect();
         let mut missing = 0;
@@ -306,10 +348,10 @@ impl ChannelStore {
         for (text, chunk_key) in chunks.iter().zip(keys.iter()) {
             tx.execute(
                 "INSERT OR IGNORE INTO channel_outbox
-                 (kind,account_id,chat_id,sender_id,thread_id,text,idempotency_key,queued_at,next_attempt)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?8)",
+                 (kind,account_id,chat_id,sender_id,thread_id,text,idempotency_key,queued_at,next_attempt,message_key)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?8,?9)",
                 params![identity.kind.name(), identity.account_id, identity.chat_id,
-                        identity.sender_id, thread_id, text, chunk_key, now],
+                        identity.sender_id, thread_id, text, chunk_key, now, key],
             )?;
             ids.push(tx.query_row(
                 "SELECT id FROM channel_outbox
@@ -341,8 +383,9 @@ impl ChannelStore {
     /// the message; every outbound action must remain non-high-impact.
     pub fn due(&self, kind: ChannelKind, account: &str, now: i64, limit: usize) -> Result<Vec<OutboundMessage>> {
         check_id(account)?;
+        let lease = uuid::Uuid::new_v4().simple().to_string();
         let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let tx = db.transaction()?;
+        let tx = Self::write_tx(&mut db)?;
         let batch: Vec<OutboundMessage> = {
             let mut stmt = tx.prepare(
                 "SELECT id,chat_id,sender_id,thread_id,text,attempts
@@ -371,14 +414,15 @@ impl ChannelStore {
                     thread_id: row.get(3)?,
                     text: row.get(4)?,
                     attempts: row.get(5)?,
+                    lease: lease.clone(),
                 })
             })?;
             rows.collect::<rusqlite::Result<Vec<_>>>()?
         };
         for msg in &batch {
             tx.execute(
-                "UPDATE channel_outbox SET status='leased',next_attempt=?2 WHERE id=?1",
-                params![msg.id, now.saturating_add(60)],
+                "UPDATE channel_outbox SET status='leased',next_attempt=?2,lease_token=?3 WHERE id=?1",
+                params![msg.id, now.saturating_add(60), lease],
             )?;
         }
         tx.commit()?;
@@ -386,43 +430,70 @@ impl ChannelStore {
     }
 
     /// Acknowledge only the named outbox row for the expected account.
-    pub fn delivered(&self, id: i64, identity: &ChannelIdentity, message_id: Option<&str>) -> Result<()> {
+    pub fn delivered(&self, id: i64, identity: &ChannelIdentity, lease: &str, message_id: Option<&str>) -> Result<()> {
         identity.validate()?;
         if let Some(mid) = message_id {
             check_id(mid)?;
         }
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
-            "UPDATE channel_outbox SET status='sent',text='',provider_message_id=?1
+            "UPDATE channel_outbox SET status='sent',text='',provider_message_id=?1,lease_token=NULL
              WHERE id=?2 AND kind=?3 AND account_id=?4 AND chat_id=?5 AND sender_id=?6
-             AND status='leased'",
+             AND status='leased' AND lease_token=?7",
             params![message_id, id, identity.kind.name(), identity.account_id,
-                    identity.chat_id, identity.sender_id],
+                    identity.chat_id, identity.sender_id, lease],
         )?;
         Ok(())
     }
 
-    pub fn retry(&self, id: i64, identity: &ChannelIdentity, now: i64) -> Result<()> {
+    /// Reschedule a delivery that failed for a reason that may pass (network, 5xx, 429).
+    /// `not_before` carries the provider's own retry-after, when it gave one. After
+    /// `MAX_ATTEMPTS` the whole logical message is given up together.
+    pub fn retry(&self, id: i64, identity: &ChannelIdentity, lease: &str, now: i64, not_before: Option<i64>) -> Result<RetryOutcome> {
         identity.validate()?;
-        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let attempts: Option<i64> = db.query_row(
-            "SELECT attempts FROM channel_outbox WHERE id=?1 AND kind=?2
-             AND account_id=?3 AND chat_id=?4 AND sender_id=?5 AND status='leased'",
-            params![id, identity.kind.name(), identity.account_id, identity.chat_id,
-                    identity.sender_id],
-            |row| row.get(0),
-        ).optional()?;
-        if let Some(previous) = attempts {
-            let next = previous + 1;
-            let status = if next >= MAX_ATTEMPTS { "failed" } else { "pending" };
-            let delay = 2_i64.pow(next.min(8) as u32).min(300);
-            db.execute(
-                "UPDATE channel_outbox SET attempts=?1,next_attempt=?2,status=?3,
-                 text=CASE WHEN ?3='failed' THEN '' ELSE text END WHERE id=?4",
-                params![next, now.saturating_add(delay), status, id],
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = Self::write_tx(&mut db)?;
+        let Some(previous) = Self::held_attempts(&tx, id, identity, lease)? else {
+            return Ok(RetryOutcome::NotHeld);
+        };
+        let next = previous + 1;
+        let outcome = if next >= MAX_ATTEMPTS {
+            Self::fail_message(&tx, id)?;
+            RetryOutcome::GaveUp
+        } else {
+            let backoff = now.saturating_add(2_i64.pow(next.min(8) as u32).min(300));
+            tx.execute(
+                "UPDATE channel_outbox SET attempts=?1,next_attempt=?2,status='pending',lease_token=NULL WHERE id=?3",
+                params![next, backoff.max(not_before.unwrap_or(0)), id],
             )?;
+            RetryOutcome::Scheduled
+        };
+        tx.commit()?;
+        Ok(outcome)
+    }
+
+    /// Give up at once on a delivery the provider refused for good (a 4xx other than 429),
+    /// together with the rest of its logical message.
+    pub fn fail(&self, id: i64, identity: &ChannelIdentity, lease: &str) -> Result<RetryOutcome> {
+        identity.validate()?;
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = Self::write_tx(&mut db)?;
+        if Self::held_attempts(&tx, id, identity, lease)?.is_none() {
+            return Ok(RetryOutcome::NotHeld);
         }
-        Ok(())
+        Self::fail_message(&tx, id)?;
+        tx.commit()?;
+        Ok(RetryOutcome::GaveUp)
+    }
+
+    fn held_attempts(tx: &rusqlite::Transaction<'_>, id: i64, identity: &ChannelIdentity, lease: &str) -> rusqlite::Result<Option<i64>> {
+        tx.query_row(
+            "SELECT attempts FROM channel_outbox WHERE id=?1 AND kind=?2
+             AND account_id=?3 AND chat_id=?4 AND sender_id=?5 AND status='leased' AND lease_token=?6",
+            params![id, identity.kind.name(), identity.account_id, identity.chat_id,
+                    identity.sender_id, lease],
+            |row| row.get(0),
+        ).optional()
     }
 
     /// One-time migration safety: old gateway builds put approval questions
@@ -444,7 +515,7 @@ impl ChannelStore {
     pub fn purge_account(&self, kind: ChannelKind, account: &str) -> Result<()> {
         check_id(account)?;
         let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let tx = db.transaction()?;
+        let tx = Self::write_tx(&mut db)?;
         tx.execute(
             "DELETE FROM channel_inbox WHERE kind=?1 AND account_id=?2",
             params![kind.name(), account],
@@ -483,6 +554,82 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_worker_whose_lease_expired_cannot_undo_the_next_workers_ack() {
+        let store = ChannelStore::in_memory().unwrap();
+        let id = store.enqueue(&owner(), None, "hello", "one", 100).unwrap();
+        let stale = store.due(ChannelKind::Telegram, "bot-1", 100, 1).unwrap().remove(0);
+        let current = store.due(ChannelKind::Telegram, "bot-1", 161, 1).unwrap().remove(0);
+        assert_eq!(store.retry(id, &owner(), &stale.lease, 161, None).unwrap(), RetryOutcome::NotHeld);
+        assert_eq!(store.fail(id, &owner(), &stale.lease).unwrap(), RetryOutcome::NotHeld);
+        store.delivered(id, &owner(), &current.lease, Some("tg-1")).unwrap();
+        assert_eq!(store.count_pending().unwrap(), 0, "delivered once, not queued again");
+        assert_eq!(store.count_failed().unwrap(), 0);
+    }
+
+    #[test]
+    fn a_reply_that_keeps_failing_is_given_up_whole_and_never_sent_tail_first() {
+        let store = ChannelStore::in_memory().unwrap();
+        store.enqueue_parts(&owner(), None, &["head".into(), "tail".into()], "reply", 100).unwrap();
+        let mut at = 100;
+        let mut outcome = RetryOutcome::Scheduled;
+        for _ in 0..MAX_ATTEMPTS {
+            let claim = store.due(ChannelKind::Telegram, "bot-1", at, 10).unwrap();
+            assert_eq!(claim.len(), 1, "only the head is ever offered");
+            assert_eq!(claim[0].text, "head");
+            outcome = store.retry(claim[0].id, &owner(), &claim[0].lease, at, None).unwrap();
+            at += 1000;
+        }
+        assert_eq!(outcome, RetryOutcome::GaveUp);
+        assert!(store.due(ChannelKind::Telegram, "bot-1", at, 10).unwrap().is_empty());
+        assert_eq!(store.count_failed().unwrap(), 2);
+    }
+
+    #[test]
+    fn a_refused_reply_is_given_up_at_once_and_a_rate_limit_is_waited_out() {
+        let store = ChannelStore::in_memory().unwrap();
+        store.enqueue_parts(&owner(), None, &["a".into(), "b".into()], "refused", 100).unwrap();
+        let claim = store.due(ChannelKind::Telegram, "bot-1", 100, 1).unwrap().remove(0);
+        assert_eq!(store.fail(claim.id, &owner(), &claim.lease).unwrap(), RetryOutcome::GaveUp);
+        assert_eq!(store.count_failed().unwrap(), 2);
+
+        store.enqueue(&owner(), None, "later", "limited", 200).unwrap();
+        let claim = store.due(ChannelKind::Telegram, "bot-1", 200, 1).unwrap().remove(0);
+        store.retry(claim.id, &owner(), &claim.lease, 200, Some(320)).unwrap();
+        assert!(store.due(ChannelKind::Telegram, "bot-1", 319, 1).unwrap().is_empty());
+        assert_eq!(store.due(ChannelKind::Telegram, "bot-1", 320, 1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn two_processes_sharing_the_spool_never_see_database_locked() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("channels.db");
+        ChannelStore::open(&path).unwrap();
+        let errors = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let workers: Vec<_> = (0..2)
+            .map(|w| {
+                let (path, errors) = (path.clone(), errors.clone());
+                std::thread::spawn(move || {
+                    let store = ChannelStore::open(&path).unwrap();
+                    for i in 0..300 {
+                        let step = store
+                            .enqueue(&owner(), None, "hi", &format!("w{w}-{i}"), 0)
+                            .and_then(|_| store.due(ChannelKind::Telegram, "bot-1", 0, 1))
+                            .map(|_| ());
+                        if let Err(e) = step {
+                            errors.lock().unwrap().push(e.to_string());
+                        }
+                    }
+                })
+            })
+            .collect();
+        for w in workers {
+            w.join().unwrap();
+        }
+        let errors = errors.lock().unwrap();
+        assert!(errors.is_empty(), "{} errors, first: {:?}", errors.len(), errors.first());
+    }
+
     fn inbound(message_id: &str) -> InboundMessage {
         InboundMessage {
             identity: owner(),
@@ -516,15 +663,17 @@ mod tests {
         let expected = owner();
         let id = store.enqueue(&expected, None, "Hello!", "reply-1", 100).unwrap();
         assert_eq!(store.enqueue(&expected, None, "Hello!", "reply-1", 100).unwrap(), id);
-        assert_eq!(store.due(ChannelKind::Telegram, "bot-1", 100, 10).unwrap().len(), 1);
-        store.retry(id, &expected, 100).unwrap();
+        let claim = store.due(ChannelKind::Telegram, "bot-1", 100, 10).unwrap();
+        assert_eq!(claim.len(), 1);
+        store.retry(id, &expected, &claim[0].lease, 100, None).unwrap();
         assert_eq!(store.due(ChannelKind::Telegram, "bot-1", 100, 10).unwrap().len(), 0);
-        assert_eq!(store.due(ChannelKind::Telegram, "bot-1", 102, 10).unwrap()[0].attempts, 1);
+        let again = store.due(ChannelKind::Telegram, "bot-1", 102, 10).unwrap();
+        assert_eq!(again[0].attempts, 1);
         let mut wrong = expected.clone();
         wrong.account_id = "bot-2".into();
-        store.delivered(id, &wrong, Some("remote-id")).unwrap();
+        store.delivered(id, &wrong, &again[0].lease, Some("remote-id")).unwrap();
         assert_eq!(store.count_pending().unwrap(), 1);
-        store.delivered(id, &expected, Some("remote-id")).unwrap();
+        store.delivered(id, &expected, &again[0].lease, Some("remote-id")).unwrap();
         assert_eq!(store.count_pending().unwrap(), 0);
         let second = store.enqueue(&expected, None, "Reply", "reply-2", 100).unwrap();
         for i in 0..MAX_ATTEMPTS {
@@ -532,7 +681,7 @@ mod tests {
             let claimed = store.due(ChannelKind::Telegram, "bot-1", at, 10).unwrap();
             assert_eq!(claimed.len(), 1);
             assert_eq!(claimed[0].id, second);
-            store.retry(second, &expected, at).unwrap();
+            store.retry(second, &expected, &claimed[0].lease, at, None).unwrap();
         }
         assert_eq!(store.count_failed().unwrap(), 1);
         store.purge_account(ChannelKind::Telegram, "bot-1").unwrap();
@@ -550,8 +699,9 @@ mod tests {
         assert_eq!(first.due(ChannelKind::Telegram, "bot-1", 100, 3).unwrap().len(), 1);
         assert!(second.due(ChannelKind::Telegram, "bot-1", 100, 3).unwrap().is_empty());
         assert!(second.due(ChannelKind::Telegram, "bot-1", 159, 3).unwrap().is_empty());
-        assert_eq!(second.due(ChannelKind::Telegram, "bot-1", 160, 3).unwrap().len(), 1);
-        first.delivered(id, &owner, Some("remote-1")).unwrap();
+        let reclaimed = second.due(ChannelKind::Telegram, "bot-1", 160, 3).unwrap();
+        assert_eq!(reclaimed.len(), 1);
+        first.delivered(id, &owner, &reclaimed[0].lease, Some("remote-1")).unwrap();
         assert_eq!(first.count_pending().unwrap(), 0);
     }
 
@@ -598,13 +748,14 @@ mod tests {
         let identity = owner();
         let ids = q.enqueue_parts(&identity, None,
             &["first".into(), "second".into()], "reply", 100).unwrap();
-        assert_eq!(q.due(ChannelKind::Telegram, "bot-1", 100, 40).unwrap().len(), 1);
-        q.retry(ids[0], &identity, 100).unwrap();
+        let head = q.due(ChannelKind::Telegram, "bot-1", 100, 40).unwrap();
+        assert_eq!(head.len(), 1);
+        q.retry(ids[0], &identity, &head[0].lease, 100, None).unwrap();
         assert!(q.due(ChannelKind::Telegram, "bot-1", 101, 40).unwrap().is_empty());
         let retried = q.due(ChannelKind::Telegram, "bot-1", 102, 40).unwrap();
         assert_eq!(retried.len(), 1);
         assert_eq!(retried[0].id, ids[0]);
-        q.delivered(ids[0], &identity, Some("tg-1")).unwrap();
+        q.delivered(ids[0], &identity, &retried[0].lease, Some("tg-1")).unwrap();
         let second = q.due(ChannelKind::Telegram, "bot-1", 103, 40).unwrap();
         assert_eq!(second.len(), 1);
         assert_eq!(second[0].id, ids[1]);
