@@ -22,8 +22,8 @@ The full register with locations is in report 02; raw reviewer reports are in
 
 | PR | Head | Fixes | Status |
 |---|---|---|---|
-| [#40](https://github.com/fernandogarzaaa/HERON-Project/pull/40) | `448227d941d4e3ceb348e701a25ee4b811509244` | M-5 (search through a link to a secret) and the Heron-home part of M-4 | Open. Local suite passes; tests fail without the fix. Hosted CI pending at time of writing. |
-| [#39](https://github.com/fernandogarzaaa/HERON-Project/pull/39) | `18e798f5217ea51f5d123e761dbb6d7db02e4492` | M-TEST-1 (test isolation), which was hiding the integration suite | Open. macOS and Windows hosted green; Linux failed on unrelated flaky M-REL-1; re-run requested. |
+| [#40](https://github.com/fernandogarzaaa/HERON-Project/pull/40) | `448227d941d4e3ceb348e701a25ee4b811509244` | M-5 (search through a link to a secret) and the Heron-home part of M-4 | Open. Local suite passes; tests fail without the fix. Hosted Linux and Windows green; macOS jobs were cancelled by the runner and re-run. |
+| [#39](https://github.com/fernandogarzaaa/HERON-Project/pull/39) | `18e798f5217ea51f5d123e761dbb6d7db02e4492` | M-TEST-1 (test isolation), which was hiding the integration suite | Open. All six hosted checks green after re-running a Linux job that failed on the unrelated flaky test M-REL-1. |
 
 ## Not fixed, and why
 

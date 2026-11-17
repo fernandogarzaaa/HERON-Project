@@ -68,7 +68,9 @@ reproduced): `lock_registry` uses a non-blocking `flock` (`src/connectors.rs:99`
 process spawned by a parallel test briefly shares open file descriptions between fork and exec,
 so a just-closed lock can still be held when the test reopens it. macOS spawns without that
 window. Recorded as finding M-REL-1 (P2, flaky on Linux; in the product a registry change made
-while Heron spawns a subprocess could report "busy" spuriously). The failed job was re-run.
+while Heron spawns a subprocess could report "busy" spuriously). The failed job was re-run and
+passed, so all six checks on #39 are green. On #40 (`448227d`) the two macOS jobs were cancelled
+by the runner (no step failed, no test output) and were re-run.
 
 ## Equivalence
 
