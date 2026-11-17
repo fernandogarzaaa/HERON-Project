@@ -6,6 +6,7 @@ use crate::util::now_ts;
 use anyhow::{anyhow, bail, Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -543,6 +544,11 @@ impl Store {
             }
         }
         Ok(Store { conn: Arc::new(Mutex::new(conn)), path: Some(path.to_path_buf()) })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn execute_batch_for_test(&self, sql: &str) {
+        self.db().execute_batch(sql).unwrap();
     }
 
     pub fn in_memory() -> Result<Store> {
@@ -1379,8 +1385,40 @@ impl Store {
         Ok(self.db().execute("DELETE FROM knowledge WHERE source=?", [source])?)
     }
 
+    /// Erase everything one source taught. A fact it retired comes back, unless a fact from another
+    /// source later replaced it: then that later fact stays the current version.
     pub fn delete_memories_by_source(&self, source: &str) -> Result<usize> {
-        Ok(self.db().execute("DELETE FROM memories WHERE source=?", [source])?)
+        let mut db = self.db();
+        let tx = db.transaction()?;
+        let next: HashMap<i64, Option<i64>> = tx
+            .prepare("SELECT id, superseded_by FROM memories WHERE source=?")?
+            .query_map([source], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let survivors: Vec<(i64, i64)> = tx
+            .prepare("SELECT id, superseded_by FROM memories WHERE source<>?1 AND superseded_by IN (SELECT id FROM memories WHERE source=?1)")?
+            .query_map([source], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (id, mut successor) in survivors {
+            // Skip over the versions being erased to the first one that stays.
+            while let Some(Some(later)) = next.get(&successor) {
+                successor = *later;
+            }
+            if next.contains_key(&successor) {
+                tx.execute("UPDATE memories SET invalid_at=NULL, superseded_by=NULL WHERE id=?", [id])?;
+            } else {
+                tx.execute("UPDATE memories SET superseded_by=? WHERE id=?", params![successor, id])?;
+            }
+        }
+        let deleted = tx.execute("DELETE FROM memories WHERE source=?", [source])?;
+        tx.commit()?;
+        Ok(deleted)
+    }
+
+    /// Credit a fact to whoever stated it last with more authority, so erasing an outside source
+    /// never takes a fact the user also stated.
+    pub fn set_memory_source(&self, id: i64, source: &str) -> Result<()> {
+        self.db().execute("UPDATE memories SET source=? WHERE id=?", params![source, id])?;
+        Ok(())
     }
 
     // ---------- suggestions (proactive work) ----------

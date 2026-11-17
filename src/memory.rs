@@ -215,6 +215,9 @@ impl Memory {
             let same = |s: &str| s.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect::<String>();
             if same(&old.content) == same(&content) {
                 self.store.update_memory(old.id, &content, &merged_tags, old.importance.max(importance), Some(&to_blob(&emb)), old.confirmed || confirmed, embedder)?;
+                if confirmed && OUTSIDE_SOURCES.contains(&old.source.as_str()) {
+                    self.store.set_memory_source(old.id, source)?;
+                }
                 return Ok(SaveOutcome::Updated(old.id));
             }
             if old.confirmed && !confirmed {
@@ -384,6 +387,41 @@ mod tests {
         // typo tolerance via character n-grams
         let r = m.search("projct falcn", 3).await.unwrap();
         assert!(r[0].content.contains("Falcon"));
+    }
+
+    #[tokio::test]
+    async fn a_fact_the_user_also_states_survives_erasing_the_account_that_taught_it() {
+        let m = mem();
+        let fact = m.save("The dentist is Dr Lee on Main Street", "person", "", 0.5, "google_email").await.unwrap();
+        assert_eq!(m.save("The dentist is Dr Lee on Main Street.", "person", "", 0.5, "agent").await.unwrap(), SaveOutcome::Updated(fact.id()));
+        assert_eq!(m.store.delete_memories_by_source("google_email").unwrap(), 0);
+        let kept = m.store.get_memory(fact.id()).unwrap().expect("the user's own statement was erased");
+        assert_eq!((kept.source.as_str(), kept.confirmed), ("agent", true));
+        // Outside material restating an outside fact does not take it over.
+        let other = m.save("The gym opens at six", "fact", "", 0.5, "email").await.unwrap();
+        m.save("The gym opens at six", "fact", "", 0.5, "google_email").await.unwrap();
+        assert_eq!(m.store.get_memory(other.id()).unwrap().unwrap().source, "email");
+    }
+
+    #[tokio::test]
+    async fn erasing_an_account_brings_back_what_it_replaced_unless_something_newer_did() {
+        let m = mem();
+        let old = m.save("The office is on the third floor", "fact", "", 0.5, "email").await.unwrap().id();
+        let from_google = m.save_replacing("The office is on the fifth floor", "fact", "", 0.5, "google_email", Some(old)).await.unwrap().id();
+        assert!(m.store.get_memory(old).unwrap().is_none());
+        assert_eq!(m.store.delete_memories_by_source("google_email").unwrap(), 1);
+        assert!(m.store.get_memory(from_google).unwrap().is_none());
+        assert!(m.store.get_memory(old).unwrap().is_some(), "the fact Google replaced stayed hidden");
+
+        // email -> google -> user: the user's version stays current and the old one stays history.
+        let first = m.save("Parking is in lot B", "fact", "", 0.5, "email").await.unwrap().id();
+        let middle = m.save_replacing("Parking is in lot C", "fact", "", 0.5, "google_email", Some(first)).await.unwrap().id();
+        let last = m.save_replacing("Parking is in lot D", "fact", "", 0.5, "agent", Some(middle)).await.unwrap().id();
+        m.store.delete_memories_by_source("google_email").unwrap();
+        assert!(m.store.get_memory(first).unwrap().is_none(), "an outdated fact came back");
+        assert!(m.store.get_memory(last).unwrap().is_some());
+        let history = m.store.memory_history(last).unwrap();
+        assert_eq!(history, ["Parking is in lot B"], "the old version lost its link");
     }
 
     #[tokio::test]

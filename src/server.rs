@@ -1096,9 +1096,7 @@ async fn start_oauth(State(st): S, Path(provider): Path<String>, headers: Header
     // Disconnect can clear the map and a concurrently starting request
     // can insert a stale authorization afterwards.
     let _transition = st.oauth_transition.lock().await;
-    if provider.connected(&cfg) {
-        return Err(bad("An OAuth account is already connected for this provider. Disconnect it before reconnecting."));
-    }
+    // Reconnecting is allowed: finishing the sign-in admits only the account already connected.
     let mut waiting = st.oauth_pending.lock().unwrap_or_else(|e| e.into_inner());
     waiting.retain(|_, p| !p.expired());
     if waiting.len() >= 8 {
