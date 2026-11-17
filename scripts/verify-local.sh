@@ -92,8 +92,9 @@ not_applicable() { # gate kind command reason
   record "$1" "$2" NOT_APPLICABLE null "$now" "$now" "" "$3" "$4"
 }
 
-# Required: the steps of the CI "test" job, in order.
-run_step tests required cargo test --locked
+# Required: the steps of the CI "test" job, in order. --no-fail-fast (not in CI) keeps one failing
+# test binary from hiding the results of the others.
+run_step tests required cargo test --locked --no-fail-fast
 if [ "$os" = Darwin ] || [[ "$os" == MINGW* || "$os" == MSYS* ]]; then
   run_step vault-live required cargo test --locked --lib config::tests::connector_vault_live_round_trip -- --ignored --exact
 else
