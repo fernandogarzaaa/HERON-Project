@@ -5,6 +5,7 @@
 import { Button, CheckBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { SuggestionRow, SimpleRow, MemoryRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
 import { Theme } from "../components/theme.slint";
+import { ChoiceChip } from "../components/atoms.slint";
 
 export component AwarenessView inherits Rectangle {
     background: Theme.paper;
@@ -81,11 +82,12 @@ export component AwarenessView inherits Rectangle {
                 color: Theme.ink;
             }
             HorizontalBox {
-                spacing: 6px;
-                Button { text: "Only when I ask"; checkable: true; checked: root.proactive == "off"; enabled: root.watching; clicked => { root.set-proactive("off"); } }
-                Button { text: "Suggest work"; checkable: true; checked: root.proactive == "suggest"; enabled: root.watching; clicked => { root.set-proactive("suggest"); } }
-                Button { text: "Prepare ahead"; checkable: true; checked: root.proactive == "prepare"; enabled: root.watching; clicked => { root.set-proactive("prepare"); } }
-                Button { text: "Take over"; checkable: true; checked: root.proactive == "takeover"; enabled: root.watching; clicked => { if (root.proactive != "takeover") { root.confirm-takeover = true; } } }
+                spacing: 8px;
+                alignment: start;
+                ChoiceChip { label: "Only when I ask"; selected: root.proactive == "off"; enabled: root.watching; reduce-motion: root.reduce-motion; clicked => { root.set-proactive("off"); } }
+                ChoiceChip { label: "Suggest work"; selected: root.proactive == "suggest"; enabled: root.watching; reduce-motion: root.reduce-motion; clicked => { root.set-proactive("suggest"); } }
+                ChoiceChip { label: "Prepare ahead"; selected: root.proactive == "prepare"; enabled: root.watching; reduce-motion: root.reduce-motion; clicked => { root.set-proactive("prepare"); } }
+                ChoiceChip { label: "Take over"; selected: root.proactive == "takeover"; enabled: root.watching; reduce-motion: root.reduce-motion; clicked => { if (root.proactive != "takeover") { root.confirm-takeover = true; } } }
             }
             if root.confirm-takeover: Rectangle {
                 background: Theme.danger-soft;
