@@ -42,6 +42,7 @@ export component AwarenessView inherits Rectangle {
         VerticalBox {
             width: parent.width;
             padding: 28px;
+            alignment: start;
             spacing: 14px;
             SectionTitle { title: "Awareness"; }
             SectionIntro { body: "While Heron is open, it quietly watches your working folder so it already knows what you are in the middle of. It sees file names and times, never what is inside, and never passwords or key files. Everything it notices stays on this computer."; }
@@ -61,12 +62,11 @@ export component AwarenessView inherits Rectangle {
                 checked: root.watching;
                 toggled => { root.set-watching(self.checked); }
             }
-            Text {
+            if root.workspace != "": Text {
                 text: "Watching " + root.workspace;
                 font-size: 14px;
                 color: Theme.muted;
                 wrap: TextWrap.word-wrap;
-                visible: root.workspace != "";
             }
             CheckBox {
                 text: "Think about what it notices";
@@ -108,12 +108,11 @@ export component AwarenessView inherits Rectangle {
                     }
                 }
             }
-            Text {
+            if root.proactive-note != "": Text {
                 text: root.proactive-note;
                 font-size: 13px;
                 color: Theme.muted;
                 wrap: TextWrap.word-wrap;
-                visible: root.proactive-note != "";
             }
             Spacer { height: 16px; }
             Text {
@@ -122,7 +121,7 @@ export component AwarenessView inherits Rectangle {
                 font-weight: 600;
                 color: Theme.ink;
             }
-            EmptyNote { body: root.suggestions-empty-text; visible: root.suggestions-empty-text != ""; }
+            if root.suggestions-empty-text != "": EmptyNote { body: root.suggestions-empty-text; }
             for s in root.suggestions: RowCard {
                 reduce-motion: root.reduce-motion;
                 VerticalBox {
@@ -136,19 +135,17 @@ export component AwarenessView inherits Rectangle {
                         color: Theme.ink;
                         wrap: TextWrap.word-wrap;
                     }
-                    Text {
+                    if s.why != "": Text {
                         text: s.why;
                         font-size: 14px;
                         color: Theme.muted;
                         wrap: TextWrap.word-wrap;
-                        visible: s.why != "";
                     }
-                    Text {
+                    if s.result != "": Text {
                         text: s.result;
                         font-size: 14px;
                         color: Theme.ink;
                         wrap: TextWrap.word-wrap;
-                        visible: s.result != "";
                     }
                     HorizontalBox {
                         spacing: 8px;
@@ -176,11 +173,11 @@ export component AwarenessView inherits Rectangle {
                 font-weight: 600;
                 color: Theme.ink;
             }
-            EmptyNote { body: root.right-now-empty-text; visible: root.right-now-empty-text != ""; }
+            if root.right-now-empty-text != "": EmptyNote { body: root.right-now-empty-text; }
             for row in root.right-now: HorizontalBox {
                 spacing: 12px;
                 Text { text: row.text; font-size: 15px; color: Theme.ink; wrap: TextWrap.word-wrap; horizontal-stretch: 1; }
-                RowMeta { body: row.meta; visible: row.meta != ""; }
+                if row.meta != "": RowMeta { body: row.meta; }
             }
             Spacer { height: 16px; }
             Text {
@@ -189,7 +186,7 @@ export component AwarenessView inherits Rectangle {
                 font-weight: 600;
                 color: Theme.ink;
             }
-            EmptyNote { body: root.insights-empty-text; visible: root.insights-empty-text != ""; }
+            if root.insights-empty-text != "": EmptyNote { body: root.insights-empty-text; }
             for row in root.insights: RowCard {
                 reduce-motion: root.reduce-motion;
                 HorizontalBox {
@@ -215,7 +212,7 @@ export component AwarenessView inherits Rectangle {
                 font-weight: 600;
                 color: Theme.ink;
             }
-            EmptyNote { body: root.journal-empty-text; visible: root.journal-empty-text != ""; }
+            if root.journal-empty-text != "": EmptyNote { body: root.journal-empty-text; }
             for row in root.journal: HorizontalBox {
                 spacing: 12px;
                 Text { text: row.text; font-size: 15px; color: Theme.ink; wrap: TextWrap.word-wrap; horizontal-stretch: 1; }

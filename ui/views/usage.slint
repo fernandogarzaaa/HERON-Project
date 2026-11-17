@@ -89,15 +89,15 @@ export component UsageView inherits Rectangle {
         VerticalBox {
             width: parent.width;
             padding: 28px;
+            alignment: start;
             spacing: 14px;
             SectionTitle { title: "Usage"; }
             SectionIntro { body: "How many tokens Heron has used, how many are left of the limits you set, and where this month is heading. Tokens are what your AI model provider counts and charges for."; }
-            Text {
+            if root.level-note != "": Text {
                 text: root.level-note;
                 font-size: 14px;
                 color: Theme.muted;
                 wrap: TextWrap.word-wrap;
-                visible: root.level-note != "";
             }
             HorizontalBox {
                 spacing: 12px;
@@ -127,7 +127,7 @@ export component UsageView inherits Rectangle {
                 }
             }
             Rectangle { height: 1px; background: Theme.line; }
-            RowMeta { body: root.pace-note; visible: root.pace-note != ""; }
+            if root.pace-note != "": RowMeta { body: root.pace-note; }
             Button {
                 text: root.daily-visible ? "Hide daily figures" : "Daily figures";
                 clicked => { root.daily-visible = !root.daily-visible; }
@@ -142,7 +142,7 @@ export component UsageView inherits Rectangle {
                 }
             }
             Text { text: "This month by model"; font-size: 20px; font-weight: 600; color: Theme.ink; }
-            EmptyNote { body: root.models-empty-text; visible: root.models-empty-text != ""; }
+            if root.models-empty-text != "": EmptyNote { body: root.models-empty-text; }
             HorizontalBox {
                 spacing: 10px;
                 visible: root.models.length > 0;
@@ -163,7 +163,7 @@ export component UsageView inherits Rectangle {
                     Text { text: row.calls; font-size: 14px; color: Theme.ink; width: 70px; }
                 }
             }
-            RowMeta { body: "Where a provider does not report token counts, Heron estimates them from the length of the text."; visible: root.models-note-visible; }
+            if root.models-note-visible: RowMeta { body: "Where a provider does not report token counts, Heron estimates them from the length of the text."; }
             Text { text: "Your limits"; font-size: 20px; font-weight: 600; color: Theme.ink; }
             SectionIntro { body: "Set a limit and Heron paces itself. With a quarter left it takes fewer steps and keeps answers short. Near the end it uses its cheapest model and stops everything it does on its own. It never refuses to answer you."; }
             HorizontalBox {
@@ -187,14 +187,14 @@ export component UsageView inherits Rectangle {
                 spacing: 4px;
                 Text { text: "For work Heron starts on its own, per day"; font-size: 14px; color: Theme.ink; }
                 LineEdit { text <=> root.bg-limit; placeholder-text: "No limit"; }
-                RowMeta { body: root.bg-note; visible: root.bg-note != ""; }
+                if root.bg-note != "": RowMeta { body: root.bg-note; }
             }
             Text { text: "Choosing a model"; font-size: 20px; font-weight: 600; color: Theme.ink; }
             VerticalBox {
                 spacing: 4px;
                 Text { text: "Cheaper model for simple requests"; font-size: 14px; color: Theme.ink; }
                 LineEdit { text <=> root.fast-model; placeholder-text: "e.g. openai/gpt-4o-mini"; }
-                RowMeta { body: root.fast-note; visible: root.fast-note != ""; }
+                if root.fast-note != "": RowMeta { body: root.fast-note; }
             }
             CheckBox {
                 text: "Send short, simple requests to the cheaper model";
@@ -211,12 +211,11 @@ export component UsageView inherits Rectangle {
                 }
                 Text { text: "Saved"; font-size: 14px; color: Theme.ok; visible: root.saved-visible; vertical-alignment: center; }
             }
-            Text {
+            if root.save-error != "": Text {
                 text: root.save-error;
                 font-size: 14px;
                 color: Theme.danger;
                 wrap: TextWrap.word-wrap;
-                visible: root.save-error != "";
             }
             Spacer { height: 10px; }
         }

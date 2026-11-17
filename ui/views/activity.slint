@@ -20,17 +20,17 @@ export component ActivityView inherits Rectangle {
         VerticalBox {
             width: parent.width;
             padding: 28px;
+            alignment: start;
             spacing: 14px;
             SectionTitle { title: "Activity log"; }
             SectionIntro { body: "Every action Heron took or was refused, newest first. Passwords and keys are blanked out before anything is logged."; }
-            Text {
+            if root.seal-text != "": Text {
                 text: root.seal-text;
                 font-size: 14px;
                 color: root.seal-danger ? Theme.danger : Theme.muted;
                 wrap: TextWrap.word-wrap;
-                visible: root.seal-text != "";
             }
-            EmptyNote { body: root.empty-text; visible: root.empty-text != ""; }
+            if root.empty-text != "": EmptyNote { body: root.empty-text; }
             HorizontalBox {
                 spacing: 10px;
                 visible: root.rows.length > 0;
