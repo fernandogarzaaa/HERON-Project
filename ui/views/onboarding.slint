@@ -72,7 +72,7 @@ export component OnboardingView inherits Rectangle {
         height: parent.height;
         VerticalBox {
             width: parent.width;
-            padding: 24px;
+            padding: 28px;
             spacing: 20px;
             alignment: start;
 
@@ -95,10 +95,13 @@ export component OnboardingView inherits Rectangle {
 
             // Step 1: connect a model. The only step that gates moving on.
             if current_step == 0: VerticalBox {
-                spacing: 8px;
+                padding: 0px;
+                spacing: 14px;
                 SectionTitle { label: "Connect an AI model"; }
                 Text { text: model_status; color: Theme.ink; wrap: word-wrap; }
                 HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
                     spacing: 8px;
                     Button { text: model_ready ? "Change model" : "Connect a model"; clicked => { root.open_settings(); } }
                     if !model_ready && !demo: Button {
@@ -114,7 +117,8 @@ export component OnboardingView inherits Rectangle {
 
             // Step 2: tell Heron about yourself.
             if current_step == 1: VerticalBox {
-                spacing: 8px;
+                padding: 0px;
+                spacing: 14px;
                 SectionTitle { label: "Tell Heron about yourself"; }
                 Text { text: "A few sentences are enough. You can change or remove any of it later under Memory."; color: Theme.muted; wrap: word-wrap; }
                 LabeledInput { label: "Your name"; value <=> about_name; }
@@ -126,6 +130,8 @@ export component OnboardingView inherits Rectangle {
                 Text { text: "Anything else"; font-size: 14px; font-weight: 600; color: Theme.ink; }
                 TextEdit { text <=> about_notes; placeholder-text: "Paste a bio, a CV, your routines, or notes another assistant kept about you"; min-height: 84px; }
                 HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
                     spacing: 10px;
                     Button { text: "Back"; clicked => { root.goto_step(0); } }
                     Button { text: "Save and continue"; enabled: !busy; clicked => { root.save_about(); } }
@@ -140,7 +146,8 @@ export component OnboardingView inherits Rectangle {
 
             // Step 3: connect your world.
             if current_step == 2: VerticalBox {
-                spacing: 8px;
+                padding: 0px;
+                spacing: 14px;
                 SectionTitle { label: "Connect your world"; }
                 Text { text: "Each connection lets Heron look things up for you. Connect as many or as few as you like. You can skip this and come back later."; color: Theme.muted; wrap: word-wrap; }
                 for item[idx] in sources: SourceCard {
@@ -163,6 +170,8 @@ export component OnboardingView inherits Rectangle {
                     wrap: word-wrap;
                 }
                 HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
                     spacing: 10px;
                     Button { text: "Back"; clicked => { root.goto_step(1); } }
                     Button { text: "Continue"; enabled: !busy; clicked => { root.goto_step(3); } }
@@ -171,7 +180,8 @@ export component OnboardingView inherits Rectangle {
 
             // Step 4: decide how much Heron does on its own.
             if current_step == 3: VerticalBox {
-                spacing: 8px;
+                padding: 0px;
+                spacing: 14px;
                 SectionTitle { label: "Decide how much Heron does on its own"; }
                 Text { text: "You can change this at any time under Awareness."; color: Theme.muted; wrap: word-wrap; }
                 ChoiceCard {
@@ -207,12 +217,16 @@ export component OnboardingView inherits Rectangle {
                     VerticalBox {
                         Text { text: "Take over means Heron does the work itself in your working folder. Continue?"; wrap: word-wrap; }
                         HorizontalBox {
+                            alignment: start;
+                            padding: 0px;
                             Button { text: "Confirm take over"; clicked => { confirm-takeover = false; root.set_proactivity("takeover"); } }
                             Button { text: "Cancel"; clicked => { confirm-takeover = false; } }
                         }
                     }
                 }
                 HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
                     spacing: 10px;
                     Button { text: "Back"; clicked => { root.goto_step(2); } }
                     Button {

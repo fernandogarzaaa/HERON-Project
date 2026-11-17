@@ -7,7 +7,6 @@ import { MemoryRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, Kind
 import { Theme } from "../components/theme.slint";
 
 export component MemoryView inherits Rectangle {
-    background: Theme.paper;
     in property <[MemoryRow]> rows;
     in-out property <string> search-text: "";
     in-out property <string> new-content: "";
@@ -32,6 +31,7 @@ export component MemoryView inherits Rectangle {
             SectionTitle { title: "Memory"; }
             SectionIntro { body: "What Heron knows about you. It stays in a file on this computer, and you can remove anything."; }
             HorizontalBox {
+                padding: 0px;
                 spacing: 8px;
                 LineEdit {
                     placeholder-text: "e.g. I'm vegetarian and allergic to peanuts";
@@ -65,6 +65,7 @@ export component MemoryView inherits Rectangle {
                     padding: 10px;
                     spacing: 4px;
                     HorizontalBox {
+                        padding: 0px;
                         spacing: 6px;
                         KindTag { label: row.kind-label; }
                         Text {
@@ -77,11 +78,11 @@ export component MemoryView inherits Rectangle {
                     }
                     RowMeta { body: row.meta; }
                     HorizontalBox {
+                        padding: 0px;
                         spacing: 8px;
                         alignment: end;
-                        Button {
+                        if !row.confirmed: Button {
                             text: "Confirm";
-                            visible: !row.confirmed;
                             clicked => { root.confirm-memory(row.id); }
                         }
                         Button {

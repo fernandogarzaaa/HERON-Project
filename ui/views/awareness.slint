@@ -8,7 +8,6 @@ import { Theme } from "../components/theme.slint";
 import { ChoiceChip } from "../components/atoms.slint";
 
 export component AwarenessView inherits Rectangle {
-    background: Theme.paper;
     in property <bool> paused: false;
     in property <bool> reduce-motion: false;
     in property <bool> watching: false;
@@ -77,11 +76,13 @@ export component AwarenessView inherits Rectangle {
             Spacer { height: 16px; }
             Text {
                 text: "How much Heron does on its own";
-                font-size: 17px;
+                font-size: 19px;
+                font-family: Theme.heading-font;
                 font-weight: 600;
                 color: Theme.ink;
             }
             HorizontalBox {
+                padding: 0px;
                 spacing: 8px;
                 alignment: start;
                 ChoiceChip { label: "Only when I ask"; selected: root.proactive == "off"; enabled: root.watching; reduce-motion: root.reduce-motion; clicked => { root.set-proactive("off"); } }
@@ -103,6 +104,8 @@ export component AwarenessView inherits Rectangle {
                         wrap: TextWrap.word-wrap;
                     }
                     HorizontalBox {
+                        alignment: start;
+                        padding: 0px;
                         Button { text: "Confirm take over"; clicked => { root.confirm-takeover = false; root.set-proactive("takeover"); } }
                         Button { text: "Cancel"; clicked => { root.confirm-takeover = false; } }
                     }
@@ -117,7 +120,8 @@ export component AwarenessView inherits Rectangle {
             Spacer { height: 16px; }
             Text {
                 text: "Heron suggests";
-                font-size: 17px;
+                font-size: 19px;
+                font-family: Theme.heading-font;
                 font-weight: 600;
                 color: Theme.ink;
             }
@@ -148,15 +152,15 @@ export component AwarenessView inherits Rectangle {
                         wrap: TextWrap.word-wrap;
                     }
                     HorizontalBox {
+                        alignment: start;
+                        padding: 0px;
                         spacing: 8px;
-                        Button {
+                        if s.status == "new": Button {
                             text: "Do it";
-                            visible: s.status == "new";
                             clicked => { root.answer-suggestion(s.id, "accept"); }
                         }
-                        Button {
+                        if s.has-session: Button {
                             text: s.status == "done" ? "Review what changed" : "Continue in a conversation";
-                            visible: s.has-session;
                             clicked => { root.open-suggestion-session(s.id); }
                         }
                         Button {
@@ -169,12 +173,14 @@ export component AwarenessView inherits Rectangle {
             Spacer { height: 16px; }
             Text {
                 text: "Right now";
-                font-size: 17px;
+                font-size: 19px;
+                font-family: Theme.heading-font;
                 font-weight: 600;
                 color: Theme.ink;
             }
             if root.right-now-empty-text != "": EmptyNote { body: root.right-now-empty-text; }
             for row in root.right-now: HorizontalBox {
+                padding: 0px;
                 spacing: 12px;
                 Text { text: row.text; font-size: 15px; color: Theme.ink; wrap: TextWrap.word-wrap; horizontal-stretch: 1; }
                 if row.meta != "": RowMeta { body: row.meta; }
@@ -182,7 +188,8 @@ export component AwarenessView inherits Rectangle {
             Spacer { height: 16px; }
             Text {
                 text: "What Heron has concluded";
-                font-size: 17px;
+                font-size: 19px;
+                font-family: Theme.heading-font;
                 font-weight: 600;
                 color: Theme.ink;
             }
@@ -194,6 +201,7 @@ export component AwarenessView inherits Rectangle {
                     padding: 10px;
                     spacing: 10px;
                     VerticalBox {
+                        padding: 0px;
                         horizontal-stretch: 1;
                         spacing: 2px;
                         Text { text: row.content; font-size: 15px; color: Theme.ink; wrap: TextWrap.word-wrap; }
@@ -208,12 +216,14 @@ export component AwarenessView inherits Rectangle {
             Spacer { height: 16px; }
             Text {
                 text: "Recently noticed";
-                font-size: 17px;
+                font-size: 19px;
+                font-family: Theme.heading-font;
                 font-weight: 600;
                 color: Theme.ink;
             }
             if root.journal-empty-text != "": EmptyNote { body: root.journal-empty-text; }
             for row in root.journal: HorizontalBox {
+                padding: 0px;
                 spacing: 12px;
                 Text { text: row.text; font-size: 15px; color: Theme.ink; wrap: TextWrap.word-wrap; horizontal-stretch: 1; }
                 RowMeta { body: row.meta; }
@@ -236,6 +246,8 @@ export component AwarenessView inherits Rectangle {
                         wrap: TextWrap.word-wrap;
                     }
                     HorizontalBox {
+                        alignment: start;
+                        padding: 0px;
                         Button { text: "Yes, forget observations"; clicked => { root.confirm-clear = false; root.clear-observations(); } }
                         Button { text: "Cancel"; clicked => { root.confirm-clear = false; } }
                     }

@@ -16,11 +16,13 @@ export component SectionTitle inherits Text {
 
 // A label above a single-line input.
 export component LabeledInput inherits VerticalBox {
+    padding: 0px;
     in property <string> label;
     in property <string> hint;
     in-out property <string> value;
     in property <bool> password: false;
     in property <bool> enabled: true;
+    spacing: 6px;
     Text { text: label; font-size: 14px; font-weight: 600; color: Theme.ink; }
     LineEdit {
         text <=> value;
@@ -43,7 +45,7 @@ export component ChoiceCard inherits Rectangle {
     border-radius: 8px;
     border-width: 1px;
     border-color: selected || touch.pressed ? Theme.slate : Theme.line;
-    background: selected || touch.pressed ? Theme.slate-soft : Theme.surface;
+    background: selected || touch.pressed ? Theme.slate-soft : touch.has-hover ? Theme.hover : Theme.raised;
     animate background { duration: reduce-motion ? 0ms : 150ms; }
     animate border-color { duration: reduce-motion ? 0ms : 150ms; }
     VerticalBox {
@@ -60,6 +62,7 @@ export component ChoiceCard inherits Rectangle {
 // progress; its width animates when a step completes. Display only: going
 // back is the Back button on each step, not a tap on the indicator.
 export component StepIndicator inherits VerticalBox {
+    padding: 0px;
     in property <[string]> labels;
     in property <int> current;
     in property <[bool]> done;
@@ -67,6 +70,7 @@ export component StepIndicator inherits VerticalBox {
     in property <bool> reduce-motion: false;
     spacing: 8px;
     HorizontalBox {
+        padding: 0px;
         spacing: 4px;
         for label[idx] in labels: Text {
             text: done[idx] ? "✓ " + label : label;

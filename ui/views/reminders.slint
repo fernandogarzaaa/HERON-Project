@@ -7,7 +7,6 @@ import { ScheduleRow, RunStepRow, InboxRow, SectionTitle, SectionIntro, RowMeta,
 import { Theme } from "../components/theme.slint";
 
 export component RemindersView inherits Rectangle {
-    background: Theme.paper;
     in property <[ScheduleRow]> schedules;
     in property <[InboxRow]> delivered;
     in property <string> schedules-empty-text: "";
@@ -84,6 +83,8 @@ export component RemindersView inherits Rectangle {
                 checked <=> root.new-quiet;
             }
             HorizontalBox {
+                alignment: start;
+                padding: 0px;
                 spacing: 8px;
                 Button {
                     text: "Schedule it";
@@ -108,7 +109,8 @@ export component RemindersView inherits Rectangle {
             Spacer { height: 16px; }
             Text {
                 text: "Scheduled";
-                font-size: 17px;
+                font-size: 19px;
+                font-family: Theme.heading-font;
                 font-weight: 600;
                 color: Theme.ink;
             }
@@ -134,6 +136,7 @@ export component RemindersView inherits Rectangle {
                         wrap: TextWrap.word-wrap;
                     }
                     HorizontalBox {
+                        padding: 0px;
                         spacing: 8px;
                         Button {
                             text: "Run now";
@@ -174,7 +177,8 @@ export component RemindersView inherits Rectangle {
             Spacer { height: 16px; }
             Text {
                 text: "Delivered";
-                font-size: 17px;
+                font-size: 19px;
+                font-family: Theme.heading-font;
                 font-weight: 600;
                 color: Theme.ink;
             }
