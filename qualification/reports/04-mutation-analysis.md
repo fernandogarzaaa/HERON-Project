@@ -64,6 +64,12 @@ as a whole is **NOT MET**.
 testteeth also lists 10 heuristic "failure-path gaps" (`.unwrap()` on lock poisoning and similar)
 in the JSON. They are not mutants and are not counted.
 
+## PR #40 (read gate)
+
+`testteeth run src/tools/fs.rs --base origin/main` on `448227d`: 7 viable mutants in the changed
+functions (`read_effect`, `search_files`), **7 killed, 100%** (4 unviable excluded). Evidence:
+`evidence/mutation/fs-pr40-448227d.json`.
+
 ## Not done
 
 Mutation testing of the credential, messaging, connector and OAuth modules. Commands to run
