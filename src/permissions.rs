@@ -788,6 +788,10 @@ mod tests {
         for c in [
             "sort -o out.txt in.txt", "sort --output=out.txt in.txt", "sort --compress-program=sh big.txt", "tree -o listing.txt", "rg --pre ./run.sh TODO", "uniq in.txt out.txt",
             "git branch new-branch", "git tag v9", "git remote rename origin old", "git log --output=log.txt", "git -c core.pager=less log", "git branch --unset-upstream",
+            // Options before the subcommand can choose the program git runs.
+            "git --config-env=core.pager=EVIL log", "git --exec-path=/tmp/x status",
+            // Options that make a read-only subcommand run another program.
+            "git diff --ext-diff", "git log -p --textconv", "git show --exec=./x", "git log --upload-pack=./x",
             "date -s 2020-01-01", "hostname other-name", "file -C -m magic", "ps aux", "ps e", "echo $OPENAI_API_KEY", "cat $HOME/notes.txt", "Get-ChildItem Env:", "dir env:", "where { $_ }",
         ] {
             assert_ne!(classify_shell(c), Effect::LocalRead, "{c}");
