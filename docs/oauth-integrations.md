@@ -30,6 +30,12 @@ These connectors do not send mail, alter events or modify a mailbox.
 
 Google records use the sources `google_email` and `google_calendar`, and Microsoft records
 use `microsoft_email` and `microsoft_calendar`. Legacy IMAP and ICS indexes remain separate.
+
+**Calendar text never enters a prompt.** Anyone who can send the user an invitation writes event
+titles, so neither the conversation's system prompt nor the proactive-suggestion prompt includes
+calendar entries from any source (ICS, Google or Microsoft). The agent reads them on demand with
+`search_knowledge` (source `calendar` covers all three). Its results are outside content: from
+then on, changes and anything sent out need the user's approval in every mode.
 The source search API combines the provider-specific indexes when the model asks to look at
 connected email or calendar data. Each sync imports up to 25 recent inbox messages and up to
 50 calendar entries; recurring Google events are expanded by the provider API. Microsoft uses
