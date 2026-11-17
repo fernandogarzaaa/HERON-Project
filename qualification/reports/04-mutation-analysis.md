@@ -31,7 +31,8 @@ Denominator: 223 viable mutants (241 listed, 18 did not compile and are excluded
 | PR #41 (`19283ba`, tests added by this run) | 196 | 27 | **87.9%** | `evidence/mutation/permissions-after-19283ba.{json,txt}` |
 
 Compared by line, column and operator: 43 mutants changed from survived to killed. One went the
-other way (484:54, below), which can only be flakiness in the first run, since only tests changed.
+other way (484:54, below). Cause undetermined: besides the added tests, the runs differ in
+base (#39 in or out), `TZ`, and whether `OPENROUTER_API_KEY` was set.
 
 The proposed gate was 80% for designated critical modules. `permissions.rs` passes it **with PR #41
 merged** and fails it on `main` today. The other critical modules were not measured, so the gate

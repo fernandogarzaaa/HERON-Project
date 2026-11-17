@@ -1,6 +1,6 @@
 # 08. Reliability and recovery
 
-**Result: PARTIAL.** Several invariants have automated tests that passed in this run's local
+**Result: FAIL.** Several invariants have automated tests that passed in this run's local
 suite (285 tests on the combined tree, report 03). Process-kill, disk-full, real upgrade and
 restore-from-backup drills were not run. Recovery times were not measured.
 

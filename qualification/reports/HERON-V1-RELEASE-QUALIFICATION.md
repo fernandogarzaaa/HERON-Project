@@ -10,7 +10,8 @@ Repository: `fernandogarzaaa/HERON-Project`. Qualification branch: `qualificatio
 Three independent things each block a v1.0 release:
 
 1. **Security.** `main` has one confirmed P0 and six confirmed P1 findings at its trust
-   boundaries, each with an executable reproduction. The P0: in the default Ask mode, text in a
+   boundaries. M-1, M-2, M-3, M-5 and C35-8 were reproduced end to end; M-4 by classification
+   probes; M-6 at the policy cell, with the rest traced. The P0: in the default Ask mode, text in a
    workspace file steered the agent to read a credential file and call `web_fetch` with the token
    in a model-built URL, with no approval asked (M-1).
 2. **The two feature PRs cannot be merged.** #35 and #26 are drafts, and their live provider tests
@@ -25,7 +26,7 @@ and both PR merge refs. The native credential vault round trip passes against th
 
 | Gate | Result | Evidence | Blocker |
 |---|---|---|---|
-| Repository audit | PASS (completed) | reports 01, 02 | none for the audit itself; it found P0/P1s |
+| Repository audit | PASS (audit carried out; its findings are FAIL under Security) | reports 01, 02 | none for the audit itself |
 | PR #35 | FAIL | §4, `evidence/reviews/review-pr35.md` | draft; live Telegram test needs a bot; C35-8 P1 |
 | PR #26 | FAIL | §5, `evidence/reviews/review-pr26.md` | draft; O26-1/O26-2 P1; OAuth apps needed |
 | Local CI | PASS for required steps with #39 merged; FAIL on `main` alone (host-dependent tests) | report 03, `evidence/ci/` | #39 to merge |
@@ -33,8 +34,8 @@ and both PR merge refs. The native credential vault round trip passes against th
 | Mutation testing | FAIL (gate not met): `permissions.rs` 69.1% on main, 87.9% with PR #41; other critical modules not run | report 04, `evidence/mutation/` | run the remaining modules; merge #41 |
 | Genesis evaluations | NOT_RUN | report 05 | approved model budget |
 | Slint UI | FAIL (no real-window evidence; M-UI-1 P2) | report 06 | a person or UI driver on a real display |
-| Reliability | PARTIAL → FAIL for release | report 08 | drills not run; #35/#26 invariant breaks |
-| macOS | PARTIAL | reports 03, 09 | installer/upgrade/signing not run |
+| Reliability | FAIL (some invariants tested and passing; drills NOT_RUN) | report 08 | drills not run; #35/#26 invariant breaks |
+| macOS | FAIL (build, tests and vault PASS; installer, upgrade, signing NOT_RUN) | reports 03, 09 | installer/upgrade/signing |
 | Windows | BLOCKED (hosted build/test PASS only) | report 09 | Windows machine; signing certificate |
 | Linux | BLOCKED (hosted build/test PASS only) | report 09 | Linux machine |
 | Release candidate | NOT_RUN | §14 | all of the above |
@@ -129,12 +130,13 @@ lists the deterministic scripted-model evidence and a ready-to-build evaluation 
 
 Report 06. Builds, desktop tests and headless rendering pass at four sizes. Every root callback
 has a Rust handler. Real-window, keyboard, screen-reader and scaling checks were NOT_RUN. One P2:
-selected nav item and selected mode chip are close to illegible (M-UI-1). A separate session is
+selected nav item and selected mode chip are close to illegible in the headless renderer
+(M-UI-1, not confirmed in a real window). A separate session is
 improving the UI at the owner's request.
 
 ## 12. Reliability and recovery
 
-Report 08. PARTIAL: invariants for restart, duplicate approvals, damaged files and migrations have
+Report 08. FAIL for release: invariants for restart, duplicate approvals, damaged files and migrations have
 passing tests. Kill-during-upgrade, disk-full, real upgrade/rollback and recovery timing were not
 run. PR #35 and #26 each break one invariant (silent reply loss; per-account erasure).
 

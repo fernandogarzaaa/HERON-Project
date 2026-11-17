@@ -20,7 +20,7 @@ desktop checks pass.
 
 Looked at by eye after converting to PNG:
 
-- **M-UI-1 (P2).** The selected sidebar item ("Conversation") and the selected permission-mode
+- **M-UI-1 (P2, headless renderer only; not confirmed in a real window).** The selected sidebar item ("Conversation") and the selected permission-mode
   chip ("Ask first") draw blue text on a mid-grey fill. At 1440x900 both are close to illegible.
   That is the control telling the user which permission mode is active, so it matters for safety
   as well as looks.
