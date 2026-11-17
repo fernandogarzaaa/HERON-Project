@@ -772,7 +772,7 @@ mod tests {
         ] {
             assert_eq!(classify_shell(c), Effect::Privileged, "{c}");
         }
-        for c in ["ls -la", "git status", "cat README.md | head -5", "rg TODO src | wc -l", "git log --oneline -5", "pwd", "git branch", "git branch -a", "git tag --list v*", "git remote -v", "grep -o TODO src/main.rs", "sort -u names.txt | uniq -c", "date +%F"] {
+        for c in ["ls -la", "git status", "cat README.md | head -5", "rg TODO src | wc -l", "git log --oneline -5", "pwd", "git branch", "git branch -a", "git tag --list v*", "git remote -v", "grep -o TODO src/main.rs", "sort -u names.txt | uniq -c", "date +%F", "date -u"] {
             let expect = if c.contains('%') { Effect::ProcessExec } else { Effect::LocalRead };
             assert_eq!(classify_shell(c), expect, "{c}");
         }
@@ -780,6 +780,22 @@ mod tests {
             let r = classify_shell(c);
             assert!(r == Effect::ProcessExec || r == Effect::Privileged, "{c} -> {r:?}");
         }
+    }
+
+    #[test]
+    fn long_or_heavily_chained_commands_fail_closed() {
+        // Up to ten links and 1,500 characters are judged piece by piece; beyond that, pattern matching
+        // is not trusted at all.
+        let ten_links = format!("cat a.txt{}", " | head".repeat(10));
+        assert_eq!(classify_shell(&ten_links), Effect::LocalRead, "{ten_links}");
+        for sep in [" && ", " || ", "; ", " | ", "\n"] {
+            let eleven = vec!["ls"; 12].join(sep);
+            assert_eq!(classify_shell(&eleven), Effect::Privileged, "{eleven:?}");
+        }
+        let at_limit = format!("cat {}", "a".repeat(1496));
+        assert_eq!(classify_shell(&at_limit), Effect::LocalRead);
+        let over_limit = format!("cat {}", "a".repeat(1497));
+        assert_eq!(classify_shell(&over_limit), Effect::Privileged);
     }
 
     #[test]
@@ -792,7 +808,7 @@ mod tests {
             "git --config-env=core.pager=EVIL log", "git --exec-path=/tmp/x status",
             // Options that make a read-only subcommand run another program.
             "git diff --ext-diff", "git log -p --textconv", "git show --exec=./x", "git log --upload-pack=./x",
-            "date -s 2020-01-01", "hostname other-name", "file -C -m magic", "ps aux", "ps e", "echo $OPENAI_API_KEY", "cat $HOME/notes.txt", "Get-ChildItem Env:", "dir env:", "where { $_ }",
+            "date -s 2020-01-01", "date --set=2020-01-01", "date 010112002020", "hostname other-name", "file -C -m magic", "ps aux", "ps e", "echo $OPENAI_API_KEY", "cat $HOME/notes.txt", "Get-ChildItem Env:", "dir env:", "where { $_ }",
         ] {
             assert_ne!(classify_shell(c), Effect::LocalRead, "{c}");
         }
