@@ -855,12 +855,84 @@ mod window_layout_tests {
                 "main window drew a uniform/blank frame at {width}x{height}"
             );
             if let Ok(directory) = std::env::var("HERON_UI_SNAPSHOTS_DIR") {
-                // CI saves an intentionally empty-session screen only.
-                // No runtime account, message, or credential data is rendered.
+                // CI saves these frames and the per-view frames below. They
+                // show the empty session and fixture rows only: no runtime
+                // account, message, or credential data is rendered.
                 std::fs::create_dir_all(&directory).expect("create screenshot artifact directory");
                 let path = std::path::Path::new(&directory)
                     .join(format!("heron-main-{width}x{height}.bmp"));
                 write_bmp(&path, width, height, &pixels);
+            }
+        }
+
+        // Every view must fit and render a non-blank frame at the supported
+        // sizes, first in the empty first-run state, then with the elements
+        // that state hides: recent sessions, the demo and paused banners,
+        // and enabled proactivity choices. Fixture text only, no user data.
+        // reduce-motion makes the view fade instant, so the frame drawn
+        // right after the switch is the settled view, not a mid-fade one.
+        ui.set_reduce_motion(true);
+        let views = [
+            "chat", "onboarding", "awareness", "memory", "tasks", "reminders", "usage", "activity", "settings",
+        ];
+        for state in ["empty", "populated"] {
+            if state == "populated" {
+                let sessions = vec![
+                    crate::SessionRow {
+                        id: "s1".into(),
+                        title: "Plan the quarterly review and draft the agenda for the team offsite".into(),
+                        updated: "today".into(),
+                        messages: 12,
+                        current: true,
+                    },
+                    crate::SessionRow {
+                        id: "s2".into(),
+                        title: "Tidy the downloads folder".into(),
+                        updated: "yesterday".into(),
+                        messages: 3,
+                        current: false,
+                    },
+                ];
+                ui.set_sidebar_sessions(slint::ModelRc::new(slint::VecModel::from(sessions)));
+                ui.set_demo(true);
+                ui.set_paused(true);
+                ui.set_awareness_watching(true);
+                ui.set_awareness_proactive("suggest".into());
+            }
+            for (width, height) in [(880, 560), (1100, 700), (1440, 900)] {
+                window.set_size(PhysicalSize::new(width, height));
+                for view in views {
+                    ui.set_current_view(view.into());
+                    window.request_redraw();
+                    let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
+                    let drew = window.draw_if_needed(|renderer| {
+                        renderer.render(&mut pixels, width as usize);
+                    });
+                    let shell_height = ui.get_debug_window_height();
+                    eprintln!("HERON_UI_GEOMETRY state={state} view={view} requested={width}x{height} window={shell_height:?}");
+                    assert!(drew, "{view} view did not render at {width}x{height} ({state})");
+                    assert!(
+                        shell_height <= height as f32 + 1.0,
+                        "{view} view: shell height {shell_height} overflows {height}px frame ({state})"
+                    );
+                    if view == "chat" {
+                        let composer_y = ui.get_debug_composer_y();
+                        assert!(
+                            composer_y >= 0.0 && composer_y + 94.0 <= height as f32,
+                            "composer at y={composer_y} is outside the {height}px frame ({state})"
+                        );
+                    }
+                    let reference = (pixels[0].red, pixels[0].green, pixels[0].blue);
+                    assert!(
+                        pixels.iter().any(|pixel| (pixel.red, pixel.green, pixel.blue) != reference),
+                        "{view} view drew a uniform/blank frame at {width}x{height} ({state})"
+                    );
+                    if let Ok(directory) = std::env::var("HERON_UI_SNAPSHOTS_DIR") {
+                        let path = std::path::Path::new(&directory)
+                            .join(format!("heron-{state}-{view}-{width}x{height}.bmp"));
+                        write_bmp(&path, width, height, &pixels);
+                    }
+                }
             }
         }
     }
