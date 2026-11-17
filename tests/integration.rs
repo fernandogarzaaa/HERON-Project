@@ -190,6 +190,7 @@ async fn http_api_chat_approval_and_settings() {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::default();
     cfg.home = dir.path().join("home");
+    cfg.llm.api_key_env = "HERON_TEST_NO_SUCH_KEY".into();
     cfg.agent.auto_memory = false;
     let llm = Arc::new(ScriptedLlm::new(vec![
         ScriptedLlm::tool_call("write_file", json!({"path": "a.txt", "content": "one"})),
