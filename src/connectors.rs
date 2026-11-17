@@ -96,8 +96,19 @@ fn lock_registry(cfg: &Config) -> Result<std::fs::File> {
         opts.mode(0o600);
     }
     let file = opts.open(cfg.home.join("connectors.lock"))?;
-    file.try_lock().context("Connector registry is busy in another HERON instance; please retry.")?;
-    Ok(file)
+    // A child process started by any thread briefly holds a copy of this open file between fork and
+    // exec, keeping the lock alive after we close it. Wait out that moment; only a lock still held
+    // after a second means another HERON instance is mid-change.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(file),
+            Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(e) => return Err(e).context("Connector registry is busy in another HERON instance; please retry."),
+        }
+    }
 }
 
 pub fn validate_id(id: &str) -> Result<()> {
@@ -377,6 +388,27 @@ mod tests {
         assert!(lock_registry(&cfg).is_err());
         drop(held);
         assert!(lock_registry(&cfg).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lock_kept_alive_for_a_moment_by_a_spawning_child_does_not_fail_the_next_change() {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        let temp = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = temp.path().join("heron");
+        let held = lock_registry(&cfg).unwrap();
+        // Between fork and exec, a child started by another thread holds a copy of every open
+        // file, this lock included, so closing ours does not release it until the child execs.
+        let child_copy = unsafe { OwnedFd::from_raw_fd(libc::fcntl(held.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0)) };
+        drop(held);
+        let exec = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            drop(child_copy);
+        });
+        register(&cfg, sample()).unwrap();
+        exec.join().unwrap();
+        assert!(list(&cfg).unwrap().iter().any(|card| card.id == "my_api"));
     }
 
     #[test]
