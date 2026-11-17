@@ -1021,6 +1021,12 @@ pub fn suggestion_action<'a>(action: &'a str, status: &str) -> (&'a str, bool) {
 mod tests {
     use super::*;
 
+    /// The formatters render local time, so a wall-clock fixture written as a UTC instant only
+    /// passes on a machine whose zone is UTC.
+    fn local_ts(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
+        Local.with_ymd_and_hms(year, month, day, hour, minute, 0).single().unwrap().timestamp()
+    }
+
     #[test]
     fn acknowledging_completed_suggestions_never_executes_again() {
         assert_eq!(suggestion_action("dismiss", "done"), ("accept", false));
@@ -1129,17 +1135,18 @@ mod tests {
     #[test]
     fn memory_meta_confirmed_and_stale() {
         let mut m: MemoryItem = serde_json::from_str(memory_json()).unwrap();
-        m.updated_at = 1794536000;
+        let now = local_ts(2026, 11, 13, 2, 13);
+        m.updated_at = now;
         assert_eq!(
-            memory_meta(&m, 1794536000),
+            memory_meta(&m, now),
             "You added this, Nov 13, 2:13 AM"
         );
         m.uses = 0;
-        m.updated_at = 1794536000 - 31 * 86_400;
-        assert!(memory_meta(&m, 1794536000).ends_with(". Not used in over a month"));
+        m.updated_at = now - 31 * 86_400;
+        assert!(memory_meta(&m, now).ends_with(". Not used in over a month"));
         m.confirmed = false;
         m.source = "email".to_string();
-        assert!(memory_meta(&m, 1794536000).starts_with("Picked up from your email"));
+        assert!(memory_meta(&m, now).starts_with("Picked up from your email"));
     }
 
     #[test]
@@ -1175,8 +1182,8 @@ mod tests {
             cron: "0 8 * * *".into(),
             prompt: "Brief me".into(),
             enabled: true,
-            next_run: Some(1794643200),
-            last_run: Some(1794556800),
+            next_run: Some(local_ts(2026, 11, 14, 8, 0)),
+            last_run: Some(local_ts(2026, 11, 13, 8, 0)),
             last_result: Some("Done".into()),
             allow: String::new(),
             quiet: false,
