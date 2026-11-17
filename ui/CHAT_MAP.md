@@ -89,8 +89,11 @@ this lane, in the lane's own terms:
   Button API (`text`, `primary`, `enabled`, `clicked`, `icon`) and
   sizes to its label. This replaces the earlier rule that standard
   chrome keeps the native std-widgets Button: the native button
-  rendered as a grey slab that ignored the theme. What stays native:
-  CheckBox, ComboBox, LineEdit and TextEdit keep the pinned widget
+  rendered as a grey slab that ignored the theme. Single-line text
+  fields use `ui/components/line_edit.slint`: a themed field with the
+  std-widgets LineEdit API (`text`, `placeholder-text`, `input-type`,
+  `accepted`, `edited`) and a show/hide eye on password fields. What
+  stays native: CheckBox, ComboBox and TextEdit keep the pinned widget
   style (cupertino on macOS, fluent on Windows and Linux).
 
 ## Layout
