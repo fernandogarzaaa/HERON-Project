@@ -7,7 +7,7 @@
 
 use crate::agent::{null_sink, Session};
 use crate::app::App;
-use crate::channel::{ChannelIdentity, ChannelKind, ChannelStore, InboundMessage};
+use crate::channel::{ChannelIdentity, ChannelKind, ChannelStore, InboundMessage, RetryOutcome};
 use crate::permissions::{Approval, ApprovalRequest, Approver};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -18,6 +18,18 @@ use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 
 const MAX_MESSAGE: usize = 3800;
+/// Shown in the app only: forwarding it to the chat that just failed would fail again and
+/// raise the next notice.
+const UNDELIVERED_TITLE: &str = "A Telegram reply was not delivered";
+
+#[derive(Debug, PartialEq)]
+enum Delivery {
+    Sent(Option<String>),
+    /// Network trouble, a server error or a rate limit; `after` is Telegram's retry_after in seconds.
+    Retry { after: Option<i64> },
+    /// Telegram rejected the message itself (a 4xx other than 429); sending it again cannot help.
+    Refused,
+}
 
 #[derive(Clone)]
 struct Bot {
@@ -40,6 +52,23 @@ impl Bot {
             return Err(anyhow!("Telegram refused {method}: {}", v["description"].as_str().unwrap_or("unknown error")));
         }
         Ok(v["result"].clone())
+    }
+
+    /// One sendMessage attempt, classified by what should happen to the queued row.
+    async fn send_message(&self, chat: i64, text: &str) -> Delivery {
+        let sent = self.client.post(format!("{}/sendMessage", self.base)).json(&json!({"chat_id": chat, "text": text})).send().await;
+        let Ok(resp) = sent else { return Delivery::Retry { after: None } };
+        let status = resp.status();
+        let Ok(v) = resp.json::<Value>().await else { return Delivery::Retry { after: None } };
+        if v["ok"].as_bool() == Some(true) {
+            return Delivery::Sent(v["result"]["message_id"].as_i64().map(|id| id.to_string()));
+        }
+        let code = v["error_code"].as_u64().map(|c| c as u16).unwrap_or(status.as_u16());
+        match code {
+            429 => Delivery::Retry { after: v["parameters"]["retry_after"].as_i64() },
+            400..=499 => Delivery::Refused,
+            _ => Delivery::Retry { after: None },
+        }
     }
 
     /// Each platform message must fit Telegram's UTF-16 length limit.
@@ -130,7 +159,7 @@ impl Bot {
             let chat = match msg.identity.chat_id.parse::<i64>() {
                 Ok(chat) => chat,
                 Err(_) => {
-                    let _ = self.spool.retry(msg.id, &msg.identity, crate::util::now_ts());
+                    let _ = self.spool.fail(msg.id, &msg.identity, &msg.lease);
                     continue;
                 }
             };
@@ -139,27 +168,33 @@ impl Bot {
                 let _ = self.spool.purge_account(ChannelKind::Telegram, &self.account_id);
                 break;
             }
-            match self.call("sendMessage", json!({"chat_id": chat, "text": msg.text})).await {
-                Ok(response) => {
-                    let remote_id = response["message_id"].as_i64().map(|id| id.to_string());
-                    if let Err(err) = self.spool.delivered(
-                        msg.id,
-                        &msg.identity,
-                        remote_id.as_deref(),
-                    ) {
+            // Provider errors may echo the bot URL, which embeds its token: never log them.
+            let outcome = match self.send_message(chat, &msg.text).await {
+                Delivery::Sent(remote_id) => {
+                    if let Err(err) = self.spool.delivered(msg.id, &msg.identity, &msg.lease, remote_id.as_deref()) {
                         eprintln!("HERON Telegram: reply acknowledgement failed: {err}");
                         break;
                     }
+                    continue;
                 }
-                Err(err) => {
-                    let _ = self.spool.retry(msg.id, &msg.identity, crate::util::now_ts());
-                    // reqwest errors may contain the bot URL (which embeds its token).
-                    // Never log raw provider errors or request URLs.
-                    let _ = err;
+                Delivery::Retry { after } => {
                     eprintln!("HERON Telegram: delivery failed; retry queued.");
-                    break;
+                    // Telegram's retry_after counts from its answer, which can come many seconds after the request.
+                    let now = crate::util::now_ts();
+                    self.spool.retry(msg.id, &msg.identity, &msg.lease, now, after.map(|s| now.saturating_add(s)))
                 }
+                Delivery::Refused => {
+                    eprintln!("HERON Telegram: Telegram refused a reply; it will not be retried.");
+                    self.spool.fail(msg.id, &msg.identity, &msg.lease)
+                }
+            };
+            if matches!(outcome, Ok(RetryOutcome::GaveUp)) {
+                let _ = self.app.store.add_inbox(
+                    UNDELIVERED_TITLE,
+                    "Heron could not send a reply to your Telegram chat and stopped trying. Open the conversation in Heron to read it.",
+                );
             }
+            break;
         }
     }
 
@@ -438,6 +473,10 @@ async fn forward_inbox(app: &App, bot: &Bot, chat: i64) {
     items.retain(|m| m.id > last);
     items.sort_by_key(|m| m.id);
     for m in items {
+        if m.title == UNDELIVERED_TITLE {
+            let _ = app.store.kv_set("telegram_inbox_last", &m.id.to_string());
+            continue;
+        }
         if bot.queue_with_key(chat, &format!("{}\n\n{}", m.title, m.body), &format!("inbox:{}", m.id)).await.is_ok() {
             // Inbox advancement means durably queued, not necessarily delivered.
             let _ = app.store.kv_set("telegram_inbox_last", &m.id.to_string());
@@ -448,7 +487,78 @@ async fn forward_inbox(app: &App, bot: &Bot, chat: i64) {
 }
 
 /// Run the gateway until the task is dropped. `api_base` is normally https://api.telegram.org.
+/// Changes whenever the bot token is replaced or removed. Every Heron process that shares this
+/// home reads it, so a gateway in another process notices that its token was revoked and stops.
+const GENERATION_KEY: &str = "telegram_generation";
+
+pub fn bump_generation(app: &App) {
+    let _ = app.store.kv_set(GENERATION_KEY, &uuid::Uuid::new_v4().simple().to_string());
+}
+
+fn generation(app: &App) -> String {
+    app.store.kv_get(GENERATION_KEY).unwrap_or_default()
+}
+
+/// One gateway per Heron home, across processes: two readers of one bot split its updates and
+/// race the spool. Waits for the current holder to stop, and gives up if the token changes first.
+async fn take_gateway_lock(app: &App, started: &str) -> Option<std::fs::File> {
+    let cfg = app.cfg();
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let file = match cfg.ensure_home().and_then(|_| Ok(opts.open(cfg.home.join("telegram.lock"))?)) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("HERON Telegram: gateway disabled because its lock file cannot open: {err}");
+            return None;
+        }
+    };
+    let mut told = false;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Some(file),
+            Err(std::fs::TryLockError::WouldBlock) => {}
+            Err(std::fs::TryLockError::Error(err)) => {
+                eprintln!("HERON Telegram: gateway disabled because its lock cannot be taken: {err}");
+                return None;
+            }
+        }
+        if generation(app) != started {
+            return None;
+        }
+        if !told {
+            eprintln!("HERON Telegram: another Heron process is running the gateway; waiting for it to stop.");
+            told = true;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// Asks Telegram whether a token belongs to a live bot, before it replaces the working one.
+/// Messages never include the token: reqwest errors carry the URL, which contains it.
+pub async fn verify_token(api_base: &str, token: &str) -> std::result::Result<(), String> {
+    let url = format!("{}/bot{token}/getMe", api_base.trim_end_matches('/'));
+    let unreachable = || "Heron could not reach Telegram to check the token. Check your connection and try again.".to_string();
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(15)).build().map_err(|_| unreachable())?;
+    let resp = client.get(url).send().await.map_err(|_| unreachable())?;
+    let status = resp.status();
+    let body: Value = resp.json().await.unwrap_or(Value::Null);
+    if status.is_success() && body["ok"] == true && body["result"]["is_bot"] == true {
+        return Ok(());
+    }
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::NOT_FOUND {
+        return Err("Telegram does not recognise that bot token. Copy it again from @BotFather.".into());
+    }
+    Err(format!("Telegram could not check the token right now (HTTP {}). Try again in a moment.", status.as_u16()))
+}
+
 pub async fn run(app: Arc<App>, api_base: String, token: String) {
+    let started = generation(&app);
+    let Some(_gateway_lock) = take_gateway_lock(&app, &started).await else { return };
     let spool = match ChannelStore::open(&app.cfg().home.join("channels.db")) {
         Ok(spool) => spool,
         Err(err) => {
@@ -487,6 +597,10 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
     let mut offset: i64 = app.store.kv_get("telegram_offset").and_then(|v| v.parse().ok()).unwrap_or(0);
     let poll_secs = if api_base.contains("127.0.0.1") { 0 } else { 25 };
     loop {
+        if generation(&app) != started {
+            eprintln!("HERON Telegram: the bot token changed; this gateway stopped.");
+            return;
+        }
         let updates = match bot.call("getUpdates", json!({"offset": offset, "timeout": poll_secs, "allowed_updates": ["message"]})).await {
             Ok(u) => u,
             Err(_) => {
@@ -494,6 +608,11 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
                 continue;
             }
         };
+        // A long poll can return after the token was replaced: those messages were sent to the old bot.
+        if generation(&app) != started {
+            eprintln!("HERON Telegram: the bot token changed; this gateway stopped.");
+            return;
+        }
         for u in updates.as_array().cloned().unwrap_or_default() {
             let Some(update_id) = u["update_id"].as_i64().filter(|id| *id > 0) else {
                 continue;
@@ -616,6 +735,120 @@ mod tests {
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks.concat(), text);
         assert!(chunks.iter().all(|part| part.encode_utf16().count() <= MAX_MESSAGE));
+    }
+
+    async fn mock_telegram(reply: fn(&str) -> (u16, Value)) -> (String, Arc<Mutex<Vec<String>>>) {
+        let paths = Arc::new(Mutex::new(Vec::<String>::new()));
+        let router = axum::Router::new()
+            .fallback(move |axum::extract::State(p): axum::extract::State<Arc<Mutex<Vec<String>>>>, uri: axum::http::Uri| async move {
+                p.lock().unwrap().push(uri.path().to_string());
+                let (status, body) = reply(uri.path());
+                (axum::http::StatusCode::from_u16(status).unwrap(), axum::Json(body))
+            })
+            .with_state(paths.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        (base, paths)
+    }
+
+    /// A separate Heron process: its own App and connection, the same home and database.
+    async fn heron_process(root: &std::path::Path) -> Arc<App> {
+        let mut cfg = Config::default();
+        cfg.home = root.join("home");
+        cfg.ensure_home().unwrap();
+        Arc::new(App::assemble(
+            cfg, root.join("ws"),
+            Store::open(&root.join("home/heron.db")).unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap())
+    }
+
+    async fn until(what: &str, check: impl Fn() -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !check() {
+            assert!(std::time::Instant::now() < deadline, "timed out waiting for: {what}");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn telegram_answers_decide_whether_a_reply_is_sent_retried_or_given_up() {
+        let (base, _) = mock_telegram(|path| match path {
+            "/botOK/sendMessage" => (200, json!({"ok": true, "result": {"message_id": 7}})),
+            "/botSLOW/sendMessage" => (429, json!({"ok": false, "error_code": 429, "parameters": {"retry_after": 30}})),
+            "/botGONE/sendMessage" => (403, json!({"ok": false, "error_code": 403, "description": "Forbidden: bot was blocked by the user"})),
+            "/botBAD/sendMessage" => (400, json!({"ok": false, "error_code": 400})),
+            _ => (502, json!({"ok": false, "error_code": 502})),
+        }).await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = heron_process(dir.path()).await;
+        let bot = |name: &str| Bot {
+            client: reqwest::Client::new(),
+            base: format!("{base}/bot{name}"),
+            app: app.clone(),
+            account_id: "bot".into(),
+            pairing_epoch: String::new(),
+            spool: ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap(),
+            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        assert_eq!(bot("OK").send_message(42, "hi").await, Delivery::Sent(Some("7".into())));
+        assert_eq!(bot("SLOW").send_message(42, "hi").await, Delivery::Retry { after: Some(30) });
+        assert_eq!(bot("GONE").send_message(42, "hi").await, Delivery::Refused);
+        assert_eq!(bot("BAD").send_message(42, "hi").await, Delivery::Refused);
+        assert_eq!(bot("DOWN").send_message(42, "hi").await, Delivery::Retry { after: None });
+        let offline = Bot { base: "http://127.0.0.1:1/botX".into(), ..bot("X") };
+        assert_eq!(offline.send_message(42, "hi").await, Delivery::Retry { after: None });
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn one_gateway_per_home_and_a_replaced_token_stops_the_other_process() {
+        let (base, paths) = mock_telegram(|_| (200, json!({"ok": true, "result": []}))).await;
+        let polls = |bot: &str| {
+            let prefix = format!("/bot{bot}/getUpdates");
+            paths.lock().unwrap().iter().filter(|p| **p == prefix).count()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let daemon = heron_process(dir.path()).await;
+        let serve = heron_process(dir.path()).await;
+
+        let old = tokio::spawn(run(daemon.clone(), base.clone(), "OLD".into()));
+        until("the first gateway polls", || polls("OLD") > 0).await;
+        let second = tokio::spawn(run(serve.clone(), base.clone(), "SECOND".into()));
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert_eq!(polls("SECOND"), 0, "a second gateway polled while the first was running");
+        second.abort();
+
+        // What set_telegram does in the other process when the owner pastes a new token.
+        bump_generation(&serve);
+        let new = tokio::spawn(run(serve.clone(), base.clone(), "NEW".into()));
+        until("the old gateway stops", || old.is_finished()).await;
+        until("the new gateway takes over", || polls("NEW") > 0).await;
+        let after = polls("OLD");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(polls("OLD"), after, "the revoked bot is still being polled");
+        new.abort();
+    }
+
+    #[tokio::test]
+    async fn token_check_accepts_a_live_bot_and_never_echoes_the_token() {
+        let (base, paths) = mock_telegram(|path| match path {
+            "/botLIVE/getMe" => (200, json!({"ok": true, "result": {"id": 1, "is_bot": true}})),
+            "/botBUSY/getMe" => (500, json!({"ok": false})),
+            "/botUSER/getMe" => (200, json!({"ok": true, "result": {"id": 2, "is_bot": false}})),
+            _ => (401, json!({"ok": false, "error_code": 401, "description": "Unauthorized"})),
+        }).await;
+        assert_eq!(verify_token(&format!("{base}/"), "LIVE").await, Ok(()));
+        assert_eq!(paths.lock().unwrap().as_slice(), ["/botLIVE/getMe"]);
+        let revoked = verify_token(&base, "REVOKED").await.unwrap_err();
+        assert!(revoked.contains("does not recognise"), "{revoked}");
+        let busy = verify_token(&base, "BUSY").await.unwrap_err();
+        assert!(busy.contains("HTTP 500"), "{busy}");
+        assert!(verify_token(&base, "USER").await.is_err(), "only a bot account may be connected");
+        let offline = verify_token("http://127.0.0.1:1", "OFFLINE").await.unwrap_err();
+        for msg in [&revoked, &busy, &offline] {
+            assert!(!msg.contains("REVOKED") && !msg.contains("BUSY") && !msg.contains("OFFLINE"), "{msg}");
+        }
     }
 
     #[tokio::test]
