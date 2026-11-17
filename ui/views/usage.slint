@@ -9,7 +9,8 @@
 // ("normal", "low", "out"); Rust computes it from the window's left
 // share, mirroring the web UI's classes.
 
-import { Button, CheckBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { CheckBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button } from "../components/button.slint";
 import { UsageDayRow, ModelRow, SimpleRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
 import { Theme } from "../components/theme.slint";
 
@@ -128,9 +129,13 @@ export component UsageView inherits Rectangle {
             }
             Rectangle { height: 1px; background: Theme.line; }
             if root.pace-note != "": RowMeta { body: root.pace-note; }
-            Button {
-                text: root.daily-visible ? "Hide daily figures" : "Daily figures";
-                clicked => { root.daily-visible = !root.daily-visible; }
+            HorizontalBox {
+                padding: 0px;
+                alignment: start;
+                Button { reduce-motion: root.reduce-motion;
+                    text: root.daily-visible ? "Hide daily figures" : "Daily figures";
+                    clicked => { root.daily-visible = !root.daily-visible; }
+                }
             }
             if root.daily-visible: VerticalBox {
                 padding: 0px;
@@ -217,7 +222,7 @@ export component UsageView inherits Rectangle {
                 alignment: start;
                 padding: 0px;
                 spacing: 10px;
-                Button {
+                Button { reduce-motion: root.reduce-motion;
                     text: "Save limits";
                     primary: true;
                     clicked => { root.save-usage(); }

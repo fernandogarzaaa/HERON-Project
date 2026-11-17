@@ -2,7 +2,8 @@
 // ui/setup-map.md for the API map and ui/setup-bridge.md for the bridge
 // interface.
 
-import { Button, TextEdit, ComboBox, CheckBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { TextEdit, ComboBox, CheckBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button } from "../components/button.slint";
 import { Theme } from "../components/theme.slint";
 import { SectionTitle, LabeledInput, ChoiceCard } from "../components/atoms.slint";
 
@@ -179,10 +180,10 @@ export component SettingsView inherits Rectangle {
                     alignment: start;
                     padding: 0px;
                     spacing: 6px;
-                    Button { text: "OpenRouter"; clicked => { root.apply_preset("openrouter"); } }
-                    Button { text: "OpenAI"; clicked => { root.apply_preset("openai"); } }
-                    Button { text: "Ollama on this computer"; clicked => { root.apply_preset("ollama"); } }
-                    Button { text: "Demo, no key needed"; clicked => { root.apply_preset("demo"); } }
+                    Button { reduce-motion: root.reduce-motion; text: "OpenRouter"; clicked => { root.apply_preset("openrouter"); } }
+                    Button { reduce-motion: root.reduce-motion; text: "OpenAI"; clicked => { root.apply_preset("openai"); } }
+                    Button { reduce-motion: root.reduce-motion; text: "Ollama on this computer"; clicked => { root.apply_preset("ollama"); } }
+                    Button { reduce-motion: root.reduce-motion; text: "Demo, no key needed"; clicked => { root.apply_preset("demo"); } }
                 }
                 LabeledInput { label: "Model"; value <=> model; }
                 Text { text: "Provider"; font-size: 14px; font-weight: 600; color: Theme.ink; }
@@ -251,8 +252,8 @@ export component SettingsView inherits Rectangle {
                         HorizontalBox {
                             alignment: start;
                             padding: 0px;
-                            Button { text: "Continue"; clicked => { confirm-yolo = false; root.mode = "yolo"; } }
-                            Button { text: "Cancel"; clicked => { confirm-yolo = false; } }
+                            Button { reduce-motion: root.reduce-motion; text: "Continue"; clicked => { confirm-yolo = false; root.mode = "yolo"; } }
+                            Button { reduce-motion: root.reduce-motion; text: "Cancel"; clicked => { confirm-yolo = false; } }
                         }
                     }
                 }
@@ -314,7 +315,7 @@ export component SettingsView inherits Rectangle {
                         color: line.changed ? Theme.danger : Theme.ink;
                         wrap: word-wrap;
                     }
-                    if line.changed: Button {
+                    if line.changed: Button { reduce-motion: root.reduce-motion;
                         text: "Accept the changed tools";
                         clicked => { root.accept_mcp(line.name); }
                     }
@@ -336,10 +337,14 @@ export component SettingsView inherits Rectangle {
                     color: Theme.muted;
                     wrap: word-wrap;
                 }
-                Button {
-                    text: "Refresh connector directory";
-                    enabled: !root.busy;
-                    clicked => { root.refresh-connectors(); }
+                HorizontalBox {
+                    padding: 0px;
+                    alignment: start;
+                    Button { reduce-motion: root.reduce-motion;
+                        text: "Refresh connector directory";
+                        enabled: !root.busy;
+                        clicked => { root.refresh-connectors(); }
+                    }
                 }
                 if root.connector-vault-note != "": Text {
                     text: root.connector-vault-note;
@@ -357,7 +362,7 @@ export component SettingsView inherits Rectangle {
                         wrap: word-wrap;
                     }
                     Text { text: c.detail; color: Theme.muted; width: 180px; wrap: word-wrap; }
-                    if c.custom: Button {
+                    if c.custom: Button { reduce-motion: root.reduce-motion;
                         text: "Remove";
                         enabled: !root.busy;
                         clicked => { root.remove-connector(c.id); }
@@ -367,10 +372,14 @@ export component SettingsView inherits Rectangle {
                 LabeledInput { label: "ID (lowercase slug)"; value <=> root.connector-new-id; }
                 LabeledInput { label: "Display name"; value <=> root.connector-new-name; }
                 LabeledInput { label: "Public HTTPS endpoint"; value <=> root.connector-new-endpoint; }
-                Button {
-                    text: "Save inactive connector";
-                    enabled: !root.busy && root.connector-new-id != "" && root.connector-new-name != "" && root.connector-new-endpoint != "";
-                    clicked => { root.add-connector(root.connector-new-id, root.connector-new-name, root.connector-new-endpoint); }
+                HorizontalBox {
+                    padding: 0px;
+                    alignment: start;
+                    Button { reduce-motion: root.reduce-motion;
+                        text: "Save inactive connector";
+                        enabled: !root.busy && root.connector-new-id != "" && root.connector-new-name != "" && root.connector-new-endpoint != "";
+                        clicked => { root.add-connector(root.connector-new-id, root.connector-new-name, root.connector-new-endpoint); }
+                    }
                 }
                 Text { text: "Vault: API keys are never displayed to the model or saved in connector metadata. Only custom connector IDs can receive keys. Linux currently requires a secure vault backend before API keys can be saved."; wrap: word-wrap; color: Theme.muted; }
                 LabeledInput { label: "Custom connector ID"; value <=> root.connector-key-id; }
@@ -379,12 +388,12 @@ export component SettingsView inherits Rectangle {
                     alignment: start;
                     padding: 0px;
                     spacing: 8px;
-                    Button {
+                    Button { reduce-motion: root.reduce-motion;
                         text: "Save key";
                         enabled: !root.busy && root.connector-key-id != "" && root.connector-api-key != "";
                         clicked => { root.save-connector-key(root.connector-key-id, root.connector-api-key); }
                     }
-                    Button {
+                    Button { reduce-motion: root.reduce-motion;
                         text: "Revoke key";
                         enabled: !root.busy && root.connector-key-id != "";
                         clicked => { root.remove-connector-key(root.connector-key-id); }
@@ -402,17 +411,25 @@ export component SettingsView inherits Rectangle {
                 padding: 0px;
                 spacing: 14px;
                 SectionTitle { label: "Use Heron from your phone"; }
-                Text { text: telegram_status; color: Theme.ink; wrap: word-wrap; }
+                if telegram_status != "": Text { text: telegram_status; color: Theme.ink; wrap: word-wrap; }
                 if !telegram_configured: HorizontalBox {
                     padding: 0px;
                     spacing: 8px;
-                    LabeledInput { label: "Bot token from @BotFather"; password: true; value <=> telegram_token; }
-                    Button { text: "Connect Telegram"; enabled: !busy; clicked => { root.connect_telegram(); } }
+                    LabeledInput { label: "Bot token from @BotFather"; password: true; value <=> telegram_token; horizontal-stretch: 1; }
+                    // Sits on the input's baseline, not beside its label.
+                    VerticalLayout {
+                        alignment: end;
+                        Button { reduce-motion: root.reduce-motion; text: "Connect Telegram"; enabled: !busy; clicked => { root.connect_telegram(); } }
+                    }
                 }
-                if telegram_configured: Button {
-                    text: "Disconnect phone";
-                    enabled: !busy;
-                    clicked => { root.disconnect_telegram(); }
+                if telegram_configured: HorizontalBox {
+                    padding: 0px;
+                    alignment: start;
+                    Button { reduce-motion: root.reduce-motion;
+                        text: "Disconnect phone";
+                        enabled: !busy;
+                        clicked => { root.disconnect_telegram(); }
+                    }
                 }
             }
 
@@ -432,7 +449,7 @@ export component SettingsView inherits Rectangle {
                     alignment: start;
                     padding: 0px;
                     spacing: 8px;
-                    Button { text: "Save a copy of my data"; enabled: !busy; clicked => { root.make_backup(); } }
+                    Button { reduce-motion: root.reduce-motion; text: "Save a copy of my data"; enabled: !busy; clicked => { root.make_backup(); } }
                     if backup_message != "": Text {
                         text: backup_message;
                         color: Theme.ok;
@@ -452,7 +469,7 @@ export component SettingsView inherits Rectangle {
                 alignment: start;
                 padding: 0px;
                 spacing: 10px;
-                Button { text: "Save settings"; enabled: !busy; clicked => { root.save_settings(); } }
+                Button { reduce-motion: root.reduce-motion; primary: true; text: "Save settings"; enabled: !busy; clicked => { root.save_settings(); } }
                 if saved_message != "": Text {
                     text: saved_message;
                     color: Theme.ok;

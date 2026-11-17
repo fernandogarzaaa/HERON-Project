@@ -13,8 +13,8 @@
 // view appears and its border turns slate while focused. Send is slate
 // and Stop is red, so the action is unmistakable. Starter prompts are
 // tappable cards, not plain buttons, so the empty state invites the
-// user in. Standard chrome (Undo, mode buttons, banner actions) keeps
-// the native std-widgets Button and the pinned widget style.
+// user in. Undo uses the app's compact themed Button
+// (ui/components/button.slint); no button here is the native one.
 // Keyboard: Cmd/Ctrl+N starts a new conversation, Esc stops a running
 // reply, Enter sends, Shift+Enter inserts a newline. The key handling
 // follows the shell's FocusScope pattern in ui/main.slint. It is
@@ -22,7 +22,8 @@
 // Stop buttons already cover both actions if a key guess is wrong.
 // Slint =1.18.1, per ~/workspace/HERON-Slint-Plan.md.
 
-import { Button, TextEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { TextEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button } from "../components/button.slint";
 import { Theme } from "../components/theme.slint";
 import { ActionButton } from "../components/action_button.slint";
 import { ChoiceChip } from "../components/atoms.slint";
@@ -321,7 +322,7 @@ export component ChatView inherits FocusScope {
             HorizontalBox {
                 alignment: space-between;
                 Text { text: title; font-size: 20px; font-weight: 600; font-family: Theme.heading-font; wrap: word-wrap; horizontal-stretch: 1; }
-                if can-undo: Button { text: "Undo last file change"; clicked => { root.undo(); } }
+                if can-undo: Button { reduce-motion: root.reduce-motion; text: "Undo last file change"; clicked => { root.undo(); } }
             }
             HorizontalBox {
                 spacing: 8px;
