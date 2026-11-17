@@ -1,0 +1,12 @@
+sha=4e60e2906c1a7492e9027458ad1d93472d0dc2ab
+tree=e41a8fd3afd0ba6f46f6b42eccf6d6ef7cb2ee81
+tracked_changes=0
+platform=Darwin-arm64
+uname=Darwin Fernandos-MacBook-Pro.local 27.2.0 Darwin Kernel Version 27.2.0: Wed Oct 14 23:48:06 PDT 2026; root:xnu-13432.41.4~25/RELEASE_ARM64_T8142 arm64
+ProductName:		macOS
+ProductVersion:		27.2
+BuildVersion:		26B123
+rustc=rustc 1.99.1 (58cf8f9c3 2026-10-13)
+cargo=cargo 1.99.1 (5f94df478 2026-08-27)
+HERON_TEST_BROWSER=1
+CARGO_TARGET_DIR=target
