@@ -226,7 +226,9 @@ fn install(cfg: &Config, provider: Provider, client_id: &str, token: &Value) -> 
     let _guard = SOURCE_WRITES.lock().unwrap_or_else(|e| e.into_inner());
     let stored = cfg.secret(&provider.secret_key("account_subject"));
     let admitted = admit(provider.connected(cfg), stored.as_deref(), &subject)?;
-    cfg.store_secret(&provider.secret_key("client_id"), client_id)?;
+    let client_key = provider.secret_key("client_id");
+    let previous_client = cfg.secret(&client_key);
+    cfg.store_secret(&client_key, client_id)?;
     if admitted == Admit::Fresh {
         cfg.store_secret(&provider.secret_key("account_subject"), &subject)?;
         cfg.store_secret(&provider.secret_key("account_epoch"), &random_secret())?;
@@ -235,7 +237,13 @@ fn install(cfg: &Config, provider: Provider, client_id: &str, token: &Value) -> 
     // Publish the connection last, after its stable epoch is durable.
     // Unlike the legacy settings secret API this fails closed if Keychain or
     // Credential Manager is unavailable, and removes any old file fallback.
-    cfg.store_vault_only_secret(&provider.secret_key("refresh_token"), refresh)?;
+    if let Err(err) = cfg.store_vault_only_secret(&provider.secret_key("refresh_token"), refresh) {
+        // The vault put the previous refresh token back; it only works with the client ID it was issued to.
+        if let Err(undo) = cfg.store_secret(&client_key, previous_client.as_deref().unwrap_or("")) {
+            eprintln!("HERON OAuth: could not restore the previous {} client ID: {undo:#}", provider.name());
+        }
+        return Err(err);
+    }
     Ok(())
 }
 
@@ -465,6 +473,31 @@ mod tests {
         assert_eq!(admit(true, Some("u1"), "u1").unwrap(), Admit::SameAccount);
         assert!(admit(true, Some("u2"), "u1").unwrap_err().to_string().contains("different account"));
         assert!(admit(true, None, "u1").unwrap_err().to_string().contains("Disconnect it"));
+    }
+
+    /// Linux has no verified vault, so installing the refresh token always fails there: the same
+    /// failure a locked Keychain or Credential Manager gives on the desktop.
+    #[tokio::test]
+    #[cfg(not(any(target_os = "macos", windows)))]
+    async fn a_failed_reconnect_keeps_the_client_id_the_old_token_belongs_to() {
+        use crate::llm::ScriptedLlm;
+        use serde_json::json;
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        cfg.ensure_home().unwrap();
+        std::fs::write(cfg.home.join("secrets.json"), json!({
+            "oauth_google_refresh_token": "working-refresh", "oauth_google_account_epoch": "e1",
+            "oauth_google_client_id": "old-cid", "oauth_google_account_subject": "user-1",
+        }).to_string()).unwrap();
+        let app = App::assemble(cfg, dir.path().join("ws"), crate::store::Store::in_memory().unwrap(), std::sync::Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
+        let p = Provider::Google;
+        let token = json!({"scope": p.scopes(), "refresh_token": "new-refresh", "id_token": id_token(json!({"aud": "new-cid", "sub": "user-1"}))});
+        assert!(install(&app.cfg(), p, "new-cid", &token).is_err());
+        let cfg = app.cfg();
+        assert_eq!(cfg.secret("oauth_google_client_id").as_deref(), Some("old-cid"));
+        assert_eq!(cfg.secret("oauth_google_refresh_token").as_deref(), Some("working-refresh"));
+        assert_eq!(p.account_epoch(&cfg).as_deref(), Some("e1"));
     }
 
     /// Installing a credential needs the OS vault: run on an authorized desktop, and in CI's vault step.
