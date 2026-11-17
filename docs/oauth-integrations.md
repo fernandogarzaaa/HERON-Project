@@ -33,9 +33,10 @@ use `microsoft_email` and `microsoft_calendar`. Legacy IMAP and ICS indexes rema
 
 **Calendar text never enters a prompt.** Anyone who can send the user an invitation writes event
 titles, so neither the conversation's system prompt nor the proactive-suggestion prompt includes
-calendar entries from any source (ICS, Google or Microsoft). The agent reads them on demand with
-`search_knowledge` (source `calendar` covers all three). Its results are outside content: from
-then on, changes and anything sent out need the user's approval in every mode.
+calendar entries from any source (ICS, Google or Microsoft). The agent reads them on demand:
+`upcoming_events` lists every connected calendar for the next 1–14 days, and `search_knowledge`
+(source `calendar`) finds specific entries. Both results are outside content: from then on,
+changes and anything sent out need the user's approval in every mode.
 The source search API combines the provider-specific indexes when the model asks to look at
 connected email or calendar data. Each sync imports up to 25 recent inbox messages and up to
 50 calendar entries; recurring Google events are expanded by the provider API. Microsoft uses

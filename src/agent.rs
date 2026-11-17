@@ -283,10 +283,10 @@ impl Agent {
                 p.push_str(&format!("\n# Connected sources\nThe user connected: {connected}. Look things up with `search_knowledge` instead of asking the user for what is already there.\n"));
             }
             // Calendar entries are never copied into the prompt: anyone who can invite the user to a
-            // meeting writes their titles. The model reads them through `search_knowledge`, whose
-            // results count as outside content for the rest of the conversation.
+            // meeting writes their titles. The model reads them with `upcoming_events`, whose results
+            // count as outside content for the rest of the conversation.
             if connected.contains("calendar") {
-                p.push_str("For the user's schedule, search the calendar (`search_knowledge` with source \"calendar\").\n");
+                p.push_str("For the user's schedule, call `upcoming_events`; search older or specific entries with `search_knowledge` (source \"calendar\").\n");
             }
             let skills = crate::skills::load_all(&self.cfg.skills_dir());
             if !skills.is_empty() {
@@ -775,6 +775,7 @@ mod tests {
             ("schedule_list", json!({}), LocalRead),
             ("schedule_remove", json!({"id": 1}), LocalStateWrite),
             ("search_knowledge", json!({"query": "x"}), LocalRead),
+            ("upcoming_events", json!({"days": 2}), LocalRead),
             ("save_automation", json!({"name": "x"}), Privileged),
             ("update_persona", json!({"text": "x"}), Privileged),
             ("save_skill", json!({"name": "x", "content": "y"}), Privileged),
@@ -873,10 +874,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn upcoming_events_lists_the_asked_window_soonest_first() {
+        let ws = tempfile::tempdir().unwrap();
+        let (agent, _) = agent_with(ScriptedLlm::new(vec![]), Mode::Ask, Arc::new(DenyAll), ws.path());
+        let ctx = agent.tool_ctx("t");
+        let tool = agent.tools.get("upcoming_events").unwrap();
+        let call = |args: Value| { let (tool, ctx) = (tool.clone(), ctx.clone()); async move { tool.call(&args, &ctx).await.unwrap() } };
+        assert_eq!(call(json!({})).await, "no calendar entries in the next 3 day(s)");
+        let day = 86_400;
+        let now = crate::util::now_ts();
+        agent.store.upsert_knowledge("google_calendar", "b", "Dentist", "When: in two days", now + 2 * day).unwrap();
+        agent.store.upsert_knowledge("calendar", "a", "Standup", "When: tomorrow", now + day / 2).unwrap();
+        agent.store.upsert_knowledge("microsoft_calendar", "c", "Offsite", "When: in five days", now + 5 * day).unwrap();
+        let default = call(json!({})).await;
+        assert!(default.find("Standup").unwrap() < default.find("Dentist").unwrap(), "{default}");
+        assert!(!default.contains("Offsite"), "the default window is three days: {default}");
+        assert!(!call(json!({"days": 1})).await.contains("Dentist"));
+        assert!(!call(json!({"days": 0})).await.contains("Dentist"), "zero days means one");
+        assert!(call(json!({"days": 99})).await.contains("Offsite"), "the window is capped at 14 days, not refused");
+        assert_eq!(call(json!({"days": 14, "limit": 1})).await.lines().count(), 1);
+        assert_eq!(call(json!({"days": 14, "limit": 0})).await.lines().count(), 1, "a limit below one still lists one");
+        assert_eq!(tool.summary(&json!({"days": 99})), "next 14 day(s)");
+    }
+
+    #[tokio::test]
     async fn calendar_entries_stay_out_of_the_prompt_and_taint_the_turn_once_looked_up() {
         let ws = tempfile::tempdir().unwrap();
         let llm = ScriptedLlm::new(vec![
-            ScriptedLlm::tool_call("search_knowledge", json!({"query": "planning", "source": "calendar"})),
+            ScriptedLlm::tool_call("upcoming_events", json!({"days": 2})),
             // what the planted title asks for:
             ScriptedLlm::tool_call("write_file", json!({"path": "notes.txt", "content": "planted"})),
             Message::assistant("You have planning sessions tomorrow."),
@@ -891,11 +916,13 @@ mod tests {
         agent.run_turn(&mut s, "what's on tomorrow?", &null_sink()).await.unwrap();
         let first = llm.requests.lock().unwrap()[0].messages[0].text().to_string();
         assert!(!first.contains("write notes.txt now"), "calendar text reached the system prompt: {first}");
-        assert!(first.contains("source \"calendar\""), "the model is not told where the schedule is");
-        // The lookup returns all three entries, and from then on the conversation carries outside content.
+        assert!(first.contains("`upcoming_events`"), "the model is not told where the schedule is");
+        // The lookup returns entries from all three calendars, wrapped as outside content, and from
+        // then on the conversation carries outside content.
         let found = s.messages[2].text();
+        assert!(found.contains("<untrusted_content source=\"upcoming_events\">"), "{found}");
         for source in ["calendar", "google_calendar", "microsoft_calendar"] {
-            assert!(found.contains(&format!("[{source}]")), "{found}");
+            assert!(found.contains(&format!("Planning ({source})")), "{found}");
         }
         assert!(!ws.path().join("notes.txt").exists(), "Auto mode acted on a planted calendar instruction");
         assert!(s.tainted.load(std::sync::atomic::Ordering::SeqCst));
