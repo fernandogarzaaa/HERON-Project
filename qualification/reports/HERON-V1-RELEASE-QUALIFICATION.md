@@ -30,7 +30,7 @@ and both PR merge refs. The native credential vault round trip passes against th
 | PR #26 | FAIL | §5, `evidence/reviews/review-pr26.md` | draft; O26-1/O26-2 P1; OAuth apps needed |
 | Local CI | PASS for required steps with #39 merged; FAIL on `main` alone (host-dependent tests) | report 03, `evidence/ci/` | #39 to merge |
 | Security | FAIL | report 07, `evidence/repro/` | M-1 P0; 6 P1; owner decisions |
-| Mutation testing | see report 04 | report 04 | see report 04 |
+| Mutation testing | FAIL (gate not met): `permissions.rs` 69.1% on main, 87.9% with PR #41; other critical modules not run | report 04, `evidence/mutation/` | run the remaining modules; merge #41 |
 | Genesis evaluations | NOT_RUN | report 05 | approved model budget |
 | Slint UI | FAIL (no real-window evidence; M-UI-1 P2) | report 06 | a person or UI driver on a real display |
 | Reliability | PARTIAL → FAIL for release | report 08 | drills not run; #35/#26 invariant breaks |
@@ -92,11 +92,13 @@ ready-for-review.
 ## 6. Merge history
 
 None. No PR was merged, nothing was pushed to `main`, to #26 or to #35, and no tag was created.
-This run opened two fix PRs (#39, #40) and pushed this qualification branch.
+This run opened three PRs (#39 test isolation, #40 read gate, #41 mutation-gap tests) and pushed
+this qualification branch.
 
 ## 7. Security findings and fixes
 
-Report 07. Fixed in PRs by this run: M-5 and part of M-4 (#40), M-TEST-1 (#39). Left for owner
+Report 07. Fixed in PRs by this run: M-5 and part of M-4 (#40), M-TEST-1 (#39), mutation gaps in
+the shell classifier and SSRF guard (#41). Left for owner
 decisions: M-1, M-2, M-3/O26-1, M-6, C35-8, rest of M-4. Dependency: RUSTSEC-2026-0459 in
 bundled SQLite (M-DEP-1), fix by upgrading `rusqlite` to 0.41.
 
@@ -110,7 +112,13 @@ cargo-deny fail on M-DEP-1.
 
 ## 9. Mutation testing
 
-Report 04.
+Report 04. testteeth over cargo-mutants, `src/permissions.rs` only, unsampled: 223 viable
+mutants, **69.1%** on `main` + #39. Survivors included shell-classifier and SSRF-guard gaps that
+could let a program-starting command count as read-only or an internal address count as public.
+This run added tests (PR #41): **87.9%**, 43 more mutants killed, each targeted mutant also
+checked by hand. The SSRF bypass switches (`HERON_TRUST_WEB_PROXY`, `HERON_ALLOW_LOCAL_FETCH`)
+remain untested. Telegram, connectors, config, `channel.rs` (#35) and `oauth.rs` (#26) were not
+mutation-tested, so the 80% critical-module gate is not met.
 
 ## 10. Genesis evaluations
 
@@ -180,7 +188,7 @@ No `v1.0.0-rc.1` tag, build or changelog entry was made. Pushing any `v*` tag wo
 
 ## 18. Exact next actions
 
-1. Review and merge #39 (tests only) and #40 (read gate) once hosted CI is green.
+1. Review and merge #39 (tests only), #40 (read gate) and #41 (tests only) once hosted CI is green.
 2. Decide items 1 to 5 above.
 3. Provide a disposable Telegram bot and nonproduction OAuth apps, then rerun §5.4 and §6.5.
 4. Turn on branch protection requiring the six CI checks.

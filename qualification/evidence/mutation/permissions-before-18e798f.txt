@@ -1,0 +1,33 @@
+exit=0 start=2026-11-17T18:10:20Z end=2026-11-17T18:41:05Z
+      L624  boolean           `||` -> `&&`  [survived]
+      L623  boolean           `||` -> `&&`  [survived]
+      L622  boolean           `||` -> `&&`  [survived]
+      L620  boolean           `||` -> `&&`  [survived]
+      L621  boolean           `||` -> `&&`  [survived]
+      L619  boolean           `||` -> `&&`  [survived]
+      L618  boolean           `||` -> `&&`  [survived]
+      L620  boolean           `&&` -> `||`  [survived]
+      ... 23 more surviving
+  explicit_opt_in                    100.0%    2/2   killed  ok
+  local_web_fetch_allowed             50.0%    1/2   killed  WEAK
+      L685  return-value      `std::env::var("HERON_ALLOW_...` -> `false`  [survived]
+  trusted_web_proxy_enabled            0.0%    0/2   killed  WEAK
+      L694  return-value      `std::env::var("HERON_TRUST_...` -> `true`  [survived]
+      L694  return-value      `std::env::var("HERON_TRUST_...` -> `false`  [survived]
+  web_goes_through_proxy               0.0%    0/3   killed  WEAK
+      L702  return-value      `["HTTPS_PROXY", "https_prox...` -> `true`  [survived]
+      L702  return-value      `["HTTPS_PROXY", "https_prox...` -> `false`  [survived]
+      L702  boolean           `!` -> ``  [survived]
+  url_host_obviously_local           100.0%    6/6   killed  ok
+  check_url                           33.3%    1/3   killed  WEAK
+      L727  boolean           `||` -> `&&`  [survived]
+      L727  boolean           `!` -> ``  [survived]
+
+Mutants: 223  killed: 154  survived: 69  not covered: 0  timeouts: 1  excluded: 18
+Failure-path gaps: 10 (heuristic)
+Mutation score: 69.1%
+Time: baseline 49.9s, total 1844.8s
+note: 18 unviable mutant(s) (did not compile) are excluded from the score
+Next: `testteeth suggest` prints an agent-ready brief for each surviving mutant.
+
+[exited with code 0]

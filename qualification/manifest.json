@@ -1856,6 +1856,34 @@
    "limitations": [
     "engineering gates failed; no tag created"
    ]
+  },
+  {
+   "gate_id": "mutation-permissions-before",
+   "repository": "fernandogarzaaa/HERON-Project",
+   "commit_sha": "18e798f5217ea51f5d123e761dbb6d7db02e4492",
+   "tree_sha": null,
+   "platform": "macOS-arm64",
+   "command": "testteeth run src/permissions.rs --root . --lang rust --workers 4 --json <out>",
+   "exit_code": 0,
+   "result": "FAIL",
+   "artifact_path": "qualification/evidence/mutation/permissions-before-18e798f.json",
+   "limitations": [
+    "score 69.1% of 223 viable mutants; threshold 80%; other critical modules not run"
+   ]
+  },
+  {
+   "gate_id": "mutation-permissions-after",
+   "repository": "fernandogarzaaa/HERON-Project",
+   "commit_sha": "19283baa240a2986bbde4d6b2851caf901eea322",
+   "tree_sha": null,
+   "platform": "macOS-arm64",
+   "command": "testteeth run src/permissions.rs --root . --lang rust --workers 4 --json <out>",
+   "exit_code": 0,
+   "result": "PASS",
+   "artifact_path": "qualification/evidence/mutation/permissions-after-19283ba.json",
+   "limitations": [
+    "score 87.9% of 223 viable mutants; threshold 80%; other critical modules not run"
+   ]
   }
  ]
 }

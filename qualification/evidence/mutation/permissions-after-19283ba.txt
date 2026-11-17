@@ -1,0 +1,83 @@
+S....S..SS.....SSS.S.S.SS....S..........S.........................................................................S..S.S.....................T............S.................S........................SS.........SSSSSS.......S. 223 mutants
+testteeth: mutation grade for all selected code [rust via cargo-mutants]
+
+src/permissions.rs
+  Effect::label                        0.0%    0/2   killed  WEAK
+      L60   return-value      `match self { Effect::LocalR...` -> `""`  [survived]
+      L60   return-value      `match self { Effect::LocalR...` -> `"xyzzy"`  [survived]
+  Effect::mutates                    100.0%    2/2   killed  ok
+  Effect::sends_out                  100.0%    2/2   killed  ok
+  Effect::high                       100.0%    2/2   killed  ok
+  Effect::reads_only                   0.0%    0/2   killed  WEAK
+      L104  return-value      `matches!(self, Effect::Loca...` -> `true`  [survived]
+      L104  return-value      `matches!(self, Effect::Loca...` -> `false`  [survived]
+  Mode::name                         100.0%    2/2   killed  ok
+  compile                            100.0%    1/1   killed  ok
+  Policy::set_mode                   100.0%    1/1   killed  ok
+      ! L163  failure path (unwrap): `.unwrap()` turns a failure into a panic and no test drives that failure
+  Policy::add_allow                  100.0%    1/1   killed  ok
+      ! L168  failure path (unwrap): `.unwrap()` turns a failure into a panic and no test drives that failure
+  Policy::deny_rules                   0.0%    0/3   killed  WEAK
+      L173  return-value      `self.deny.read().unwrap().i...` -> `vec![]`  [survived]
+      L173  return-value      `self.deny.read().unwrap().i...` -> `vec![String::new()]`  [survived]
+      L173  return-value      `self.deny.read().unwrap().i...` -> `vec!["xyzzy".into()]`  [survived]
+      ! L173  failure path (unwrap): `.unwrap()` turns a failure into a panic and no test drives that failure
+  Policy::tool_setting                50.0%    2/4   killed  WEAK
+      L180  comparison        `==` -> `!=`  [survived]
+      L182  comparison        `==` -> `!=`  [survived]
+      ! L180  failure path (unwrap): `.unwrap()` turns a failure into a panic and no test drives that failure
+  Policy::set_tool_setting            33.3%    1/3   killed  WEAK
+      L192  comparison        `!=` -> `==`  [survived]
+      L193  comparison        `!=` -> `==`  [survived]
+      ! L191  failure path (error-propagation): `?` propagates errors but no test makes the inner call fail
+      ! L191  failure path (error-return): returns `Err(..)` on 2 paths but no test asserts the error (`is_err()`, `assert_eq!(.., Err(..))`, `matches!`)
+      ! L192  failure path (unwrap): `.unwrap()` turns a failure into a panic and no test drives that failure
+  Policy::allow_rules                100.0%    3/3   killed  ok
+      ! L204  failure path (unwrap): `.unwrap()` turns a failure into a panic and no test drives that failure
+  Policy::decide_in                   85.7%   12/14  killed  WEAK
+      L227  comparison        `==` -> `!=`  [survived]
+      L258  remove-branch     `(Mode::ReadOnly, _) => Verd...` -> ``  [survived]
+  allow_rule_covers                  100.0%    7/7   killed  ok
+  is_compound                        100.0%    4/4   killed  ok
+  always_rule                        100.0%    3/3   killed  ok
+  regexes                            100.0%    1/1   killed  ok
+      ! L365  failure path (unwrap): `.unwrap()` turns a failure into a panic and no test drives that failure
+  forbidden_patterns                 100.0%    1/1   killed  ok
+  danger_patterns                    100.0%    1/1   killed  ok
+  simple_command_is_readonly         100.0%   52/52  killed  ok
+  names_sensitive_path                66.7%    6/9   killed  WEAK
+      L484  boolean           `||` -> `&&`  [survived]
+      L486  boolean           `||` -> `&&`  [survived]
+      L486  boolean           `||` -> `&&`  [survived]
+  classify_shell                     100.0%   17/17  killed  ok
+  sensitive_path                       n/a    0/0   killed
+      ! L541  failure path (unwrap): `.unwrap()` turns a failure into a panic and no test drives that failure
+  normalize                          100.0%    1/1   killed  ok
+  resolve_path                       100.0%    4/4   killed  ok
+  is_inside                          100.0%    2/2   killed  ok
+  classify_path                      100.0%    1/1   killed  ok
+  is_private_ip                       93.3%   56/60  killed  WEAK
+      L618  boolean           `||` -> `&&`  [survived]
+      L633  boolean           `&&` -> `||`  [survived]
+      L648  boolean           `&&` -> `||`  [survived]
+      L648  boolean           `&&` -> `||`  [survived]
+  explicit_opt_in                    100.0%    2/2   killed  ok
+  local_web_fetch_allowed             50.0%    1/2   killed  WEAK
+      L685  return-value      `std::env::var("HERON_ALLOW_...` -> `false`  [survived]
+  trusted_web_proxy_enabled            0.0%    0/2   killed  WEAK
+      L694  return-value      `std::env::var("HERON_TRUST_...` -> `true`  [survived]
+      L694  return-value      `std::env::var("HERON_TRUST_...` -> `false`  [survived]
+  web_goes_through_proxy               0.0%    0/3   killed  WEAK
+      L702  return-value      `["HTTPS_PROXY", "https_prox...` -> `true`  [survived]
+      L702  return-value      `["HTTPS_PROXY", "https_prox...` -> `false`  [survived]
+      L702  boolean           `!` -> ``  [survived]
+  url_host_obviously_local           100.0%    6/6   killed  ok
+  check_url                           66.7%    2/3   killed  WEAK
+      L727  boolean           `||` -> `&&`  [survived]
+
+Mutants: 223  killed: 196  survived: 27  not covered: 0  timeouts: 1  excluded: 18
+Failure-path gaps: 10 (heuristic)
+Mutation score: 87.9%
+Time: baseline 68.4s, total 1475.5s
+note: 18 unviable mutant(s) (did not compile) are excluded from the score
+Next: `testteeth suggest` prints an agent-ready brief for each surviving mutant.
