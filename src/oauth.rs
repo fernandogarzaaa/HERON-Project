@@ -467,6 +467,18 @@ mod tests {
     }
 
     #[test]
+    fn only_google_sign_ins_must_show_both_gmail_and_calendar_consent() {
+        // Each token fails before anything is stored, so no vault is touched.
+        let cfg = Config::default();
+        let reason = |provider, token: Value| install(&cfg, provider, "cid", &token).unwrap_err().to_string();
+        let gmail_only = serde_json::json!({"scope": "openid https://www.googleapis.com/auth/gmail.readonly", "refresh_token": "r"});
+        assert!(reason(Provider::Google, gmail_only).contains("consent was incomplete"));
+        assert!(reason(Provider::Google, serde_json::json!({"refresh_token": "r"})).contains("did not report granted OAuth scopes"));
+        // Microsoft reports no Google scopes; it gets as far as asking who signed in.
+        assert!(reason(Provider::Microsoft, serde_json::json!({"refresh_token": "r"})).contains("which account signed in"));
+    }
+
+    #[test]
     fn only_the_connected_account_may_sign_in_again_without_disconnecting() {
         assert_eq!(admit(false, None, "u1").unwrap(), Admit::Fresh);
         assert_eq!(admit(false, Some("old"), "u1").unwrap(), Admit::Fresh);
