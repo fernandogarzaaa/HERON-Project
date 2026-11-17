@@ -14,7 +14,17 @@ fn path_summary(args: &Value) -> String {
 }
 
 fn read_risk(args: &Value, ctx: &ToolCtx) -> Effect {
-    classify_path(&resolve_path(&ctx.workspace, &path_summary(args)), &ctx.workspace, false)
+    read_effect(&resolve_path(&ctx.workspace, &path_summary(args)), &ctx.cfg.home, &ctx.workspace)
+}
+
+/// Reading a credential file or Heron's own home (keys, settings, memory) needs the user's say-so.
+/// Both the name given and the file a link really points at are judged, so a harmless-looking link
+/// in a repository cannot lead a read to a secret.
+fn read_effect(path: &Path, heron_home: &Path, workspace: &Path) -> Effect {
+    let real = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let home = dunce::canonicalize(heron_home).unwrap_or_else(|_| heron_home.to_path_buf());
+    let secret = |p: &Path| p.starts_with(&home) || p.starts_with(heron_home) || classify_path(p, workspace, false) == Effect::SensitiveRead;
+    if secret(path) || secret(&real) { Effect::SensitiveRead } else { Effect::LocalRead }
 }
 
 fn write_risk(args: &Value, ctx: &ToolCtx) -> Effect {
@@ -690,6 +700,8 @@ async fn search_files(args: &Value, ctx: &ToolCtx) -> Result<String> {
     };
     let re = regex::RegexBuilder::new(&pattern).case_insensitive(opt_bool(args, "ignore_case")).build().map_err(|e| anyhow!("bad regex: {e}"))?;
     let max = 200usize;
+    let heron_home = ctx.cfg.home.clone();
+    let workspace = ctx.workspace.clone();
     tokio::task::spawn_blocking(move || {
         let mut out = String::new();
         let mut hits = 0usize;
@@ -704,8 +716,8 @@ async fn search_files(args: &Value, ctx: &ToolCtx) -> Result<String> {
                     continue;
                 }
             }
-            if classify_path(p, &root, false) == Effect::SensitiveRead {
-                continue; // never grep through credential files
+            if read_effect(p, &heron_home, &workspace) == Effect::SensitiveRead {
+                continue; // never grep through credential files or Heron's own data
             }
             let Ok(bytes) = std::fs::read(p) else { continue };
             if bytes.len() as u64 > MAX_READ_BYTES || bytes.iter().take(4096).any(|b| *b == 0) {
@@ -1170,5 +1182,71 @@ mod undo_tests {
             write_file(&json!({"path": "run.sh", "content": "#!/bin/sh\necho hi\n"}), &c).await.unwrap();
             assert_eq!(std::fs::metadata(&script).unwrap().permissions().mode() & 0o777, 0o755);
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod read_gate_tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::memory::Memory;
+    use crate::store::Store;
+    use std::sync::Arc;
+
+    fn ctx(ws: &Path, home: &Path) -> ToolCtx {
+        let store = Store::in_memory().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = home.to_path_buf();
+        ToolCtx { workspace: dunce::canonicalize(ws).unwrap(), memory: Memory::new(store.clone(), None), store, session_id: "s".into(), cfg: Arc::new(cfg), tainted: Default::default(), seen_urls: Default::default() }
+    }
+
+    fn dirs() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let (ws, home) = (dir.path().join("ws"), dir.path().join("heron-home"));
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        (dir, ws, home)
+    }
+
+    #[tokio::test]
+    async fn search_never_reads_a_secret_through_a_harmless_looking_link() {
+        let (dir, ws, home) = dirs();
+        let ssh = dir.path().join("elsewhere/.ssh");
+        std::fs::create_dir_all(&ssh).unwrap();
+        std::fs::write(ssh.join("id_ed25519"), "-----BEGIN OPENSSH PRIVATE KEY-----\nFAKEKEY\n").unwrap();
+        std::os::unix::fs::symlink(ssh.join("id_ed25519"), ws.join("notes.txt")).unwrap();
+        std::fs::write(ws.join("plain.txt"), "FAKEKEY is only a word here\n").unwrap();
+        let c = ctx(&ws, &home);
+
+        let out = search_files(&json!({"pattern": "BEGIN|FAKEKEY"}), &c).await.unwrap();
+        assert!(!out.contains("PRIVATE KEY"), "{out}");
+        assert!(out.contains("plain.txt:1:"), "ordinary files are still searched: {out}");
+        assert_eq!(read_risk(&json!({"path": "notes.txt"}), &c), Effect::SensitiveRead);
+    }
+
+    #[tokio::test]
+    async fn heron_own_home_is_a_secret_to_read_and_to_search() {
+        let (_dir, ws, home) = dirs();
+        std::fs::write(home.join("secrets.json"), r#"{"api_key": "sk-FAKE"}"#).unwrap();
+        std::fs::write(home.join("config.toml"), "[mcp.env]\nTOKEN = \"FAKE\"\n").unwrap();
+        std::os::unix::fs::symlink(&home, ws.join("settings")).unwrap();
+        let c = ctx(&ws, &home);
+
+        for path in [home.join("secrets.json"), home.join("config.toml")] {
+            assert_eq!(read_risk(&json!({"path": path.to_string_lossy()}), &c), Effect::SensitiveRead, "{}", path.display());
+        }
+        assert_eq!(read_risk(&json!({"path": "settings/config.toml"}), &c), Effect::SensitiveRead);
+        let out = search_files(&json!({"pattern": "FAKE", "path": home.to_string_lossy()}), &c).await.unwrap();
+        assert_eq!(out, "no matches");
+    }
+
+    #[tokio::test]
+    async fn ordinary_reads_inside_and_outside_the_workspace_do_not_ask() {
+        let (dir, ws, home) = dirs();
+        std::fs::write(ws.join("README.md"), "hello").unwrap();
+        std::fs::write(dir.path().join("report.txt"), "hello").unwrap();
+        let c = ctx(&ws, &home);
+        assert_eq!(read_risk(&json!({"path": "README.md"}), &c), Effect::LocalRead);
+        assert_eq!(read_risk(&json!({"path": dir.path().join("report.txt").to_string_lossy()}), &c), Effect::LocalRead);
     }
 }
