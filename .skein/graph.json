@@ -367,7 +367,16 @@
     }
   },
   "U0g": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "9ae71fd9103b4308a0a818b985d8620d",
+        "ended_at": "2026-11-18T14:21:09.970044+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-18T14:09:47.182777+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -379,21 +388,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "9ae71fd9103b4308a0a818b985d8620d",
-      "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
-      "claim_token": "a7dbb0d0185e4c9883a9f47e745d1120",
-      "claimed_at": "2026-11-18T14:09:47.182777+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-18T14:15:17.487128+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U0"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I -m unittest discover -s eval/genesis -t eval && genesis audit-evaluator eval/genesis/pass-rules-json.yaml --suite json",
+        "duration_ms": 7546,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U0g_20261118T142102305971_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U0g_20261118T142109853636_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run `testteeth run --base main` and kill any surviving mutants in `json_verifier.py`.",
     "id": "U0g",
     "integration_for": null,
     "intent": {
@@ -405,13 +426,51 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "9ae71fd9103b4308a0a818b985d8620d",
+      "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "changed_files": [
+        "eval/genesis/__init__.py",
+        "eval/genesis/build_cases.py",
+        "eval/genesis/cases.jsonl",
+        "eval/genesis/json_verifier.py",
+        "eval/genesis/pass-rules-json.yaml",
+        "eval/genesis/test_json_verifier.py"
+      ],
+      "commit": "d3ee40d0cbc6d5414325ca6fc46b0f57e505b203",
+      "diff_stats": {
+        "eval/genesis/__init__.py": {
+          "added": 0,
+          "deleted": 0
+        },
+        "eval/genesis/build_cases.py": {
+          "added": 245,
+          "deleted": 0
+        },
+        "eval/genesis/cases.jsonl": {
+          "added": 15,
+          "deleted": 0
+        },
+        "eval/genesis/json_verifier.py": {
+          "added": 355,
+          "deleted": 0
+        },
+        "eval/genesis/pass-rules-json.yaml": {
+          "added": 41,
+          "deleted": 0
+        },
+        "eval/genesis/test_json_verifier.py": {
+          "added": 606,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "genesis json audit of the pass-rule grammar (item 8c)",
-    "version": 14,
+    "version": 26,
     "worktree": {
       "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
       "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
@@ -437,7 +496,7 @@
       "claim_token": "ebc3c8761a1145ddb76465d7df0b22a2",
       "claimed_at": "2026-11-18T14:13:45.909285+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T14:15:16.240276+00:00",
+      "last_heartbeat": "2026-11-18T14:20:46.380788+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -464,7 +523,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Clippy clean-up, one decision function, `Refused` and `OutsideRead`, `read:` grants, prompt-source registry, MCP taint, ",
-    "version": 6,
+    "version": 17,
     "worktree": {
       "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
       "base_commit": "d77fa178a89241f54e733da4485b96809f09277d",
