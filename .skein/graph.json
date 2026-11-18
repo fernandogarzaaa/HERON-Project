@@ -4215,7 +4215,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "SwiftUI app shell: screens, tokens, avatar, first run, on preview stubs",
-    "version": 19,
+    "version": 20,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "78f7f7065d0d4bab44cdd352073bb87a4f96a5fa",
