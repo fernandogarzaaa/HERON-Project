@@ -81,3 +81,14 @@ Status: resolved
 *   **QF4 is now a proposal for the owner,** not a recorded answer.
 *   **The `RUST` shorthand in the check column is written out in full,** so each check can be pasted as it is.
 *   **What these reports record:** each report holds the reviewers' findings in short form, with their resolutions. The reviewers' full text is in the session transcript. The stage 8 findings are merged into this file.
+
+## Owner decisions (2026-11-18)
+
+| Question | The owner's decision | Proposal it replaced |
+|---|---|---|
+| QF1, features | All of F1 to F9 committed; F10 in v1.1 | F1 to F5 committed, F6 to F9 if time allowed |
+| QF2, freeze | 14 days after v1's `verify` first passes | 2026-12-16 |
+| QF3, defaults | Every finished feature ships on | F1 to F4 on, F5 to F9 off |
+| QF4, merge plan and review changes | Accepted as proposed | — |
+
+The design doc records each decision under its question, and the doc's status is now Approved.

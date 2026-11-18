@@ -1,10 +1,10 @@
 # Heron v1 features: the ranked list for the research preview
 
 *   **Author:** fernandogarzaaa (drafted with Claude)
-*   **Status:** Proposed
+*   **Status:** Approved by the owner on 2026-11-18 (QF1 to QF4)
 *   **Date:** 2026-11-18
 
-This doc answers Q8 in [heron-v1.md](heron-v1.md), under the rule set by Q16: each feature is its own delta with its own work units, and v1's `verify` doesn't wait for any of them. The feature list and the freeze date are waiting for the owner (QF1 to QF3).
+This doc answers Q8 in [heron-v1.md](heron-v1.md), under the rule set by Q16: each feature is its own delta with its own work units, and v1's `verify` doesn't wait for any of them. The owner approved the list and decided the freeze and defaults on 2026-11-18 (QF1 to QF4).
 
 --------------------------------------------------------------------------------
 
@@ -38,8 +38,8 @@ Sizes count work for the build agents:
 *   **M** is two to four days;
 *   **L** is a week or more, with a new binary.
 
-*   **Commitment.** v1 commits to F1 to F5. F6 to F9 follow in rank order. Any of them that hasn't passed its gate by the freeze moves to v1.1. F10 is proposed for v1.1 from the start (QF1).
-*   **Freeze.** Proposed for **2026-12-16** (QF2). It is the last day a feature's gate can pass and the feature still be in v1.
+*   **Commitment.** v1 commits to F1 to F9, built in rank order (QF1). A feature whose gate hasn't passed by the freeze moves to v1.1. F10 is v1.1 from the start.
+*   **Freeze.** 14 days after v1's `verify` first passes (QF2). It is the last day a feature's gate can pass and the feature still be in v1.
 *   **Order.** Every work unit starts after v1's `verify` unit has passed. Nothing is built until the owner approves the list.
 
 ## The Problem
@@ -107,7 +107,7 @@ Terms from heron-v1.md keep their meaning: taint, permission mode, `Effect`, dec
 | Today | `main` at `bf7f7f0`: v0.3.1 plus PR #26 (Google and Microsoft OAuth). The comparison above is written against it. |
 | After v1 | The code [heron-v1.md](heron-v1.md) describes, which the features build on. Names it introduces don't exist on `main` yet; see [After v1 names](#after-v1-names). |
 | Slug | A feature's short name, used in branch names, task files and the gate script: `quick_entry` (F1), `ask_reasons` (F2), `runs` (F3), `undo_files` (F4), `shortcuts` (F5), `morning_brief` (F6), `voice` (F7), `email_drafts` (F8), `screen_text` (F9). |
-| Core key | A boolean in the new `[features]` table of `config.toml`. There are three: `ask_reasons` (F2, default `true`), `shortcuts` (F5, default `false`) and `email_drafts` (F8, default `false`). |
+| Core key | A boolean in the new `[features]` table of `config.toml`. There are three: `ask_reasons` (F2, default `true`), `shortcuts` (F5, default `true`) and `email_drafts` (F8, default `true`). |
 | App setting | A feature switch the Mac app keeps in `UserDefaults`, as heron-v1.md §4 does for display preferences. |
 | Content entry | A way content enters a turn. heron-v1.md G1 requires a tested list of them, each either trusted or tainting. B2 makes that list an enum, `ContentEntry` ([below](#content-entries)). |
 | Chat context | The new optional `context` array on `POST /api/chat`, used by F1 and F9. Each item is outside content. |
@@ -131,7 +131,7 @@ heron-v1.md itself is committed on branch `docs/heron-v1-rerun-fixes` (commit `c
 ## Goals
 
 *   **GF1, an approved list and freeze.** The owner approves the ranked list and a freeze date. Q8 in heron-v1.md is then answered by a link to this doc.
-*   **GF2, every feature behind a switch.** Each feature can be turned off in Settings, Features. A feature whose core tools must be hidden when off has a core key. Every other feature has an app setting. Each is off until the feature is done, then takes its QF3 default.
+*   **GF2, every feature behind a switch.** Each feature can be turned off in Settings, Features. A feature whose core tools must be hidden when off has a core key. Every other feature has an app setting. Each is off until the feature is done, then ships on (QF3).
 *   **GF3, every feature meets the definition of done.** That is heron-v1.md §5 plus the four checks in [The extended definition of done](#the-extended-definition-of-done).
 *   **GF4, no new accepted risk.** No feature needs a new entry in `docs/ACCEPTED_RISKS.md`. A feature that would need one is cut back until it doesn't, or moves to v1.1.
 *   **GF5, no collision with the v1 build.** No work unit starts before v1's `verify` unit has passed. No unit edits `eval/core-tasks.md`, the G7 task list that Q17 froze.
@@ -154,10 +154,11 @@ heron-v1.md itself is committed on branch `docs/heron-v1-rerun-fixes` (commit `c
 
 ## Open Questions
 
-The owner decides QF1 to QF4. Each has a proposed answer. QF5 is a note for the owner.
+The owner decided QF1 to QF4 on 2026-11-18. Where the owner changed a proposal (QF1, QF2, QF3), the decision replaces it, and the proposal is kept below it for the record. QF5 is a note for the owner.
 
 *   **QF1, which features are in v1.**
-    *   **Proposed answer:** F1 to F9 are built in rank order, and v1 commits to F1 to F5. F10 moves to v1.1.
+    *   **Decided by the owner on 2026-11-18:** v1 commits to all of F1 to F9, built in rank order. F10 moves to v1.1. This changes the proposal.
+    *   **Proposal (not taken):** commit to F1 to F5 and build F6 to F9 in rank order until the freeze.
     *   **Why F10 waits:**
         *   it is size L;
         *   it needs a second signed binary that talks to EventKit outside the Seatbelt profile;
@@ -166,15 +167,27 @@ The owner decides QF1 to QF4. Each has a proposed answer. QF5 is a note for the 
         F5 already reaches Reminders and Calendar through shortcuts the owner ticks, with the same asks.
     *   **Also v1.1:** undoing a run's memory, task and schedule changes. F4 lists them instead.
 *   **QF2, the freeze date.**
-    *   **Proposed answer:** **2026-12-16**, end of day in the owner's time zone. A feature is in v1 if its gate unit passed by then. Its pull request may merge later.
-    *   **Assumption:** v1's `verify` passes (with `HERON_G9_PENDING=1`) by 2026-12-02, which leaves two weeks.
-    *   **The estimate:** the base units take about 3 agent-days. F1 to F5 take about 12, with F4 after F3. With two feature graphs building at a time, F1 to F5 finish about 10 days after `verify`.
-    *   **If `verify` is late,** the date doesn't move. Fewer features make it, and the rest move to v1.1.
+    *   **Decided by the owner on 2026-11-18:** the freeze is **14 days after v1's `verify` unit first passes** (with or without `HERON_G9_PENDING=1`), at the end of that day in the owner's time zone. This changes the proposal.
+        *   A feature is in v1 if its gate unit passed by then. Its pull request may merge later.
+        *   The owner writes the resulting date into `eval/features/base.json` as `freeze` when cutting the base branch.
+    *   **Proposal (not taken):** a fixed date, 2026-12-16.
+    *   **The estimate:** the base units take about 3 agent-days. F1 to F5 take about 12, with F4 after F3, and F6 to F9 about 8 more. With two feature graphs building at a time, F1 to F9 take about 13 days after `verify`. That is inside the 14-day window, with one day to spare.
+    *   **What a miss means:** QF1 commits all nine features, and the freeze still applies to each one. A feature whose gate hasn't passed by the freeze moves to v1.1; the owner decides then whether to move the freeze instead. Rank order means a miss falls on F9, then F8.
 *   **QF3, the default state of a finished feature.**
-    *   **Proposed answer:** a finished feature ships on if it needs no new macOS permission, sends nothing out, and creates nothing the owner didn't ask for. That is F1, F2, F3 and F4.
-    *   The others ship off, and the owner turns them on in Settings, Features: F5, F6 (turning it on creates a schedule), F7, F8 and F9.
+    *   **Decided by the owner on 2026-11-18:** every finished feature ships on. This changes the proposal. In practice:
+        *   **macOS permissions** (Notifications for F3 and F6, Screen Recording for F9 if the picker needs it) are asked for the first time each feature is used, never at first launch;
+        *   **F5** is on but runs nothing until the owner ticks a shortcut, because `shortcuts_allowed` starts empty;
+        *   **F6** creates its "Morning brief" schedule (08:30) on the app's first launch after F6 lands. Turning the setting off deletes it;
+        *   **F7** speaks replies in the conversation on screen. "Speak replies" turns it off;
+        *   **F8**'s tool is offered to the model, and every call asks once.
+    *   **Proposal (not taken):** F1 to F4 on, and F5 to F9 off until turned on.
 *   **QF4, how features reach `main`.**
-    *   **Proposed answer:** one pull request per feature from its feature branch. It is rebased onto `main` and opened once v1's second pull request has merged.
+    *   **Decided by the owner on 2026-11-18:** accepted as proposed. This includes the review changes:
+        *   F4 undoes file edits only;
+        *   F5 and F8 approve "once" only;
+        *   F1 has no default hotkey;
+        *   F1's App Intent moves to v1.1 if it can't be built without Xcode.
+    *   **The plan:** one pull request per feature from its feature branch. It is rebased onto `main` and opened once v1's second pull request has merged.
     *   Features merge in rank order. The Q7 rows below show each feature touches one or two Q7 paths, so the owner reviews several small pull requests rather than one large one.
     *   A feature that hasn't merged isn't on `main`, so no forced-off list is needed.
 *   **QF5, a note for the owner.**
@@ -183,7 +196,7 @@ The owner decides QF1 to QF4. Each has a proposed answer. QF5 is a note for the 
 
 ## Critical User Journeys (CUJs)
 
-The four journeys cover the committed features, F1 to F5. F6 to F9 are covered by their feature tasks and tests.
+The four journeys cover F1 to F5. F6 to F9, also committed (QF1), are covered by their feature tasks and tests.
 
 ### CUJ F-1: Ask from anywhere
 
@@ -623,7 +636,7 @@ Today's warning line has three limits:
 
 | Check | Answer |
 |---|---|
-| Switch and default | Core key `shortcuts`; off until turned on. `shortcuts_allowed` starts empty |
+| Switch and default | Core key `shortcuts`; on once done (QF3). `shortcuts_allowed` starts empty, so nothing runs until the owner ticks a shortcut |
 | New tools | `run_shortcut` (`ExternalWrite`, untrusted output, once only) |
 | Decision-table rows | `run_shortcut` in every mode, clean and tainted, and under a standing `*` rule |
 | Prompt blocks | none |
@@ -670,7 +683,7 @@ Today's warning line has three limits:
 
 | Check | Answer |
 |---|---|
-| Switch and default | App setting "Morning brief"; off until turned on (QF3) |
+| Switch and default | App setting "Morning brief"; on once done (QF3): the app creates the schedule on its first launch after F6 lands |
 | New tools | `today_counts` (`LocalRead`, trusted output) |
 | Decision-table rows | `today_counts` in every mode, clean and tainted |
 | Prompt blocks | none |
@@ -696,7 +709,7 @@ Today's warning line has three limits:
 
 | Check | Answer |
 |---|---|
-| Switch and default | App setting "Speak replies"; off until turned on |
+| Switch and default | App setting "Speak replies"; on once done (QF3) |
 | New tools | none |
 | Decision-table rows | none |
 | Prompt blocks | none |
@@ -721,7 +734,7 @@ Today's warning line has three limits:
 
 | Check | Answer |
 |---|---|
-| Switch and default | Core key `email_drafts`; off until turned on |
+| Switch and default | Core key `email_drafts`; on once done (QF3) |
 | New tools | `draft_email` (`ExternalWrite`, trusted output: it returns only "opened"; once only) |
 | Decision-table rows | `draft_email` in every mode, clean and tainted, and under a standing `*` rule |
 | Prompt blocks | none |
@@ -744,7 +757,7 @@ Today's warning line has three limits:
 
 | Check | Answer |
 |---|---|
-| Switch and default | App setting "Look at a window"; off until turned on |
+| Switch and default | App setting "Look at a window"; on once done (QF3); Screen Recording, if needed, is asked on first use |
 | New tools | none |
 | Decision-table rows | none |
 | Prompt blocks | none |
@@ -853,7 +866,7 @@ When it is planned, it gets its own delta. That delta starts from two choices:
 | The App Intent doesn't register without Xcode | Medium / Low | F1a checks it on the owner's Mac. If it fails, the intent moves to v1.1 | F1a |
 | `startDictation:` can't be sent from a button | Medium / Low | The button shows the owner's dictation shortcut instead | F7a |
 | The window picker still needs Screen Recording | Medium / Low | F9 asks for it when it is turned on, after explaining why | F9a |
-| The feature work runs past 2026-12-16 | High / Low | Features are built in rank order. A late feature misses v1 and moves to v1.1, and nothing waits for it | Owner |
+| The feature work runs past the freeze (verify + 14 days) | High / Medium | All nine are committed with one day to spare. Features are built in rank order, so a miss falls on F9, then F8. A late feature moves to v1.1 unless the owner moves the freeze | Owner |
 | Rebasing feature branches conflicts in `server.rs`, `FeatureRows.swift` or `tests/fixtures/api/` | Medium / Low | Branches merge in rank order, and each rebases before its pull request. Fixtures are re-recorded by the `t` unit | Each gate |
 
 ## Non-Functional Requirements
@@ -906,8 +919,8 @@ These are candidates for v1.1:
 These are owner steps, done before any `skein run`.
 
 1.  v1's `verify` unit has passed on `feat/heron-v1`, with or without `HERON_G9_PENDING=1`.
-2.  The owner has answered QF1 to QF3. A feature that QF1 leaves out gets no graph.
-3.  **The base branch.** The owner cuts `feat/v1-features-base` from that commit and commits `eval/features/base.json` = `{"v1_verify_commit": "<sha>"}`. Then they run `skein init` and add the base graph's nodes.
+2.  The owner answered QF1 to QF4 on 2026-11-18. F10 gets no graph.
+3.  **The base branch.** The owner cuts `feat/v1-features-base` from that commit and commits `eval/features/base.json` = `{"v1_verify_commit": "<sha>", "freeze": "<YYYY-MM-DD, 14 days after verify passed>"}`. Then they run `skein init` and add the base graph's nodes.
 4.  **Each feature branch.** Once the base graph is done, the owner cuts each feature branch from the base branch's tip, or from its parent feature's tip (F4 from F3; F7 and F9 from F1). They commit `eval/features/base.json` = `{"v1_verify_commit": "<sha>", "features_base_commit": "<sha of the tip it was cut from>"}`, then add that graph's nodes. Files committed after a node starts don't reach it, so this happens first.
 5.  The skein backend `claude_build_rust` from heron-v1.md is registered. Every node uses it.
 6.  Gate units run on the owner's Mac with claude-cli logged in, one at a time.
@@ -1259,8 +1272,8 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
 
 ##### 34. `macos/HeronMac/Sources/HeronUI/Features/Brief/` (Create), `macos/HeronMac/Tests/HeronUITests/Features/BriefTests.swift` (Create)
 
-*   **Proposed Changes:** the switch, which sends [F6's request body](#f6-morning-brief-with-no-model-call-s), and F6's row.
-*   **Tests:** `BriefTests`, including `scheduleHasNoModelStep` and `switchOffDeletesTheSchedule`.
+*   **Proposed Changes:** the switch, which sends [F6's request body](#f6-morning-brief-with-no-model-call-s), and F6's row. Because F6 ships on (QF3), the app sends that request once on its first launch after F6 lands, recording that it did in `UserDefaults` so a deleted schedule isn't recreated.
+*   **Tests:** `BriefTests`, including `scheduleHasNoModelStep`, `firstLaunchCreatesTheScheduleOnce` and `switchOffDeletesTheSchedule`.
 
 #### F7: spoken replies
 
