@@ -18,6 +18,7 @@ Scope: Heron running on one person's computer, talking to a model provider they 
 | A malicious or compromised MCP server | Its tool descriptions and outputs, and its own process | Rewriting descriptions after trust; exfiltration through arguments |
 | Another local program | Requests to the local API; Heron's MCP server | Guessing the token; calling served tools |
 | Someone who finds the Telegram bot | Messages to it | Guessing the pairing code |
+| Someone who controls the paired Telegram account | Messages from the owner's own chat | In Auto or Yolo mode, tools run without a prompt (T12) |
 | The model itself | Every tool call | Mistakes, or following an injection |
 
 Out of scope: an attacker who already controls the user's account on the machine, and the model
@@ -113,6 +114,7 @@ rate limits or a complete denial-of-service analysis.
 | T8 | The activity log is hash-chained but lives in the same database. | Someone who can rewrite the database can rewrite the whole chain. |
 | T9 | The local API's own endpoints (the buttons in the app) are not subject to the permission mode. | By design they are the user's direct actions; a program that steals the launch token can use them. |
 | T10 | Installers are unsigned. | A user cannot verify who built them. |
+| T12 | Telegram turns run in the desktop's permission mode. Accepted by the owner (C35-8). | In Auto or Yolo mode, whoever controls the paired Telegram account can run tools, including `shell`, with no prompt. Ask mode still asks for every change, and high-risk or outside-content requests are approved only at the computer. |
 | T11 | Undo replaces by atomic exchange and verifies what was displaced (D-13). Removing a file still has only the narrowed check-then-remove gap: the check is repeated at the last moment, after the old version is ready on disk, but the check and the removal are still two steps. | A save from another program that lands in the instant between the removal check and the removal is deleted without a copy. No operating-system primitive closes that one. |
 
 ## Keeping this current
