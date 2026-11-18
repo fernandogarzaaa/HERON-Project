@@ -1,6 +1,15 @@
 {
   "SYNC10": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "173f2c016a2543d6aa25c0fcf6ec5c51",
+        "ended_at": "2026-11-18T20:17:03.748694+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-18T20:16:54.762700+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -12,19 +21,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "173f2c016a2543d6aa25c0fcf6ec5c51",
-      "base_branch": "feat/heron-v1",
-      "claim_token": "1da743099153415c8155876df64f272b",
-      "claimed_at": "2026-11-18T20:16:54.762700+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-18T20:16:54.762700+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -q working_folder_behind_kernel_prefix_is_refused docs/designs/heron-v1.md",
+        "duration_ms": 275,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC10_20261118T201703355426_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC10_20261118T201703632430_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: done",
     "id": "SYNC10",
     "integration_for": null,
     "intent": {
@@ -36,13 +57,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "173f2c016a2543d6aa25c0fcf6ec5c51",
+      "base_commit": "6113f9f6fc037f4dd72021932c72f0d11ca045d0",
+      "changed_files": [],
+      "commit": "6113f9f6fc037f4dd72021932c72f0d11ca045d0",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Sync: capture the feat/heron-v1 head for U1i",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "6113f9f6fc037f4dd72021932c72f0d11ca045d0",
@@ -3190,7 +3217,7 @@
       "claim_token": "efad798de80c434eaf5b1986945352a9",
       "claimed_at": "2026-11-18T20:03:00.514624+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T20:16:31.271838+00:00",
+      "last_heartbeat": "2026-11-18T20:17:01.292327+00:00",
       "node_version": 8,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3218,7 +3245,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 37,
+    "version": 38,
     "worktree": {
       "base_branch": "skein/U3__integrate-base",
       "base_commit": "b4462d41a2488a563eb73b2143207b7910378a28",
