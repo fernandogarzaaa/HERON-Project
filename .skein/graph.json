@@ -2286,15 +2286,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "01a2d2fae82c4174a8de78a2c0b69186",
+      "base_branch": "skein/U2g__integrate__integrate-base",
+      "claim_token": "8f367782aede4ad7af6cc49b02e63f21",
+      "claimed_at": "2026-11-18T19:14:29.994990+00:00",
+      "holder": "skein-auto-merge",
+      "last_heartbeat": "2026-11-18T19:14:29.994990+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "skein-auto-merge"
     },
     "depends_on": [
       "U1g",
@@ -2317,11 +2317,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Integrate parents of U2g",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U2g__integrate__integrate-base",
       "branch": null,
       "path": null
     }
