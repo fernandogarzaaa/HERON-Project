@@ -4363,11 +4363,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "README research-preview banner, platform text, phone row, mode-table change",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
-      "branch": null,
-      "path": null
+      "base_commit": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
+      "branch": "skein/U6b",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U6b"
     }
   },
   "U7": {
