@@ -431,8 +431,11 @@ impl App {
         let agent = self.agent(Arc::new(DenyAll));
         let mut ctx = agent.tool_ctx(&parked.session_id);
         // The call keeps the taint it was parked with: a `remember` parked from a conversation that
-        // had read outside content is still saved as unconfirmed (M-7).
-        ctx.tainted = Arc::new(std::sync::atomic::AtomicBool::new(parked.tainted));
+        // had read outside content is still saved as unconfirmed (M-7). A shell call also sees outside
+        // content that reached the conversation after it was parked: once the conversation is
+        // tainted, its read grants must not reach the call's sandbox.
+        let tainted_now = parked.tool == "shell" && self.store.kv_get(&format!("tainted:{}", parked.session_id)).is_some();
+        ctx.tainted = Arc::new(std::sync::atomic::AtomicBool::new(parked.tainted || tainted_now));
         // Re-check against today's rules: what was allowed to be asked then may be blocked now.
         let risk = tool.risk(&args, &ctx);
         let (summary, target) = (tool.summary(&args), tool.read_target(&args, &ctx));
@@ -1363,6 +1366,41 @@ mod tests {
         app.run_parked(clean).await.unwrap();
         let mine = app.store.list_memories(None, 10).unwrap().into_iter().find(|m| m.content.contains("short morning")).unwrap();
         assert!(mine.confirmed);
+    }
+
+    /// A shell call parked from a clean conversation runs with the conversation's taint as it is when
+    /// the user approves it: once outside content has reached the conversation, the conversation's
+    /// read grants no longer reach the call's sandbox.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn parked_shell_call_sees_taint_set_after_it_was_parked() {
+        use crate::tools::shell::tests::{q, seatbelt, HomeTemp};
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let granted = tmp.put("talk/notes.txt", "GRANTED-FOR-THIS-CONVERSATION");
+        let app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
+        let session = Session::create(&app.store, "job").unwrap();
+        app.store.kv_set(&format!("grants:{}", session.id), &serde_json::to_string(&[format!("read:{}/**", tmp.0.join("talk").display())]).unwrap()).unwrap();
+        let cmd = format!("cat {}", q(&granted));
+        let args = json!({"command": cmd});
+        let park = || app.store.park_approval(&session.id, "shell", &args.to_string(), &cmd, "", "exec", false, "a job").unwrap();
+        // The positive control: while the conversation is clean its grant reaches the sandbox.
+        let before = park();
+        let out = app.run_parked(before).await.unwrap();
+        assert!(out.contains("GRANTED-FOR-THIS-CONVERSATION"), "{out}");
+        // The same call parked again from the clean conversation (the first is dealt with, so this is
+        // a new request), then outside content reaches the conversation before it is approved.
+        let after = park();
+        assert_ne!(before, after);
+        assert!(!app.store.get_approval(after).unwrap().tainted);
+        app.store.kv_set(&format!("tainted:{}", session.id), "1").unwrap();
+        let out = app.run_parked(after).await.unwrap();
+        assert!(!out.contains("GRANTED-FOR-THIS-CONVERSATION"), "{out}");
+        assert!(out.contains("[exit code"), "{out}");
     }
 
     #[tokio::test]

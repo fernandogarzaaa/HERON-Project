@@ -203,7 +203,7 @@ pub fn tools() -> Vec<FnTool> {
 }
 
 #[cfg(all(test, unix))]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::config::Config;
     use crate::memory::Memory;
@@ -347,15 +347,15 @@ mod tests {
 
     /// A temporary folder inside the home folder (the user roots are what the profile denies), removed
     /// when dropped.
-    struct HomeTemp(std::path::PathBuf);
+    pub(crate) struct HomeTemp(pub(crate) std::path::PathBuf);
     impl HomeTemp {
-        fn new() -> HomeTemp {
+        pub(crate) fn new() -> HomeTemp {
             let home = dirs::home_dir().unwrap();
             let dir = home.join(format!(".heron-sandbox-test-{}", uuid::Uuid::new_v4().simple()));
             std::fs::create_dir_all(&dir).unwrap();
             HomeTemp(dunce::canonicalize(&dir).unwrap())
         }
-        fn put(&self, rel: &str, text: &str) -> std::path::PathBuf {
+        pub(crate) fn put(&self, rel: &str, text: &str) -> std::path::PathBuf {
             let p = self.0.join(rel);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(&p, text).unwrap();
@@ -370,7 +370,7 @@ mod tests {
 
     /// The Seatbelt tests run only where Seatbelt is in effect, and say so elsewhere. With
     /// `HERON_REQUIRE_SEATBELT=1` (the gate) a skip fails instead.
-    fn seatbelt(cfg: &Config) -> bool {
+    pub(crate) fn seatbelt(cfg: &Config) -> bool {
         if crate::sandbox::active(cfg) == crate::sandbox::Kind::Seatbelt {
             return true;
         }
@@ -382,7 +382,7 @@ mod tests {
         run(&json!({"command": command}), ctx).await.unwrap()
     }
 
-    fn q(p: &std::path::Path) -> String {
+    pub(crate) fn q(p: &std::path::Path) -> String {
         format!("'{}'", p.display().to_string().replace('\'', "'\\''"))
     }
 
@@ -427,7 +427,7 @@ mod tests {
         let refused = tmp.put("heron-home/config.toml", "REFUSED-CONTENT");
         let alias = |p: &std::path::Path| std::path::PathBuf::from(format!("{}{}", crate::permissions::DATA_VOLUME, p.display()));
         if std::fs::read_to_string(alias(&private)).ok().as_deref() != Some("ASK-TIER-CONTENT") {
-            eprintln!("{} does not name the same file here; skipping", alias(&private).display());
+            crate::sandbox::skip_seatbelt_test(&format!("{} does not name the same file here", alias(&private).display()));
             return;
         }
         let ctx = test_ctx(&cfg, &ws, "t");
@@ -440,6 +440,52 @@ mod tests {
         }
         for file in [alias(&private), alias(&refused)] {
             for cmd in [format!("cat {}", q(&file)), format!("python3 -c \"print(open('{}').read())\"", file.display())] {
+                let out = sh(&ctx, &cmd).await;
+                assert!(!out.contains("-CONTENT"), "{cmd}: {out}");
+                assert!(out.contains("[exit code"), "{cmd}: {out}");
+            }
+        }
+    }
+
+    /// `/.nofollow<path>` and `/.vol/<device>/<inode of its folder>/<name>` name the same file as
+    /// `<path>` (kernel lookup prefixes). The profile denies an Ask-tier or Refused file by either name,
+    /// as it does by its plain one.
+    #[tokio::test]
+    async fn kernel_prefix_paths_are_denied_in_the_sandbox() {
+        use std::os::unix::fs::MetadataExt;
+        use std::path::{Path, PathBuf};
+        let cfg = Config::default();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let cfg = Config { home: tmp.0.join("heron-home"), ..Default::default() };
+        let ws = tmp.0.join("project");
+        std::fs::create_dir_all(&ws).unwrap();
+        let private = tmp.put("elsewhere/diary.txt", "ASK-TIER-CONTENT");
+        let refused = tmp.put("heron-home/config.toml", "REFUSED-CONTENT");
+        let own = tmp.put("project/readme.txt", "WORKSPACE-CONTENT");
+        let forms = |p: &Path| {
+            let folder = std::fs::metadata(p.parent().unwrap()).unwrap();
+            let name = p.file_name().unwrap().to_string_lossy().to_string();
+            [PathBuf::from(format!("/.nofollow{}", p.display())), PathBuf::from(format!("/.vol/{}/{}/{name}", folder.dev(), folder.ino()))]
+        };
+        // Outside the sandbox each form names its file, so what is denied below is the profile's doing.
+        for (file, text) in [(&private, "ASK-TIER-CONTENT"), (&refused, "REFUSED-CONTENT")] {
+            for form in forms(file) {
+                if std::fs::read_to_string(&form).ok().as_deref() != Some(text) {
+                    crate::sandbox::skip_seatbelt_test(&format!("{} does not name {} here", form.display(), file.display()));
+                    return;
+                }
+            }
+        }
+        let ctx = test_ctx(&cfg, &ws, "t");
+        // The positive control: under the same profile `cat` runs and reads the working folder.
+        let out = sh(&ctx, &format!("cat {}", q(&own))).await;
+        assert!(out.contains("WORKSPACE-CONTENT"), "{out}");
+        for file in [&private, &refused] {
+            for form in forms(file) {
+                let cmd = format!("cat {}", q(&form));
                 let out = sh(&ctx, &cmd).await;
                 assert!(!out.contains("-CONTENT"), "{cmd}: {out}");
                 assert!(out.contains("[exit code"), "{cmd}: {out}");
@@ -817,31 +863,54 @@ mod tests {
         }
     }
 
-    /// Sets `CLAUDE_CONFIG_DIR` and `CODEX_HOME` for one case and puts back what was there when
-    /// dropped, panic or not. Held under `sandbox::CONFIG_DIR_ENV`.
-    struct ConfigDirEnv(Vec<(&'static str, Option<std::ffi::OsString>)>);
-    impl ConfigDirEnv {
-        const VARS: [&'static str; 2] = ["CLAUDE_CONFIG_DIR", "CODEX_HOME"];
-        fn set(values: &[(&'static str, &str)]) -> ConfigDirEnv {
-            let saved = ConfigDirEnv(Self::VARS.iter().map(|v| (*v, std::env::var_os(v))).collect());
-            for v in Self::VARS {
-                std::env::remove_var(v);
-            }
-            for (k, v) in values {
-                std::env::set_var(k, v);
-            }
-            saved
-        }
+    /// Set by [`cli_profile_in_child`] for [`config_dir_override_child`]: the case to build, as JSON.
+    const OVERRIDE_CHILD_CASE: &str = "HERON_CONFIG_DIR_OVERRIDE_CHILD";
+    const OVERRIDE_CHILD_MARK: &str = "HERON-CONFIG-DIR-OVERRIDE-CHILD ";
+
+    /// Run by [`cli_profile_in_child`] in a child process, and a no-op in a normal run: builds one
+    /// CLI's profile text and `sandbox::wrap` prefix with the environment it was started with, and
+    /// prints them on one line.
+    #[test]
+    fn config_dir_override_child() {
+        let Ok(case) = std::env::var(OVERRIDE_CHILD_CASE) else { return };
+        let case: serde_json::Value = serde_json::from_str(&case).unwrap();
+        let field = |k: &str| case[k].as_str().unwrap().to_string();
+        let mut cfg = Config::default();
+        cfg.llm.provider = field("id");
+        cfg.llm.cli_config_dir = field("cli_config_dir");
+        let run_dir = std::path::PathBuf::from(field("run_dir"));
+        let home = dunce::canonicalize(dirs::home_dir().unwrap()).unwrap();
+        let spec = crate::cli_llm::spec_for(&field("id")).unwrap();
+        let profile = crate::sandbox::Profile::Cli { spec: &spec, binary_dir: "/usr/bin".into(), extra_read: vec![] };
+        let text = crate::sandbox::seatbelt_profile(&cfg, &home, &run_dir, &profile);
+        let prefix = crate::sandbox::wrap(&cfg, &run_dir, &profile);
+        println!("{OVERRIDE_CHILD_MARK}{}", serde_json::json!({ "profile": text, "prefix": prefix }));
     }
-    impl Drop for ConfigDirEnv {
-        fn drop(&mut self) {
-            for (k, v) in &self.0 {
-                match v {
-                    Some(v) => std::env::set_var(k, v),
-                    None => std::env::remove_var(k),
-                }
-            }
+
+    /// One CLI's profile text and `sandbox::wrap` prefix with a config-folder override set by `how`
+    /// (`llm.cli_config_dir`, `CLAUDE_CONFIG_DIR` or `CODEX_HOME`), built in a child process (this
+    /// test binary, running [`config_dir_override_child`]) with both variables cleared and then the
+    /// one in `how` set. `ReadRoots` reads those variables, so setting them in this process would
+    /// change every profile other tests build meanwhile.
+    fn cli_profile_in_child(how: &str, id: &str, value: &str, run_dir: &std::path::Path) -> (String, Option<(String, Vec<String>)>) {
+        let cli_config_dir = if how == "llm.cli_config_dir" { value } else { "" };
+        let case = serde_json::json!({ "id": id, "cli_config_dir": cli_config_dir, "run_dir": run_dir.display().to_string() });
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child.args(["--exact", "tools::shell::tests::config_dir_override_child", "--nocapture", "--test-threads=1"]);
+        child.env(OVERRIDE_CHILD_CASE, case.to_string()).env_remove("CLAUDE_CONFIG_DIR").env_remove("CODEX_HOME");
+        if how != "llm.cli_config_dir" {
+            child.env(how, value);
         }
+        let out = child.output().unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        // libtest's `test <name> ... ` can come first on the same line.
+        let line = stdout.lines().find_map(|l| l.split_once(OVERRIDE_CHILD_MARK).map(|(_, built)| built));
+        let Some(line) = line.filter(|_| out.status.success()) else {
+            panic!("{how}={value} on {id}: the child built no profile: {stdout}{}", String::from_utf8_lossy(&out.stderr));
+        };
+        let built: serde_json::Value = serde_json::from_str(line).unwrap();
+        let prefix = serde_json::from_value(built["prefix"].clone()).unwrap();
+        (built["profile"].as_str().unwrap().to_string(), prefix)
     }
 
     /// A config-folder override of `~` or `/` (`llm.cli_config_dir`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`)
@@ -849,7 +918,6 @@ mod tests {
     /// CLI's own folders still cannot be read.
     #[test]
     fn broad_config_dir_override_opens_nothing_in_a_cli_sandbox() {
-        let _lock = crate::sandbox::CONFIG_DIR_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let home = dunce::canonicalize(dirs::home_dir().unwrap()).unwrap();
         let run = tempfile::tempdir().unwrap();
         let run_dir = dunce::canonicalize(run.path()).unwrap();
@@ -861,32 +929,17 @@ mod tests {
             cases.push(("CLAUDE_CONFIG_DIR", "claude-cli", value.into()));
             cases.push(("CODEX_HOME", "codex-cli", value.into()));
         }
-        let configure = |how: &str, id: &str, value: &str| -> (Config, ConfigDirEnv) {
-            let mut cfg = Config::default();
-            cfg.llm.provider = id.into();
-            let env = if how == "llm.cli_config_dir" {
-                cfg.llm.cli_config_dir = value.into();
-                ConfigDirEnv::set(&[])
-            } else {
-                ConfigDirEnv::set(&[(if how == "CODEX_HOME" { "CODEX_HOME" } else { "CLAUDE_CONFIG_DIR" }, value)])
-            };
-            (cfg, env)
-        };
         let own_line = |text: &str| text.lines().rfind(|l| l.starts_with("(allow file-read* file-write*")).unwrap_or("").to_string();
 
         // The profile text. A narrow override in the same place is opened, so each case really
         // reaches the CLI's own-folder rule; `~` and `/` are not.
         let narrow = home.join(format!(".heron-override-test-{}", uuid::Uuid::new_v4().simple()));
+        let mut prefixes = vec![];
         for (how, id, value) in &cases {
-            let spec = crate::cli_llm::spec_for(id).unwrap();
-            let profile = crate::sandbox::Profile::Cli { spec: &spec, binary_dir: "/usr/bin".into(), extra_read: vec![] };
-            let (cfg, env) = configure(how, id, &narrow.display().to_string());
-            let opened = own_line(&crate::sandbox::seatbelt_profile(&cfg, &home, &run_dir, &profile));
-            drop(env);
+            let opened = own_line(&cli_profile_in_child(how, id, &narrow.display().to_string(), &run_dir).0);
             assert!(opened.contains(&format!("(subpath \"{}\")", narrow.display())), "{how} on {id}: a narrow override is not opened: {opened}");
-            let (cfg, env) = configure(how, id, value);
-            let text = crate::sandbox::seatbelt_profile(&cfg, &home, &run_dir, &profile);
-            drop(env);
+            let (text, prefix) = cli_profile_in_child(how, id, value, &run_dir);
+            prefixes.push(prefix);
             for broad in [home.clone(), std::path::PathBuf::from("/")] {
                 let opened = text.lines().filter(|l| l.starts_with("(allow")).find(|l| l.contains(&format!("(subpath \"{}\")", broad.display())));
                 assert!(opened.is_none(), "{how}={value} on {id} opens {}: {opened:?}", broad.display());
@@ -901,12 +954,8 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&planted).unwrap(), "HOME-FOLDER-CONTENT", "the planted file reads outside the sandbox");
         std::fs::write(run_dir.join("own.txt"), "RUN-FOLDER-CONTENT").unwrap();
         let mut ran = 0;
-        for (how, id, value) in &cases {
-            let spec = crate::cli_llm::spec_for(id).unwrap();
-            let profile = crate::sandbox::Profile::Cli { spec: &spec, binary_dir: "/usr/bin".into(), extra_read: vec![] };
-            let (cfg, env) = configure(how, id, value);
-            let prefix = crate::sandbox::wrap(&cfg, &run_dir, &profile).expect("Seatbelt wraps a CLI");
-            drop(env);
+        for ((how, id, value), prefix) in cases.iter().zip(prefixes) {
+            let prefix = prefix.expect("Seatbelt wraps a CLI");
             let cat = |file: &std::path::Path| {
                 let out = std::process::Command::new(&prefix.0).args(&prefix.1).arg("/bin/cat").arg(file).output().unwrap();
                 (out.status.success(), String::from_utf8_lossy(&out.stdout).to_string(), String::from_utf8_lossy(&out.stderr).to_string())

@@ -1732,6 +1732,108 @@ mod tier_tests {
         assert!(list_dir(&json!({}), &c).await.is_ok());
     }
 
+    /// `/.nofollow/<path>` and `/.resolve/<flags>/<path>` name the file at `<path>`, and `realpath`
+    /// returns them unchanged, so like `/.vol` they are Refused for reads and writes in every mode:
+    /// in any letter case, after `..` and `//`, behind the data and boot volume aliases, and through a
+    /// link in the working folder. The listing and search tools refuse them as a root.
+    #[tokio::test]
+    async fn kernel_prefix_paths_are_refused() {
+        use crate::permissions::DATA_VOLUME;
+        let (_dir, ws, home) = dirs_for_test();
+        let c = ctx(&ws, &home);
+        let home = dunce::canonicalize(&home).unwrap();
+        let secret = home.join("config.toml");
+        std::fs::write(&secret, "REFUSED-KERNEL-CONTENT").unwrap();
+        std::fs::write(c.workspace.join("notes.md"), "WORKSPACE-CONTENT").unwrap();
+        let (s, h, w) = (secret.display().to_string(), home.display().to_string(), c.workspace.display().to_string());
+        let up = "../".repeat(c.workspace.components().count() - 1);
+        let mut written: Vec<String> = vec![
+            format!("/.nofollow{s}"),
+            format!("/.NoFollow{s}"),
+            format!("/.resolve/1{s}"),
+            format!("/.RESOLVE/1{s}"),
+            format!("/.vol/1/2{s}"),
+            format!("//.nofollow/{s}"),
+            format!("/private/../.nofollow{s}"),
+            format!("/tmp/x/../../.resolve/1{s}"),
+            format!("{DATA_VOLUME}/.nofollow{s}"),
+            format!("/.nofollow{h}"),
+            format!("/.nofollow{w}/notes.md"),
+            format!("/.nofollow{w}/not-yet/new.md"),
+            "/.nofollow".into(),
+            "/.resolve".into(),
+            // Relative to the working folder: `..` up to `/`, then the prefix.
+            format!("{up}.nofollow{s}"),
+        ];
+        // The boot volume's entry in `/Volumes` is a link to `/`.
+        for entry in std::fs::read_dir("/Volumes").into_iter().flatten().flatten() {
+            if dunce::canonicalize(entry.path()).is_ok_and(|r| r == Path::new("/")) {
+                let boot = entry.path().display().to_string();
+                written.extend([format!("{boot}/.nofollow{s}"), format!("{boot}{DATA_VOLUME}/.nofollow{s}"), format!("/volumes/{}/.Nofollow{s}", entry.file_name().to_string_lossy())]);
+            }
+        }
+        let rules = |tool: &str| ["*".to_string(), format!("{tool}:*"), format!("read:{h}/**"), format!("read:/.nofollow{h}/**")];
+        for raw in &written {
+            let path = c.workspace.join(raw);
+            assert!(crate::permissions::unresolvable(&path), "{raw}");
+            for write in [false, true] {
+                assert_eq!(classify_path(&path, &c.workspace, &c.cfg, write), Effect::Refused, "{raw} (write: {write})");
+            }
+            let args = json!({"path": raw, "pattern": "CONTENT", "glob": "*"});
+            for tool in ["read_file", "list_dir", "search_files", "find_files"] {
+                for mode in [Mode::ReadOnly, Mode::Ask, Mode::Auto, Mode::Yolo] {
+                    let (effect, v) = verdict(&c, tool, &args, mode, &rules(tool));
+                    assert_eq!(effect, Effect::Refused, "{tool} {raw} in {mode:?}");
+                    assert!(matches!(v, Verdict::Deny(_)), "{tool} {raw} in {mode:?}: {v:?}");
+                }
+            }
+            for write_tool in ["write_file", "edit_file"] {
+                let (effect, v) = verdict(&c, write_tool, &json!({"path": raw}), Mode::Yolo, &["*".into()]);
+                assert_eq!(effect, Effect::Refused, "{write_tool} {raw}");
+                assert!(matches!(v, Verdict::Deny(_)), "{write_tool} {raw}: {v:?}");
+            }
+            for result in [list_dir(&args, &c).await, search_files(&args, &c).await, find_files(&args, &c).await] {
+                let err = result.expect_err(&format!("{raw} was walked"));
+                assert!(err.to_string().contains("can't be resolved"), "{err}");
+            }
+        }
+        // A link in the working folder to Heron's home through `/.nofollow`: Refused however `realpath`
+        // treats it, and a search or listing of the working folder does not read through it. A link to
+        // `/` followed by the prefix is the prefix once the link is followed.
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(format!("/.nofollow{s}"), c.workspace.join("by-prefix.toml")).unwrap();
+            std::os::unix::fs::symlink(format!("/.nofollow{h}"), c.workspace.join("home-by-prefix")).unwrap();
+            std::os::unix::fs::symlink("/", c.workspace.join("root")).unwrap();
+            eprintln!("canonical form of a link into /.nofollow: {:?}", dunce::canonicalize(c.workspace.join("by-prefix.toml")));
+            for raw in ["by-prefix.toml", "home-by-prefix/config.toml", "home-by-prefix", &format!("root/.nofollow{s}"), &format!("root/.nofollow{w}/not-yet/new.md"), "root/.nofollow", "root/.resolve"] {
+                let path = c.workspace.join(raw);
+                for write in [false, true] {
+                    assert_eq!(classify_path(&path, &c.workspace, &c.cfg, write), Effect::Refused, "link {raw} (write: {write})");
+                }
+                for tool in ["read_file", "list_dir", "search_files", "find_files"] {
+                    let (effect, v) = verdict(&c, tool, &json!({"path": raw, "pattern": "CONTENT", "glob": "*"}), Mode::Yolo, &rules(tool));
+                    assert_eq!(effect, Effect::Refused, "{tool} link {raw}");
+                    assert!(matches!(v, Verdict::Deny(_)), "{tool} link {raw}: {v:?}");
+                }
+            }
+            let found = search_files(&json!({"pattern": "KERNEL-CONTENT|WORKSPACE-CONTENT"}), &c).await.unwrap();
+            assert!(found.contains("notes.md:1:") && !found.contains("REFUSED-KERNEL-CONTENT"), "{found}");
+            let listed = find_files(&json!({"glob": "*"}), &c).await.unwrap();
+            assert!(listed.contains("notes.md") && !listed.contains("config.toml") && !listed.contains("by-prefix.toml"), "{listed}");
+            // Called directly (past the policy), the walkers still open nothing through the link.
+            for args in [json!({"path": "home-by-prefix", "pattern": "CONTENT"}), json!({"path": "home-by-prefix", "glob": "*"})] {
+                for out in [search_files(&args, &c).await, find_files(&args, &c).await].into_iter().flatten() {
+                    assert!(!out.contains("REFUSED-KERNEL-CONTENT") && !out.contains("config.toml"), "{out}");
+                }
+            }
+        }
+        // An ordinary path that resolves is judged as before.
+        assert!(!crate::permissions::unresolvable(&c.workspace.join("notes.md")));
+        assert!(!crate::permissions::unresolvable(&c.workspace.join(".nofollow-not-a-prefix/new.md")));
+        assert_eq!(classify_path(&c.workspace.join("notes.md"), &c.workspace, &c.cfg, false), Effect::LocalRead);
+    }
+
     /// M-4, the `read_file` half: credential files the old list did not name now ask. The glob and
     /// quote half belongs to the shell (`read_file` never expanded globs, before or after M-4), and is
     /// checked by `m4_sandbox_denies_globs_quotes_and_unlisted_secrets` in `shell.rs`.

@@ -943,18 +943,56 @@ pub fn data_volume_normalized(path: &Path) -> PathBuf {
     without_data_volume(path).unwrap_or_else(|| path.to_path_buf())
 }
 
-/// A path whose real location can't be determined: one under `/.vol` (macOS opens a file there by
-/// volume id, and `realpath` fails on it), one whose deepest existing part (a link that can't be
-/// followed included) can't be canonicalized, or one whose canonical form is itself under `/.vol`.
-/// Classifying such a name would judge a name that says nothing about where it leads.
-pub fn unresolvable(path: &Path) -> bool {
-    let under_vol = |p: &Path| {
-        [p.to_path_buf(), data_volume_normalized(p)].iter().any(|p| {
-            let mut parts = p.components();
-            parts.next() == Some(Component::RootDir) && parts.next().is_some_and(|c| c.as_os_str().eq_ignore_ascii_case(".vol"))
-        })
+/// A path under `/Volumes/<boot volume>` with that prefix removed (`/Volumes/Macintosh HD/Users/x` is
+/// `/Users/x`), or None for any other path. The boot volume's entry in `/Volumes` is a link to `/`
+/// (or to the data volume), so this asks the filesystem which entry that is.
+pub fn without_boot_volume(path: &Path) -> Option<PathBuf> {
+    let mut parts = path.components();
+    if parts.next() != Some(Component::RootDir) || !parts.next().is_some_and(|c| c.as_os_str().eq_ignore_ascii_case("Volumes")) {
+        return None;
+    }
+    let Some(Component::Normal(name)) = parts.next() else { return None };
+    let real = dunce::canonicalize(Path::new("/Volumes").join(name)).ok()?;
+    (real == Path::new("/") || real == Path::new(DATA_VOLUME)).then(|| Path::new("/").join(parts.as_path()))
+}
+
+/// The first components macOS's path lookup treats specially: `/.vol/<device>/<inode>` opens a file by
+/// volume id, and `/.nofollow/<path>` and `/.resolve/<flags>/<path>` look up the path after them.
+/// `realpath` either fails on such a name or returns it unchanged, so it says nothing about where it
+/// leads.
+const KERNEL_LOOKUP_PREFIXES: [&str; 3] = [".vol", ".nofollow", ".resolve"];
+
+/// Does this path start with a kernel lookup prefix (compared case-insensitively), as written or once
+/// `..` and `//` are normalized and the `/System/Volumes/Data` and `/Volumes/<boot volume>` aliases are
+/// taken off?
+fn kernel_prefixed(path: &Path) -> bool {
+    let starts = |p: &Path| {
+        let mut parts = p.components();
+        parts.next() == Some(Component::RootDir) && parts.next().is_some_and(|c| KERNEL_LOOKUP_PREFIXES.iter().any(|k| c.as_os_str().eq_ignore_ascii_case(k)))
     };
-    if under_vol(path) {
+    [path.to_path_buf(), normalize(path)].into_iter().any(|mut p| {
+        // The aliases can be stacked (`/Volumes/<boot>/System/Volumes/Data/...`): each pass takes one
+        // off. A name stacked deeper than any real one fails closed.
+        for _ in 0..8 {
+            if starts(&p) {
+                return true;
+            }
+            match without_data_volume(&p).or_else(|| without_boot_volume(&p)) {
+                Some(next) => p = next,
+                None => return false,
+            }
+        }
+        true
+    })
+}
+
+/// A path whose real location can't be determined: one whose written form starts with a kernel lookup
+/// prefix (`/.vol`, `/.nofollow`, `/.resolve`, see [`KERNEL_LOOKUP_PREFIXES`]), one whose deepest
+/// existing part (a link that can't be followed included) can't be canonicalized, or one whose
+/// canonical form itself starts with such a prefix. Classifying such a name would judge a name that
+/// says nothing about where it leads.
+pub fn unresolvable(path: &Path) -> bool {
+    if kernel_prefixed(path) {
         return true;
     }
     // A link counts as there even when what it points at can't be reached: it is a name that leads
@@ -966,7 +1004,11 @@ pub fn unresolvable(path: &Path) -> bool {
             _ => return false,
         }
     }
-    dunce::canonicalize(existing).map_or(true, |real| under_vol(&real))
+    let Ok(real) = dunce::canonicalize(existing) else { return true };
+    // The canonical form is the real deepest part with the rest of the name after it: a link to `/`
+    // followed by `.nofollow/...` is a kernel lookup prefix once the link is followed.
+    let rest = path.strip_prefix(existing).unwrap_or(Path::new(""));
+    kernel_prefixed(&if rest.as_os_str().is_empty() { real } else { real.join(rest) })
 }
 
 /// The environment variables that point a CLI at another config folder (`CLAUDE_CONFIG_DIR`, ...).
@@ -1839,6 +1881,18 @@ mod tests {
             for beside in [home.join("Documents-private/a.txt"), alias(&home.join("Documents-private/a.txt")), home.join("notes.txt")] {
                 assert!(!read_rule_covers(&rule, &beside), "{rule} on {}", beside.display());
             }
+        }
+        // A rule on a folder that does not exist yet, named by its alias: `realpath` can't take the
+        // prefix off for it, so the rule's own folder is compared without it.
+        let missing = home.join(format!("heron-missing-grant-test-{}", uuid::Uuid::new_v4().simple()));
+        assert!(!missing.exists() && !alias(&missing).exists());
+        let rule = format!("read:{}/**", alias(&missing).display());
+        assert!(Policy::new(Mode::Ask, std::slice::from_ref(&rule), &[]).allow_rules() == [rule.clone()], "a folder inside the home folder is granted by its alias before it exists");
+        for target in [missing.join("a.txt"), alias(&missing.join("a.txt")), missing.clone()] {
+            assert!(read_rule_covers(&rule, &target), "{rule} on {}", target.display());
+        }
+        for beside in [home.join(format!("{}-private/a.txt", missing.file_name().unwrap().to_string_lossy())), home.join("notes.txt")] {
+            assert!(!read_rule_covers(&rule, &beside), "{rule} on {}", beside.display());
         }
     }
 
