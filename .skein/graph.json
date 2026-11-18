@@ -390,6 +390,84 @@
     }
   },
   "SYNC8": {
+    "attempts": [
+      {
+        "attempt_id": "4ad8da776e74460ea7e1192746358dfc",
+        "ended_at": "2026-11-18T19:03:56.810198+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-18T19:03:49.194417+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "grep -q broad_config_dir_override_opens_nothing_in_a_cli_sandbox docs/designs/heron-v1.md",
+        "duration_ms": 208,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC8_20261118T190356553349_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC8_20261118T190356762347_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I didn't run the completion check (`grep -q broad_config_dir_override_opens_nothing_in_a_cli_sandbox docs/designs/heron-v1.md`), because the constraints forbid running anything. The supervisor will run it.",
+    "id": "SYNC8",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q broad_config_dir_override_opens_nothing_in_a_cli_sandbox docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U2g's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "4ad8da776e74460ea7e1192746358dfc",
+      "base_commit": "5a81acc436abc65639c9a09f5567035e9959bd93",
+      "changed_files": [],
+      "commit": "5a81acc436abc65639c9a09f5567035e9959bd93",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Sync: capture the feat/heron-v1 head for U2g",
+    "version": 4,
+    "worktree": {
+      "base_branch": "feat/heron-v1",
+      "base_commit": "5a81acc436abc65639c9a09f5567035e9959bd93",
+      "branch": "skein/SYNC8",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC8"
+    }
+  },
+  "SYNC9": {
     "attempts": [],
     "attempts_used": 0,
     "backend": "claude_build_rust",
@@ -402,12 +480,12 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "4ad8da776e74460ea7e1192746358dfc",
+      "attempt_id": "35a4c804abbd4beeb7786383c215f8fb",
       "base_branch": "feat/heron-v1",
-      "claim_token": "dad1e33cea874c2b99ef8c66ee1a16bb",
-      "claimed_at": "2026-11-18T19:03:49.194417+00:00",
+      "claim_token": "1fe0c271e3e740219cfcc5cccdc0b8d2",
+      "claimed_at": "2026-11-18T19:32:04.528955+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-18T19:03:49.194417+00:00",
+      "last_heartbeat": "2026-11-18T19:32:04.528955+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -415,13 +493,13 @@
     "depends_on": [],
     "evidence": [],
     "handoff_note": null,
-    "id": "SYNC8",
+    "id": "SYNC9",
     "integration_for": null,
     "intent": {
-      "completion": "grep -q broad_config_dir_override_opens_nothing_in_a_cli_sandbox docs/designs/heron-v1.md",
+      "completion": "grep -q kernel_prefix_paths_are_refused docs/designs/heron-v1.md",
       "constraints": "Do not read, write or run anything.",
       "context": "No spec work.",
-      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U2g's base. Reply 'done' and stop."
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U1h's base. Reply 'done' and stop."
     },
     "max_retries": 0,
     "rejected_count": 0,
@@ -431,7 +509,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "claimed",
-    "title": "Sync: capture the feat/heron-v1 head for U2g",
+    "title": "Sync: capture the feat/heron-v1 head for U1h",
     "version": 2,
     "worktree": {
       "base_branch": "feat/heron-v1",
@@ -1401,7 +1479,16 @@
     }
   },
   "U1g": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "d0d5a32c8e1e4dfd9d21612b29825b68",
+        "ended_at": "2026-11-18T19:14:29.635957+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T18:55:17.129647+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1413,22 +1500,52 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "d0d5a32c8e1e4dfd9d21612b29825b68",
-      "base_branch": "skein/U1g__integrate-base",
-      "claim_token": "213133f08a9c47a388ad4919e0158972",
-      "claimed_at": "2026-11-18T18:55:17.129647+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T19:03:47.659170+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2f",
       "SYNC7"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins",
+        "duration_ms": 15464,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1g_20261118T191408388170_0.log"
+      },
+      {
+        "command": "cargo test --locked --features desktop --bin heron-desktop",
+        "duration_ms": 3932,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1g_20261118T191423854930_1.log"
+      },
+      {
+        "command": "cargo clippy --locked --all-targets -- -D warnings",
+        "duration_ms": 1043,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1g_20261118T191427789503_2.log"
+      },
+      {
+        "command": "bash eval/require-tests.sh --lib -- volume_id_paths_are_refused firmlink_alias_grants_are_too_broad exact_grant_on_walk_root_opens_no_subtree tainted_conversation_grants_do_not_reach_the_sandbox firmlink_alias_is_denied_in_the_sandbox",
+        "duration_ms": 634,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1g_20261118T191428834562_3.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1g_20261118T191429469769_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U1g",
     "integration_for": null,
     "intent": {
@@ -1440,13 +1557,46 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "d0d5a32c8e1e4dfd9d21612b29825b68",
+      "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
+      "changed_files": [
+        "src/agent.rs",
+        "src/permissions.rs",
+        "src/sandbox.rs",
+        "src/tools/fs.rs",
+        "src/tools/shell.rs"
+      ],
+      "commit": "6750b378a45ea32d3b794539dedc3549769c6c5b",
+      "diff_stats": {
+        "src/agent.rs": {
+          "added": 63,
+          "deleted": 3
+        },
+        "src/permissions.rs": {
+          "added": 108,
+          "deleted": 11
+        },
+        "src/sandbox.rs": {
+          "added": 7,
+          "deleted": 6
+        },
+        "src/tools/fs.rs": {
+          "added": 143,
+          "deleted": 11
+        },
+        "src/tools/shell.rs": {
+          "added": 58,
+          "deleted": 2
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Fixes from U1f's security review: /.vol fail-closed, alias in too_broad, read=: walker scope, tainted shell grants",
-    "version": 21,
+    "version": 43,
     "worktree": {
       "base_branch": "skein/U1g__integrate-base",
       "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
@@ -1519,6 +1669,59 @@
     "worktree": {
       "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
       "branch": "skein/U1g__integrate-base",
+      "path": null
+    }
+  },
+  "U1h": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U2g",
+      "SYNC9"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U1h",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins\ncargo test --locked --features desktop --bin heron-desktop\ncargo clippy --locked --all-targets -- -D warnings\nHERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins\nbash eval/require-tests.sh --lib -- kernel_prefix_paths_are_refused kernel_prefix_paths_are_denied_in_the_sandbox parked_shell_call_sees_taint_set_after_it_was_parked firmlink_alias_grants_are_too_broad",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md, search 'Kernel lookup prefixes', 'Fixes from U1g's review', 'U1f's review'. Review evidence at U1g's result 6750b378: permissions.rs:950-969 unresolvable and 1017-1018 classify_path; fs.rs:803 walk_root; shell.rs:418,429 early returns and 433 positive control; permissions.rs:520 read_rule_covers folder side; app.rs:435 run_parked sets ctx.tainted = parked.tainted. Reuse the existing data_volume_normalized / unresolvable helpers rather than writing a second normalizer. Plant test files under a HomeTemp or Heron home folder you create; never read real files in the user's home. Your Bash runs inside a sandbox where sandbox-exec cannot run, so Seatbelt tests fail for you but run in the completion command.",
+      "goal": "Fix what an independent review of U1g found, as the spec now says (search 'Kernel lookup prefixes' and 'Fixes from U1g's review'). (1) HIGH: /.nofollow/<absolute path> bypasses classification: realpath returns it unchanged, so /.nofollow<heron home>/config.toml was LocalRead and read_file and search_files returned it in ReadOnly mode. In classify_path (and the unresolvable check the walkers use), a written or canonical path whose first component is a kernel lookup prefix (.vol, .nofollow, .resolve; case-insensitive), after normalizing .. and // and the /System/Volumes/Data and /Volumes/<boot volume> aliases, is Refused for reads and writes. Test kernel_prefix_paths_are_refused through the classifier, read_file, search_files/find_files/list_dir, and a symlink in the working folder pointing at /.nofollow/... . (2) Test kernel_prefix_paths_are_denied_in_the_sandbox: under the real shell Seatbelt profile, cat a file planted in a Refused or Ask-tier folder through /.nofollow<path> and through /.vol/<dev>/<ino-of-parent>/<name> (get dev and ino with std::os::unix MetadataExt), assert the content never comes back, and add a positive control (a working-folder file read the same way through the plain path succeeds). If the sandbox does let either form through, fix the profile: deny file-read* and file-write* for the three prefixes with regex rules placed so no later allow reopens them (Seatbelt brackets put '-' first), and say so. (3) Under HERON_REQUIRE_SEATBELT=1, the early return in firmlink_alias_is_denied_in_the_sandbox when the alias doesn't resolve panics instead of skipping. (4) firmlink_alias_grants_are_too_broad gains a case where the rule folder does not exist yet (exercising the folder-side data_volume_normalized in read_rule_covers). (5) run_parked (app.rs) runs a parked shell call with the conversation's current taint OR'd with the taint it was parked with; test parked_shell_call_sees_taint_set_after_it_was_parked. Every new test must fail on the code before your change."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fixes from U1g's review: kernel lookup prefixes fail closed, sandbox test, parked taint",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
       "path": null
     }
   },
@@ -2138,6 +2341,64 @@
     ],
     "change_policy": "warn",
     "claim": {
+      "attempt_id": "84862b28d411498b836fd5f0da912ed3",
+      "base_branch": "skein/U2g__integrate-base",
+      "claim_token": "6b80e1f29be44b3a8da9d94950563933",
+      "claimed_at": "2026-11-18T19:14:30.532166+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-18T19:32:01.676465+00:00",
+      "node_version": 3,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
+    },
+    "depends_on": [
+      "U1g",
+      "SYNC8"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U2g",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins\ncargo test --locked --features desktop --bin heron-desktop\ncargo clippy --locked --all-targets -- -D warnings\nHERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins\nbash eval/require-tests.sh --lib -- broad_config_dir_override_opens_nothing_in_a_cli_sandbox probes_run_contained_like_the_turn sandboxed_command_cannot_launch_outside_the_sandbox",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 26, 'Probes run contained', 'Config-folder overrides are checked', 'Regression tests that run each reproduced U2 escape', and 'Review coverage'. Existing tests: src/tools/shell.rs sandboxed_command_cannot_launch_outside_the_sandbox and helpers seatbelt(), sh(), HomeTemp; src/cli_llm.rs probes_run_contained_like_the_turn with fake_bin and probe_cfg; src/sandbox.rs own_config_dirs_take_the_configured_folder_only_for_its_provider_and_never_a_broad_one. Never create, read or change a real keychain, and never read real files in the user's home: plant your own files under a HomeTemp folder. Your Bash runs inside a sandbox where sandbox-exec cannot run, so Seatbelt tests fail for you but run in the completion command.",
+      "goal": "Add regression tests so each sandbox escape the U2 review reproduced is checked by running the real attack under Seatbelt, as the spec now says (search 'Regression tests that run each reproduced U2 escape'). Change no production behaviour unless a new test shows a real hole; if so, fix it the way the spec says and say so. (1) New test broad_config_dir_override_opens_nothing_in_a_cli_sandbox: for each of llm.cli_config_dir, CLAUDE_CONFIG_DIR and CODEX_HOME set to '~' and to '/', build that CLI's real Profile::Cli sandbox via sandbox::wrap and run a command that cats a file planted in the home folder outside the CLI's own folders; assert the content never comes back and the command was refused. Set and restore env vars safely (tests run in parallel: serialize with the existing env lock if there is one). (2) probes_run_contained_like_the_turn gains a Seatbelt half: the fake CLI's --version path tries to read a planted home-folder file and to write a file outside its run folder, and the test asserts both failed while the version is still reported. (3) sandboxed_command_cannot_launch_outside_the_sandbox gains a positive control: assert from the command output that open and launchctl both ran and were refused (non-zero exit), so a command that never ran cannot pass. Each new real-run half must fail if the corresponding rule is removed from the profile; check that by reading the generated SBPL. Use the existing seatbelt() helper, which prints 'skipping' when Seatbelt is not in effect. (4) Make Seatbelt skips fail in the gate: seatbelt() in shell.rs, cli_seatbelt() and probe_cfg in cli_llm.rs panic instead of skipping when HERON_REQUIRE_SEATBELT=1 (spec 'Skips fail in the gate'); timed_out_probe_leaves_no_orphan_behind fails when no pid was written. (5) heron providers prints the probe's hint when the sandbox is off on macOS, as doctor does (main.rs:469). Also: a probe-review finding said run_capture's sandbox is not observed by any test; item (2) closes it, so make that test fail if run_capture passes None instead of the wrapped sandbox."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "in_progress",
+    "title": "Regression tests that run each reproduced U2 escape under Seatbelt",
+    "version": 40,
+    "worktree": {
+      "base_branch": "skein/U2g__integrate-base",
+      "base_commit": "8b7fc85330722c2e9a05671d8a851ec180d9fefb",
+      "branch": "skein/U2g",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U2g"
+    }
+  },
+  "U2g__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "01a2d2fae82c4174a8de78a2c0b69186",
+        "ended_at": "2026-11-18T19:14:30.454652+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-18T19:14:29.994990+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
       "attempt_id": null,
       "base_branch": null,
       "claim_token": null,
@@ -2152,29 +2413,40 @@
       "U1g",
       "SYNC8"
     ],
-    "evidence": [],
-    "handoff_note": null,
-    "id": "U2g",
-    "integration_for": null,
+    "evidence": [
+      {
+        "command": "git merge 5a81acc436abc65639c9a09f5567035e9959bd93",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['6750b378a45ea32d3b794539dedc3549769c6c5b', '5a81acc436abc65639c9a09f5567035e9959bd93'] into skein/U2g__integrate-base.",
+    "id": "U2g__integrate",
+    "integration_for": "U2g",
     "intent": {
-      "completion": "cargo test --locked --lib --bins\ncargo test --locked --features desktop --bin heron-desktop\ncargo clippy --locked --all-targets -- -D warnings\nbash eval/require-tests.sh --lib -- broad_config_dir_override_opens_nothing_in_a_cli_sandbox probes_run_contained_like_the_turn sandboxed_command_cannot_launch_outside_the_sandbox",
-      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
-      "context": "Spec: docs/designs/heron-v1.md item 26, 'Probes run contained', 'Config-folder overrides are checked', 'Regression tests that run each reproduced U2 escape', and 'Review coverage'. Existing tests: src/tools/shell.rs sandboxed_command_cannot_launch_outside_the_sandbox and helpers seatbelt(), sh(), HomeTemp; src/cli_llm.rs probes_run_contained_like_the_turn with fake_bin and probe_cfg; src/sandbox.rs own_config_dirs_take_the_configured_folder_only_for_its_provider_and_never_a_broad_one. Never create, read or change a real keychain, and never read real files in the user's home: plant your own files under a HomeTemp folder. Your Bash runs inside a sandbox where sandbox-exec cannot run, so Seatbelt tests fail for you but run in the completion command.",
-      "goal": "Add regression tests so each sandbox escape the U2 review reproduced is checked by running the real attack under Seatbelt, as the spec now says (search 'Regression tests that run each reproduced U2 escape'). Change no production behaviour unless a new test shows a real hole; if so, fix it the way the spec says and say so. (1) New test broad_config_dir_override_opens_nothing_in_a_cli_sandbox: for each of llm.cli_config_dir, CLAUDE_CONFIG_DIR and CODEX_HOME set to '~' and to '/', build that CLI's real Profile::Cli sandbox via sandbox::wrap and run a command that cats a file planted in the home folder outside the CLI's own folders; assert the content never comes back and the command was refused. Set and restore env vars safely (tests run in parallel: serialize with the existing env lock if there is one). (2) probes_run_contained_like_the_turn gains a Seatbelt half: the fake CLI's --version path tries to read a planted home-folder file and to write a file outside its run folder, and the test asserts both failed while the version is still reported. (3) sandboxed_command_cannot_launch_outside_the_sandbox gains a positive control: assert from the command output that open and launchctl both ran and were refused (non-zero exit), so a command that never ran cannot pass. Each new real-run half must fail if the corresponding rule is removed from the profile; check that by reading the generated SBPL. Use the existing seatbelt() helper, which prints 'skipping' when Seatbelt is not in effect."
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U1g', 'SYNC8'] into one base branch for U2g."
     },
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "6750b378a45ea32d3b794539dedc3549769c6c5b",
+      "changed_files": [],
+      "commit": "8b7fc85330722c2e9a05671d8a851ec180d9fefb",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
-    "title": "Regression tests that run each reproduced U2 escape under Seatbelt",
-    "version": 1,
+    "status": "done",
+    "title": "Integrate parents of U2g",
+    "version": 3,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
+      "base_branch": "6750b378a45ea32d3b794539dedc3549769c6c5b",
+      "branch": "skein/U2g__integrate-base",
       "path": null
     }
   },
@@ -2195,6 +2467,14 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-18T16:14:43.150927+00:00"
+      },
+      {
+        "attempt_id": "d243c846016a4818a5eecaa54fe7adc4",
+        "ended_at": "2026-11-18T19:16:23.306791+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-18T18:59:50.577591+00:00"
       }
     ],
     "attempts_used": 1,
@@ -2208,15 +2488,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "d243c846016a4818a5eecaa54fe7adc4",
-      "base_branch": "skein/U2s__integrate-base",
-      "claim_token": "db8744acc03e4a90b525377ef6457754",
-      "claimed_at": "2026-11-18T18:59:50.577591+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T19:03:20.865598+00:00",
-      "node_version": 23,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U0",
@@ -2227,17 +2507,17 @@
     "evidence": [
       {
         "command": "bash eval/spike/run-spike.sh && python3 -I eval/check_gate.py --spike eval/spike/envelope/summary.json eval/spike/hybrid/summary.json --report eval/spike/topology.md",
-        "duration_ms": 211,
-        "exit_code": 127,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2s_20261118T161754051967_0.log"
+        "duration_ms": 829766,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2s_20261118T190233357991_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2s_20261118T161754264309_adapter.log"
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2s_20261118T191623127433_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=1); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: **Decision for you:** the spec says only that `--resume` is supported. Without it, the script starts both arms over, which would throw away 100 runs. I made it move any existing `summary.json` to `summary.previous.json` first. Say so if you'd rather it refuse to start over.",
     "id": "U2s",
     "integration_for": null,
     "intent": {
@@ -2249,13 +2529,61 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "d243c846016a4818a5eecaa54fe7adc4",
+      "base_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
+      "changed_files": [
+        "eval/spike/envelope/summary.json",
+        "eval/spike/hybrid/summary.json",
+        "eval/spike/make_pairs.py",
+        "eval/spike/pairs-key.json",
+        "eval/spike/pairs.md",
+        "eval/spike/run-spike.sh",
+        "eval/spike/test_spike.py",
+        "eval/spike/topology.md"
+      ],
+      "commit": "03be82fa21358445e8c7b9c8d48fb9dcd1e32898",
+      "diff_stats": {
+        "eval/spike/envelope/summary.json": {
+          "added": 579,
+          "deleted": 0
+        },
+        "eval/spike/hybrid/summary.json": {
+          "added": 579,
+          "deleted": 0
+        },
+        "eval/spike/make_pairs.py": {
+          "added": 111,
+          "deleted": 0
+        },
+        "eval/spike/pairs-key.json": {
+          "added": 85,
+          "deleted": 0
+        },
+        "eval/spike/pairs.md": {
+          "added": 211,
+          "deleted": 0
+        },
+        "eval/spike/run-spike.sh": {
+          "added": 88,
+          "deleted": 0
+        },
+        "eval/spike/test_spike.py": {
+          "added": 254,
+          "deleted": 0
+        },
+        "eval/spike/topology.md": {
+          "added": 37,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 32,
+    "version": 59,
     "worktree": {
       "base_branch": "skein/U2s__integrate-base",
       "base_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
@@ -2411,7 +2739,7 @@
       "worker_id": null
     },
     "depends_on": [
-      "U2g",
+      "U1h",
       "U3a"
     ],
     "evidence": [],
@@ -2433,7 +2761,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 6,
+    "version": 7,
     "worktree": {
       "base_branch": null,
       "branch": null,
@@ -2909,7 +3237,7 @@
       "completion": "bash scripts/verify-v1.sh",
       "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
       "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit verify (items 48), plus every spec section those items link to. Read the Preconditions and Work units table too.",
-      "goal": "Full gate on the final branch"
+      "goal": "Full gate on the final branch scripts/verify-v1.sh exports HERON_REQUIRE_SEATBELT=1 on macOS before running cargo tests, so a skipped Seatbelt test fails the gate (spec 'Skips fail in the gate')."
     },
     "max_retries": 1,
     "rejected_count": 0,
@@ -2920,7 +3248,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Full gate on the final branch",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": null,
       "branch": null,
