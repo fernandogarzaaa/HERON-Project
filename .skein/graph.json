@@ -3216,6 +3216,14 @@
         "holder": "agent-1",
         "outcome": "released",
         "started_at": "2026-11-18T21:59:27.207982+00:00"
+      },
+      {
+        "attempt_id": "853ec01cfb2249748b37bf9887e86a5a",
+        "ended_at": "2026-11-18T22:53:22.640709+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T22:00:52.967609+00:00"
       }
     ],
     "attempts_used": 0,
@@ -3229,22 +3237,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "853ec01cfb2249748b37bf9887e86a5a",
-      "base_branch": "skein/U3__integrate-base",
-      "claim_token": "c361f1692a7748aabf34dc856ed5636e",
-      "claimed_at": "2026-11-18T22:00:52.967609+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T22:13:23.712265+00:00",
-      "node_version": 80,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U1h",
       "U3a"
     ],
-    "evidence": [],
-    "handoff_note": "[release note] released by agent-1\n[release note] released by agent-1",
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- register_has_a_version_line risk_notice_blocks_turns_until_accepted bus_resumes_from_sequence bus_resyncs_when_since_is_too_old lagging_subscriber_gets_resync_and_is_dropped background_runs_publish_to_the_bus run_survives_dropped_chat_stream approval_waits_on_the_bus_then_parks_on_timeout cancel_reports_whether_a_run_was_stopped mode_change_is_written_to_config grants_can_be_listed_and_revoked print_endpoint_line_has_port_token_and_owner chat_returns_428_before_the_notice_is_accepted busy_session_returns_409_with_its_code untested_cli_version_arrives_as_an_sse_error_code unattended_model_calls_wait_for_the_risk_notice stream_ends_after_run_end",
+        "duration_ms": 15325,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3_20261118T225307220487_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3_20261118T225322546599_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U3",
     "integration_for": null,
     "intent": {
@@ -3256,13 +3276,86 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "853ec01cfb2249748b37bf9887e86a5a",
+      "base_commit": "b4462d41a2488a563eb73b2143207b7910378a28",
+      "changed_files": [
+        "src/agent.rs",
+        "src/app.rs",
+        "src/bin/desktop/bridge.rs",
+        "src/config.rs",
+        "src/lib.rs",
+        "src/llm.rs",
+        "src/main.rs",
+        "src/permissions.rs",
+        "src/server.rs",
+        "src/sources.rs",
+        "src/telegram.rs",
+        "src/events.rs",
+        "src/risk_notice.rs"
+      ],
+      "commit": "8047772e846dae955c305212a242eb77b2c99f6b",
+      "diff_stats": {
+        "src/agent.rs": {
+          "added": 28,
+          "deleted": 0
+        },
+        "src/app.rs": {
+          "added": 209,
+          "deleted": 8
+        },
+        "src/bin/desktop/bridge.rs": {
+          "added": 1,
+          "deleted": 0
+        },
+        "src/config.rs": {
+          "added": 3,
+          "deleted": 1
+        },
+        "src/events.rs": {
+          "added": 330,
+          "deleted": 0
+        },
+        "src/lib.rs": {
+          "added": 2,
+          "deleted": 0
+        },
+        "src/llm.rs": {
+          "added": 6,
+          "deleted": 0
+        },
+        "src/main.rs": {
+          "added": 70,
+          "deleted": 1
+        },
+        "src/permissions.rs": {
+          "added": 12,
+          "deleted": 1
+        },
+        "src/risk_notice.rs": {
+          "added": 125,
+          "deleted": 0
+        },
+        "src/server.rs": {
+          "added": 756,
+          "deleted": 228
+        },
+        "src/sources.rs": {
+          "added": 3,
+          "deleted": 1
+        },
+        "src/telegram.rs": {
+          "added": 24,
+          "deleted": 3
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 107,
+    "version": 187,
     "worktree": {
       "base_branch": "skein/U3__integrate-base",
       "base_commit": "b4462d41a2488a563eb73b2143207b7910378a28",
