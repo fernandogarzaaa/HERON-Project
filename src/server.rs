@@ -1017,7 +1017,7 @@ async fn set_usage(State(st): S, Json(b): Json<Value>) -> ApiResult {
 }
 
 async fn get_telegram(State(st): S) -> ApiResult {
-    let configured = st.app.cfg().secret("telegram_token").is_some();
+    let configured = st.app.cfg().vault_only_secret_present("telegram_token");
     let paired = crate::telegram::paired_chat(&st.app).is_some();
     Ok(Json(json!({"configured": configured, "paired": paired, "code": if configured && !paired { Some(crate::telegram::show_pairing_code(&st.app)) } else { None }})))
 }
@@ -1029,16 +1029,44 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
     if !valid {
         return Err(bad("That does not look like a bot token. Create a bot with @BotFather in Telegram and paste the token it gives you."));
     }
-    st.app.cfg().store_secret("telegram_token", token)?;
+    let cfg = st.app.cfg();
+    let old_token = cfg.secret("telegram_token");
+    // A wrong or revoked token would otherwise unpair the phone and leave a gateway that never connects.
+    if old_token.as_deref() != Some(token) {
+        crate::telegram::verify_token(&cfg.telegram.api_base, token).await.map_err(|msg| bad(&msg))?;
+    }
+    if !cfg!(any(target_os = "macos", windows)) {
+        return Err(ApiError(StatusCode::NOT_IMPLEMENTED,
+            "Telegram bot credentials require a verified native vault; Linux is not yet supported.".into()));
+    }
+    // Install first or fail without changing the previous pairing/task.
+    // No plaintext-file fallback is permitted for bot credentials.
+    cfg.store_vault_only_secret("telegram_token", token)?;
+    if old_token.as_deref() != Some(token) {
+        crate::telegram::stop(&st.app);
+        // A gateway in another Heron process sharing this home stops on its next poll.
+        crate::telegram::bump_generation(&st.app);
+        if let Some(old) = &old_token {
+            crate::telegram::purge_token_spool(&st.app, old);
+        }
+        crate::telegram::unpair(&st.app);
+        let _ = st.app.store.kv_set("telegram_offset", "0");
+    }
     // Restarts the connection, so a replaced token is the one in use and there is only ever one reader.
     crate::telegram::spawn_if_configured(&st.app);
     get_telegram(State(st)).await
 }
 
 async fn remove_telegram(State(st): S) -> ApiResult {
-    st.app.cfg().store_secret("telegram_token", "")?;
     crate::telegram::stop(&st.app);
+    crate::telegram::bump_generation(&st.app);
+    // Revocation must purge the account's channel spool before erasing
+    // the bot token that identifies its records.
     crate::telegram::unpair(&st.app);
+    let cfg = st.app.cfg();
+    cfg.delete_vault_only_secret("telegram_token")?;
+    // Clear any legacy fallback that may predate the secure connector vault.
+    cfg.store_secret("telegram_token", "")?;
     Ok(Json(json!({"configured": false, "paired": false})))
 }
 
