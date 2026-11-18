@@ -1,0 +1,236 @@
+{
+  "_provenance": "Recorded by `run.sh --live --record-fixtures` against a real core; absolute paths, ports and the token are replaced by placeholders.",
+  "audit": [
+    {
+      "decision": "denied-by-policy",
+      "tool": "write_file"
+    },
+    {
+      "decision": "allowed",
+      "tool": "write_file"
+    }
+  ],
+  "driver": "direct",
+  "files": {
+    "plan.md": "# Plan\n\n1. Connect a real model in Settings\n2. Ask Heron for the real plan\n"
+  },
+  "heron_commit": "9b2490407022a81559d66ebdfb5235d415dedae6",
+  "kind": "recorded",
+  "persona": "maya-dev",
+  "provider": "demo",
+  "session_id": "578bef298405",
+  "steps": [
+    {
+      "body": "{\"mode\":\"readonly\"}",
+      "error": null,
+      "events": [],
+      "index": 0,
+      "kind": "api",
+      "ms": 1,
+      "reply": "",
+      "request": "POST /api/mode",
+      "status": 200
+    },
+    {
+      "body": "",
+      "decisions": [],
+      "end": "done",
+      "error": null,
+      "events": [
+        {
+          "id": "578bef298405",
+          "type": "session"
+        },
+        {
+          "completion": 0,
+          "prompt": 0,
+          "type": "usage"
+        },
+        {
+          "id": "call_63b97f2107544c7f817c72528eee3607",
+          "name": "write_file",
+          "risk": "write",
+          "summary": "plan.md",
+          "type": "tool_start"
+        },
+        {
+          "id": "call_63b97f2107544c7f817c72528eee3607",
+          "name": "write_file",
+          "ok": false,
+          "preview": "blocked: read-only mode: this action would change something. Switch mode to allow it.",
+          "type": "tool_end"
+        },
+        {
+          "text": "That ",
+          "type": "text"
+        },
+        {
+          "text": "was ",
+          "type": "text"
+        },
+        {
+          "text": "not ",
+          "type": "text"
+        },
+        {
+          "text": "allowed, ",
+          "type": "text"
+        },
+        {
+          "text": "so ",
+          "type": "text"
+        },
+        {
+          "text": "I ",
+          "type": "text"
+        },
+        {
+          "text": "left ",
+          "type": "text"
+        },
+        {
+          "text": "everything ",
+          "type": "text"
+        },
+        {
+          "text": "as ",
+          "type": "text"
+        },
+        {
+          "text": "it ",
+          "type": "text"
+        },
+        {
+          "text": "was.",
+          "type": "text"
+        },
+        {
+          "completion": 0,
+          "prompt": 0,
+          "type": "usage"
+        },
+        {
+          "text": "That was not allowed, so I left everything as it was.",
+          "title": "Please save a plan as plan.md",
+          "type": "done"
+        }
+      ],
+      "index": 1,
+      "kind": "say",
+      "message": "Please save a plan as plan.md",
+      "ms": 180,
+      "reply": "That was not allowed, so I left everything as it was.",
+      "status": 200,
+      "ttft_ms": 15
+    },
+    {
+      "body": "{\"mode\":\"auto\"}",
+      "error": null,
+      "events": [],
+      "index": 2,
+      "kind": "api",
+      "ms": 1,
+      "reply": "",
+      "request": "POST /api/mode",
+      "status": 200
+    },
+    {
+      "body": "",
+      "decisions": [],
+      "end": "done",
+      "error": null,
+      "events": [
+        {
+          "id": "578bef298405",
+          "type": "session"
+        },
+        {
+          "completion": 0,
+          "prompt": 0,
+          "type": "usage"
+        },
+        {
+          "id": "call_b956a102ea7f4b0190c5d819a650cbbb",
+          "name": "write_file",
+          "risk": "write",
+          "summary": "plan.md",
+          "type": "tool_start"
+        },
+        {
+          "id": "call_b956a102ea7f4b0190c5d819a650cbbb",
+          "name": "write_file",
+          "ok": true,
+          "preview": "wrote 75 bytes to plan.md",
+          "type": "tool_end"
+        },
+        {
+          "text": "Done. ",
+          "type": "text"
+        },
+        {
+          "text": "Here ",
+          "type": "text"
+        },
+        {
+          "text": "is ",
+          "type": "text"
+        },
+        {
+          "text": "the ",
+          "type": "text"
+        },
+        {
+          "text": "result:\n\n```\nwrote ",
+          "type": "text"
+        },
+        {
+          "text": "75 ",
+          "type": "text"
+        },
+        {
+          "text": "bytes ",
+          "type": "text"
+        },
+        {
+          "text": "to ",
+          "type": "text"
+        },
+        {
+          "text": "plan.md\n```",
+          "type": "text"
+        },
+        {
+          "completion": 0,
+          "prompt": 0,
+          "type": "usage"
+        },
+        {
+          "text": "Done. Here is the result:\n\n```\nwrote 75 bytes to plan.md\n```",
+          "title": "Please save a plan as plan.md",
+          "type": "done"
+        }
+      ],
+      "index": 3,
+      "kind": "say",
+      "message": "Please save a plan as plan.md",
+      "ms": 153,
+      "reply": "Done. Here is the result:\n\n```\nwrote 75 bytes to plan.md\n```",
+      "status": 200,
+      "ttft_ms": 20
+    },
+    {
+      "body": "{\"mode\":\"ask\"}",
+      "error": null,
+      "events": [],
+      "index": 4,
+      "kind": "api",
+      "ms": 1,
+      "reply": "",
+      "request": "POST /api/mode",
+      "status": 200
+    }
+  ],
+  "task": "u06",
+  "variant": "demo",
+  "web_log": []
+}
