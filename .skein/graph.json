@@ -1065,7 +1065,8 @@
       "worker_id": null
     },
     "depends_on": [
-      "Ut"
+      "Ut",
+      "SYNC4"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -1074,7 +1075,7 @@
     "intent": {
       "completion": "swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && grep -qx '.build/' macos/HeronMac/.gitignore && test -s macos/HeronMac/DESIGN-CHOICES.md",
       "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
-      "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit U4 (items 40-41), plus every spec section those items link to. Read the Preconditions and Work units table too. If docs/designs/heron-mac-visual.md exists and is marked approved by the owner, follow it for visual direction.",
+      "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit U4 (items 40-41), plus every spec section those items link to. Read the Preconditions and Work units table too. The owner-approved visual spec is docs/designs/heron-mac-visual.md with its tokens and mockups in docs/designs/heron-mac-visual/: follow its tokens, layouts and copy exactly; it wins over heron-v1.md section 4 on appearance.",
       "goal": "SwiftUI Mac app as a Swift package"
     },
     "max_retries": 1,
@@ -1086,7 +1087,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "SwiftUI Mac app as a Swift package",
-    "version": 1,
+    "version": 2,
     "worktree": {
       "base_branch": null,
       "branch": null,
