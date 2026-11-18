@@ -2072,11 +2072,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from U1h's review: kernel-prefix working folder, parked walk taint",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U1i__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "b7f14fb4505f0a2d2d6319d2f13fddac38c46c5a",
+      "branch": "skein/U1i",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U1i"
     }
   },
   "U1i__integrate": {
