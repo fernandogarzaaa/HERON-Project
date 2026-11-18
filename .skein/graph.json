@@ -1998,6 +1998,59 @@
       "path": null
     }
   },
+  "U1i": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3",
+      "SYNC10"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U1i",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins\ncargo test --locked --features desktop --bin heron-desktop\ncargo clippy --locked --all-targets -- -D warnings\nHERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins\nbash eval/require-tests.sh --lib -- working_folder_behind_kernel_prefix_is_refused parked_walk_sees_taint_set_after_it_was_parked",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md, search 'The working folder and parked walks', 'Kernel lookup prefixes', 'Conversation grants'. Follow parked_shell_call_sees_taint_set_after_it_was_parked (app.rs) and kernel_prefix_paths_are_refused (fs.rs) as patterns. Your Bash runs inside a sandbox where sandbox-exec cannot run, so Seatbelt tests fail for you but run in the completion command.",
+      "goal": "Fix two low findings from U1h's review, as the spec says (search 'The working folder and parked walks'). (1) check_workspace (permissions.rs, near line 1103 at b4462d41) refuses a working folder whose written or canonical form starts with a kernel lookup prefix (.vol, .nofollow, .resolve), using the existing unresolvable helper, so check_workspace(/.nofollow<heron home>) returns WorkspaceRefused. Test working_folder_behind_kernel_prefix_is_refused, including one run_turn that gets the error before any model call. (2) run_parked (app.rs, near line 437) uses parked.tainted || current taint for search_files and find_files as well as shell. Test parked_walk_sees_taint_set_after_it_was_parked: a walk parked from a clean conversation that becomes tainted before approval no longer uses conversation grants. Each new test must fail on the code before your change."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fixes from U1h's review: kernel-prefix working folder, parked walk taint",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U2": {
     "attempts": [
       {
