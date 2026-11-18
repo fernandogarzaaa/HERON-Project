@@ -248,10 +248,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "c324ec2b67385227ce784b56d83e0f293839cd9e",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "31fc53d6b8b762205fb5d4038bbb391043a32774",
+        "result_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+        "shipped_at": "2026-11-18T14:06:27.749949+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Evaluation harness: 10 tasks and a probe, adapter, runner, validators, owner-use count, genesis spec",
-    "version": 55,
+    "version": 56,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "c324ec2b67385227ce784b56d83e0f293839cd9e",
@@ -277,7 +287,7 @@
       "claim_token": "3e9cc2d0f38b4ae695ffed79b4848372",
       "claimed_at": "2026-11-18T14:05:46.848123+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T14:05:46.848123+00:00",
+      "last_heartbeat": "2026-11-18T14:06:17.082126+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -302,9 +312,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Baseline run on today's `main` code (measurement only)",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
       "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
