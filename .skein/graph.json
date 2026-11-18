@@ -480,15 +480,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "35a4c804abbd4beeb7786383c215f8fb",
+      "base_branch": "feat/heron-v1",
+      "claim_token": "1fe0c271e3e740219cfcc5cccdc0b8d2",
+      "claimed_at": "2026-11-18T19:32:04.528955+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-18T19:32:04.528955+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [],
@@ -508,11 +508,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Sync: capture the feat/heron-v1 head for U1h",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/heron-v1",
       "branch": null,
       "path": null
     }
