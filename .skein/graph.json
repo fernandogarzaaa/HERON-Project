@@ -3316,7 +3316,7 @@
       "goal": "Apply U2s's topology and U2c's Tier 1 results; delete the losing topology code"
     },
     "max_retries": 3,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -3324,7 +3324,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Apply U2s's topology and U2c's Tier 1 results; delete the losing topology code",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "skein/U2w__integrate-base",
       "branch": null,
@@ -3381,9 +3381,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "needs_human",
+    "status": "unclaimed",
     "title": "Integrate parents of U2w",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "skein/U2w__integrate__integrate-base",
       "branch": null,
