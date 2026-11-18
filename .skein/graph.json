@@ -3208,6 +3208,14 @@
         "holder": "agent-1",
         "outcome": "released",
         "started_at": "2026-11-18T20:03:00.514624+00:00"
+      },
+      {
+        "attempt_id": "b6a1ec637a7c4728a37a7acdbcee5ec7",
+        "ended_at": "2026-11-18T22:00:27.469308+00:00",
+        "error": "released by agent-1",
+        "holder": "agent-1",
+        "outcome": "released",
+        "started_at": "2026-11-18T21:59:27.207982+00:00"
       }
     ],
     "attempts_used": 0,
@@ -3221,22 +3229,22 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "b6a1ec637a7c4728a37a7acdbcee5ec7",
-      "base_branch": "skein/U3__integrate-base",
-      "claim_token": "3047e33eea464beca3ba093178676488",
-      "claimed_at": "2026-11-18T21:59:27.207982+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T21:59:27.207982+00:00",
-      "node_version": 76,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U1h",
       "U3a"
     ],
     "evidence": [],
-    "handoff_note": "[release note] released by agent-1",
+    "handoff_note": "[release note] released by agent-1\n[release note] released by agent-1",
     "id": "U3",
     "integration_for": null,
     "intent": {
@@ -3252,9 +3260,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 78,
+    "version": 80,
     "worktree": {
       "base_branch": "skein/U3__integrate-base",
       "base_commit": "b4462d41a2488a563eb73b2143207b7910378a28",
