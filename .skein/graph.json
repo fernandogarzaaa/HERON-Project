@@ -77,6 +77,56 @@
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC10"
     }
   },
+  "SYNC11": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "SYNC11",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q revoked_grant_stays_revoked_with_a_second_core docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3f's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Sync: capture the feat/heron-v1 head for U3f",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC2": {
     "attempts": [
       {
