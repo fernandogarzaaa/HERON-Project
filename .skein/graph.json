@@ -3234,7 +3234,7 @@
       "claim_token": "c361f1692a7748aabf34dc856ed5636e",
       "claimed_at": "2026-11-18T22:00:52.967609+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T22:07:23.427942+00:00",
+      "last_heartbeat": "2026-11-18T22:12:23.668063+00:00",
       "node_version": 80,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3262,7 +3262,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 95,
+    "version": 105,
     "worktree": {
       "base_branch": "skein/U3__integrate-base",
       "base_commit": "b4462d41a2488a563eb73b2143207b7910378a28",
@@ -3444,7 +3444,16 @@
     }
   },
   "U4a": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "725a7c3cfb274621803fc2205214f024",
+        "ended_at": "2026-11-18T22:12:40.305004+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-18T22:07:46.731264+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -3456,19 +3465,55 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "725a7c3cfb274621803fc2205214f024",
-      "base_branch": "feat/heron-v1",
-      "claim_token": "934c08e892054c91a18f13d4108e82f3",
-      "claimed_at": "2026-11-18T22:07:46.731264+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-18T22:07:46.731264+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift build --package-path macos/HeronMac",
+        "duration_ms": 218,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4a_20261118T221239183560_0.log"
+      },
+      {
+        "command": "swift test --package-path macos/HeronMac",
+        "duration_ms": 215,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4a_20261118T221239406801_1.log"
+      },
+      {
+        "command": "grep -qx '.build/' macos/HeronMac/.gitignore",
+        "duration_ms": 213,
+        "exit_code": 2,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4a_20261118T221239626643_2.log"
+      },
+      {
+        "command": "test -s macos/HeronMac/DESIGN-CHOICES.md",
+        "duration_ms": 223,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4a_20261118T221239846922_3.log"
+      },
+      {
+        "command": "swift test --package-path macos/HeronMac list > \"${TMPDIR:-/tmp}/u4a-tests.txt\" && grep -q 'ScreenStoreTests' \"${TMPDIR:-/tmp}/u4a-tests.txt\" && grep -q 'AvatarStateMachineTests' \"${TMPDIR:-/tmp}/u4a-tests.txt\" && grep -q 'SnapshotTests' \"${TMPDIR:-/tmp}/u4a-tests.txt\"",
+        "duration_ms": 219,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4a_20261118T221240076008_4.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4a_20261118T221240296405_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "U4a",
     "integration_for": null,
     "intent": {
@@ -3481,12 +3526,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-18T22:13:42.418311+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "SwiftUI app shell: screens, tokens, avatar, first run, on preview stubs",
-    "version": 3,
+    "version": 13,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "78f7f7065d0d4bab44cdd352073bb87a4f96a5fa",
