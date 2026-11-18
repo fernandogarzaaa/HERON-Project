@@ -1713,7 +1713,7 @@
       "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit U2s (items 32), plus every spec section those items link to. Read the Preconditions and Work units table too.",
       "goal": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)"
     },
-    "max_retries": 1,
+    "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
     "result": null,
@@ -1722,7 +1722,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 22,
+    "version": 23,
     "worktree": {
       "base_branch": "skein/U2s__integrate-base",
       "base_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
