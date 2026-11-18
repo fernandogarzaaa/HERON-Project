@@ -2027,7 +2027,16 @@
     }
   },
   "U1i": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "cff291f701274451a650e8d8dba534f0",
+        "ended_at": "2026-11-18T22:58:02.106100+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T22:53:23.154466+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -2039,22 +2048,58 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "cff291f701274451a650e8d8dba534f0",
-      "base_branch": "skein/U1i__integrate-base",
-      "claim_token": "f453d11e4660454a83697800ff6ce26f",
-      "claimed_at": "2026-11-18T22:53:23.154466+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T22:53:23.154466+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3",
       "SYNC10"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins",
+        "duration_ms": 11329,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1i_20261118T225736976727_0.log"
+      },
+      {
+        "command": "cargo test --locked --features desktop --bin heron-desktop",
+        "duration_ms": 2098,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1i_20261118T225748308923_1.log"
+      },
+      {
+        "command": "cargo clippy --locked --all-targets -- -D warnings",
+        "duration_ms": 428,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1i_20261118T225750409034_2.log"
+      },
+      {
+        "command": "HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins",
+        "duration_ms": 10921,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1i_20261118T225750839438_3.log"
+      },
+      {
+        "command": "bash eval/require-tests.sh --lib -- working_folder_behind_kernel_prefix_is_refused parked_walk_sees_taint_set_after_it_was_parked",
+        "duration_ms": 217,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1i_20261118T225801764779_4.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1i_20261118T225801982962_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U1i",
     "integration_for": null,
     "intent": {
@@ -2066,13 +2111,31 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "cff291f701274451a650e8d8dba534f0",
+      "base_commit": "b7f14fb4505f0a2d2d6319d2f13fddac38c46c5a",
+      "changed_files": [
+        "src/app.rs",
+        "src/permissions.rs"
+      ],
+      "commit": "d818528cc3a630024fff43f0aa2fc5fa6abb8210",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 44,
+          "deleted": 4
+        },
+        "src/permissions.rs": {
+          "added": 50,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Fixes from U1h's review: kernel-prefix working folder, parked walk taint",
-    "version": 4,
+    "version": 14,
     "worktree": {
       "base_branch": "skein/U1i__integrate-base",
       "base_commit": "b7f14fb4505f0a2d2d6319d2f13fddac38c46c5a",
@@ -3984,7 +4047,7 @@
       "claim_token": "be7ac83b9de74b3886f0c48edcbd6395",
       "claimed_at": "2026-11-18T22:53:52.298943+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T22:53:52.298943+00:00",
+      "last_heartbeat": "2026-11-18T22:57:52.723218+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -4009,9 +4072,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Integration tests for U1 to U3, and the recorded API fixtures",
-    "version": 4,
+    "version": 12,
     "worktree": {
       "base_branch": "8047772e846dae955c305212a242eb77b2c99f6b",
       "base_commit": "8047772e846dae955c305212a242eb77b2c99f6b",
