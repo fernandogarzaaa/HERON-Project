@@ -1060,6 +1060,14 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-18T17:28:39.973394+00:00"
+      },
+      {
+        "attempt_id": "4585de267f104710b270d7a5688c4a18",
+        "ended_at": "2026-11-18T18:03:35.803199+00:00",
+        "error": "released by agent-1",
+        "holder": "agent-1",
+        "outcome": "released",
+        "started_at": "2026-11-18T18:00:38.349760+00:00"
       }
     ],
     "attempts_used": 2,
@@ -1073,15 +1081,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "4585de267f104710b270d7a5688c4a18",
-      "base_branch": "skein/U1f__integrate-base",
-      "claim_token": "b1fb59290c494d349c2b0229575e5381",
-      "claimed_at": "2026-11-18T18:00:38.349760+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T18:00:38.349760+00:00",
-      "node_version": 50,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2",
@@ -1124,7 +1132,7 @@
         "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T173200410006_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=1); see evidence",
+    "handoff_note": "completion command failed (adapter exit=1); see evidence\n[release note] released by agent-1",
     "id": "U1f",
     "integration_for": null,
     "intent": {
@@ -1140,9 +1148,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "Fixes from U1's security review: walkers, firmlink alias, credential_store, tests",
-    "version": 52,
+    "version": 58,
     "worktree": {
       "base_branch": "skein/U1f__integrate-base",
       "base_commit": "951510e283dc6494ee4770a3aaa3ec80a1a6e8de",
