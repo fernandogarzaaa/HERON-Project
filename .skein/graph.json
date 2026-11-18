@@ -3324,9 +3324,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Apply U2s's topology and U2c's Tier 1 results; delete the losing topology code",
-    "version": 3,
+    "version": 4,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U2w__integrate-base",
       "branch": null,
       "path": null
     }
