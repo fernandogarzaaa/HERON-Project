@@ -1,6 +1,6 @@
 # Heron for Mac: visual direction
 
-*   **Status:** Draft, waiting for the owner's approval of the choices in [Decisions](#decisions).
+*   **Status:** Approved by the owner on 2026-11-18. Their answers are in [Decisions](#decisions).
 *   **Date:** 2026-11-18
 *   **Supplements:** [`heron-v1.md`](heron-v1.md) §4 and work unit U4, as read at commit `cba31ab`. It adds no work units and changes no rule in that doc.
 *   **Mockups:** [`heron-mac-visual/`](heron-mac-visual/index.html), static HTML. Open `index.html` in a browser. Screenshots are in `heron-mac-visual/shots/`.
@@ -61,8 +61,8 @@ Each theme defines eight neutral roles in light and dark. Accent and status colo
 | `ink2` | `#465663` | `#A6B4C0` | `#58504A` | `#B9AEA6` | `#4F4F55` | `#AEAEB2` |
 | `ink3` | `#5C6975` | `#83919D` | `#6A615B` | `#958A82` | `#636368` | `#98989D` |
 
-*   **Shore** (default): a cool blue-grey, like water at first light. It suits a heron and stays neutral next to other Mac apps.
-*   **Dusk:** warm stone and paper. For people who find cool greys clinical.
+*   **Dusk** (default, owner's choice D1): warm stone and paper. Calm and personal without the clinical feel of cool greys.
+*   **Shore:** a cool blue-grey, like water at first light. It stays neutral next to other Mac apps.
 *   **Graphite:** pure neutral greys, closest to stock macOS.
 
 #### Accent colours
@@ -71,13 +71,13 @@ The accent marks selection, primary buttons, links, sidebar icons and the avatar
 
 | `accentColor` | Light | Dark | Light soft | Dark soft | On light | On dark |
 |---|---|---|---|---|---|---|
-| `slate` (default) | `#2F6690` | `#7DB3D8` | `#E2ECF4` | `#1B3142` | `#FFFFFF` | `#0D1B26` |
-| `system` | `#0A64D8` | `#4FA3FF` | `#E0ECFB` | `#14294A` | `#FFFFFF` | `#071A33` |
+| `slate` | `#2F6690` | `#7DB3D8` | `#E2ECF4` | `#1B3142` | `#FFFFFF` | `#0D1B26` |
+| `system` (default) | `#0A64D8` | `#4FA3FF` | `#E0ECFB` | `#14294A` | `#FFFFFF` | `#071A33` |
 | `lagoon` | `#1D6B6B` | `#6CC3BE` | `#DDEFEE` | `#16302F` | `#FFFFFF` | `#0A1D1C` |
 | `reed` | `#466E2E` | `#9CCB7A` | `#E6EFDD` | `#1F2E16` | `#FFFFFF` | `#122009` |
 | `rose` | `#9C3D62` | `#E79AB8` | `#F5E1E9` | `#3A1B28` | `#FFFFFF` | `#2A0E19` |
 
-`system` uses `Color.accentColor`, so it follows the accent in System Settings. The hex values above are what the mockups show for the default blue.
+`system` is the default (owner's choice D4). It uses `Color.accentColor`, so it follows the accent in System Settings. The hex values above are what the mockups show for the default blue. If the user's system accent is graphite, gold or purple, the app uses `slate` instead, so the accent never reads as "waiting" or "outside content" and selection stays visible.
 
 #### Status colours (all themes)
 
@@ -214,11 +214,11 @@ U4's store list (Chat, Approvals, Today, Memory, Tasks, Schedules, Activity, Set
 | Suggestions | `GET /api/suggestions`, `POST /api/suggestions/{id}` | What Heron noticed and offers to do |
 | Delivered | `GET /api/inbox`, `POST /api/inbox/read` | Schedule results, briefings, reminders |
 
-The core already serves both routes (the Slint app calls them from `src/bin/desktop/views_bridge.rs`). Using them adds an Inbox store and two route models to U4. The smaller option is to call the destination "Approvals" and show only the feed in v1. That is a [decision](#decisions) for the owner.
+The core already serves both routes (the Slint app calls them from `src/bin/desktop/views_bridge.rs`). Using them adds an Inbox store and two route models to U4. The owner chose the full Inbox (D2), so U4 adds the Inbox store and the two route models.
 
 ### Themes
 
-`theme` is one of `"shore"` (default), `"dusk"`, `"graphite"`. Light and dark follow macOS unless the user picks one in Settings › Appearance; that is a separate `appearance` value: `"system"` (default), `"light"`, `"dark"`. Three themes are enough to feel personal, and each is fully specified and contrast-checked above. More themes can come later from the same token file.
+`theme` is one of `"dusk"` (default), `"shore"`, `"graphite"`. Light and dark follow macOS unless the user picks one in Settings › Appearance; that is a separate `appearance` value: `"system"` (default), `"light"`, `"dark"`. Three themes are enough to feel personal, and each is fully specified and contrast-checked above. More themes can come later from the same token file.
 
 ### `avatarStyle`
 
@@ -235,15 +235,15 @@ Every style is drawn with SwiftUI shapes (`Circle`, `Path`, `Text`). There are n
 
 ### `accentColor`
 
-`accentColor` is one of `"slate"` (default), `"system"`, `"lagoon"`, `"reed"`, `"rose"`. Slate is the default because it pairs with Shore and isn't the stock blue, so Heron looks like itself. No accent is gold or violet, because those two are reserved for "waiting for you" and "outside content".
+`accentColor` is one of `"system"` (default), `"slate"`, `"lagoon"`, `"reed"`, `"rose"`. The owner chose `system` so Heron matches the rest of their Mac; `slate` is the fallback described under Accent colours. No named accent is gold or violet, because those two are reserved for "waiting for you" and "outside content".
 
 ### "Prep my day"
 
 The button on Today (and in the menu bar extra) starts a new conversation titled "Prep · Tue 18 Nov" and sends:
 
-> Prep my day. Look at today's calendar, my open and overdue tasks, and anything waiting for me in the inbox. Then give me: the three things that matter most today and why, a suggested order for the day around my events, and anything I should prepare before a meeting. Keep it short. Don't change, send or schedule anything; if something needs doing, ask me first.
+> Prep my day. Look at today's calendar, my open and overdue tasks, and anything waiting for me in the inbox. Then give me: the three things that matter most today and why, a suggested order for the day around my events, and anything I should prepare before a meeting. Keep it short. Where it would help, draft replies to emails that need one and add tasks for things I should do, but ask me before saving any of them. Never send, delete or schedule anything.
 
-**Why:** it names the three sources Today already shows, asks for a short ranked answer instead of a dump, and says up front that it acts on nothing. In Ask first mode only reads run, so it never triggers an approval. The calendar part is answered by the `upcoming_events` tool, so the prompt doesn't need to carry calendar text.
+**Why:** it names the three sources Today already shows and asks for a short ranked answer instead of a dump. The owner chose to let it also draft replies and add tasks (D6). Each draft or task is a write, so in Ask first mode it reaches the user as an approval sheet; sending stays out of scope. The calendar part is answered by the `upcoming_events` tool, so the prompt doesn't need to carry calendar text.
 
 ### The menu bar extra
 
@@ -314,8 +314,10 @@ Below: "Check again" (re-reads `/api/providers`) and "Use an API key instead".
 
 ![Today](heron-mac-visual/shots/today-light.png)
 
+![Today, Shore theme with the Slate accent](heron-mac-visual/shots/today-shore-slate.png)
+
 *   **Greeting:** "Good morning, Sam." (`large`, serif), then "Tuesday 18 November. Three events, two tasks due, and one thing waiting for you." The summary sentence is built from counts in `/api/today`, never from the model.
-*   **Prep my day card:** the avatar, "Prep my day", the line "Heron reads today's calendar, your due tasks and anything waiting, then suggests an order for the day. It won't change or send anything.", and the primary button.
+*   **Prep my day card:** the avatar, "Prep my day", the line "Heron reads today's calendar, your due tasks and anything waiting, then suggests an order for the day. It can draft replies and add tasks, and asks before saving any.", and the primary button.
 *   **Two columns:** Today's events (time, title, place) on the left. "Waiting for you" and "Due" panels on the right, each row with one action.
 *   **Banners** sit above the content, full width:
     *   another Heron (`background_owner: false`): "Another Heron is running your schedules and phone connection. This window still works as usual." with Learn more;
@@ -483,24 +485,24 @@ Errors in a reply appear inline under the reply as a `dangerSoft` card with the 
 
 ## Decisions
 
-Recommendations first. The owner's answers are recorded here before U4 starts.
+Recommendations first. The owner answered all eight on 2026-11-18; the doc body and mockups already follow these answers.
 
 | # | Choice | Recommendation | Alternatives | Owner's answer |
 |---|---|---|---|---|
-| D1 | Overall direction | Calm, native, Shore + Slate, serif only for display | — | Pending |
-| D2 | Inbox scope | One Inbox: parked approvals, suggestions and delivered results | Approvals feed only, named "Approvals" | Pending |
-| D3 | Themes | Shore (default), Dusk, Graphite | Shore only in v1 | Pending |
-| D4 | Default accent | `slate` | `system` | Pending |
-| D5 | Default avatar | `ripple` | `heron` | Pending |
-| D6 | "Prep my day" prompt | As written above, acts on nothing | Let it also draft replies and tasks, with approvals | Pending |
-| D7 | Menu bar extra | Status, waiting items, next event, actions | Status and Open Heron only | Pending |
-| D8 | Sandbox on first run | Status card above the risk text | Inline sentence in the risk text heading | Pending |
+| D1 | Overall direction | Calm, native, Shore + Slate, serif only for display | — | **Approved, warmer by default:** Dusk is the default theme |
+| D2 | Inbox scope | One Inbox: parked approvals, suggestions and delivered results | Approvals feed only, named "Approvals" | **One Inbox** (recommended) |
+| D3 | Themes | Shore (default), Dusk, Graphite | Shore only in v1 | **Shore, Dusk, Graphite**, with Dusk the default (D1) |
+| D4 | Default accent | `slate` | `system` | **`system`**, with `slate` as the fallback |
+| D5 | Default avatar | `ripple` | `heron` | **`ripple`** (recommended) |
+| D6 | "Prep my day" prompt | A read-only brief that acts on nothing | Let it also draft replies and tasks, with approvals | **Brief + drafts:** prompt above updated |
+| D7 | Menu bar extra | Status, waiting items, next event, actions | Status and Open Heron only | **Full panel** (recommended) |
+| D8 | Sandbox on first run | Status card above the risk text | Inline sentence in the risk text heading | **Status card** (recommended) |
 
 ## Verification
 
 This doc changes no code, so the checks are visual and are done by U4:
 
-*   U4's snapshot tests for the risk notice and the approval sheet compare against the layouts in this doc, in light and dark, Shore theme, Slate accent.
+*   U4's snapshot tests for the risk notice and the approval sheet compare against the layouts in this doc, in light and dark, Dusk theme, `system` accent (rendered as the default blue).
 *   `tokens.json` is the only source of colour values. A test in `HeronUITests` checks the Swift theme values against it, and re-runs the contrast table (all text ≥ 4.5:1).
 *   The owner reviews U4's screenshots against the mockups in the second pull request, under Q7.
 

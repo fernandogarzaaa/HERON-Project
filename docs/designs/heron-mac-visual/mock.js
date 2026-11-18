@@ -1,6 +1,6 @@
 // Heron Mac app mockups: shared chrome.
-// URL parameters: theme=light|dark, palette=shore|dusk|graphite,
-// accent=system|slate|lagoon|reed|rose, shot=1 (hide the viewer strip), reduce=1 (reduced motion).
+// URL parameters: theme=light|dark, palette=dusk|shore|graphite,
+// accent=system|slate|lagoon|reed|rose (defaults: dusk, system), shot=1 (hide the viewer strip), reduce=1 (reduced motion).
 (function () {
   const q = new URLSearchParams(location.search);
   const root = document.documentElement;
@@ -8,8 +8,8 @@
   const read = (k) => { if (q.get("shot")) return q.get(k); try { return q.get(k) || localStorage.getItem("heron-mock-" + k); } catch (e) { return q.get(k); } };
   const theme = read("theme"), palette = read("palette"), accent = read("accent");
   if (theme === "light" || theme === "dark") root.dataset.theme = theme;
-  if (palette && palette !== "shore") root.dataset.palette = palette;
-  if (accent && accent !== "slate") root.dataset.accent = accent;
+  if (palette && palette !== "dusk") root.dataset.palette = palette;
+  if (accent && accent !== "system") root.dataset.accent = accent;
   if (q.get("shot")) root.classList.add("shot");
   if (q.get("reduce")) root.classList.add("reduce");
 
@@ -112,14 +112,14 @@
     const strip = document.createElement("div");
     strip.className = "viewer";
     strip.innerHTML = `<b>Heron for Mac</b>${pages.map(([p, l]) => `<a href="${p}.html" ${p === here ? 'aria-current="page"' : ""}>${l}</a>`).join("")}<span class="grow"></span>
-      ${sel("theme", ["system", "light", "dark"], theme || "system")}${sel("palette", ["shore", "dusk", "graphite"], palette || "shore")}${sel("accent", ["slate", "system", "lagoon", "reed", "rose"], accent || "slate")}`;
+      ${sel("theme", ["system", "light", "dark"], theme || "system")}${sel("palette", ["dusk", "shore", "graphite"], palette || "dusk")}${sel("accent", ["system", "slate", "lagoon", "reed", "rose"], accent || "system")}`;
     document.body.prepend(strip);
     strip.querySelectorAll("select").forEach((s) => s.addEventListener("change", () => {
       const k = s.dataset.k, v = s.value;
       try { localStorage.setItem("heron-mock-" + k, v); } catch (e) {}
       const map = { theme: "theme", palette: "palette", accent: "accent" };
       if (k === "theme") { if (v === "system") delete root.dataset.theme; else root.dataset.theme = v; }
-      else if ((k === "palette" && v === "shore") || (k === "accent" && v === "slate")) delete root.dataset[map[k]];
+      else if ((k === "palette" && v === "dusk") || (k === "accent" && v === "system")) delete root.dataset[map[k]];
       else root.dataset[map[k]] = v;
     }));
   });
