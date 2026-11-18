@@ -1700,9 +1700,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Sandbox fixes from U2's review and U2c: launch and rename escapes, TLS roots for CLIs",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U2f__integrate-base",
       "branch": null,
       "path": null
     }
