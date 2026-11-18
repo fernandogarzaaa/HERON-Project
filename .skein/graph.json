@@ -1517,22 +1517,31 @@
     }
   },
   "U2s__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "398b485a2dc94277a1b900402d1788b5",
+        "ended_at": "2026-11-18T16:10:32.758957+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-18T16:10:31.698752+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "398b485a2dc94277a1b900402d1788b5",
-      "base_branch": "skein/U2s__integrate__integrate-base",
-      "claim_token": "36a1e383d8254eac8080e4e56ba9236c",
-      "claimed_at": "2026-11-18T16:10:31.698752+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-18T16:10:31.698752+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U0",
@@ -1540,8 +1549,14 @@
       "U2",
       "U2c"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge d3ee40d0cbc6d5414325ca6fc46b0f57e505b203 9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d 9748fc6cbfdf3f5ad86a579895b39fc3bcf8ca46",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['40e9e18dd7b1afd13978cd668523c84991f0360f', 'd3ee40d0cbc6d5414325ca6fc46b0f57e505b203', '9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d', '9748fc6cbfdf3f5ad86a579895b39fc3bcf8ca46'] into skein/U2s__integrate-base.",
     "id": "U2s__integrate",
     "integration_for": "U2s",
     "intent": {
@@ -1553,16 +1568,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "changed_files": [],
+      "commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of U2s",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/U2s__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "branch": "skein/U2s__integrate-base",
       "path": null
     }
   },
