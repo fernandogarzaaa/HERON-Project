@@ -4765,6 +4765,7 @@
       "Ut",
       "U2w",
       "U3f",
+      "U2x",
       "U4a",
       "U4b",
       "U6",
@@ -4791,7 +4792,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Full gate on the final branch",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": null,
       "branch": null,
