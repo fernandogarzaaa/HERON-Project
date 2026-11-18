@@ -12,15 +12,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "7b025f8b9f5d4be4987c37bcf22d464f",
+      "base_branch": "feat/heron-v1",
+      "claim_token": "ffd8de0f43224ee7b567d3c35133bca5",
+      "claimed_at": "2026-11-18T14:22:17.345488+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-18T14:22:17.345488+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [],
     "evidence": [],
@@ -40,11 +40,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Sync: capture the feat/heron-v1 head for U2",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/heron-v1",
       "branch": null,
       "path": null
     }
@@ -556,7 +556,7 @@
       "claim_token": "ebc3c8761a1145ddb76465d7df0b22a2",
       "claimed_at": "2026-11-18T14:13:45.909285+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T14:21:46.405682+00:00",
+      "last_heartbeat": "2026-11-18T14:22:16.416982+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -583,7 +583,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Clippy clean-up, one decision function, `Refused` and `OutsideRead`, `read:` grants, prompt-source registry, MCP taint, ",
-    "version": 19,
+    "version": 20,
     "worktree": {
       "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
       "base_commit": "d77fa178a89241f54e733da4485b96809f09277d",
