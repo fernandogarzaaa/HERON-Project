@@ -584,7 +584,7 @@
       "claim_token": "ebc3c8761a1145ddb76465d7df0b22a2",
       "claimed_at": "2026-11-18T14:13:45.909285+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T14:22:16.416982+00:00",
+      "last_heartbeat": "2026-11-18T14:37:46.787316+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -611,7 +611,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Clippy clean-up, one decision function, `Refused` and `OutsideRead`, `read:` grants, prompt-source registry, MCP taint, ",
-    "version": 20,
+    "version": 51,
     "worktree": {
       "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
       "base_commit": "d77fa178a89241f54e733da4485b96809f09277d",
