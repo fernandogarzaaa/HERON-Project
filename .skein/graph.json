@@ -932,9 +932,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "needs_human",
+    "status": "unclaimed",
     "title": "Deny-default sandbox for shell and CLI child, macOS sandbox-off refusal, CLI environment and run folder, version contrac",
-    "version": 7,
+    "version": 8,
     "worktree": {
       "base_branch": "skein/U2__integrate-base",
       "base_commit": "eb3e96bef0585c9d76bc0f76d6c4c3431d87a3ef",
