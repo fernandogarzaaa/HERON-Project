@@ -324,7 +324,7 @@ B2 adds `enum ContentEntry` to `src/agent.rs`, with one variant per way content 
 #### The taint source
 
 *   **After v1,** kv `tainted:<session>` is written as `"1"` in `agent.rs`, `app.rs`, `telegram.rs` and `mcp.rs`, and read only for presence.
-*   **One function.** B2 replaces every one of those writes with a single `App` method.
+*   **One function.** B2 replaces every one of those writes with one free function, `taint::mark`, which the agent, the MCP server, the scheduler and Telegram all call with the `Store`, the event sink and the taint flag they already hold through `ToolCtx`.
     *   It inserts the value only if none exists.
     *   It sets the in-memory taint flag.
     *   The first time, it publishes the `tainted` bus event (F2).
@@ -364,8 +364,8 @@ B2 adds `enum ContentEntry` to `src/agent.rs`, with one variant per way content 
 | F5 | `/usr/bin/shortcuts` | `list`, for the Settings picker and the allowlist check; `run <name> [--input-path <file>] --output-path <file>`, where `<name>` must be on `shortcuts_allowed` and the files sit in a private temporary folder that is removed afterwards | A shortcut's actions run inside the Shortcuts service, not in this process, so a sandbox around this process would contain nothing |
 | F8 | `/usr/bin/open` | one `mailto:` URL ([F8](#f8-email-drafts-you-send-yourself-s)) | It only hands a URL to Launch Services, and a Seatbelt profile would block that call. The `open` crate isn't used: it passes Heron's full environment and can't be faked in tests |
 
-*   **Helpers.** Both reuse the CLI child helpers in `cli_llm.rs`: the environment allowlist from heron-v1.md §2 (`PATH`, `HOME`, `LANG`, `USER`, `TMPDIR`), the private temporary folder that is removed on drop, and the process-group kill.
-*   **Timeouts.** `shortcuts list` times out after 10 seconds. `shortcuts run` times out after 110 seconds, or 5 seconds less than `agent.tool_timeout_secs` when that is smaller. F8 times out after 10 seconds.
+*   **Helpers.** B2 moves three private helpers out of `cli_llm.rs` into a new `src/child.rs`, as `pub(crate)` functions that `cli_llm.rs` then calls: `child_env_base()` (the environment allowlist from heron-v1.md §2: `PATH`, `HOME`, `LANG`, `USER`, `TMPDIR`), `private_temp_dir()` (removed on drop) and `kill_group()`. F5 and F8 use them, so neither edits `cli_llm.rs`.
+*   **Timeouts.** `shortcuts list` times out after 10 seconds. `shortcuts run` times out after 110 seconds, or 5 seconds less than `agent.tool_timeout_secs` when that is smaller, but never less than 5 seconds. F8 times out after 10 seconds.
 *   **On timeout,** the process group is killed. Each process is also spawned with kill-on-drop, so the agent's own tool timeout can't leave one running.
 *   **Fakes.** Tests and feature tasks replace each binary through `HERON_SHORTCUTS_BIN` and `HERON_OPEN_BIN`. Only debug builds read these.
 
@@ -450,7 +450,7 @@ In each table, "Q7" means the change touches a path heron-v1.md Q7 lists, so its
 *   **Siri and Shortcuts.** An App Intent, "Ask Heron", takes one text parameter and appears in Shortcuts, Spotlight and Siri.
     *   It opens the panel with that text attached as a chip, "From Shortcuts", sent as chat context of kind `intent`. A shortcut can pass any text, including a web page, which is why the text counts as outside content.
     *   The field stays empty for the owner's own words. Nothing is sent until the owner presses Return, so an intent never starts unattended work.
-    *   **UNVERIFIED:** whether `swift build` alone produces the App Intents metadata that Shortcuts and Siri need, since heron-v1.md builds without an Xcode project. F1a checks this on the owner's Mac. If it doesn't, the intent moves to v1.1 and F1 ships with the panel and Services.
+    *   **UNVERIFIED:** whether `swift build` alone produces the App Intents metadata that Shortcuts and Siri need, since heron-v1.md builds without an Xcode project. F1a's check looks for the metadata in the built bundle (`Contents/Resources/Metadata.appintents/`). If F1a can't produce it, F1a deletes `AskHeronIntent.swift` and its two tests, writes `Status: deferred to v1.1` and the reason into `macos/HeronMac/APP-INTENTS-CHECK.md`, and F1 ships with the panel and Services. The owner's manual pass confirms that "Ask Heron" appears in Shortcuts.
 
 | Check | Answer |
 |---|---|
@@ -511,7 +511,7 @@ Today's warning line has three limits:
 **Problem.** After v1, a run outlives its window. Nothing lists the runs, and nothing tells the owner when one is done or stuck on an approval.
 
 **What it does.**
-*   **Run records.** `src/runs.rs` keeps one record per run in kv `run:<run_id>`. It holds `{session_id, title, origin, status, started, ended, tool_calls, checkpoints, audit_ids}`. The core keeps the newest 500 in memory as a cache. The record follows the bus:
+*   **Run records.** `src/runs.rs` keeps one record per run in kv `run:<run_id>`. It holds `{session_id, title, origin, status, started, ended, tool_calls, checkpoints, audit_ids}`. One writer keeps it: a `RunLog`, a mutex-guarded cache of the newest 500 records, which the bus calls synchronously inside `publish`, before the event is broadcast. So no update can be lost to a slow subscriber, and nothing else writes the key. The record follows the events:
     *   `session` writes the record, with status `running`. `title` is the session's title (see [chat context](#content-entries) for how a new session is titled).
     *   `tool_end` adds one to `tool_calls`.
     *   `approval` sets `waiting`. `approval_resolved` or `approval_parked` sets `running` again.
@@ -519,7 +519,7 @@ Today's warning line has three limits:
 *   **What the record lists.**
     *   `checkpoints` lists the checkpoints the run's file tools saved, each as `{id, path, after_hash, ts}`.
     *   `audit_ids` lists the audit rows the run's tool calls appended.
-    *   Both are recorded where the agent executes a call for this run. So a parked call that `run_parked` executes later, in the same session, isn't counted as this run's.
+    *   Both reach the record on the `tool_end` event. After the agent executes a call for this run, it adds `audit_id` (the id `Store::audit_row` returns) to `tool_end`, and, for `write_file` and `edit_file`, `checkpoint`, read back with `Store::checkpoint_row(Store::last_checkpoint(session_id))`. A session has one active run, so the newest checkpoint is the one the call just saved. Clients ignore the two extra fields. A parked call that `run_parked` executes later isn't part of a run, so it emits no `tool_end` for this run and isn't counted.
     *   The core deletes records beyond the newest 500.
 *   **`GET /api/runs`** returns `{"runs": [record, …]}`, newest first, without the two lists.
 *   **The app** adds a Runs screen, and a badge on the menu bar extra with the number of runs in `waiting`.
@@ -540,7 +540,7 @@ Today's warning line has three limits:
 | Approval surfaces | none: notifications only open the sheet |
 | Processes | none |
 | TCC | Notifications |
-| Q7 | yes: `Store::audit` returns its row id (audit code in `store.rs`) |
+| Q7 | yes: the agent loop adds fields to `tool_end` (`agent.rs` gating) |
 | EVE | none new (no tools). Integration tests `api_runs_lists_a_finished_run` and `api_run_record_survives_a_dropped_stream` cover the route |
 
 #### F4. Undo a run's file edits (M)
@@ -610,7 +610,7 @@ Today's warning line has three limits:
     *   **Once only.** `ExternalWrite` isn't a high effect, so without a change a standing rule (`*`, `*:*` or `run_shortcut:*`), a conversation grant or a Settings "allow" would let every ticked shortcut run unasked. F5s adds one function, `permissions::once_only(tool)`, true for `run_shortcut` (and for `draft_email` in F8). It is checked wherever `high()` gates grants:
         *   allow rules don't cover a once-only tool;
         *   the conversation grant check doesn't apply to it;
-        *   every place that offers "always" (the web approver, the terminal prompt and Telegram) doesn't offer it;
+        *   every place that computes whether "always" is offered (v1's `execute_call`, which feeds the web approver, the terminal prompt and Telegram) doesn't offer it;
         *   the per-tool Settings route accepts only "ask" and "never" for it.
 
         The approval offers "once" only, and shows the shortcut's name and input.
@@ -959,9 +959,9 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
 
 *   **Type / Scope:** Rust module and config.
 *   **Proposed Changes:**
-    *   The `[features]` table, with no keys yet. Each feature's `s` unit adds its own key, its default and its title.
-    *   `shortcuts_allowed` is added by F5s.
-    *   `Config::feature_on(key) -> bool` returns the key's declared default when the key is missing.
+    *   **The registry:** `pub struct FeatureKey { pub key: &'static str, pub title: &'static str, pub default: bool }` and `pub static KEYS: &[FeatureKey]`, empty in B2 except for a `#[cfg(test)]` entry `test_key`. Each feature's `s` unit appends its one entry.
+    *   **The config:** `Config.features: FeaturesConfig`, with `#[serde(default)]`, where `FeaturesConfig { #[serde(flatten)] flags: BTreeMap<String, bool>, shortcuts_allowed: Vec<String> }`. `shortcuts_allowed` is read only by F5.
+    *   `Config::feature_on(key) -> bool` returns the flag, or the key's `default` from `KEYS` when the flag is missing. `POST /api/features/{key}` returns `404` for a key not in `KEYS`.
 
 ##### 5. `src/tools/mod.rs` (Modify), `src/agent.rs` (Modify), `src/tools/personal.rs` (Modify), `src/workflow.rs` (Modify)
 
@@ -970,20 +970,22 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
     *   **The registry.** Each tool definition gains `feature: Option<&'static str>`. `ToolRegistry::names_for(cfg)` returns the names whose key is on.
     *   **Its readers.** The agent's tool list, its unknown-tool check, `save_automation`'s validation and `Workflow::validate` all use `names_for`.
 
-##### 6. `src/agent.rs` (Modify), `src/app.rs` (Modify), `src/telegram.rs` (Modify), `src/mcp.rs` (Modify), `src/store.rs` (Modify)
+##### 6. `src/taint.rs` (Create), `src/child.rs` (Create), `src/cli_llm.rs` (Modify), `src/agent.rs` (Modify), `src/app.rs` (Modify), `src/telegram.rs` (Modify), `src/mcp.rs` (Modify), `src/store.rs` (Modify)
 
 *   **Type / Scope:** turn start and taint (Q7).
 *   **Proposed Changes:**
     *   **`ContentEntry`** and its test.
     *   **Chat context.**
+        *   `Agent::run_turn` gains a `context: &[ChatContext]` parameter after the message, so the typed message and the context stay separate inside the turn.
         *   Wrapped with `wrap_untrusted` and appended before the model call.
         *   The `app` name is cleaned.
         *   The session is titled from the typed message.
         *   `learn` gets the typed message only.
-    *   **`App::mark_tainted(&self, session_id: &str, flag: &AtomicBool, entry: ContentEntry, name: &str, detail: &str) -> bool`.**
+    *   **`taint::mark(store: &Store, sink: &EventSink, flag: &AtomicBool, session_id: &str, entry: ContentEntry, name: &str, detail: &str) -> bool`**, in a new `src/taint.rs`.
         *   It returns true the first time.
         *   It sets `flag`, writes the kv value with a new `Store::kv_insert_if_absent`, and publishes `tainted` the first time.
         *   It replaces every `tainted:` write.
+    *   **`child.rs`:** the three helpers moved from `cli_llm.rs` (see [Processes outside the shell tool](#processes-outside-the-shell-tool)); `cli_llm.rs` calls them, with no change in behaviour (Q7: `cli_llm.rs`).
     *   **`App::notify(&self, title, body, source, session_id: Option<&str>, run_id: Option<&str>)`** replaces the free `notify()` at its four call sites in `app.rs`. It publishes `notification` while the `notify=1` count is above zero, and always runs a configured `notify_command`.
 
 ##### 7. `src/server.rs` (Modify)
@@ -1030,7 +1032,7 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
     2.  `cargo clippy --locked --all-targets -- -D warnings`;
     3.  `swift test --package-path macos/HeronMac`;
     4.  `bash packaging/macos/build-app.sh --unsigned`;
-    5.  `testteeth run --base "$BASE" --fail-under 70 -q`, unless `git diff --quiet "$BASE" -- src eval ':(glob)eval/**/*.py'` reports no Rust or Python change. UNVERIFIED: whether testteeth fails when there is nothing to mutate; skipping avoids the question;
+    5.  `testteeth run --base "$BASE" --fail-under 70 -q`, unless `git diff --quiet "$BASE" -- src ':(glob)eval/**/*.py'` reports no Rust or Python change (task files and `base.json` don't count). UNVERIFIED: whether testteeth fails when there is nothing to mutate; skipping avoids the question;
     6.  `genesis audit-evaluator eval/genesis.yaml --suite code-py`;
     7.  when `eval/features/<slug>.md` exists:
         *   with `OUT="${TMPDIR:-/tmp}/heron-feature-<slug>-$(git rev-parse --short HEAD)"`, it runs `bash eval/run-core-tasks.sh --task-file eval/features/<slug>.md --provider claude-cli --driver eve --build debug --runs 3 --out "$OUT" --resume`;
@@ -1134,11 +1136,11 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
 
 #### F3: runs and notifications
 
-##### 21. `src/runs.rs` (Create), `src/lib.rs` (Modify), `src/app.rs` (Modify), `src/agent.rs` (Modify), `src/server.rs` (Modify), `src/store.rs` (Modify)
+##### 21. `src/runs.rs` (Create), `src/lib.rs` (Modify), `src/events.rs` (Modify), `src/app.rs` (Modify), `src/agent.rs` (Modify), `src/server.rs` (Modify), `src/store.rs` (Modify)
 
 *   **Proposed Changes:**
-    *   Run records in kv, and the in-memory cache.
-    *   `checkpoints` and `audit_ids` recorded where the agent executes a call. `Store::save_checkpoint` already returns its id, and `Store::audit` now returns its row id.
+    *   `RunLog`, called synchronously from the bus's `publish` (`src/events.rs`, from heron-v1.md U3), writing kv.
+    *   `tool_end` gains `audit_id` and, for the two file tools, `checkpoint`. `Store::audit_row` (v1) already returns its row id. New `Store::checkpoint_row(id) -> Option<RecordedCheckpoint>`, where `pub struct RecordedCheckpoint { pub id: i64, pub path: String, pub after_hash: Option<String>, pub ts: i64 }`, read from the row, so `ts` equals the row's own value.
     *   `Store::kv_list_prefix` and `Store::kv_delete`, for pruning.
     *   `GET /api/runs`.
 *   **Tests:**
@@ -1201,7 +1203,7 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
     *   **`permissions::once_only(tool) -> bool`,** checked in four places:
         *   at the allow-rule step;
         *   in `may_grant_for_conversation`;
-        *   at the `can_always` sites in `server.rs`, `main.rs` and `telegram.rs`;
+        *   where v1's `execute_call` computes `can_always`, which the web approver, the terminal prompt and Telegram read;
         *   in `set_tool_setting`, which rejects "allow" for a once-only tool.
     *   **The key** `shortcuts` (title "Run your Shortcuts") and `shortcuts_allowed`.
     *   **The routes** `GET /api/shortcuts` and `POST /api/shortcuts/allowed`.
@@ -1335,7 +1337,7 @@ Every unit starts after v1's `verify` unit (see Preconditions). B1 to B6 run on 
 | B5 | Release checklist step, guide index, threat-model section | `docs/**` | B2 | `grep -qF 'After the last feature merges' docs/release-checklist.md && test -s docs/features/README.md && grep -qx '## Ways content enters, and processes Heron starts' docs/engineering/SECURITY_THREAT_MODEL.md` | judgment and prose: opus high |
 | B6 | Base gate | `scripts/gates/base` (check only) | B1, B2, B2t, B3, B4, B5 | `bash scripts/verify-feature.sh base` | feature, refactoring: sonnet high |
 | F1c | `ft1` | `eval/**` | none | `python3 -I eval/check_tasks.py --features eval/features/quick_entry.md` | feature, refactoring: sonnet high |
-| F1a | Panel, hotkey, Services provider, Ask Heron intent, App Intents check | `macos/**` | none | `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q 'QuickEntryTests.*intentTextIsContext' && test -s macos/HeronMac/APP-INTENTS-CHECK.md` | feature, refactoring: sonnet high |
+| F1a | Panel, hotkey, Services provider, Ask Heron intent, App Intents check | `macos/**` | none | `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q 'QuickEntryTests.*selectionBecomesContext' && { { bash packaging/macos/build-app.sh --unsigned && test -d dist/Heron.app/Contents/Resources/Metadata.appintents && swift test list --package-path macos/HeronMac \| grep -q 'QuickEntryTests.*intentTextIsContext'; } \|\| grep -qx 'Status: deferred to v1.1' macos/HeronMac/APP-INTENTS-CHECK.md; }` | feature, refactoring: sonnet high |
 | F1p | `NSServices` entry | `packaging/macos/**` | none | `/usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSMessage' packaging/macos/Info.plist \| grep -qx askHeron && /usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSMenuItem:default' packaging/macos/Info.plist \| grep -qx 'Ask Heron'` | feature, refactoring: sonnet high |
 | F1d | Guide, threat-model line, index line | `docs/**` | none | `test -s docs/features/quick_entry.md && grep -qxF -- '- ChatContext (Services selection, App Intent text, window text): outside content; taints the session.' docs/engineering/SECURITY_THREAT_MODEL.md` | judgment and prose: opus high |
 | F1g | F1 gate | `scripts/gates/quick_entry` (check only) | F1c, F1a, F1p, F1d | `bash scripts/verify-feature.sh quick_entry` | feature, refactoring: sonnet high |
@@ -1397,7 +1399,7 @@ Every unit starts after v1's `verify` unit (see Preconditions). B1 to B6 run on 
     *   `swift test --package-path macos/HeronMac`
     *   `python3 -I -m unittest discover -s eval/tests -t eval`
 *   **Static Analysis & Linting**: `cargo clippy --locked --all-targets -- -D warnings`.
-*   **Test Coverage Requirement**: every gate runs `testteeth run --base "$BASE" --fail-under 70 -q`.
+*   **Test Coverage Requirement**: every gate runs `testteeth run --base "$BASE" --fail-under 70 -q` when the graph changed Rust or Python (F1, F7 and F9 change neither, so their gates skip it).
     *   For the base graph, `BASE` is `v1_verify_commit`. For each feature, it is `features_base_commit`.
     *   Surviving mutants are killed in that graph, or justified in its pull request, before the pull request opens.
 *   **Evaluator trust**: every gate runs `genesis audit-evaluator eval/genesis.yaml --suite code-py`. B1 adds the new rules' cases to the spec.

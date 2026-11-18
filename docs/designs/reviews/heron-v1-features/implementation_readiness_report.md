@@ -56,3 +56,20 @@ Status: resolved
 
 *   None of the findings was contested.
 *   One owner-visible change came out of this stage: F1's "Ask Heron" App Intent depends on an unverified build step. If that step fails, the intent moves to v1.1 and F1 keeps the panel and Services.
+
+## Stage 9 re-audit (the one re-audit EGM allows)
+
+*   **Reviewer:** `egm-implementation-readiness`, a fresh context, on commit `1bedf60`.
+*   **Result:** no Blockers and seven Majors. Five Majors came from the previous round's fixes, one fix was incomplete, and one finding was never addressed.
+*   **Resolution:** all seven were fixed. The convergence cap is reached, so no further re-audit runs. Anything left is a choice for the build agents, recorded in the plan.
+
+| # | Finding | Fix |
+|---|---|---|
+| M1 | The testteeth skip can never fire, because task files and `base.json` count as changes | The diff covers `src` and `eval/**/*.py` only, and the Verification Plan says which gates skip |
+| M2 | The checkpoint snapshot has no route to the run record; `RecordedCheckpoint` is undefined; the plan names the wrong audit function | `tool_end` carries `audit_id` and `checkpoint`, read back with `Store::checkpoint_row(last_checkpoint)`. The struct is defined. v1's `Store::audit_row` is the source |
+| M3 | Two writers update the run record, and "follows the bus" can lose updates | One `RunLog`, called synchronously inside the bus's `publish` before the event is broadcast |
+| M4 | Reusing the `cli_llm.rs` helpers means unlisted edits to a Q7 file, in two separate graphs | B2 moves the helpers into `src/child.rs` once, as `pub(crate)` functions |
+| M5 | The `App::mark_tainted` method can't be reached from the agent or MCP, and the `run_turn` signature isn't given | `taint::mark` is a free function over `Store`, the event sink and the flag. `run_turn` gains a `context` parameter |
+| M6 | The App Intents check can't be done by an agent and passes either way | A mechanical check for the metadata folder in the built bundle, with a stated fallback that deletes the intent and records `Status: deferred to v1.1` |
+| M7 | The `[features]` schema and key registry are undefined | `FeatureKey` and `KEYS` are defined, and `FeaturesConfig` uses flattened flags plus `shortcuts_allowed` |
+| Dropped by the reviewer | Telegram's `can_always` site; `tool_timeout_secs` below 5 s; `base.json` conflicts on rebase; how the fixtures are recorded | Fixed anyway: v1's `execute_call` is the single `can_always` site; F5's timeout never goes below 5 s. The other two remain choices for the build agents |
