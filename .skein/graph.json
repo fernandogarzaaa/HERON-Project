@@ -4201,29 +4201,44 @@
     }
   },
   "U6__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "c16f282ab2e244dba706155e849a636c",
+        "ended_at": "2026-11-18T23:19:57.599277+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-18T23:19:57.370980+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "c16f282ab2e244dba706155e849a636c",
-      "base_branch": "skein/U6__integrate__integrate-base",
-      "claim_token": "ad1ae422b07f4230ae8c242ecd5f1f7a",
-      "claimed_at": "2026-11-18T23:19:57.370980+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-18T23:19:57.370980+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2w",
       "U3a"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 7c2cb9b314d809ef332c0d4f83b985d5a8bb7676",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['da01387456da090c90015c749ef251277865e8b8', '7c2cb9b314d809ef332c0d4f83b985d5a8bb7676'] into skein/U6__integrate-base.",
     "id": "U6__integrate",
     "integration_for": "U6",
     "intent": {
@@ -4235,16 +4250,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "da01387456da090c90015c749ef251277865e8b8",
+      "changed_files": [],
+      "commit": "da01387456da090c90015c749ef251277865e8b8",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of U6",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/U6__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "da01387456da090c90015c749ef251277865e8b8",
+      "branch": "skein/U6__integrate-base",
       "path": null
     }
   },
