@@ -3628,15 +3628,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "ccb6ea189baf4aa284b28f2a38423e0b",
+      "base_branch": "skein/U2x__integrate-base",
+      "claim_token": "efd7b351d41c4d72b35b332b270d415a",
+      "claimed_at": "2026-11-18T23:53:45.473474+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-18T23:53:45.473474+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U3f",
@@ -3659,9 +3659,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fixes from U2w's review: untested-version turn test, ~/.opencode Refused, doctor store",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U2x__integrate-base",
       "branch": null,
