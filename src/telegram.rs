@@ -5,7 +5,7 @@
 //! can be given by replying yes/no; risky actions, and anything requested after outside content
 //! entered the conversation, can only be approved at the computer. `/stop` halts a running reply.
 
-use crate::agent::{null_sink, Session};
+use crate::agent::Session;
 use crate::app::App;
 use crate::channel::{ChannelIdentity, ChannelKind, ChannelStore, InboundMessage, RetryOutcome};
 use crate::permissions::{Approval, ApprovalRequest, Approver};
@@ -395,6 +395,9 @@ fn is_forwarded(message: &Value) -> bool {
     ["forward_origin", "forward_from", "forward_from_chat", "forward_sender_name", "forward_date"].iter().any(|k| !message[*k].is_null())
 }
 
+/// The reply to a message that arrives before the risk notice is accepted.
+const RISK_NOTICE_REPLY: &str = "Heron needs you to accept its risk notice in the Mac app first.";
+
 /// The text a turn runs on. A forwarded message holds someone else's words, not the owner's: it is
 /// wrapped as outside content, and the conversation is tainted before the turn runs (M-8).
 fn turn_input(store: &crate::store::Store, session: &Session, text: &str, forwarded: bool) -> String {
@@ -481,9 +484,23 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
                     let mut session = session_for(&app2, false)?;
                     let input = turn_input(&app2.store, &session, &text, forwarded);
                     let agent = app2.agent(Arc::new(TelegramApprover { bot: bot2.clone(), chat, shared: shared2.clone() }));
-                    let text_out = agent.run_turn(&mut session, &input, &null_sink()).await?;
+                    // Phone turns publish to the bus like every other run.
+                    let (sid, run_id) = (session.id.clone(), crate::events::new_run_id());
+                    let outcome = agent.run_turn(&mut session, &input, &app2.sink_for(&sid, &run_id)).await;
+                    app2.publish_outcome(&sid, &run_id, outcome.as_deref());
+                    let text_out = match outcome {
+                        Ok(text) => text,
+                        Err(e) => {
+                            app2.publish_run_end(&sid, &run_id);
+                            return Err(e);
+                        }
+                    };
                     app2.persist_rules();
-                    agent.learn(&session, &input, &text_out).await;
+                    let learned = agent.learn(&session, &input, &text_out).await;
+                    if !learned.is_empty() {
+                        app2.events.publish(&sid, &run_id, json!({"type": "learned", "items": learned}));
+                    }
+                    app2.publish_run_end(&sid, &run_id);
                     Ok::<_, anyhow::Error>(text_out)
                 }
                 .await;
@@ -496,6 +513,9 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
                 match reply {
                     Ok(t) if t.trim().is_empty() => bot2.send(chat, "(done)").await,
                     Ok(t) => bot2.send(chat, &t).await,
+                    Err(e) if e.chain().any(|c| c.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some()) => {
+                        bot2.send(chat, RISK_NOTICE_REPLY).await
+                    }
                     Err(e) => bot2.send(chat, &format!("Heron could not finish: {e:#}")).await,
                 }
             });
@@ -803,6 +823,7 @@ mod tests {
             crate::llm::Message::assistant("I could not change the file."),
         ]));
         let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap());
+        crate::risk_notice::accept_current(&app.store).unwrap();
         let session = session_for(&app, true).unwrap();
         assert!(!session.tainted.load(std::sync::atomic::Ordering::SeqCst));
         app.store.kv_set("telegram_chat", "42").unwrap();
