@@ -3142,7 +3142,8 @@
     "depends_on": [
       "U2s",
       "U2c",
-      "Ut"
+      "Ut",
+      "U1i"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -3163,7 +3164,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Apply U2s's topology and U2c's Tier 1 results; delete the losing topology code",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": null,
       "branch": null,
