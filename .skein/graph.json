@@ -3375,11 +3375,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Apply U2s's topology and U2c's Tier 1 results; delete the losing topology code",
-    "version": 6,
+    "version": 7,
     "worktree": {
       "base_branch": "skein/U2w__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "606e4d4c3d262f817f6ec53a297088ed13a1c0ef",
+      "branch": "skein/U2w",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U2w"
     }
   },
   "U2w__integrate": {
