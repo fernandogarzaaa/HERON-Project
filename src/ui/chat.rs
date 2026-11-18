@@ -124,9 +124,10 @@ pub enum ThreadItem {
 }
 
 /// Permission mode. Names match `src/permissions.rs`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
     ReadOnly,
+    #[default]
     Ask,
     Auto,
     Yolo,
@@ -162,11 +163,6 @@ impl Mode {
     }
 }
 
-impl Default for Mode {
-    fn default() -> Self {
-        Mode::Ask
-    }
-}
 
 /// Approval decisions, matching `POST /api/approve`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

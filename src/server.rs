@@ -416,7 +416,7 @@ impl Approver for WebApprover {
         let (tx, rx) = oneshot::channel();
         self.state.approvals.lock().unwrap().insert(id.clone(), (self.session_id.clone(), tx));
         let prompt = json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
-            "always_rule": crate::permissions::always_rule(&req.tool, &req.summary), "can_always": !req.risk.high() && !req.tainted, "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted});
+            "always_rule": req.always_rule, "can_always": req.can_always(), "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted});
         // Do not leave an invisible approval pending if the SSE receiver is
         // stalled or gone; a sensitive action must fail closed.
         if !matches!(tokio::time::timeout(Duration::from_secs(15), self.tx.send(prompt)).await, Ok(Ok(()))) {
@@ -1235,8 +1235,8 @@ async fn connect_source(State(st): S, Path(name): Path<String>, Json(b): Json<Va
             if !folder.is_dir() {
                 return Err(bad("Heron could not find that folder. Check the path and try again."));
             }
-            if crate::permissions::classify_path(&folder, &app.workspace, false) == crate::permissions::Effect::Privileged {
-                return Err(bad("That folder holds keys or passwords, so Heron will not index it."));
+            if matches!(crate::permissions::classify_path(&folder, &app.workspace, &app.cfg(), false), crate::permissions::Effect::Refused | crate::permissions::Effect::SensitiveRead) {
+                return Err(bad("That folder holds keys, passwords or Heron's own data, so Heron will not index it."));
             }
             let folder = folder.to_string_lossy().to_string();
             if !cfg.sources.folders.contains(&folder) {
@@ -1359,8 +1359,7 @@ mod stream_backpressure_tests {
         use crate::store::Store;
 
         let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dir.path().join("home");
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
         cfg.agent.auto_memory = false;
         let app = Arc::new(App::assemble(
             cfg,

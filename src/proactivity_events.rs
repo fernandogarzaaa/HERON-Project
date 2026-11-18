@@ -424,7 +424,7 @@ mod tests {
         assert_eq!(journal.admit(&fresh, 102).unwrap(), EventAdmission::Accepted);
         assert!(!journal.propose("gmail", "personal", "sixth", 102).unwrap(),
             "evidence deletion and new consent cannot replenish the budget");
-        assert!(journal.propose("gmail", "personal", "sixth", 100 + DAY + 1).unwrap() == false,
+        assert!(!journal.propose("gmail", "personal", "sixth", 100 + DAY + 1).unwrap(),
             "expired evidence cannot be proposed after the budget period");
     }
 

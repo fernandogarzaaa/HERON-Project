@@ -165,7 +165,7 @@ impl Approver for TerminalApprover {
             for line in req.detail.lines().take(30) {
                 eprintln!("  {line}");
             }
-            let can_always = !req.risk.high() && !req.tainted;
+            let can_always = req.can_always();
             loop {
                 eprint!("{}", if can_always { "Allow? [y]es / [a]lways / [n]o: " } else { "Allow? [y]es / [n]o: " });
                 let _ = std::io::stderr().flush();
@@ -420,8 +420,8 @@ async fn providers(cfg: &Config) -> Result<()> {
     for spec in heron::cli_llm::providers() {
         let st = heron::cli_llm::probe_status(
             &spec,
-            heron::cli_llm::override_for_provider(&spec.id, &cfg.llm.provider, &cfg.llm.cli_command),
-            heron::cli_llm::override_for_provider(&spec.id, &cfg.llm.provider, &cfg.llm.cli_config_dir),
+            heron::cli_llm::override_for_provider(spec.id, &cfg.llm.provider, &cfg.llm.cli_command),
+            heron::cli_llm::override_for_provider(spec.id, &cfg.llm.provider, &cfg.llm.cli_config_dir),
         )
         .await;
         let mark = if cfg.llm.provider == spec.id {
@@ -714,7 +714,7 @@ async fn real_main() -> Result<()> {
         }
         Cmd::Usage => {
             let r = heron::usage::report(&app.store, &app.cfg(), app.background_budget().0);
-            let n = |v: u64| { let s = v.to_string(); let mut out = String::new(); for (i, c) in s.chars().enumerate() { if i > 0 && (s.len() - i) % 3 == 0 { out.push(','); } out.push(c); } out };
+            let n = |v: u64| { let s = v.to_string(); let mut out = String::new(); for (i, c) in s.chars().enumerate() { if i > 0 && (s.len() - i).is_multiple_of(3) { out.push(','); } out.push(c); } out };
             let window = |name: &str, w: &heron::usage::Window| match w.left {
                 Some(left) => println!("{name:<12} {} used of {} ({} left)", n(w.used), n(w.limit), n(left)),
                 None => println!("{name:<12} {} used (no limit set)", n(w.used)),
@@ -749,7 +749,8 @@ async fn real_main() -> Result<()> {
         }
         Cmd::McpServe => {
             let agent = app.agent(Arc::new(DenyAll));
-            let ctx = agent.tool_ctx("mcp");
+            // One session id per connection, so each program's calls are told apart in the log.
+            let ctx = agent.tool_ctx(&format!("mcp-{}", uuid::Uuid::new_v4().simple()));
             heron::mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app.tools, &ctx, &app.policy).await
         }
         Cmd::Init | Cmd::Doctor | Cmd::Providers | Cmd::Eval { .. } | Cmd::Backup { .. } | Cmd::Restore { .. } => unreachable!(),

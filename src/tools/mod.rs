@@ -90,6 +90,11 @@ pub trait Tool: Send + Sync {
     fn untrusted_output(&self) -> bool {
         false
     }
+    /// The canonical path a file-reading call reads, for read tiers and folder grants. `None` for
+    /// every tool that does not read files.
+    fn read_target(&self, _args: &Value, _ctx: &ToolCtx) -> Option<PathBuf> {
+        None
+    }
     async fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<String>;
 }
 
@@ -102,6 +107,8 @@ pub struct FnTool {
     pub risk: fn(&Value, &ToolCtx) -> Effect,
     pub detail: Option<fn(&Value, &ToolCtx) -> String>,
     pub untrusted: bool,
+    /// For the file-reading tools: the canonical path the call reads.
+    pub target: Option<fn(&Value, &ToolCtx) -> PathBuf>,
     pub run: for<'a> fn(&'a Value, &'a ToolCtx) -> BoxFuture<'a, Result<String>>,
 }
 
@@ -130,6 +137,9 @@ impl Tool for FnTool {
     }
     fn untrusted_output(&self) -> bool {
         self.untrusted
+    }
+    fn read_target(&self, args: &Value, ctx: &ToolCtx) -> Option<PathBuf> {
+        self.target.map(|f| f(args, ctx))
     }
     async fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<String> {
         (self.run)(args, ctx).await

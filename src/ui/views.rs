@@ -366,7 +366,7 @@ pub fn fmt_time(ts: i64) -> String {
 /// A cron expression in words. Port of `cronText` in `assets/index.html`.
 /// Anything unusual is shown as it is: `Repeats (0 8 * * *)`.
 pub fn cron_text(cron: &str) -> String {
-    let f: Vec<&str> = cron.trim().split_whitespace().collect();
+    let f: Vec<&str> = cron.split_whitespace().collect();
     if f.len() != 5 {
         return format!("Repeats ({cron})");
     }
@@ -456,7 +456,7 @@ pub fn fmt_int(n: u64) -> String {
     let digits: Vec<char> = n.to_string().chars().collect();
     let mut out = String::new();
     for (i, c) in digits.iter().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(*c);
@@ -524,7 +524,7 @@ pub fn meter_frac(w: &BudgetWindow) -> f32 {
     if w.limit == 0 {
         -1.0
     } else {
-        ((w.used as f32 / w.limit as f32).min(1.0)).max(0.0)
+        (w.used as f32 / w.limit as f32).clamp(0.0, 1.0)
     }
 }
 
