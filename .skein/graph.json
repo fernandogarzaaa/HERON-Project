@@ -4193,11 +4193,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "CLI provider guide, Mac getting-started guide, release checklist",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U6__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "da01387456da090c90015c749ef251277865e8b8",
+      "branch": "skein/U6",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U6"
     }
   },
   "U6__integrate": {
