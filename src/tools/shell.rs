@@ -103,7 +103,7 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
     }
     if !stderr.trim().is_empty() {
         if !text.is_empty() {
-            text.push_str("\n");
+            text.push('\n');
         }
         text.push_str("[stderr]\n");
         text.push_str(stderr.trim_end());
@@ -185,6 +185,7 @@ pub fn tools() -> Vec<FnTool> {
         risk,
         detail: None,
         untrusted: false,
+        target: None,
         run: |a, c| Box::pin(run(a, c)),
     }]
 }
@@ -266,8 +267,7 @@ mod tests {
         }
         let ws = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dunce::canonicalize(home.path()).unwrap();
+        let cfg = Config { home: dunce::canonicalize(home.path()).unwrap(), ..Default::default() };
         std::fs::write(cfg.home.join("secrets.json"), "TOPSECRET-KEY").unwrap();
         // A place outside the working folder that is not a temporary folder: the user's home.
         let outside = dirs::home_dir().unwrap().join(format!(".heron-sandbox-test-{}", uuid::Uuid::new_v4().simple()));

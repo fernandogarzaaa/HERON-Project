@@ -4,6 +4,7 @@
 //! available, every shell command runs inside one that:
 //!   - can change files only in the working folder, temporary folders and a few tool caches;
 //!   - cannot read Heron's own folder (settings, memory, keys) or the user's key folders (.ssh, .aws, ...).
+//!
 //! Everything else is readable and the network stays available, so builds, tests and git work as usual.
 //!
 //! Linux uses bubblewrap (`bwrap`) when installed; macOS uses the built-in Seatbelt (`sandbox-exec`).

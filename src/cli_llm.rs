@@ -64,7 +64,7 @@ use crate::llm::{ChatRequest, ChatResponse, DeltaFn, FunctionCall, Llm, Message,
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
@@ -122,6 +122,10 @@ pub struct CliSpec {
     pub needs_allow_agent_tools: bool,
     /// Env var that points the CLI at a config directory (T3 Code pattern).
     pub config_dir_env: Option<&'static str>,
+    /// Where the CLI keeps its login and settings, `~` expanded at use. Every one of these is
+    /// Refused to the file tools and the sandbox, so a CLI added here is protected from its first
+    /// build. Most entries are UNVERIFIED until the containment run records them (U2c).
+    pub config_dirs: &'static [&'static str],
     /// Env var for the per-provider login probe, if any.
     pub input: PromptInput,
     pub output: OutputKind,
@@ -283,22 +287,22 @@ impl CliSpec {
 /// generic escape hatch for anything else (Crush, Amp, Kimi, Droid, `llm`).
 pub fn providers() -> Vec<CliSpec> {
     vec![
-        CliSpec { id: "claude-cli", display_name: "Claude Code (subscription)", binary: "claude", login_command: "claude auth login", install_hint: "npm install -g @anthropic-ai/claude-code", auth_kind: "Claude Pro/Max subscription", cost_note: "Draws on the plan's usage window; Agent SDK use drains it faster than the CLI directly.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CLAUDE_CONFIG_DIR"), input: PromptInput::Stdin, output: OutputKind::ClaudeStreamJson },
-        CliSpec { id: "codex-cli", display_name: "Codex (ChatGPT subscription)", binary: "codex", login_command: "codex login", install_hint: "npm install -g @openai/codex", auth_kind: "ChatGPT Plus/Pro/Team subscription", cost_note: "Draws on the ChatGPT plan. A stray OPENAI_API_KEY would flip billing to metered API; Heron removes it from the child env.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CODEX_HOME"), input: PromptInput::Stdin, output: OutputKind::JsonLines },
-        CliSpec { id: "cursor-cli", display_name: "Cursor (subscription)", binary: "cursor-agent", login_command: "agent login", install_hint: "curl https://cursor.com/install -fsS | bash", auth_kind: "Cursor subscription", cost_note: "Draws on the Cursor plan's usage pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "grok-cli", display_name: "Grok Build (subscription)", binary: "grok", login_command: "grok login", install_hint: "brew install --cask grok-build (macOS) or the Grok Build installer", auth_kind: "Grok Build subscription", cost_note: "Draws on the Grok plan.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
-        CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::FlagValue, output: OutputKind::JsonSingle },
-        CliSpec { id: "cline-cli", display_name: "Cline (router, free models)", binary: "cline", login_command: "cline auth <provider>", install_hint: "npm install -g cline", auth_kind: "Whatever Cline is configured with: cline / openai-codex / oca OAuth, API keys, Ollama", cost_note: "Free when routed to a free or local model. One-shot defaults to yolo, so this provider needs cli_allow_agent_tools = true.", experimental: false, needs_allow_agent_tools: true, config_dir_env: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
-        CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::FlagValue, output: OutputKind::JsonLines },
-        CliSpec { id: "qwen-cli", display_name: "Qwen Code (paid key or local)", binary: "qwen", login_command: "qwen (then /auth)", install_hint: "npm install -g @qwen-code/qwen-code", auth_kind: "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.", cost_note: "Free with a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
-        CliSpec { id: "gemini-cli", display_name: "Gemini CLI (API key)", binary: "gemini", login_command: "gemini (then pick Gemini API Key)", install_hint: "npm install -g @google/gemini-cli", auth_kind: "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.", cost_note: "Free tier on the API key; otherwise Google's pricing.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
-        CliSpec { id: "pi-cli", display_name: "Pi (ACP agent)", binary: "pi", login_command: "pi (then sign in)", install_hint: "Install Pi from https://github.com/badlogic/pi", auth_kind: "Pi's own providers", cost_note: "Whatever Pi is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "fx-cli", display_name: "fx (ACP agent)", binary: "fx", login_command: "fx login", install_hint: "Install fx from its releases", auth_kind: "fx's own providers", cost_note: "Whatever fx is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "kiro-cli", display_name: "Kiro (ACP agent)", binary: "kiro-cli", login_command: "kiro-cli (then sign in)", install_hint: "Install Kiro CLI", auth_kind: "Kiro's own providers", cost_note: "Whatever Kiro is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "muse-cli", display_name: "Muse Code (ACP agent)", binary: "muse", login_command: "muse (then sign in)", install_hint: "Install Muse Code CLI", auth_kind: "Muse's own providers", cost_note: "Whatever Muse is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "goose-cli", display_name: "Goose (open source, local/BYOK)", binary: "goose", login_command: "goose configure", install_hint: "Install Goose from https://github.com/block/goose", auth_kind: "Local model or any provider Goose is configured with", cost_note: "Free with a local model. Runs its own tool loop, so this provider needs cli_allow_agent_tools = true.", experimental: true, needs_allow_agent_tools: true, config_dir_env: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
-        CliSpec { id: "custom-cli", display_name: "Custom CLI", binary: "", login_command: "See the CLI's own docs", install_hint: "Set [llm] cli_command to the binary", auth_kind: "Whatever the custom CLI uses", cost_note: "Whatever the custom CLI uses. Use for Crush, Amp, Kimi, Droid, llm, or anything else not listed.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, input: PromptInput::Arg, output: OutputKind::Text },
+        CliSpec { id: "claude-cli", display_name: "Claude Code (subscription)", binary: "claude", login_command: "claude auth login", install_hint: "npm install -g @anthropic-ai/claude-code", auth_kind: "Claude Pro/Max subscription", cost_note: "Draws on the plan's usage window; Agent SDK use drains it faster than the CLI directly.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CLAUDE_CONFIG_DIR"), config_dirs: &["~/.claude", "~/.claude.json"], input: PromptInput::Stdin, output: OutputKind::ClaudeStreamJson },
+        CliSpec { id: "codex-cli", display_name: "Codex (ChatGPT subscription)", binary: "codex", login_command: "codex login", install_hint: "npm install -g @openai/codex", auth_kind: "ChatGPT Plus/Pro/Team subscription", cost_note: "Draws on the ChatGPT plan. A stray OPENAI_API_KEY would flip billing to metered API; Heron removes it from the child env.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CODEX_HOME"), config_dirs: &["~/.codex"], input: PromptInput::Stdin, output: OutputKind::JsonLines },
+        CliSpec { id: "cursor-cli", display_name: "Cursor (subscription)", binary: "cursor-agent", login_command: "agent login", install_hint: "curl https://cursor.com/install -fsS | bash", auth_kind: "Cursor subscription", cost_note: "Draws on the Cursor plan's usage pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cursor"], input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "grok-cli", display_name: "Grok Build (subscription)", binary: "grok", login_command: "grok login", install_hint: "brew install --cask grok-build (macOS) or the Grok Build installer", auth_kind: "Grok Build subscription", cost_note: "Draws on the Grok plan.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.grok"], input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.opencode", "~/.config/opencode", "~/.local/share/opencode", "~/.local/state/opencode"], input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini", "~/.antigravity"], input: PromptInput::FlagValue, output: OutputKind::JsonSingle },
+        CliSpec { id: "cline-cli", display_name: "Cline (router, free models)", binary: "cline", login_command: "cline auth <provider>", install_hint: "npm install -g cline", auth_kind: "Whatever Cline is configured with: cline / openai-codex / oca OAuth, API keys, Ollama", cost_note: "Free when routed to a free or local model. One-shot defaults to yolo, so this provider needs cli_allow_agent_tools = true.", experimental: false, needs_allow_agent_tools: true, config_dir_env: None, config_dirs: &["~/.cline"], input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.copilot", "~/.config/github-copilot"], input: PromptInput::FlagValue, output: OutputKind::JsonLines },
+        CliSpec { id: "qwen-cli", display_name: "Qwen Code (paid key or local)", binary: "qwen", login_command: "qwen (then /auth)", install_hint: "npm install -g @qwen-code/qwen-code", auth_kind: "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.", cost_note: "Free with a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.qwen"], input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
+        CliSpec { id: "gemini-cli", display_name: "Gemini CLI (API key)", binary: "gemini", login_command: "gemini (then pick Gemini API Key)", install_hint: "npm install -g @google/gemini-cli", auth_kind: "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.", cost_note: "Free tier on the API key; otherwise Google's pricing.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini"], input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
+        CliSpec { id: "pi-cli", display_name: "Pi (ACP agent)", binary: "pi", login_command: "pi (then sign in)", install_hint: "Install Pi from https://github.com/badlogic/pi", auth_kind: "Pi's own providers", cost_note: "Whatever Pi is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.pi"], input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "fx-cli", display_name: "fx (ACP agent)", binary: "fx", login_command: "fx login", install_hint: "Install fx from its releases", auth_kind: "fx's own providers", cost_note: "Whatever fx is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.fx"], input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "kiro-cli", display_name: "Kiro (ACP agent)", binary: "kiro-cli", login_command: "kiro-cli (then sign in)", install_hint: "Install Kiro CLI", auth_kind: "Kiro's own providers", cost_note: "Whatever Kiro is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.kiro"], input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "muse-cli", display_name: "Muse Code (ACP agent)", binary: "muse", login_command: "muse (then sign in)", install_hint: "Install Muse Code CLI", auth_kind: "Muse's own providers", cost_note: "Whatever Muse is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.muse"], input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "goose-cli", display_name: "Goose (open source, local/BYOK)", binary: "goose", login_command: "goose configure", install_hint: "Install Goose from https://github.com/block/goose", auth_kind: "Local model or any provider Goose is configured with", cost_note: "Free with a local model. Runs its own tool loop, so this provider needs cli_allow_agent_tools = true.", experimental: true, needs_allow_agent_tools: true, config_dir_env: None, config_dirs: &["~/.config/goose"], input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "custom-cli", display_name: "Custom CLI", binary: "", login_command: "See the CLI's own docs", install_hint: "Set [llm] cli_command to the binary", auth_kind: "Whatever the custom CLI uses", cost_note: "Whatever the custom CLI uses. Use for Crush, Amp, Kimi, Droid, llm, or anything else not listed.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &[], input: PromptInput::Arg, output: OutputKind::Text },
     ]
 }
 
@@ -378,7 +382,7 @@ pub fn resolve_binary(binary: &str, command_override: &str) -> Option<PathBuf> {
     None
 }
 
-fn is_executable(p: &PathBuf) -> bool {
+fn is_executable(p: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -424,7 +428,7 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
 /// request in a fresh temp dir, so a relative path would point at two
 /// different accounts. Expand `~` (no shell runs here) and make a relative
 /// path absolute, so both sides inspect the same account.
-fn normalize_config_dir(dir: &str) -> String {
+pub(crate) fn normalize_config_dir(dir: &str) -> String {
     if dir.is_empty() {
         return String::new();
     }
@@ -645,10 +649,7 @@ async fn run_capture(
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
     #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
+    cmd.process_group(0);
     // Newly created test shims can transiently fail with ETXTBSY on
     // overlayfs even after the writer has closed. This also affects
     // user-installed CLI wrappers that have just been replaced. Retry
@@ -1570,9 +1571,7 @@ impl Accumulator {
             }
             Some("result") => {
                 if let Some(t) = v.get("result").and_then(|t| t.as_str()) {
-                    if !self.streamed {
-                        self.text = t.to_string();
-                    } else if self.text.is_empty() {
+                    if !self.streamed || self.text.is_empty() {
                         self.text = t.to_string();
                     }
                 }
@@ -1795,10 +1794,7 @@ impl Llm for CliLlm {
         // On Unix the child leads its own process group, so a kill can
         // reach the whole provider tree, not just the direct child.
         #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            cmd.process_group(0);
-        }
+        cmd.process_group(0);
         match self.spec.input {
             PromptInput::Stdin => {
                 cmd.stdin(std::process::Stdio::piped());
@@ -1976,7 +1972,7 @@ impl Llm for CliLlm {
 
 /// A fresh empty directory under the Heron home's temp area, mode 0700 on
 /// Unix, so the CLI's working directory holds nothing it can read or change.
-fn make_private_temp_dir(home: &PathBuf) -> Result<PathBuf> {
+fn make_private_temp_dir(home: &Path) -> Result<PathBuf> {
     let base = home.join("tmp");
     std::fs::create_dir_all(&base)?;
     let dir = base.join(format!("cli-{}", uuid::Uuid::new_v4().simple()));
@@ -2022,8 +2018,7 @@ mod tests {
     }
 
     fn test_cfg(home: &std::path::Path, provider: &str) -> Config {
-        let mut cfg = Config::default();
-        cfg.home = home.to_path_buf();
+        let mut cfg = Config { home: home.to_path_buf(), ..Default::default() };
         cfg.llm.provider = provider.to_string();
         cfg.llm.request_timeout_secs = 30;
         cfg
@@ -2733,10 +2728,7 @@ mod tests {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .kill_on_drop(true);
-        {
-            use std::os::unix::process::CommandExt;
-            cmd.process_group(0);
-        }
+        cmd.process_group(0);
         // The fake binary was just written: on overlayfs the spawn can hit
         // ETXTBSY ("Text file busy") even after the writer closed it, the
         // same race the production spawn retries around. Retry a few times.

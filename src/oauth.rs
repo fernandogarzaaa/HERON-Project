@@ -275,7 +275,7 @@ async fn access_token_with_generation(cfg: &Config, provider: Provider) -> Resul
         if let Some(next) = token.get("refresh_token").and_then(Value::as_str).filter(|s| !s.is_empty()) {
             cfg.store_vault_only_secret(&provider.secret_key("refresh_token"), next)?;
         }
-        return Ok((token["access_token"].as_str().unwrap_or_default().to_string(), generation));
+        Ok((token["access_token"].as_str().unwrap_or_default().to_string(), generation))
     }
 }
 
@@ -520,8 +520,7 @@ mod tests {
         use crate::llm::ScriptedLlm;
         use serde_json::json;
         let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dir.path().join("oauth-vault-qualification");
+        let cfg = Config { home: dir.path().join("oauth-vault-qualification"), ..Default::default() };
         let app = App::assemble(cfg, dir.path().join("ws"), crate::store::Store::in_memory().unwrap(), std::sync::Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
         let p = Provider::Google;
         let token = |refresh: &str, sub: &str| json!({"scope": p.scopes(), "refresh_token": refresh, "id_token": id_token(json!({"aud": "cid", "sub": sub}))});
@@ -549,8 +548,7 @@ mod tests {
     async fn a_failed_disconnect_keeps_the_account_listed_so_it_can_be_retried() {
         use crate::llm::ScriptedLlm;
         let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dir.path().join("home");
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
         cfg.ensure_home().unwrap();
         // A token from before the verified vault: the fallback file is the only copy.
         std::fs::write(cfg.home.join("secrets.json"), serde_json::to_string(&serde_json::json!({

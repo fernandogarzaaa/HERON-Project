@@ -115,9 +115,9 @@ pub fn parse_ics(text: &str, now: i64) -> Vec<Event> {
                     if longest_step > 0 {
                         // Start a little before where "now" must fall and walk forward to the first
                         // occurrence that is still to come, has not been cancelled, and is within the series.
-                        let mut n = if first < now { ((now - first) / longest_step - 1).max(0) } else { 0 };
+                        let start = if first < now { ((now - first) / longest_step - 1).max(0) } else { 0 };
                         let mut next = None;
-                        for _ in 0..2000 {
+                        for n in (start..).take(2000) {
                             if count.map(|c| n >= c).unwrap_or(false) {
                                 break;
                             }
@@ -129,7 +129,6 @@ pub fn parse_ics(text: &str, now: i64) -> Vec<Event> {
                                 next = Some(t);
                                 break;
                             }
-                            n += 1;
                         }
                         let Some(t) = next else { continue }; // the series has ended
                         e.start = t;
@@ -250,16 +249,19 @@ pub async fn sync_email(app: &App) -> Result<usize> {
 
 const DOC_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "org", "rst", "tex"];
 
-fn scan_folder(store: &Store, folder: &Path) -> Result<usize> {
+/// Index the documents in one folder. Files Heron never reads (its own home, CLI logins, personal
+/// stores) and files that look like secrets are skipped, and a Refused folder is not entered.
+fn scan_folder(store: &Store, folder: &Path, cfg: &crate::config::Config) -> Result<usize> {
     if !folder.is_dir() {
         bail!("{} is not a folder Heron can open.", folder.display());
     }
     let mut changed = 0;
-    let walk = ignore::WalkBuilder::new(folder).max_depth(Some(6)).hidden(true).build();
+    let roots = crate::permissions::ReadRoots::of(cfg);
+    let walk = ignore::WalkBuilder::new(folder).max_depth(Some(6)).hidden(true).filter_entry(move |e| roots.refused(e.path()).is_none()).build();
     for entry in walk.flatten().filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false)).take(20_000) {
         let path = entry.path();
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-        if !DOC_EXTENSIONS.contains(&ext.as_str()) || classify_path(path, folder, false) == Effect::SensitiveRead {
+        if !DOC_EXTENSIONS.contains(&ext.as_str()) || matches!(classify_path(path, folder, cfg, false), Effect::Refused | Effect::SensitiveRead) {
             continue;
         }
         let Ok(meta) = entry.metadata() else { continue };
@@ -283,10 +285,11 @@ fn scan_folder(store: &Store, folder: &Path) -> Result<usize> {
 pub async fn sync_documents(app: &App) -> Result<usize> {
     let folders = app.cfg().sources.folders.clone();
     let store = app.store.clone();
+    let cfg = app.cfg();
     tokio::task::spawn_blocking(move || {
         let mut n = 0;
         for f in folders {
-            n += scan_folder(&store, Path::new(&f))?;
+            n += scan_folder(&store, Path::new(&f), &cfg)?;
         }
         Ok(n)
     })
@@ -568,7 +571,7 @@ pub fn search(store: &Store, query: &str, source: Option<&str>, limit: usize) ->
     let mut hits = if aliases.is_empty() { store.search_knowledge(&expr, source, limit)? } else {
         store.search_knowledge_in(&expr, aliases, limit)?
     };
-    hits.sort_by(|a, b| b.ts.cmp(&a.ts));
+    hits.sort_by_key(|h| std::cmp::Reverse(h.ts));
     if hits.is_empty() {
         return Ok("nothing found in the connected sources".into());
     }
@@ -596,6 +599,49 @@ mod tests {
 
     fn ts(s: &str) -> i64 {
         Local.from_local_datetime(&NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M").unwrap()).unwrap().timestamp()
+    }
+
+    /// Knowledge-source indexing and ambient observation skip Refused locations and secret-looking
+    /// files, and never enter a Refused folder.
+    #[tokio::test]
+    async fn indexing_and_observation_skip_secrets_and_refused_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("notes");
+        // Heron's home and a configured CLI login folder inside the indexed folder.
+        let mut cfg = Config { home: folder.join("heron-home"), ..Default::default() };
+        cfg.llm.cli_config_dir = folder.join("cli-login").to_string_lossy().to_string();
+        for (f, text) in [
+            ("plan.md", "the garden plan"),
+            ("journal/today.txt", "planted tomatoes"),
+            ("cli-login/notes.md", "SECRET cli login"),
+            ("heron-home/skills/a.md", "SECRET skill"),
+            ("heron-home/notes.txt", "SECRET home"),
+        ] {
+            let p = folder.join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, text).unwrap();
+        }
+        // A folder whose name marks it as holding keys: every file in it looks like a secret.
+        let keys = dir.path().join(".ssh");
+        std::fs::create_dir_all(&keys).unwrap();
+        std::fs::write(keys.join("notes.md"), "SECRET key notes").unwrap();
+
+        let store = Store::in_memory().unwrap();
+        assert_eq!(scan_folder(&store, &folder, &cfg).unwrap(), 2, "only the two plain documents are indexed");
+        assert_eq!(scan_folder(&store, &keys, &cfg).unwrap(), 0, "nothing in a secret folder is indexed");
+        for q in ["garden", "tomatoes"] {
+            assert!(!search(&store, q, Some("documents"), 20).unwrap().starts_with("nothing found"), "{q}");
+        }
+        let secret = search(&store, "SECRET", Some("documents"), 20).unwrap();
+        assert!(secret.starts_with("nothing found"), "{secret}");
+
+        // Ambient observation, with the same configuration: names only, and only the plain files.
+        let seen: Vec<String> = crate::ambient::recent_changes(&folder, &cfg, std::time::Duration::from_secs(3600), 50).into_iter().map(|(p, _)| p).collect();
+        let mut sorted = seen.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec!["journal/today.txt".to_string(), "plan.md".to_string()]);
+        assert!(crate::ambient::recent_changes(&keys, &cfg, std::time::Duration::from_secs(3600), 50).is_empty());
+        assert_eq!(crate::ambient::observe(&store, &folder, Arc::new(cfg)), 2);
     }
 
     #[test]
@@ -637,8 +683,7 @@ mod tests {
     }
 
     async fn app_with(llm: ScriptedLlm, dir: &Path) -> (App, Arc<ScriptedLlm>) {
-        let mut cfg = Config::default();
-        cfg.home = dir.join("home");
+        let cfg = Config { home: dir.join("home"), ..Default::default() };
         let llm = Arc::new(llm);
         (App::assemble(cfg, dir.join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap(), llm)
     }
