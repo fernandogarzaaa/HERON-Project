@@ -7,7 +7,6 @@ import { AuditRow, SectionTitle, SectionIntro, EmptyNote, RowCard } from "common
 import { Theme } from "../components/theme.slint";
 
 export component ActivityView inherits Rectangle {
-    background: Theme.paper;
     in property <[AuditRow]> rows;
     in property <string> seal-text: "";
     in property <bool> seal-danger: false;
@@ -20,20 +19,25 @@ export component ActivityView inherits Rectangle {
         VerticalBox {
             width: parent.width;
             padding: 28px;
+            alignment: start;
             spacing: 14px;
             SectionTitle { title: "Activity log"; }
             SectionIntro { body: "Every action Heron took or was refused, newest first. Passwords and keys are blanked out before anything is logged."; }
-            Text {
+            if root.seal-text != "": Text {
                 text: root.seal-text;
                 font-size: 14px;
                 color: root.seal-danger ? Theme.danger : Theme.muted;
                 wrap: TextWrap.word-wrap;
-                visible: root.seal-text != "";
             }
-            EmptyNote { body: root.empty-text; visible: root.empty-text != ""; }
-            HorizontalBox {
+            if root.empty-text != "": EmptyNote { body: root.empty-text; }
+            if root.rows.length > 0: HorizontalBox {
+                // Column headers line up with the cell text inside each
+                // RowCard: 1px border plus 10px padding.
+                padding-left: 11px;
+                padding-right: 11px;
+                padding-top: 0px;
+                padding-bottom: 0px;
                 spacing: 10px;
-                visible: root.rows.length > 0;
                 Text { text: "When"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 110px; }
                 Text { text: "Action"; font-size: 13px; font-weight: 600; color: Theme.muted; width: 140px; }
                 Text { text: "Details"; font-size: 13px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; }

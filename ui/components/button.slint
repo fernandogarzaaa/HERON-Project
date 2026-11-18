@@ -1,0 +1,18 @@
+// The app's general-purpose button: the themed ActionButton behind the
+// std-widgets Button API (text, primary, enabled, clicked, icon), so a
+// view swaps the import and keeps its call sites. It is compact (30px,
+// against ActionButton's 36px for composer and approval actions) and
+// sized to its label: it does not stretch across a row or a column.
+// Pass reduce-motion from the view where the view has it.
+
+import { ActionButton } from "action_button.slint";
+
+export component Button inherits ActionButton {
+    in property <string> text;
+    in property <bool> primary: false;
+    label: root.text;
+    kind: root.primary ? "primary" : "secondary";
+    height: 30px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+}

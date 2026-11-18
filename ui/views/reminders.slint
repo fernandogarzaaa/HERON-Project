@@ -2,12 +2,13 @@
 // the views only through its own forwarded properties and callbacks, so
 // each view keeps its own file and its own component.
 
-import { Button, CheckBox, ComboBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { CheckBox, ComboBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { LineEdit } from "../components/line_edit.slint";
+import { Button } from "../components/button.slint";
 import { ScheduleRow, RunStepRow, InboxRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
 import { Theme } from "../components/theme.slint";
 
 export component RemindersView inherits Rectangle {
-    background: Theme.paper;
     in property <[ScheduleRow]> schedules;
     in property <[InboxRow]> delivered;
     in property <string> schedules-empty-text: "";
@@ -36,6 +37,7 @@ export component RemindersView inherits Rectangle {
         VerticalBox {
             width: parent.width;
             padding: 28px;
+            alignment: start;
             spacing: 14px;
             SectionTitle { title: "Reminders"; }
             SectionIntro { body: "Things Heron does on a schedule, or when something happens, while the app is open. Scheduled runs can read and search but not change anything, unless you allow more in Settings."; }
@@ -83,36 +85,38 @@ export component RemindersView inherits Rectangle {
                 checked <=> root.new-quiet;
             }
             HorizontalBox {
+                alignment: start;
+                padding: 0px;
                 spacing: 8px;
-                Button {
+                Button { reduce-motion: root.reduce-motion;
                     text: "Schedule it";
                     primary: true;
                     clicked => { root.add-schedule(root.new-what, root.new-when, root.new-may, root.new-quiet); }
                 }
-                Button {
+                Button { reduce-motion: root.reduce-motion;
                     text: "Fill in a daily briefing";
                     clicked => { root.fill-daily-briefing(); }
                 }
-                Button {
+                Button { reduce-motion: root.reduce-motion;
                     text: "Fill in an inbox watch";
                     clicked => { root.fill-inbox-watch(); }
                 }
             }
-            Text {
+            if root.form-error != "": Text {
                 text: root.form-error;
                 font-size: 14px;
                 color: Theme.danger;
                 wrap: TextWrap.word-wrap;
-                visible: root.form-error != "";
             }
             Spacer { height: 16px; }
             Text {
                 text: "Scheduled";
-                font-size: 17px;
+                font-size: 19px;
+                font-family: Theme.heading-font;
                 font-weight: 600;
                 color: Theme.ink;
             }
-            EmptyNote { body: root.schedules-empty-text; visible: root.schedules-empty-text != ""; }
+            if root.schedules-empty-text != "": EmptyNote { body: root.schedules-empty-text; }
             for row in root.schedules: RowCard {
                 reduce-motion: root.reduce-motion;
                 VerticalBox {
@@ -126,17 +130,17 @@ export component RemindersView inherits Rectangle {
                         wrap: TextWrap.word-wrap;
                     }
                     RowMeta { body: row.meta; }
-                    Text {
+                    if row.has-outline: Text {
                         text: row.outline;
                         font-size: 12px;
                         font-family: "SF Mono";
                         color: Theme.ink;
                         wrap: TextWrap.word-wrap;
-                        visible: row.has-outline;
                     }
                     HorizontalBox {
+                        padding: 0px;
                         spacing: 8px;
-                        Button {
+                        Button { reduce-motion: root.reduce-motion;
                             text: "Run now";
                             clicked => { root.run-schedule-now(row.id); }
                         }
@@ -147,12 +151,11 @@ export component RemindersView inherits Rectangle {
                                 root.set-schedule-may(row.id, value == "May also run commands" ? "commands" : value == "May also edit files in my folder" ? "write" : "read");
                             }
                         }
-                        Button {
+                        if row.has-outline && row.has-last-run: Button { reduce-motion: root.reduce-motion;
                             text: "Show last run";
-                            visible: row.has-outline && row.has-last-run;
                             clicked => { root.show-last-run(row.id); }
                         }
-                        Button {
+                        Button { reduce-motion: root.reduce-motion;
                             text: "Cancel";
                             clicked => { root.cancel-schedule(row.id); }
                         }
@@ -160,13 +163,12 @@ export component RemindersView inherits Rectangle {
                 }
             }
             Spacer { height: 8px; }
-            Text {
+            if root.last-run-title != "": Text {
                 text: root.last-run-title;
                 font-size: 15px;
                 font-weight: 600;
                 color: Theme.ink;
                 wrap: TextWrap.word-wrap;
-                visible: root.last-run-title != "";
             }
             for step in root.last-run-steps: Text {
                 text: step.text;
@@ -177,11 +179,12 @@ export component RemindersView inherits Rectangle {
             Spacer { height: 16px; }
             Text {
                 text: "Delivered";
-                font-size: 17px;
+                font-size: 19px;
+                font-family: Theme.heading-font;
                 font-weight: 600;
                 color: Theme.ink;
             }
-            EmptyNote { body: root.delivered-empty-text; visible: root.delivered-empty-text != ""; }
+            if root.delivered-empty-text != "": EmptyNote { body: root.delivered-empty-text; }
             for item in root.delivered: RowCard {
                 reduce-motion: root.reduce-motion;
                 VerticalBox {

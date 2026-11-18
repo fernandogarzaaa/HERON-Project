@@ -4,20 +4,22 @@
 //
 // Each step asks one clear thing. The next action is one obvious button.
 // The indicator shows where the user is and the bar fills as steps
-// complete. Steps fade in and out (180ms max). All motion is off when
-// reduce-motion is true; the window passes its own reduce-motion
-// property down. Wiring that property to the OS setting is still open.
+// complete. Only the current step exists in the layout: a hidden step
+// that stayed in the layout would keep its space and push the current
+// one down. The indicator bar still animates; all motion is off when
+// reduce-motion is true, and the window passes reduce-motion down.
 //
 // The documents step uses a real folder picker (plan section 4). The card
 // fires pick_folder_requested and the Rust side feeds the picked path back
 // into doc_path. There is no typed path input.
 
-import { Button, TextEdit, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { TextEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button } from "../components/button.slint";
 import { Theme } from "../components/theme.slint";
 import { SectionTitle, LabeledInput, ChoiceCard, StepIndicator } from "../components/atoms.slint";
 import { SourceCard, SourceItem } from "../components/source_card.slint";
 
-export component OnboardingView inherits VerticalBox {
+export component OnboardingView inherits Rectangle {
     // Flow state, owned by the Rust side.
     in property <int> current_step: 0;
     in property <float> progress: 0.0;
@@ -63,167 +65,181 @@ export component OnboardingView inherits VerticalBox {
     callback set_proactivity(string);
     callback goto_step(int);
     callback finish();
+    out property <length> content-height: scroll.content-height;
 
-    spacing: 20px;
-    padding: 24px;
+    // The steps are longer than a small window, so the view scrolls.
+    scroll := ScrollView {
+        width: parent.width;
+        height: parent.height;
+        VerticalBox {
+            width: parent.width;
+            padding: 28px;
+            spacing: 20px;
+            alignment: start;
 
-    Text { text: "Help Heron get to know you"; font-size: 30px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
-    Text {
-        text: "The more Heron knows about you and your world, the more it can do without being told. Everything you connect is read-only and is indexed on this computer. Nothing is sent to your AI model until you press “Learn from it”.";
-        font-size: 15px;
-        color: Theme.muted;
-        wrap: word-wrap;
-    }
 
-    StepIndicator {
-        labels: ["Model", "About you", "Your world", "Proactivity"];
-        current: current_step;
-        done: [model_ready || demo, about_saved > 0, world_done, onboarded];
-        progress: progress;
-        reduce-motion: reduce-motion;
-    }
-
-    // Step 1: connect a model. The only step that gates moving on.
-    VerticalBox {
-        spacing: 8px;
-        opacity: current_step == 0 ? 1 : 0;
-        animate opacity { duration: reduce-motion ? 0ms : 180ms; }
-        visible: self.opacity > 0.01;
-        SectionTitle { label: "Connect an AI model"; }
-        Text { text: model_status; color: Theme.ink; wrap: word-wrap; }
-        HorizontalBox {
-            spacing: 8px;
-            Button { text: model_ready ? "Change model" : "Connect a model"; clicked => { root.open_settings(); } }
-            Button {
-                visible: !model_ready && !demo;
-                text: "Use the demo for now";
-                clicked => { root.use_demo(); }
-            }
-        }
-        Button {
-            visible: model_ready || demo;
-            text: "Continue";
-            clicked => { root.goto_step(1); }
-        }
-    }
-
-    // Step 2: tell Heron about yourself.
-    VerticalBox {
-        spacing: 8px;
-        opacity: current_step == 1 ? 1 : 0;
-        animate opacity { duration: reduce-motion ? 0ms : 180ms; }
-        visible: self.opacity > 0.01;
-        SectionTitle { label: "Tell Heron about yourself"; }
-        Text { text: "A few sentences are enough. You can change or remove any of it later under Memory."; color: Theme.muted; wrap: word-wrap; }
-        LabeledInput { label: "Your name"; value <=> about_name; }
-        LabeledInput { label: "What you do"; hint: "e.g. I run a small design studio"; value <=> about_work; }
-        LabeledInput { label: "What you want help with most"; hint: "e.g. keeping on top of client work and invoices"; value <=> about_goals; }
-        LabeledInput { label: "How you like things done"; hint: "e.g. short answers, metric units, ask before sending anything"; value <=> about_style; }
-        Text { text: "Important people"; font-size: 14px; font-weight: 600; color: Theme.ink; }
-        TextEdit { text <=> about_people; placeholder-text: "One per line, e.g. Maria — my sister"; min-height: 56px; }
-        Text { text: "Anything else"; font-size: 14px; font-weight: 600; color: Theme.ink; }
-        TextEdit { text <=> about_notes; placeholder-text: "Paste a bio, a CV, your routines, or notes another assistant kept about you"; min-height: 84px; }
-        HorizontalBox {
-            spacing: 10px;
-            Button { text: "Back"; clicked => { root.goto_step(0); } }
-            Button { text: "Save and continue"; enabled: !busy; clicked => { root.save_about(); } }
-            Button { text: "Skip for now"; enabled: !busy; clicked => { root.goto_step(2); } }
+            Text { text: "Help Heron get to know you"; font-size: 30px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
             Text {
-                visible: about_message != "";
-                text: about_message;
-                color: Theme.ok;
-                font-weight: 600;
+                text: "The more Heron knows about you and your world, the more it can do without being told. Everything you connect is read-only and is indexed on this computer. Nothing is sent to your AI model until you press “Learn from it”.";
+                font-size: 15px;
+                color: Theme.muted;
+                wrap: word-wrap;
             }
-        }
-    }
 
-    // Step 3: connect your world.
-    VerticalBox {
-        spacing: 8px;
-        opacity: current_step == 2 ? 1 : 0;
-        animate opacity { duration: reduce-motion ? 0ms : 180ms; }
-        visible: self.opacity > 0.01;
-        SectionTitle { label: "Connect your world"; }
-        Text { text: "Each connection lets Heron look things up for you. Connect as many or as few as you like. You can skip this and come back later."; color: Theme.muted; wrap: word-wrap; }
-        for item[idx] in sources: SourceCard {
-            item: item;
-            doc_path <=> root.doc_path;
-            cal_url <=> root.cal_url;
-            email_host <=> root.email_host;
-            email_user <=> root.email_user;
-            email_pass <=> root.email_pass;
-            message: root.source_message;
-            connect(kind) => { root.connect_source(kind); }
-            learn(kind) => { root.learn_source(kind); }
-            disconnect(kind) => { root.disconnect_source(kind); }
-            pick_folder => { root.pick_folder_requested(); }
-        }
-        Text {
-            text: "Other apps: Heron can use any app that offers an MCP connector, such as Slack, Notion, GitHub or Google Drive. Add the connector to the settings file in your Heron folder and its tools appear here after a restart.";
-            font-size: 14px;
-            color: Theme.muted;
-            wrap: word-wrap;
-        }
-        HorizontalBox {
-            spacing: 10px;
-            Button { text: "Back"; clicked => { root.goto_step(1); } }
-            Button { text: "Continue"; enabled: !busy; clicked => { root.goto_step(3); } }
-        }
-    }
+            StepIndicator {
+                labels: ["Model", "About you", "Your world", "Proactivity"];
+                current: current_step;
+                done: [model_ready || demo, about_saved > 0, world_done, onboarded];
+                progress: progress;
+                reduce-motion: reduce-motion;
+            }
 
-    // Step 4: decide how much Heron does on its own.
-    VerticalBox {
-        spacing: 8px;
-        opacity: current_step == 3 ? 1 : 0;
-        animate opacity { duration: reduce-motion ? 0ms : 180ms; }
-        visible: self.opacity > 0.01;
-        SectionTitle { label: "Decide how much Heron does on its own"; }
-        Text { text: "You can change this at any time under Awareness."; color: Theme.muted; wrap: word-wrap; }
-        ChoiceCard {
-            title: "Only when I ask";
-            detail: "Heron stays aware but waits for you.";
-            selected: proactivity == "off";
-            reduce-motion: reduce-motion;
-            clicked => { root.set_proactivity("off"); }
-        }
-        ChoiceCard {
-            title: "Suggest work";
-            detail: "Heron offers to take things off your hands. It does nothing until you say so.";
-            selected: proactivity == "suggest";
-            reduce-motion: reduce-motion;
-            clicked => { root.set_proactivity("suggest"); }
-        }
-        ChoiceCard {
-            title: "Prepare ahead";
-            detail: "Heron also does the groundwork in advance without changing anything.";
-            selected: proactivity == "prepare";
-            reduce-motion: reduce-motion;
-            clicked => { root.set_proactivity("prepare"); }
-        }
-        ChoiceCard {
-            title: "Take over";
-            detail: "Heron does the work itself: it may create and edit files in your working folder, and nothing beyond that.";
-            selected: proactivity == "takeover";
-            reduce-motion: reduce-motion;
-            clicked => { if (root.proactivity != "takeover") { root.confirm-takeover = true; } }
-        }
-        if confirm-takeover: Rectangle {
-            background: Theme.danger-soft; border-color: Theme.danger; border-width: 1px; border-radius: 10px;
-            VerticalBox {
-                Text { text: "Take over means Heron does the work itself in your working folder. Continue?"; wrap: word-wrap; }
+            // Step 1: connect a model. The only step that gates moving on.
+            if current_step == 0: VerticalBox {
+                padding: 0px;
+                spacing: 14px;
+                SectionTitle { label: "Connect an AI model"; }
+                Text { text: model_status; color: Theme.ink; wrap: word-wrap; }
                 HorizontalBox {
-                    Button { text: "Confirm take over"; clicked => { confirm-takeover = false; root.set_proactivity("takeover"); } }
-                    Button { text: "Cancel"; clicked => { confirm-takeover = false; } }
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 8px;
+                    Button { reduce-motion: root.reduce-motion; text: model_ready ? "Change model" : "Connect a model"; clicked => { root.open_settings(); } }
+                    if !model_ready && !demo: Button { reduce-motion: root.reduce-motion;
+                        text: "Use the demo for now";
+                        clicked => { root.use_demo(); }
+                    }
+                }
+                if model_ready || demo: HorizontalBox {
+                    padding: 0px;
+                    alignment: start;
+                    Button { reduce-motion: root.reduce-motion;
+                        primary: true; text: "Continue";
+                        clicked => { root.goto_step(1); }
+                    }
                 }
             }
-        }
-        HorizontalBox {
-            spacing: 10px;
-            Button { text: "Back"; clicked => { root.goto_step(2); } }
-            Button {
-                text: onboarded ? "Back to the conversation" : "Finish setup";
-                enabled: !busy;
-                clicked => { root.finish(); }
+
+            // Step 2: tell Heron about yourself.
+            if current_step == 1: VerticalBox {
+                padding: 0px;
+                spacing: 14px;
+                SectionTitle { label: "Tell Heron about yourself"; }
+                Text { text: "A few sentences are enough. You can change or remove any of it later under Memory."; color: Theme.muted; wrap: word-wrap; }
+                LabeledInput { label: "Your name"; value <=> about_name; }
+                LabeledInput { label: "What you do"; hint: "e.g. I run a small design studio"; value <=> about_work; }
+                LabeledInput { label: "What you want help with most"; hint: "e.g. keeping on top of client work and invoices"; value <=> about_goals; }
+                LabeledInput { label: "How you like things done"; hint: "e.g. short answers, metric units, ask before sending anything"; value <=> about_style; }
+                Text { text: "Important people"; font-size: 14px; font-weight: 600; color: Theme.ink; }
+                TextEdit { text <=> about_people; placeholder-text: "One per line, e.g. Maria — my sister"; min-height: 56px; }
+                Text { text: "Anything else"; font-size: 14px; font-weight: 600; color: Theme.ink; }
+                TextEdit { text <=> about_notes; placeholder-text: "Paste a bio, a CV, your routines, or notes another assistant kept about you"; min-height: 84px; }
+                HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 10px;
+                    Button { reduce-motion: root.reduce-motion; text: "Back"; clicked => { root.goto_step(0); } }
+                    Button { reduce-motion: root.reduce-motion; primary: true; text: "Save and continue"; enabled: !busy; clicked => { root.save_about(); } }
+                    Button { reduce-motion: root.reduce-motion; text: "Skip for now"; enabled: !busy; clicked => { root.goto_step(2); } }
+                    if about_message != "": Text {
+                        text: about_message;
+                        color: Theme.ok;
+                        font-weight: 600;
+                    }
+                }
+            }
+
+            // Step 3: connect your world.
+            if current_step == 2: VerticalBox {
+                padding: 0px;
+                spacing: 14px;
+                SectionTitle { label: "Connect your world"; }
+                Text { text: "Each connection lets Heron look things up for you. Connect as many or as few as you like. You can skip this and come back later."; color: Theme.muted; wrap: word-wrap; }
+                for item[idx] in sources: SourceCard {
+                    item: item;
+                    doc_path <=> root.doc_path;
+                    cal_url <=> root.cal_url;
+                    email_host <=> root.email_host;
+                    email_user <=> root.email_user;
+                    email_pass <=> root.email_pass;
+                    message: root.source_message;
+                    connect(kind) => { root.connect_source(kind); }
+                    learn(kind) => { root.learn_source(kind); }
+                    disconnect(kind) => { root.disconnect_source(kind); }
+                    pick_folder => { root.pick_folder_requested(); }
+                }
+                Text {
+                    text: "Other apps: Heron can use any app that offers an MCP connector, such as Slack, Notion, GitHub or Google Drive. Add the connector to the settings file in your Heron folder and its tools appear here after a restart.";
+                    font-size: 14px;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 10px;
+                    Button { reduce-motion: root.reduce-motion; text: "Back"; clicked => { root.goto_step(1); } }
+                    Button { reduce-motion: root.reduce-motion; primary: true; text: "Continue"; enabled: !busy; clicked => { root.goto_step(3); } }
+                }
+            }
+
+            // Step 4: decide how much Heron does on its own.
+            if current_step == 3: VerticalBox {
+                padding: 0px;
+                spacing: 14px;
+                SectionTitle { label: "Decide how much Heron does on its own"; }
+                Text { text: "You can change this at any time under Awareness."; color: Theme.muted; wrap: word-wrap; }
+                ChoiceCard {
+                    title: "Only when I ask";
+                    detail: "Heron stays aware but waits for you.";
+                    selected: proactivity == "off";
+                    reduce-motion: reduce-motion;
+                    clicked => { root.set_proactivity("off"); }
+                }
+                ChoiceCard {
+                    title: "Suggest work";
+                    detail: "Heron offers to take things off your hands. It does nothing until you say so.";
+                    selected: proactivity == "suggest";
+                    reduce-motion: reduce-motion;
+                    clicked => { root.set_proactivity("suggest"); }
+                }
+                ChoiceCard {
+                    title: "Prepare ahead";
+                    detail: "Heron also does the groundwork in advance without changing anything.";
+                    selected: proactivity == "prepare";
+                    reduce-motion: reduce-motion;
+                    clicked => { root.set_proactivity("prepare"); }
+                }
+                ChoiceCard {
+                    title: "Take over";
+                    detail: "Heron does the work itself: it may create and edit files in your working folder, and nothing beyond that.";
+                    selected: proactivity == "takeover";
+                    reduce-motion: reduce-motion;
+                    clicked => { if (root.proactivity != "takeover") { root.confirm-takeover = true; } }
+                }
+                if confirm-takeover: Rectangle {
+                    background: Theme.danger-soft; border-color: Theme.danger; border-width: 1px; border-radius: 10px;
+                    VerticalBox {
+                        Text { text: "Take over means Heron does the work itself in your working folder. Continue?"; wrap: word-wrap; }
+                        HorizontalBox {
+                            alignment: start;
+                            padding: 0px;
+                            Button { reduce-motion: root.reduce-motion; text: "Confirm take over"; clicked => { confirm-takeover = false; root.set_proactivity("takeover"); } }
+                            Button { reduce-motion: root.reduce-motion; text: "Cancel"; clicked => { confirm-takeover = false; } }
+                        }
+                    }
+                }
+                HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 10px;
+                    Button { reduce-motion: root.reduce-motion; text: "Back"; clicked => { root.goto_step(2); } }
+                    Button { reduce-motion: root.reduce-motion;
+                        primary: true; text: onboarded ? "Back to the conversation" : "Finish setup";
+                        enabled: !busy;
+                        clicked => { root.finish(); }
+                    }
+                }
             }
         }
     }

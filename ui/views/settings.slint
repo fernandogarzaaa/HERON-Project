@@ -2,7 +2,8 @@
 // ui/setup-map.md for the API map and ui/setup-bridge.md for the bridge
 // interface.
 
-import { Button, TextEdit, ComboBox, CheckBox, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { TextEdit, ComboBox, CheckBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button } from "../components/button.slint";
 import { Theme } from "../components/theme.slint";
 import { SectionTitle, LabeledInput, ChoiceCard } from "../components/atoms.slint";
 
@@ -34,6 +35,7 @@ export struct ConnectorLine {
 // Persona editor. It has its own endpoints and its own save and reset,
 // so it stays a separate component.
 component PersonaEditor inherits VerticalBox {
+    padding: 0px;
     in-out property <string> agent_name;
     in-out property <string> persona_text;
     in property <bool> is_default;
@@ -41,7 +43,7 @@ component PersonaEditor inherits VerticalBox {
     in property <bool> busy;
     callback save();
     callback reset();
-    spacing: 8px;
+    spacing: 14px;
     SectionTitle { label: "Personality"; }
     LabeledInput { label: "What to call it"; value <=> agent_name; }
     Text { text: "Character"; font-size: 14px; font-weight: 600; color: Theme.ink; }
@@ -53,16 +55,16 @@ component PersonaEditor inherits VerticalBox {
         wrap: word-wrap;
     }
     HorizontalBox {
+        alignment: start;
+        padding: 0px;
         spacing: 8px;
         Button { text: "Save personality"; enabled: !busy; clicked => { root.save(); } }
-        Button {
-            visible: !is_default;
+        if !is_default: Button {
             text: "Reset to the original";
             enabled: !busy;
             clicked => { root.reset(); }
         }
-        Text {
-            visible: message != "";
+        if message != "": Text {
             text: message;
             color: Theme.ok;
             font-weight: 600;
@@ -70,7 +72,7 @@ component PersonaEditor inherits VerticalBox {
     }
 }
 
-export component SettingsView inherits VerticalBox {
+export component SettingsView inherits Rectangle {
     // AI model.
     in-out property <string> base_url;
     in-out property <string> model;
@@ -104,14 +106,6 @@ export component SettingsView inherits VerticalBox {
     // Connected apps.
     in property <[McpLine]> mcp_lines;
     in property <string> mcp_note;
-    // OAuth account connections (public desktop client IDs, never client secrets).
-    in-out property <string> google-client-id;
-    in-out property <string> microsoft-client-id;
-    in property <bool> google-connected;
-    in property <bool> microsoft-connected;
-    in property <string> oauth-status;
-    in-out property <bool> confirm-google-disconnect: false;
-    in-out property <bool> confirm-microsoft-disconnect: false;
     // Catalog and custom connector metadata. Keys are write-only.
     in property <[ConnectorLine]> connector-lines;
     in property <string> connector-vault-note: "";
@@ -123,6 +117,14 @@ export component SettingsView inherits VerticalBox {
     in-out property <string> connector-api-key: "";
     // Phone.
     in property <bool> telegram_configured;
+    // OAuth account connections (public desktop client IDs, never client secrets).
+    in-out property <string> google-client-id;
+    in-out property <string> microsoft-client-id;
+    in property <bool> google-connected;
+    in property <bool> microsoft-connected;
+    in property <string> oauth-status;
+    in-out property <bool> confirm-google-disconnect: false;
+    in-out property <bool> confirm-microsoft-disconnect: false;
     in property <bool> telegram_paired;
     in property <string> telegram_status;
     in-out property <string> telegram_token;
@@ -157,364 +159,410 @@ export component SettingsView inherits VerticalBox {
     callback connect_telegram();
     callback disconnect_telegram();
     callback make_backup();
+    // Scroll position, and how far the content runs past the window.
+    in-out property <length> scroll-y <=> scroll.content-y;
+    out property <length> overflow: max(0px, scroll.content-height - scroll.visible-height);
 
-    spacing: 24px;
-    padding: 24px;
+    // Settings is longer than any window. Without a scroll region the
+    // later sections and the Save button sit below the window edge.
+    scroll := ScrollView {
+        width: parent.width;
+        height: parent.height;
+        VerticalBox {
+            width: parent.width;
+            padding: 28px;
+            spacing: 24px;
+            alignment: start;
 
-    Text { text: "Settings"; font-size: 30px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
-    Text {
-        text: "Heron runs on this computer. The only thing that leaves it is what you send to the AI model you choose here.";
-        font-size: 15px;
-        color: Theme.muted;
-        wrap: word-wrap;
-    }
+            Text { text: "Settings"; font-size: 30px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
+            Text {
+                text: "Heron runs on this computer. The only thing that leaves it is what you send to the AI model you choose here.";
+                font-size: 15px;
+                color: Theme.muted;
+                wrap: word-wrap;
+            }
 
-    // AI model.
-    VerticalBox {
-        spacing: 8px;
-        SectionTitle { label: "AI model"; }
-        LabeledInput { label: "Service address"; value <=> base_url; }
-        HorizontalBox {
-            spacing: 6px;
-            Button { text: "OpenRouter"; clicked => { root.apply_preset("openrouter"); } }
-            Button { text: "OpenAI"; clicked => { root.apply_preset("openai"); } }
-            Button { text: "Ollama on this computer"; clicked => { root.apply_preset("ollama"); } }
-            Button { text: "Demo, no key needed"; clicked => { root.apply_preset("demo"); } }
-        }
-        LabeledInput { label: "Model"; value <=> model; }
-        Text { text: "Provider"; font-size: 14px; font-weight: 600; color: Theme.ink; }
-        ComboBox { model: provider_labels; current-index <=> provider_index; }
-        Text {
-            text: "Or run on a subscription you already pay for, through that CLI. Heron never reads the CLI's login; sign in in the CLI itself first. Run heron providers to check install and login status.";
-            font-size: 13px;
-            color: Theme.muted;
-            wrap: word-wrap;
-        }
-        LabeledInput { label: "CLI command"; hint: "empty = resolve the provider's binary"; value <=> cli_command; }
-        LabeledInput { label: "CLI model"; hint: "empty = the CLI's subscription default"; value <=> cli_model; }
-        LabeledInput { label: "API key"; hint: key_placeholder; password: true; value <=> api_key; }
-        Text { text: key_note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
-        LabeledInput { label: "Backup models"; hint: "none"; value <=> fallback_models; }
-        LabeledInput { label: "Model for background work"; hint: "same as main model"; value <=> fast_model; }
-    }
-
-    PersonaEditor {
-        agent_name <=> root.agent_name;
-        persona_text <=> root.persona_text;
-        is_default: root.persona_is_default;
-        message: root.persona_message;
-        busy: root.busy;
-        save => { root.save_persona(); }
-        reset => { root.reset_persona(); }
-    }
-
-    // Permissions.
-    VerticalBox {
-        spacing: 8px;
-        SectionTitle { label: "What Heron may do without asking"; }
-        ChoiceCard {
-            reduce-motion: reduce-motion;
-            title: "Read only";
-            detail: "Look, search and read. Never change anything.";
-            selected: mode == "readonly";
-            clicked => { root.mode = "readonly"; }
-        }
-        ChoiceCard {
-            reduce-motion: reduce-motion;
-            title: "Ask first";
-            detail: "Asks before changing files or running commands.";
-            selected: mode == "ask";
-            clicked => { root.mode = "ask"; }
-        }
-        ChoiceCard {
-            reduce-motion: reduce-motion;
-            title: "Auto";
-            detail: "Edits files and runs commands in your folder. Asks before anything risky.";
-            selected: mode == "auto";
-            clicked => { root.mode = "auto"; }
-        }
-        ChoiceCard {
-            reduce-motion: reduce-motion;
-            title: "Unrestricted";
-            detail: "Never asks. Only catastrophic commands stay blocked.";
-            selected: mode == "yolo";
-            clicked => { if (root.mode != "yolo") { root.confirm-yolo = true; } }
-        }
-        if confirm-yolo: Rectangle {
-            background: Theme.danger-soft; border-color: Theme.danger; border-width: 1px; border-radius: 10px;
+            // AI model.
             VerticalBox {
-                Text { text: "Unrestricted means Heron changes files and runs commands without asking. Continue?"; wrap: word-wrap; }
+                padding: 0px;
+                spacing: 14px;
+                SectionTitle { label: "AI model"; }
+                LabeledInput { label: "Service address"; value <=> base_url; }
                 HorizontalBox {
-                    Button { text: "Continue"; clicked => { confirm-yolo = false; root.mode = "yolo"; } }
-                    Button { text: "Cancel"; clicked => { confirm-yolo = false; } }
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 6px;
+                    Button { reduce-motion: root.reduce-motion; text: "OpenRouter"; clicked => { root.apply_preset("openrouter"); } }
+                    Button { reduce-motion: root.reduce-motion; text: "OpenAI"; clicked => { root.apply_preset("openai"); } }
+                    Button { reduce-motion: root.reduce-motion; text: "Ollama on this computer"; clicked => { root.apply_preset("ollama"); } }
+                    Button { reduce-motion: root.reduce-motion; text: "Demo, no key needed"; clicked => { root.apply_preset("demo"); } }
                 }
+                LabeledInput { label: "Model"; value <=> model; }
+                Text { text: "Provider"; font-size: 14px; font-weight: 600; color: Theme.ink; }
+                ComboBox { model: provider_labels; current-index <=> provider_index; }
+                Text {
+                    text: "Or run on a subscription you already pay for, through that CLI. Heron never reads the CLI's login; sign in in the CLI itself first. Run heron providers to check install and login status.";
+                    font-size: 13px;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                LabeledInput { label: "CLI command"; hint: "empty = resolve the provider's binary"; value <=> cli_command; }
+                LabeledInput { label: "CLI model"; hint: "empty = the CLI's subscription default"; value <=> cli_model; }
+                LabeledInput { label: "API key"; hint: key_placeholder; password: true; value <=> api_key; }
+                Text { text: key_note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+                LabeledInput { label: "Backup models"; hint: "none"; value <=> fallback_models; }
+                LabeledInput { label: "Model for background work"; hint: "same as main model"; value <=> fast_model; }
             }
-        }
-        Text { text: "During scheduled reminders"; font-size: 14px; font-weight: 600; color: Theme.ink; }
-        ComboBox {
-            model: ["Read only", "Auto (risky actions are refused)"];
-            current-index: daemon_mode == "auto" ? 1 : 0;
-            selected(index) => { root.daemon_mode = index == 1 ? "auto" : "readonly"; }
-        }
-        Text { text: sandbox_note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
-        CheckBox {
-            text: "Show the browser while Heron uses it";
-            checked <=> browser_visible;
-            enabled: browser_available;
-        }
-        Text { text: browser_note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
-    }
 
-    // Per-tool permissions.
-    VerticalBox {
-        spacing: 8px;
-        SectionTitle { label: "Each ability, one by one"; }
-        Text {
-            text: "“Ask as usual” follows the choice above. “Never ask” lets Heron use it freely, though risky uses still ask. “Never allow” switches it off.";
-            font-size: 13px;
-            color: Theme.muted;
-            wrap: word-wrap;
-        }
-        for tool[idx] in tools: HorizontalBox {
-            spacing: 8px;
-            Text { text: tool.name; width: 200px; color: Theme.ink; }
-            Text { text: tool.about; horizontal-stretch: 1; color: Theme.ink; wrap: word-wrap; }
-            ComboBox {
-                model: tool_settings;
-                current-index: tool.setting;
-                selected => { root.set_tool(tool.name, self.current-index); }
+            PersonaEditor {
+                agent_name <=> root.agent_name;
+                persona_text <=> root.persona_text;
+                is_default: root.persona_is_default;
+                message: root.persona_message;
+                busy: root.busy;
+                save => { root.save_persona(); }
+                reset => { root.reset_persona(); }
             }
-        }
-    }
 
-    // Connected apps.
-    VerticalBox {
-        spacing: 8px;
-        SectionTitle { label: "Connected apps"; }
-        Text {
-            visible: mcp_lines.length == 0;
-            text: "No apps connected through MCP.";
-            color: Theme.muted;
-        }
-        for line[idx] in mcp_lines: HorizontalBox {
-            spacing: 8px;
-            Text {
-                text: line.text;
-                horizontal-stretch: 1;
-                color: line.changed ? Theme.danger : Theme.ink;
-                wrap: word-wrap;
+            // Permissions.
+            VerticalBox {
+                padding: 0px;
+                spacing: 14px;
+                SectionTitle { label: "What Heron may do without asking"; }
+                ChoiceCard {
+                    reduce-motion: reduce-motion;
+                    title: "Read only";
+                    detail: "Look, search and read. Never change anything.";
+                    selected: mode == "readonly";
+                    clicked => { root.mode = "readonly"; }
+                }
+                ChoiceCard {
+                    reduce-motion: reduce-motion;
+                    title: "Ask first";
+                    detail: "Asks before changing files or running commands.";
+                    selected: mode == "ask";
+                    clicked => { root.mode = "ask"; }
+                }
+                ChoiceCard {
+                    reduce-motion: reduce-motion;
+                    title: "Auto";
+                    detail: "Edits files and runs commands in your folder. Asks before anything risky.";
+                    selected: mode == "auto";
+                    clicked => { root.mode = "auto"; }
+                }
+                ChoiceCard {
+                    reduce-motion: reduce-motion;
+                    title: "Unrestricted";
+                    detail: "Never asks. Only catastrophic commands stay blocked.";
+                    selected: mode == "yolo";
+                    clicked => { if (root.mode != "yolo") { root.confirm-yolo = true; } }
+                }
+                if confirm-yolo: Rectangle {
+                    background: Theme.danger-soft; border-color: Theme.danger; border-width: 1px; border-radius: 10px;
+                    VerticalBox {
+                        Text { text: "Unrestricted means Heron changes files and runs commands without asking. Continue?"; wrap: word-wrap; }
+                        HorizontalBox {
+                            alignment: start;
+                            padding: 0px;
+                            Button { reduce-motion: root.reduce-motion; text: "Continue"; clicked => { confirm-yolo = false; root.mode = "yolo"; } }
+                            Button { reduce-motion: root.reduce-motion; text: "Cancel"; clicked => { confirm-yolo = false; } }
+                        }
+                    }
+                }
+                Text { text: "During scheduled reminders"; font-size: 14px; font-weight: 600; color: Theme.ink; }
+                ComboBox {
+                    model: ["Read only", "Auto (risky actions are refused)"];
+                    current-index: daemon_mode == "auto" ? 1 : 0;
+                    selected(index) => { root.daemon_mode = index == 1 ? "auto" : "readonly"; }
+                }
+                Text { text: sandbox_note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+                CheckBox {
+                    text: "Show the browser while Heron uses it";
+                    checked <=> browser_visible;
+                    enabled: browser_available;
+                }
+                Text { text: browser_note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
             }
-            Button {
-                visible: line.changed;
-                text: "Accept the changed tools";
-                clicked => { root.accept_mcp(line.name); }
-            }
-        }
-        Text {
-            visible: mcp_note != "";
-            text: mcp_note;
-            color: Theme.ok;
-            wrap: word-wrap;
-        }
-    }
 
-    // Connector directory: catalog visibility is not account access.
-    VerticalBox {
-        spacing: 8px;
-        SectionTitle { label: "Connector Hub"; }
-        Text {
-            text: "Explore supported protocols and potential services. Catalog entries are not connected accounts. Custom connectors are saved inactive until a reviewed adapter is available.";
-            color: Theme.muted;
-            wrap: word-wrap;
-        }
-        Button {
-            text: "Refresh connector directory";
-            enabled: !root.busy;
-            clicked => { root.refresh-connectors(); }
-        }
-        Text {
-            text: root.connector-vault-note;
-            color: Theme.muted;
-            wrap: word-wrap;
-            visible: root.connector-vault-note != "";
-        }
-        for c in root.connector-lines: HorizontalBox {
-            spacing: 8px;
-            Text {
-                text: c.label;
-                color: Theme.ink;
-                horizontal-stretch: 1;
-                wrap: word-wrap;
-            }
-            Text { text: c.detail; color: Theme.muted; width: 180px; wrap: word-wrap; }
-            Button {
-                text: "Remove";
-                enabled: !root.busy;
-                visible: c.custom;
-                clicked => { root.remove-connector(c.id); }
-            }
-        }
-        Text { text: "Register a custom API (metadata only)"; color: Theme.ink; font-weight: 600; }
-        LabeledInput { label: "ID (lowercase slug)"; value <=> root.connector-new-id; }
-        LabeledInput { label: "Display name"; value <=> root.connector-new-name; }
-        LabeledInput { label: "Public HTTPS endpoint"; value <=> root.connector-new-endpoint; }
-        Button {
-            text: "Save inactive connector";
-            enabled: !root.busy && root.connector-new-id != "" && root.connector-new-name != "" && root.connector-new-endpoint != "";
-            clicked => { root.add-connector(root.connector-new-id, root.connector-new-name, root.connector-new-endpoint); }
-        }
-        Text { text: "Vault: API keys are never displayed to the model or saved in connector metadata. Only custom connector IDs can receive keys. Linux currently requires a secure vault backend before API keys can be saved."; wrap: word-wrap; color: Theme.muted; }
-        LabeledInput { label: "Custom connector ID"; value <=> root.connector-key-id; }
-        LabeledInput { label: "API key (stored in the OS vault)"; password: true; value <=> root.connector-api-key; }
-        HorizontalBox {
-            spacing: 8px;
-            Button {
-                text: "Save key";
-                enabled: !root.busy && root.connector-key-id != "" && root.connector-api-key != "";
-                clicked => { root.save-connector-key(root.connector-key-id, root.connector-api-key); }
-            }
-            Button {
-                text: "Revoke key";
-                enabled: !root.busy && root.connector-key-id != "";
-                clicked => { root.remove-connector-key(root.connector-key-id); }
-            }
-        }
-        Text {
-            text: root.connector-feedback;
-            color: Theme.muted;
-            wrap: word-wrap;
-            visible: root.connector-feedback != "";
-        }
-    }
-
-    // Google and Microsoft 365 accounts. OAuth consent always takes place in
-    // the user's system browser; Heron never asks for their sign-in password.
-    VerticalBox {
-        spacing: 8px;
-        SectionTitle { label: "Google and Microsoft accounts"; }
-        Text {
-            text: "Connect email and calendar read-only in your browser. A distributor-registered app connects with one click; enter your own public client ID only if needed. HERON never sees your account password. Synced content stays locally indexed, but may be sent to your chosen AI model when you ask HERON about it.";
-            color: Theme.muted;
-            font-size: 13px;
-            wrap: word-wrap;
-        }
-        Text { text: google-connected ? "Google: connected" : "Google: not connected"; color: google-connected ? Theme.ok : Theme.muted; }
-        LabeledInput { label: "Google OAuth desktop client ID"; hint: "Public client ID (not a secret)"; value <=> google-client-id; }
-        HorizontalBox {
-            spacing: 8px;
-            Button { text: google-connected ? "Reconnect Google" : "Connect Google"; enabled: !busy; clicked => { root.connect-oauth("google", root.google-client-id); } }
-            Button { text: "Sync Google"; visible: google-connected; enabled: !busy; clicked => { root.sync-oauth("google"); } }
-            Button {
-                text: confirm-google-disconnect ? "Confirm disconnect" : "Disconnect Google";
-                visible: google-connected;
-                enabled: !busy;
-                clicked => {
-                    if (root.confirm-google-disconnect) {
-                        root.confirm-google-disconnect = false;
-                        root.disconnect-oauth("google");
-                    } else {
-                        root.confirm-google-disconnect = true;
+            // Per-tool permissions.
+            VerticalBox {
+                padding: 0px;
+                spacing: 14px;
+                SectionTitle { label: "Each ability, one by one"; }
+                Text {
+                    text: "“Ask as usual” follows the choice above. “Never ask” lets Heron use it freely, though risky uses still ask. “Never allow” switches it off.";
+                    font-size: 13px;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                for tool[idx] in tools: HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    Text { text: tool.name; width: 200px; color: Theme.ink; }
+                    Text { text: tool.about; horizontal-stretch: 1; color: Theme.ink; wrap: word-wrap; }
+                    ComboBox {
+                        model: tool_settings;
+                        current-index: tool.setting;
+                        selected => { root.set_tool(tool.name, self.current-index); }
                     }
                 }
             }
-        }
-        Text { text: microsoft-connected ? "Microsoft 365: connected" : "Microsoft 365: not connected"; color: microsoft-connected ? Theme.ok : Theme.muted; }
-        LabeledInput { label: "Microsoft public desktop client ID"; hint: "Public application client ID"; value <=> microsoft-client-id; }
-        HorizontalBox {
-            spacing: 8px;
-            Button { text: microsoft-connected ? "Reconnect Microsoft" : "Connect Microsoft"; enabled: !busy; clicked => { root.connect-oauth("microsoft", root.microsoft-client-id); } }
-            Button { text: "Sync Microsoft"; visible: microsoft-connected; enabled: !busy; clicked => { root.sync-oauth("microsoft"); } }
-            Button {
-                text: confirm-microsoft-disconnect ? "Confirm disconnect" : "Disconnect Microsoft";
-                visible: microsoft-connected;
-                enabled: !busy;
-                clicked => {
-                    if (root.confirm-microsoft-disconnect) {
-                        root.confirm-microsoft-disconnect = false;
-                        root.disconnect-oauth("microsoft");
-                    } else {
-                        root.confirm-microsoft-disconnect = true;
+
+            // Connected apps.
+            VerticalBox {
+                padding: 0px;
+                spacing: 14px;
+                SectionTitle { label: "Connected apps"; }
+                if mcp_lines.length == 0: Text {
+                    text: "No apps connected through MCP.";
+                    color: Theme.muted;
+                }
+                for line[idx] in mcp_lines: HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 8px;
+                    Text {
+                        text: line.text;
+                        horizontal-stretch: 1;
+                        color: line.changed ? Theme.danger : Theme.ink;
+                        wrap: word-wrap;
+                    }
+                    if line.changed: Button { reduce-motion: root.reduce-motion;
+                        text: "Accept the changed tools";
+                        clicked => { root.accept_mcp(line.name); }
+                    }
+                }
+                if mcp_note != "": Text {
+                    text: mcp_note;
+                    color: Theme.ok;
+                    wrap: word-wrap;
+                }
+            }
+
+            // Connector directory: catalog visibility is not account access.
+            VerticalBox {
+                padding: 0px;
+                spacing: 14px;
+                SectionTitle { label: "Connector Hub"; }
+                Text {
+                    text: "Explore supported protocols and potential services. Catalog entries are not connected accounts. Custom connectors are saved inactive until a reviewed adapter is available.";
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                HorizontalBox {
+                    padding: 0px;
+                    alignment: start;
+                    Button { reduce-motion: root.reduce-motion;
+                        text: "Refresh connector directory";
+                        enabled: !root.busy;
+                        clicked => { root.refresh-connectors(); }
+                    }
+                }
+                if root.connector-vault-note != "": Text {
+                    text: root.connector-vault-note;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                for c in root.connector-lines: HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 8px;
+                    Text {
+                        text: c.label;
+                        color: Theme.ink;
+                        horizontal-stretch: 1;
+                        wrap: word-wrap;
+                    }
+                    Text { text: c.detail; color: Theme.muted; width: 180px; wrap: word-wrap; }
+                    if c.custom: Button { reduce-motion: root.reduce-motion;
+                        text: "Remove";
+                        enabled: !root.busy;
+                        clicked => { root.remove-connector(c.id); }
+                    }
+                }
+                Text { text: "Register a custom API (metadata only)"; color: Theme.ink; font-weight: 600; }
+                LabeledInput { label: "ID (lowercase slug)"; value <=> root.connector-new-id; }
+                LabeledInput { label: "Display name"; value <=> root.connector-new-name; }
+                LabeledInput { label: "Public HTTPS endpoint"; value <=> root.connector-new-endpoint; }
+                HorizontalBox {
+                    padding: 0px;
+                    alignment: start;
+                    Button { reduce-motion: root.reduce-motion;
+                        text: "Save inactive connector";
+                        enabled: !root.busy && root.connector-new-id != "" && root.connector-new-name != "" && root.connector-new-endpoint != "";
+                        clicked => { root.add-connector(root.connector-new-id, root.connector-new-name, root.connector-new-endpoint); }
+                    }
+                }
+                Text { text: "Vault: API keys are never displayed to the model or saved in connector metadata. Only custom connector IDs can receive keys. Linux currently requires a secure vault backend before API keys can be saved."; wrap: word-wrap; color: Theme.muted; }
+                LabeledInput { label: "Custom connector ID"; value <=> root.connector-key-id; }
+                LabeledInput { label: "API key (stored in the OS vault)"; password: true; value <=> root.connector-api-key; }
+                HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 8px;
+                    Button { reduce-motion: root.reduce-motion;
+                        text: "Save key";
+                        enabled: !root.busy && root.connector-key-id != "" && root.connector-api-key != "";
+                        clicked => { root.save-connector-key(root.connector-key-id, root.connector-api-key); }
+                    }
+                    Button { reduce-motion: root.reduce-motion;
+                        text: "Revoke key";
+                        enabled: !root.busy && root.connector-key-id != "";
+                        clicked => { root.remove-connector-key(root.connector-key-id); }
+                    }
+                }
+                if root.connector-feedback != "": Text {
+                    text: root.connector-feedback;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+            }
+
+            // Google and Microsoft 365 accounts. OAuth consent always takes place in
+            // the user's system browser; Heron never asks for their sign-in password.
+            VerticalBox {
+                padding: 0px;
+                spacing: 14px;
+                SectionTitle { label: "Google and Microsoft accounts"; }
+                Text {
+                    text: "Connect email and calendar read-only in your browser. A distributor-registered app connects with one click; enter your own public client ID only if needed. HERON never sees your account password. Synced content stays locally indexed, but may be sent to your chosen AI model when you ask HERON about it.";
+                    color: Theme.muted;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                }
+                Text { text: google-connected ? "Google: connected" : "Google: not connected"; color: google-connected ? Theme.ok : Theme.muted; }
+                LabeledInput { label: "Google OAuth desktop client ID"; hint: "Public client ID (not a secret)"; value <=> google-client-id; }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    alignment: start;
+                    Button { reduce-motion: root.reduce-motion; text: google-connected ? "Reconnect Google" : "Connect Google"; enabled: !busy; clicked => { root.connect-oauth("google", root.google-client-id); } }
+                    Button { reduce-motion: root.reduce-motion; text: "Sync Google"; visible: google-connected; enabled: !busy; clicked => { root.sync-oauth("google"); } }
+                    Button { reduce-motion: root.reduce-motion;
+                        text: confirm-google-disconnect ? "Confirm disconnect" : "Disconnect Google";
+                        visible: google-connected;
+                        enabled: !busy;
+                        clicked => {
+                            if (root.confirm-google-disconnect) {
+                                root.confirm-google-disconnect = false;
+                                root.disconnect-oauth("google");
+                            } else {
+                                root.confirm-google-disconnect = true;
+                            }
+                        }
+                    }
+                }
+                Text { text: microsoft-connected ? "Microsoft 365: connected" : "Microsoft 365: not connected"; color: microsoft-connected ? Theme.ok : Theme.muted; }
+                LabeledInput { label: "Microsoft public desktop client ID"; hint: "Public application client ID"; value <=> microsoft-client-id; }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    alignment: start;
+                    Button { reduce-motion: root.reduce-motion; text: microsoft-connected ? "Reconnect Microsoft" : "Connect Microsoft"; enabled: !busy; clicked => { root.connect-oauth("microsoft", root.microsoft-client-id); } }
+                    Button { reduce-motion: root.reduce-motion; text: "Sync Microsoft"; visible: microsoft-connected; enabled: !busy; clicked => { root.sync-oauth("microsoft"); } }
+                    Button { reduce-motion: root.reduce-motion;
+                        text: confirm-microsoft-disconnect ? "Confirm disconnect" : "Disconnect Microsoft";
+                        visible: microsoft-connected;
+                        enabled: !busy;
+                        clicked => {
+                            if (root.confirm-microsoft-disconnect) {
+                                root.confirm-microsoft-disconnect = false;
+                                root.disconnect-oauth("microsoft");
+                            } else {
+                                root.confirm-microsoft-disconnect = true;
+                            }
+                        }
+                    }
+                }
+                HorizontalBox {
+                    padding: 0px;
+                    alignment: start;
+                    Button { reduce-motion: root.reduce-motion; text: "Refresh account status"; enabled: !busy; clicked => { root.refresh-oauth(); } }
+                }
+                if oauth-status != "": Text { text: oauth-status; color: Theme.ink; wrap: word-wrap; }
+                Text {
+                    text: "Disconnect removes local access tokens and indexed account data; it does not revoke consent at Google or Microsoft. Revoke access in your provider's account security settings if needed.";
+                    font-size: 12px;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+            }
+
+            // Phone.
+            VerticalBox {
+                padding: 0px;
+                spacing: 14px;
+                SectionTitle { label: "Use Heron from your phone"; }
+                if telegram_status != "": Text { text: telegram_status; color: Theme.ink; wrap: word-wrap; }
+                if !telegram_configured: HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    LabeledInput { label: "Bot token from @BotFather"; password: true; value <=> telegram_token; horizontal-stretch: 1; }
+                    // Sits on the input's baseline, not beside its label.
+                    VerticalLayout {
+                        alignment: end;
+                        Button { reduce-motion: root.reduce-motion; text: "Connect Telegram"; enabled: !busy; clicked => { root.connect_telegram(); } }
+                    }
+                }
+                if telegram_configured: HorizontalBox {
+                    padding: 0px;
+                    alignment: start;
+                    Button { reduce-motion: root.reduce-motion;
+                        text: "Disconnect phone";
+                        enabled: !busy;
+                        clicked => { root.disconnect_telegram(); }
                     }
                 }
             }
-        }
-        HorizontalBox {
-            spacing: 8px;
-            Button { text: "Refresh account status"; enabled: !busy; clicked => { root.refresh-oauth(); } }
-        }
-        Text { visible: oauth-status != ""; text: oauth-status; color: Theme.ink; wrap: word-wrap; }
-        Text {
-            text: "Disconnect removes local access tokens and indexed account data; it does not revoke consent at Google or Microsoft. Revoke access in your provider's account security settings if needed.";
-            font-size: 12px;
-            color: Theme.muted;
-            wrap: word-wrap;
-        }
-    }
 
-    // Phone.
-    VerticalBox {
-        spacing: 8px;
-        SectionTitle { label: "Use Heron from your phone"; }
-        Text { text: telegram_status; color: Theme.ink; wrap: word-wrap; }
-        HorizontalBox {
-            visible: !telegram_configured;
-            spacing: 8px;
-            LabeledInput { label: "Bot token from @BotFather"; password: true; value <=> telegram_token; }
-            Button { text: "Connect Telegram"; enabled: !busy; clicked => { root.connect_telegram(); } }
-        }
-        Button {
-            visible: telegram_configured;
-            text: "Disconnect phone";
-            enabled: !busy;
-            clicked => { root.disconnect_telegram(); }
-        }
-    }
-
-    // Memory and files.
-    VerticalBox {
-        spacing: 8px;
-        SectionTitle { label: "Memory and files"; }
-        CheckBox { text: "Learn about me from conversations"; checked <=> auto_memory; }
-        CheckBox {
-            visible: neural_available;
-            text: "Understand meaning when searching memory";
-            checked <=> neural_memory;
-        }
-        LabeledInput { label: "Working folder"; value <=> workspace; }
-        Text { text: "Conversations, memory and settings are stored in " + home + "."; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
-        HorizontalBox {
-            spacing: 8px;
-            Button { text: "Save a copy of my data"; enabled: !busy; clicked => { root.make_backup(); } }
-            Text {
-                visible: backup_message != "";
-                text: backup_message;
-                color: Theme.ok;
-                font-weight: 600;
+            // Memory and files.
+            VerticalBox {
+                padding: 0px;
+                spacing: 14px;
+                SectionTitle { label: "Memory and files"; }
+                CheckBox { text: "Learn about me from conversations"; checked <=> auto_memory; }
+                if neural_available: CheckBox {
+                    text: "Understand meaning when searching memory";
+                    checked <=> neural_memory;
+                }
+                LabeledInput { label: "Working folder"; value <=> workspace; }
+                Text { text: "Conversations, memory and settings are stored in " + home + "."; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+                HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 8px;
+                    Button { reduce-motion: root.reduce-motion; text: "Save a copy of my data"; enabled: !busy; clicked => { root.make_backup(); } }
+                    if backup_message != "": Text {
+                        text: backup_message;
+                        color: Theme.ok;
+                        font-weight: 600;
+                    }
+                }
+                Text {
+                    text: "A copy holds your conversations, memory, tasks, reminders, automations and activity log. Heron also saves one by itself before it upgrades your data. To go back to a copy, close Heron and run heron restore with the file’s name.";
+                    font-size: 13px;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
             }
-        }
-        Text {
-            text: "A copy holds your conversations, memory, tasks, reminders, automations and activity log. Heron also saves one by itself before it upgrades your data. To go back to a copy, close Heron and run heron restore with the file’s name.";
-            font-size: 13px;
-            color: Theme.muted;
-            wrap: word-wrap;
-        }
-    }
 
-    // Save.
-    HorizontalBox {
-        spacing: 10px;
-        Button { text: "Save settings"; enabled: !busy; clicked => { root.save_settings(); } }
-        Text {
-            visible: saved_message != "";
-            text: saved_message;
-            color: Theme.ok;
-            font-weight: 600;
-        }
-        Text {
-            visible: error_message != "";
-            text: error_message;
-            color: Theme.danger;
-            wrap: word-wrap;
+            // Save.
+            HorizontalBox {
+                alignment: start;
+                padding: 0px;
+                spacing: 10px;
+                Button { reduce-motion: root.reduce-motion; primary: true; text: "Save settings"; enabled: !busy; clicked => { root.save_settings(); } }
+                if saved_message != "": Text {
+                    text: saved_message;
+                    color: Theme.ok;
+                    font-weight: 600;
+                }
+                if error_message != "": Text {
+                    text: error_message;
+                    color: Theme.danger;
+                    wrap: word-wrap;
+                }
+            }
         }
     }
 }
