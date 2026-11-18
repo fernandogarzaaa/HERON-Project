@@ -390,7 +390,16 @@
     }
   },
   "SYNC8": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "4ad8da776e74460ea7e1192746358dfc",
+        "ended_at": "2026-11-18T19:03:56.810198+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-18T19:03:49.194417+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -402,19 +411,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "4ad8da776e74460ea7e1192746358dfc",
-      "base_branch": "feat/heron-v1",
-      "claim_token": "dad1e33cea874c2b99ef8c66ee1a16bb",
-      "claimed_at": "2026-11-18T19:03:49.194417+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-18T19:03:49.194417+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -q broad_config_dir_override_opens_nothing_in_a_cli_sandbox docs/designs/heron-v1.md",
+        "duration_ms": 208,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC8_20261118T190356553349_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC8_20261118T190356762347_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I didn't run the completion check (`grep -q broad_config_dir_override_opens_nothing_in_a_cli_sandbox docs/designs/heron-v1.md`), because the constraints forbid running anything. The supervisor will run it.",
     "id": "SYNC8",
     "integration_for": null,
     "intent": {
@@ -426,13 +447,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "4ad8da776e74460ea7e1192746358dfc",
+      "base_commit": "5a81acc436abc65639c9a09f5567035e9959bd93",
+      "changed_files": [],
+      "commit": "5a81acc436abc65639c9a09f5567035e9959bd93",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Sync: capture the feat/heron-v1 head for U2g",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "5a81acc436abc65639c9a09f5567035e9959bd93",
@@ -2214,7 +2241,7 @@
       "claim_token": "db8744acc03e4a90b525377ef6457754",
       "claimed_at": "2026-11-18T18:59:50.577591+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T19:03:20.865598+00:00",
+      "last_heartbeat": "2026-11-18T19:03:50.882824+00:00",
       "node_version": 23,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -2256,7 +2283,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 32,
+    "version": 33,
     "worktree": {
       "base_branch": "skein/U2s__integrate-base",
       "base_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
