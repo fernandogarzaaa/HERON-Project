@@ -3892,7 +3892,7 @@
       "claim_token": "d3a680335b744f1a8dccf7df8c6fc1a2",
       "claimed_at": "2026-11-18T23:19:36.715840+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T23:19:36.715840+00:00",
+      "last_heartbeat": "2026-11-18T23:29:37.309460+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3918,9 +3918,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Fixes from U3's review: cross-core revoke, run start/end, overrides, risk-notice gates",
-    "version": 4,
+    "version": 24,
     "worktree": {
       "base_branch": "skein/U3f__integrate-base",
       "base_commit": "cdbee6468ef3eab77bfbddfb791a31dbbb48012a",
@@ -4148,7 +4148,16 @@
     }
   },
   "U6": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "393a94c4dd9a49c2aed8025ae8fbe446",
+        "ended_at": "2026-11-18T23:30:04.639367+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-18T23:19:57.654118+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -4160,22 +4169,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "393a94c4dd9a49c2aed8025ae8fbe446",
-      "base_branch": "skein/U6__integrate-base",
-      "claim_token": "da3b4afaa0ec4c6184ec10eacc23fb05",
-      "claimed_at": "2026-11-18T23:19:57.654118+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T23:19:57.654118+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2w",
       "U3a"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -q 'Tier 1' docs/cli-providers.md && grep -q 'topology' docs/cli-providers.md && grep -qF 'Reading a file outside the working folder now asks you first.' docs/getting-started-mac.md && grep -qF 'run-core-tasks.sh --provider <id> --runs 1' docs/release-checklist.md && grep -q 'resync' docs/engineering/SECURITY_THREAT_MODEL.md",
+        "duration_ms": 212,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U6_20261118T233004347338_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U6_20261118T233004560721_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: 4. **Another stale line in the threat model, not edited.** Its enforcement-point section still names `Policy::decide_in`, but the code now uses `decide`. That's outside item 42. Want me to fix it in a follow-up?",
     "id": "U6",
     "integration_for": null,
     "intent": {
@@ -4187,13 +4208,41 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "393a94c4dd9a49c2aed8025ae8fbe446",
+      "base_commit": "da01387456da090c90015c749ef251277865e8b8",
+      "changed_files": [
+        "docs/cli-providers.md",
+        "docs/engineering/SECURITY_THREAT_MODEL.md",
+        "docs/getting-started-mac.md",
+        "docs/release-checklist.md"
+      ],
+      "commit": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
+      "diff_stats": {
+        "docs/cli-providers.md": {
+          "added": 282,
+          "deleted": 122
+        },
+        "docs/engineering/SECURITY_THREAT_MODEL.md": {
+          "added": 31,
+          "deleted": 17
+        },
+        "docs/getting-started-mac.md": {
+          "added": 141,
+          "deleted": 0
+        },
+        "docs/release-checklist.md": {
+          "added": 129,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "CLI provider guide, Mac getting-started guide, release checklist",
-    "version": 4,
+    "version": 25,
     "worktree": {
       "base_branch": "skein/U6__integrate-base",
       "base_commit": "da01387456da090c90015c749ef251277865e8b8",
