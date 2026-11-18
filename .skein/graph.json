@@ -1667,15 +1667,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "5015adc1dfcc433b9d46a53a610725c4",
+      "base_branch": "skein/U2f__integrate-base",
+      "claim_token": "023d02a7aa7d4727a4122f63adee0e8c",
+      "claimed_at": "2026-11-18T18:29:32.887743+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-18T18:29:32.887743+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U1f",
@@ -1698,9 +1698,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Sandbox fixes from U2's review and U2c: launch and rename escapes, TLS roots for CLIs",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U2f__integrate-base",
       "branch": null,
