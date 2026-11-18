@@ -33,7 +33,13 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
         _ => &["-c"],
     };
     let candidates: Vec<(&str, &[&str])> = if chosen.is_empty() { candidates.to_vec() } else { vec![(chosen.as_str(), chosen_flags)] };
-    let sandbox = crate::sandbox::wrap(&ctx.cfg, &ctx.workspace);
+    let grants = crate::sandbox::shell_grants(&ctx.cfg, &ctx.store, &ctx.session_id);
+    let sandbox = crate::sandbox::wrap(&ctx.cfg, &ctx.workspace, &crate::sandbox::Profile::Shell { grants });
+    // The classifier cannot see what a command reads at run time, so it cannot stand in for the
+    // sandbox: on macOS, no sandbox means no shell.
+    if sandbox.is_none() && crate::sandbox::required() {
+        anyhow::bail!("the sandbox is off, so Heron won't run shell commands");
+    }
     let mut spawned = None;
     let mut last_err = None;
     for (shell, flags) in candidates {
@@ -202,7 +208,6 @@ mod tests {
     async fn commands_see_a_short_list_of_variables_not_the_whole_environment() {
         let ws = tempfile::tempdir().unwrap();
         let mut cfg = Config::default();
-        cfg.agent.sandbox = "off".into();
         cfg.llm.api_key_env = "TEST_MODEL_KEY_OF_HERON".into();
         // What a real environment looks like: the model's key, a cloud key, a token, a proxy with a password.
         for (k, v) in [
@@ -244,8 +249,7 @@ mod tests {
     #[tokio::test]
     async fn endless_output_is_cut_off_instead_of_filling_memory() {
         let ws = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.agent.sandbox = "off".into();
+        let cfg = Config::default();
         let store = Store::in_memory().unwrap();
         let ctx = ToolCtx { workspace: dunce::canonicalize(ws.path()).unwrap(), memory: Memory::new(store.clone(), None), store, session_id: "t".into(), cfg: Arc::new(cfg), tainted: Default::default(), seen_urls: Default::default() };
         // About 50 MB of output; only a bounded part is kept, and the command still finishes normally.
@@ -294,12 +298,330 @@ mod tests {
         let out = sh(format!("cat '{}/secrets.json' || true; ls '{}' || true", cfg.home.display(), cfg.home.display())).await;
         assert!(!out.contains("TOPSECRET"), "{out}");
 
-        // With the sandbox switched off the same write goes through (so the test really tested the sandbox).
+        // With the sandbox switched off: on macOS the shell is refused outright; elsewhere the same
+        // write goes through (so the test really tested the sandbox).
         let mut open = cfg.clone();
         open.agent.sandbox = "off".into();
         let ctx_off = ToolCtx { cfg: Arc::new(open), ..ctx.clone() };
-        run(&json!({"command": format!("echo fine > '{}/y.txt'", outside.display())}), &ctx_off).await.unwrap();
-        assert!(outside.join("y.txt").exists());
+        let result = run(&json!({"command": format!("echo fine > '{}/y.txt'", outside.display())}), &ctx_off).await;
+        if crate::sandbox::required() {
+            assert!(result.unwrap_err().to_string().contains("the sandbox is off, so Heron won't run shell commands"));
+            assert!(!outside.join("y.txt").exists());
+        } else {
+            result.unwrap();
+            assert!(outside.join("y.txt").exists());
+        }
         std::fs::remove_dir_all(&outside).unwrap();
+    }
+
+    #[tokio::test]
+    async fn shell_refused_when_sandbox_off() {
+        let ws = tempfile::tempdir().unwrap();
+        let workspace = dunce::canonicalize(ws.path()).unwrap();
+        let mut cfg = Config::default();
+        cfg.agent.sandbox = "off".into();
+        let ctx = test_ctx(&cfg, &workspace, "t");
+        let result = run(&json!({"command": "echo ran > marker.txt && echo done"}), &ctx).await;
+        if cfg!(target_os = "macos") {
+            let err = result.expect_err("on macOS the shell is refused with the sandbox off");
+            assert_eq!(err.to_string(), "the sandbox is off, so Heron won't run shell commands");
+            assert!(!workspace.join("marker.txt").exists(), "nothing ran");
+        } else {
+            assert!(result.unwrap().contains("done"), "elsewhere commands run unsandboxed, as before");
+            assert!(workspace.join("marker.txt").exists());
+        }
+    }
+
+    // ---------- the deny-default sandbox (Seatbelt) ----------
+
+    fn test_ctx(cfg: &Config, workspace: &std::path::Path, session: &str) -> ToolCtx {
+        let store = Store::in_memory().unwrap();
+        ToolCtx { workspace: workspace.to_path_buf(), memory: Memory::new(store.clone(), None), store, session_id: session.into(), cfg: Arc::new(cfg.clone()), tainted: Default::default(), seen_urls: Default::default() }
+    }
+
+    /// A temporary folder inside the home folder (the user roots are what the profile denies), removed
+    /// when dropped.
+    struct HomeTemp(std::path::PathBuf);
+    impl HomeTemp {
+        fn new() -> HomeTemp {
+            let home = dirs::home_dir().unwrap();
+            let dir = home.join(format!(".heron-sandbox-test-{}", uuid::Uuid::new_v4().simple()));
+            std::fs::create_dir_all(&dir).unwrap();
+            HomeTemp(dunce::canonicalize(&dir).unwrap())
+        }
+        fn put(&self, rel: &str, text: &str) -> std::path::PathBuf {
+            let p = self.0.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, text).unwrap();
+            p
+        }
+    }
+    impl Drop for HomeTemp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// The Seatbelt tests run only where Seatbelt is in effect, and say so elsewhere.
+    fn seatbelt(cfg: &Config) -> bool {
+        if crate::sandbox::active(cfg) == crate::sandbox::Kind::Seatbelt {
+            return true;
+        }
+        eprintln!("Seatbelt is not in effect here ({}); skipping", crate::sandbox::active(cfg).name());
+        false
+    }
+
+    async fn sh(ctx: &ToolCtx, command: &str) -> String {
+        run(&json!({"command": command}), ctx).await.unwrap()
+    }
+
+    fn q(p: &std::path::Path) -> String {
+        format!("'{}'", p.display().to_string().replace('\'', "'\\''"))
+    }
+
+    #[tokio::test]
+    async fn sandboxed_shell_cannot_read_ask_tier_paths() {
+        let mut cfg = Config::default();
+        cfg.permissions.mode = "auto".into();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let ws = tmp.0.join("project");
+        std::fs::create_dir_all(&ws).unwrap();
+        let private = tmp.put("elsewhere/diary.txt", "ASK-TIER-CONTENT");
+        tmp.put("project/readme.txt", "WORKSPACE-CONTENT");
+        let ctx = test_ctx(&cfg, &ws, "t");
+        // The working folder reads as usual.
+        assert!(sh(&ctx, "cat readme.txt").await.contains("WORKSPACE-CONTENT"));
+        // The rest of the home folder does not, however it is asked for.
+        for cmd in [format!("cat {}", q(&private)), format!("python3 -c \"print(open('{}').read())\"", private.display()), format!("cd {} && cat ../elsewhere/diary.txt", q(&ws))] {
+            let out = sh(&ctx, &cmd).await;
+            assert!(!out.contains("ASK-TIER-CONTENT"), "{cmd}: {out}");
+            assert!(out.contains("[exit code"), "{cmd}: {out}");
+        }
+        let out = sh(&ctx, &format!("cat {}", q(&private))).await;
+        assert!(out.contains("read_file"), "the hint points at read_file: {out}");
+    }
+
+    #[tokio::test]
+    async fn sandbox_cannot_read_cargo_credentials_via_python() {
+        let cfg = Config::default();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let ws = tmp.0.join("project");
+        tmp.put("project/.cargo/config.toml", "[build]\njobs = 1\n");
+        tmp.put("project/.cargo/credentials.toml", "[registry]\ntoken = \"CARGO-TOKEN-SECRET\"\n");
+        tmp.put("granted/.cargo/credentials.toml", "[registry]\ntoken = \"GRANTED-TOKEN-SECRET\"\n");
+        let grants = format!("[\"read:{}/**\"]", tmp.0.join("granted").display());
+        let ctx = test_ctx(&cfg, &ws, "t");
+        ctx.store.kv_set("grants:t", &grants).unwrap();
+        // Python runs, and the folder is readable: the config next to the credentials reads.
+        assert!(sh(&ctx, "python3 -c \"print(open('.cargo/config.toml').read())\"").await.contains("jobs = 1"));
+        for path in [ws.join(".cargo/credentials.toml"), tmp.0.join("granted/.cargo/credentials.toml")] {
+            let out = sh(&ctx, &format!("python3 -c \"print(open('{}').read())\"", path.display())).await;
+            assert!(!out.contains("TOKEN-SECRET"), "{out}");
+            assert!(out.contains("[exit code"), "{out}");
+        }
+        // The real one, if there is one, is covered by the same rule (only the outcome is printed).
+        let real = dirs::home_dir().unwrap().join(".cargo/credentials.toml");
+        let out = sh(&ctx, &format!("python3 -c \"open('{}').read()\" >/dev/null 2>&1 && echo READABLE || echo DENIED", real.display())).await;
+        assert!(out.contains("DENIED"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn granted_folder_is_readable_in_the_sandbox() {
+        let mut cfg = Config::default();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let ws = tmp.0.join("project");
+        std::fs::create_dir_all(&ws).unwrap();
+        let talk = tmp.put("talk/notes.txt", "GRANTED-FOR-THIS-CONVERSATION");
+        let standing = tmp.put("standing/notes.txt", "GRANTED-STANDING");
+        let other = tmp.put("other/notes.txt", "NOT-GRANTED");
+        cfg.permissions.allow = vec![format!("read:{}/**", tmp.0.join("standing").display())];
+        let ctx = test_ctx(&cfg, &ws, "s1");
+        ctx.store.kv_set("grants:s1", &serde_json::to_string(&[format!("read:{}/**", tmp.0.join("talk").display())]).unwrap()).unwrap();
+        assert!(sh(&ctx, &format!("cat {}", q(&talk))).await.contains("GRANTED-FOR-THIS-CONVERSATION"));
+        assert!(sh(&ctx, &format!("python3 -c \"print(open('{}').read())\"", standing.display())).await.contains("GRANTED-STANDING"));
+        assert!(!sh(&ctx, &format!("cat {}", q(&other))).await.contains("NOT-GRANTED"));
+        // Another conversation's grant does not open the folder here.
+        let elsewhere = ToolCtx { session_id: "s2".into(), ..ctx.clone() };
+        assert!(!sh(&elsewhere, &format!("cat {}", q(&talk))).await.contains("GRANTED-FOR-THIS-CONVERSATION"));
+    }
+
+    #[tokio::test]
+    async fn build_and_git_still_work_under_deny_default_reads() {
+        let cfg = Config::default();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let ws = tmp.0.join("fixture");
+        tmp.put("fixture/Cargo.toml", "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n");
+        tmp.put("fixture/src/main.rs", "fn main() {\n    println!(\"built\");\n}\n");
+        tmp.put("fixture/package.json", "{\"name\": \"fixture\", \"version\": \"1.0.0\", \"private\": true, \"scripts\": {\"test\": \"node test.js\"}}\n");
+        tmp.put("fixture/test.js", "require('assert').strictEqual(1 + 1, 2);\nconsole.log('npm-test-passed');\n");
+        tmp.put("fixture/test_fixture.py", "import unittest\n\nclass T(unittest.TestCase):\n    def test_adds(self):\n        self.assertEqual(1 + 1, 2)\n");
+        let ctx = test_ctx(&cfg, &ws, "t");
+        let mut tool_timeout = (*ctx.cfg).clone();
+        tool_timeout.agent.tool_timeout_secs = 600;
+        let ctx = ToolCtx { cfg: Arc::new(tool_timeout), ..ctx };
+        for (cmd, expect) in [
+            ("cargo build --offline && ./target/debug/fixture", "built"),
+            ("npm test", "npm-test-passed"),
+            ("python3 -m unittest -v", "OK"),
+            ("git init -q && git status", "No commits yet"),
+        ] {
+            let out = sh(&ctx, cmd).await;
+            assert!(!out.contains("[exit code"), "`{cmd}` failed under the sandbox:\n{out}");
+            assert!(out.contains(expect), "`{cmd}`:\n{out}");
+        }
+    }
+
+    #[tokio::test]
+    async fn every_registry_config_dir_is_refused_in_the_sandbox() {
+        let mut cfg = Config::default();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let ws = tmp.0.join("project");
+        // A configured account folder inside the working folder: Refused still wins there.
+        let account = tmp.put("project/acct/notes.txt", "ACCOUNT-FOLDER-CONTENT");
+        cfg.llm.cli_config_dir = tmp.0.join("project/acct").display().to_string();
+        let home = dirs::home_dir().unwrap();
+        let mut grants = vec![];
+        let mut dirs: Vec<std::path::PathBuf> = vec![];
+        for spec in crate::cli_llm::providers() {
+            for d in spec.config_dirs {
+                let path = home.join(d.trim_start_matches("~/"));
+                grants.push(format!("read:{}/**", path.display()));
+                dirs.push(path);
+            }
+        }
+        let ctx = test_ctx(&cfg, &ws, "t");
+        // Even a grant on them opens none of them.
+        ctx.store.kv_set("grants:t", &serde_json::to_string(&grants).unwrap()).unwrap();
+        // A file next to it in the working folder reads; the one in the account folder does not.
+        tmp.put("project/plain.txt", "WORKSPACE-CONTENT");
+        assert!(sh(&ctx, "cat plain.txt").await.contains("WORKSPACE-CONTENT"));
+        let out = sh(&ctx, &format!("cat {}", q(&account))).await;
+        assert!(!out.contains("ACCOUNT-FOLDER-CONTENT"), "{out}");
+        // The real folders: only whether they could be read is printed, never what is in them.
+        for dir in dirs.iter().filter(|d| d.exists()) {
+            let probe = if dir.is_dir() { format!("ls -A {} >/dev/null 2>&1", q(dir)) } else { format!("head -c1 {} >/dev/null 2>&1", q(dir)) };
+            let out = sh(&ctx, &format!("{probe} && echo READABLE || echo DENIED")).await;
+            assert!(out.contains("DENIED"), "{} is readable in the sandbox", dir.display());
+        }
+        // And the profile names every one of them, present or not.
+        let profile = crate::sandbox::seatbelt_profile(&cfg, &home, &ws, &crate::sandbox::Profile::Shell { grants: vec![] });
+        let refused = &profile[profile.find("(deny file-read* file-write*").unwrap()..];
+        for dir in &dirs {
+            assert!(refused.contains(&format!("(subpath \"{}\")", dir.display())), "{} missing from the Refused block", dir.display());
+        }
+    }
+
+    #[tokio::test]
+    async fn m4_sandbox_denies_globs_quotes_and_unlisted_secrets() {
+        let cfg = Config::default();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let ws = tmp.0.join("project");
+        tmp.put("project/notes.txt", "ORDINARY-NOTES");
+        tmp.put("project/.env", "DOTENV-SECRET");
+        tmp.put("project/.config/gh/hosts.yml", "GH-TOKEN-SECRET");
+        tmp.put("project/.cargo/credentials.toml", "CARGO-TOKEN-SECRET");
+        tmp.put("project/.zsh_history", "HISTORY-SECRET");
+        tmp.put("project/Default/Login Data", "BROWSER-LOGIN-SECRET");
+        let ctx = test_ctx(&cfg, &ws, "t");
+        assert!(sh(&ctx, "cat notes.txt").await.contains("ORDINARY-NOTES"));
+        for cmd in [
+            "cat .en?",
+            "cat \".env\"",
+            "cat '.e''nv'",
+            "cat \\.env",
+            "f=.env; cat \"$f\"",
+            "python3 -c \"print(open('.env').read())\"",
+            "cat .config/gh/hosts.yml",
+            "cat .cargo/credentials.toml",
+            "cat .zsh_history",
+            "cat Default/Login\\ Data",
+        ] {
+            let out = sh(&ctx, cmd).await;
+            assert!(!out.contains("-SECRET"), "{cmd}: {out}");
+            assert!(out.contains("[exit code"), "{cmd}: {out}");
+        }
+    }
+
+    /// Creates a throwaway keychain in `dir` holding one item, outside the sandbox. The owner's login
+    /// Keychain is never touched; the keychain is deleted again when dropped.
+    struct TestKeychain(std::path::PathBuf);
+    impl TestKeychain {
+        fn new(dir: &std::path::Path) -> Option<TestKeychain> {
+            let path = dir.join("test.keychain-db");
+            let ok = |args: &[&str]| std::process::Command::new("security").args(args).output().map(|o| o.status.success()).unwrap_or(false);
+            let p = path.to_string_lossy().to_string();
+            if !ok(&["create-keychain", "-p", "heron-test-pw", &p]) {
+                return None;
+            }
+            let kc = TestKeychain(path);
+            (ok(&["unlock-keychain", "-p", "heron-test-pw", &p]) && ok(&["add-generic-password", "-s", "heron-test", "-a", "heron", "-w", "KEYCHAIN-ITEM-SECRET", &p])).then_some(kc)
+        }
+        fn lookup(&self) -> Vec<String> {
+            ["find-generic-password", "-s", "heron-test", "-w", &self.0.to_string_lossy()].iter().map(|s| s.to_string()).collect()
+        }
+    }
+    impl Drop for TestKeychain {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("security").args(["delete-keychain", &self.0.to_string_lossy()]).output();
+        }
+    }
+
+    /// Run `security` with these arguments under a sandbox prefix; returns whether it succeeded and its output.
+    fn under(prefix: &(String, Vec<String>), args: &[String]) -> (bool, String) {
+        let out = std::process::Command::new(&prefix.0).args(&prefix.1).arg("/usr/bin/security").args(args).output().unwrap();
+        (out.status.success(), format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)))
+    }
+
+    // The throwaway keychain is made with `security create-keychain` in a temporary folder and
+    // deleted again at the end; the owner's login Keychain is never read or written.
+    #[test]
+    fn shell_profile_cannot_reach_keychain() {
+        let cfg = Config::default();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = dunce::canonicalize(tmp.path()).unwrap();
+        let kc = TestKeychain::new(&dir).expect("could not make a test keychain");
+        let plain = std::process::Command::new("security").args(kc.lookup()).output().unwrap();
+        assert!(String::from_utf8_lossy(&plain.stdout).contains("KEYCHAIN-ITEM-SECRET"), "the lookup works outside the sandbox");
+        let prefix = crate::sandbox::wrap(&cfg, &dir, &crate::sandbox::Profile::Shell { grants: vec![] }).unwrap();
+        let (ok, out) = under(&prefix, &kc.lookup());
+        assert!(!ok && !out.contains("KEYCHAIN-ITEM-SECRET"), "{out}");
+    }
+
+    #[test]
+    fn cli_profile_reaches_keychain_only_for_keychain_clis() {
+        let cfg = Config::default();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = dunce::canonicalize(tmp.path()).unwrap();
+        let kc = TestKeychain::new(&dir).expect("could not make a test keychain");
+        for (store, reaches) in [(crate::cli_llm::CredentialStore::MacosKeychain, true), (crate::cli_llm::CredentialStore::HomeFolder, false)] {
+            let spec = crate::cli_llm::CliSpec { credential_store: store, ..crate::cli_llm::spec_for("codex-cli").unwrap() };
+            let prefix = crate::sandbox::wrap(&cfg, &dir, &crate::sandbox::Profile::Cli { spec: &spec, binary_dir: "/usr/bin".into(), extra_read: vec![] }).unwrap();
+            let (ok, out) = under(&prefix, &kc.lookup());
+            assert_eq!(ok && out.contains("KEYCHAIN-ITEM-SECRET"), reaches, "{store:?}: {out}");
+        }
     }
 }

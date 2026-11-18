@@ -96,14 +96,45 @@ pub struct LlmConfig {
     /// choice, and the CLI still runs in a throwaway directory, never the
     /// workspace.
     pub cli_allow_agent_tools: bool,
-    /// Allow API-key variables into the CLI child's environment. Off by
-    /// default: for subscription providers they are removed, so a stray
-    /// OPENAI_API_KEY cannot flip a ChatGPT subscription turn into metered
-    /// API billing.
-    pub cli_allow_api_key: bool,
+    /// Which CLI providers may receive their API-key variables (`ANTHROPIC_API_KEY`,
+    /// `OPENAI_API_KEY`, ...). `false` (the default) for none, a list of provider ids such as
+    /// `["gemini-cli"]` for those, or `true` for every provider. A provider not allowed never sees
+    /// them, so a stray key cannot flip a subscription turn into metered API billing.
+    pub cli_allow_api_key: ApiKeyAllow,
+    /// Let scheduled and other unattended work call a CLI provider that is a subscription login.
+    /// Off by default: such work waits for the user instead.
+    pub allow_unattended_subscription: bool,
     /// Extra argv for "custom-cli", with {prompt} and {model} placeholders.
     /// If no arg contains {prompt}, the prompt is appended as the last arg.
     pub cli_args: Vec<String>,
+    /// Per CLI provider: is it a subscription login? A provider that is missing counts as one. Set
+    /// `false` for a CLI that routes to an API key or a local model. (Last, because it is a table.)
+    pub cli_subscription: BTreeMap<String, bool>,
+}
+
+/// `[llm] cli_allow_api_key`: `true`, `false`, or a list of provider ids. Kept in the form it was
+/// written, so old configs that say `true` or `false` load and save unchanged.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ApiKeyAllow {
+    Bool(bool),
+    List(Vec<String>),
+}
+
+impl Default for ApiKeyAllow {
+    fn default() -> Self {
+        ApiKeyAllow::Bool(false)
+    }
+}
+
+impl ApiKeyAllow {
+    /// May this provider receive its API-key variables?
+    pub fn allows(&self, id: &str) -> bool {
+        match self {
+            ApiKeyAllow::Bool(all) => *all,
+            ApiKeyAllow::List(ids) => ids.iter().any(|i| i == id),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,7 +270,9 @@ impl Default for LlmConfig {
             cli_model: String::new(),
             cli_config_dir: String::new(),
             cli_allow_agent_tools: false,
-            cli_allow_api_key: false,
+            cli_allow_api_key: ApiKeyAllow::default(),
+            cli_subscription: BTreeMap::new(),
+            allow_unattended_subscription: false,
             cli_args: vec![],
         }
     }
