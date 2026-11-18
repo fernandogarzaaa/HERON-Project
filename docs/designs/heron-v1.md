@@ -1066,6 +1066,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         *   Paths that exist are canonicalized. Missing ones are kept as written, so a folder created later is still covered.
         *   Refused is `cfg.home`, every registry entry's `config_dirs` (item 22), the `config_dir_env` variables' values when set (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), `cfg.llm.cli_config_dir`, and the macOS personal stores in §1. The browser profile folders are `~/Library/Application Support/Google/Chrome`, `…/BraveSoftware/Brave-Browser`, `…/Microsoft Edge` and `…/Firefox/Profiles`.
     *   **`classify_path(path, workspace, cfg, write) -> Effect`.** The path and its canonical form are both classified, and the stricter result wins, in the order Refused, then `SensitiveRead`, then `OutsideRead`, then `LocalRead`.
+        *   **The macOS firmlink alias (found in U1's review, 2026-11-18).** `/System/Volumes/Data/Users/<me>/.codex` names the same folder as `~/.codex`, and `realpath` leaves it unchanged, so prefix matching alone would classify it `LocalRead`. Before matching, a path under `/System/Volumes/Data` is also classified with that prefix removed, and the stricter result wins. `check_workspace` and the walkers use the same normalization. Tests: `firmlink_alias_is_classified_like_its_target` (read, write and `check_workspace`), and in U2 `firmlink_alias_is_denied_in_the_sandbox`.
         *   **Writes:** Refused gives `Refused` (Q13). Otherwise today's rules apply: a secret match gives `Privileged`, inside the working folder `WorkspaceWrite`, elsewhere `Privileged`.
         *   **Reads:** Refused gives `Refused`, then a secret match gives `SensitiveRead`, inside the working folder `LocalRead`, under a user root `OutsideRead`, and anything else `LocalRead`.
     *   **A working folder inside Refused (M28).** `pub fn check_workspace(workspace: &Path, cfg: &Config) -> Result<(), WorkspaceRefused>`, where `WorkspaceRefused { path }` implements `std::error::Error` with the text "the working folder is inside <path>, which Heron never reads". `Agent::run_turn` calls it first, so every surface (the Mac app, HTTP, the terminal, Telegram and unattended runs) gets that error before any tool runs, and shows its text as it shows any error. `shell.rs` and `CliLlm` don't repeat the check.
@@ -1094,7 +1095,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         *   **An `Always` answer when `always_rule` is `None`** is treated as "once".
         *   **"This conversation" on a too-broad folder** stores `read=:<canonical target>` in kv `grants:<session>`. A `read=:` entry covers only that exact target, never a path under it, and exists only as a conversation grant: `add_allow` rejects it as a standing rule.
         *   **Every caller of `always_rule`** moves to the new signature: `agent.rs:106, 119, 492`, `server.rs:419` and the tests at `permissions.rs:1107-1108`.
-        *   `set_tool_setting(tool, "allow")` returns an error for the four read tools: "reads outside the working folder are granted per folder".
+        *   `set_tool_setting(tool, "allow")` returns an error for the four read tools: "reads outside the working folder are granted per folder". `tool_setting` reports those four as "ask" (or "never" when a deny rule covers them), whatever tool-wide allow rules remain, so Settings never shows a state it can't set.
     *   **M-1.** `~/.config/gh/hosts.yml` now matches the secret check and lies under a user root, so reading it asks. The existing rule that egress to a new URL in a tainted conversation asks (`permissions.rs:244`) stays.
 
 ##### 15. `src/tools/mod.rs`, `src/tools/fs.rs` and `src/browser.rs` (Modify)
@@ -1104,8 +1105,8 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
     *   **`Tool` gains `fn read_target(&self, args: &Value, ctx: &ToolCtx) -> Option<PathBuf>`**, which returns `None` by default. `FnTool` gains a `target: Option<fn(&Value, &ToolCtx) -> PathBuf>` field, which is `None` in every built-in tool except the four read tools. Those return the canonical resolved `path` argument (default `.`). Every `FnTool` literal gains `target: None`, including those in `src/browser.rs:537-577`.
     *   **`read_risk` calls `classify_path(…, &ctx.cfg, false)`** on the path and on its canonical form. `read_effect` (`fs.rs:16-28`) is deleted. `write_risk` calls `classify_path(…, true)`, which makes writes into `cfg.home` `Refused`.
     *   **The walkers (M4).**
-        *   `search_files` skips an entry whose effect is `Refused` or `SensitiveRead` (`fs.rs:719`).
-        *   `find_files` applies the same filter, where today it filters nothing (`fs.rs:744-768`).
+        *   `search_files` skips an entry whose effect is `Refused` or `SensitiveRead` (`fs.rs:719`), or `OutsideRead` unless the call's own read target or a `read:` grant (standing, or this conversation's) covers it. That closes two gaps found in U1's review: a file symlink in the working folder that points into the Ask tier, and a walk rooted at `/`, which is `LocalRead` but reaches every user's home.
+        *   `find_files` applies the same filter, where today it filters nothing (`fs.rs:744-768`). It lists no name it would not read.
         *   Both stop descending into a Refused folder.
     *   **Trust.** Working-folder reads stay trusted, as Q1 proposes (`untrusted: false`, `fs.rs:800-850`).
 
@@ -1115,7 +1116,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 *   **Proposed Changes**:
     *   **`recall`** returns confirmed memories only, and stays `untrusted: false` (`personal.rs:269-277`).
     *   **`recall_unconfirmed`** is new: the same search over unconfirmed memories, with `untrusted: true` and effect `LocalRead`.
-    *   **`recent_activity`** is new, with no arguments, `untrusted: true` and effect `LocalRead`. It returns the text the `Ambient` prompt block renders today (`ambient::describe`, `ambient.rs:182`), or "Ambient observation is off." when it's off.
+    *   **`recent_activity`** is new, with no arguments, `untrusted: true` and effect `LocalRead`. It returns the text the `Ambient` prompt block renders today (`ambient::describe`, `ambient.rs:182`), or "Ambient observation is off." when it's off. It only reads: it never calls `ambient::observe`, which writes to the store.
     *   Both new tools are added to the registry, and neither is in `mcp::SERVED_TOOLS`.
 
 ##### 17. `src/agent.rs` (Modify)
@@ -1124,7 +1125,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 *   **Proposed Changes**:
     *   **`execute_call`** (`agent.rs:452-539`) builds a `Call`, with `read_target` from `tool.read_target`, and calls `decide`.
     *   **The approval sheet.** "always" is offered only when `always_rule(…)` returns `Some`, the effect isn't high, and the conversation isn't tainted.
-    *   **Conversation grants.** `session_grant` uses `read_rule_covers` for `read:` entries and an exact canonical match for `read=:` entries (`agent.rs:102-107`).
+    *   **Conversation grants.** `session_grant` uses `read_rule_covers` for `read:` entries and an exact canonical match for `read=:` entries (`agent.rs:102-107`). Once the conversation is tainted, a conversation grant no longer applies and the read asks again, as every conversation grant does today (`may_grant_for_conversation`). That is stricter than the verdict table's tainted-Yolo row, and it stays (decided 2026-11-18 after U1's review): a page that steered the model shouldn't be able to ride an earlier "this conversation" answer.
     *   **The prompt.** `system_prompt` (`agent.rs:182-299`) builds from a `Vec<PromptBlock { source: PromptSource, text }>`, with the variants in [Prompt sources](#prompt-sources). The `RelevantUnconfirmed` and `Ambient` blocks are no longer rendered.
     *   **Tests.** The test call at `agent.rs:791` moves to `decide`.
 
@@ -1222,6 +1223,11 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
     *   `the_agent_cannot_rewrite_its_own_settings_unasked` (`agent.rs:1012-1024`): a write into `cfg.home` is now `Refused` and denied (Q13), so the test expects a deny, not `Privileged`.
     *   `every_built_in_tool_declares_what_it_changes` (`agent.rs:794-795`) gains rows for `recall_unconfirmed` and `recent_activity`.
     *   `server_speaks_mcp` (`mcp.rs:299`): `remember` is refused and `recall` finds nothing.
+*   **Tests strengthened after U1's review (U1f):**
+    *   `m8_forwarded_telegram_message_taints` drives `handle_message` (or the update parser) with a forwarded update and asserts the turn input is wrapped and the session tainted, instead of calling `is_forwarded` and `turn_input` directly.
+    *   `working_folder_inside_refused_path_is_refused` also runs one `run_turn` with a Refused working folder and asserts the error text.
+    *   `m4_globs_quotes_and_unlisted_secrets_ask` creates the glob and quote targets (`.env`, a quoted `.env` path) so that half fails on the old commit, or drops it and says the shell half is U2's.
+    *   `walkers_skip_refused_and_secret_paths` gains a symlink-to-Ask-tier case and a `/`-rooted walk.
 *   **Not fixed here.** Two integration tests in `tests/integration.rs` break and are fixed in Ut: `mcp_client_talks_to_a_real_server_and_detects_changed_tools` (line 334) and the chat tests.
 
 #### Work unit U2: hardened CLI adapters, sandbox profiles and the data format (G2 at the OS level, G4)
@@ -1404,6 +1410,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         *   `build_and_git_still_work_under_deny_default_reads`: `cargo build --offline` of a dependency-free fixture crate, `npm test` of a dependency-free fixture package, `python3 -m unittest` and `git status`;
         *   `every_registry_config_dir_is_refused_in_the_sandbox`;
         *   `m4_sandbox_denies_globs_quotes_and_unlisted_secrets`: `cat .en?`, `cat ".env"`, `python3 -c "open('.env')"`, and an unlisted credential path;
+        *   `firmlink_alias_is_denied_in_the_sandbox`: under `Profile::Shell`, `cat /System/Volumes/Data<$HOME>/<Ask-tier file>` fails;
         *   `shell_profile_cannot_reach_keychain`: under `Profile::Shell`, `security find-generic-password -s heron-test -k <tmp>/test.keychain-db` fails, where the test made that keychain with `security create-keychain` in a temporary folder and added one item. The owner's login Keychain is never read or written by a test;
         *   `cli_profile_reaches_keychain_only_for_keychain_clis`: the same lookup succeeds under `Profile::Cli` for a fake `MacosKeychain` spec and fails for a `HomeFolder` spec;
     *   **The sandbox-off tests,** which don't skip: `shell_refused_when_sandbox_off` (in `shell.rs`, so Unix only) and `cli_turn_refused_when_sandbox_off` (in `cli_llm.rs`, every platform). On macOS they assert the refusal; elsewhere they assert today's behaviour.
