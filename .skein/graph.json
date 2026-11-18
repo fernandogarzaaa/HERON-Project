@@ -2411,7 +2411,7 @@
       "worker_id": null
     },
     "depends_on": [
-      "U1g",
+      "U2g",
       "U3a"
     ],
     "evidence": [],
@@ -2433,7 +2433,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": null,
       "branch": null,
