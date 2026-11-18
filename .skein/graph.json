@@ -3033,11 +3033,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 9,
+    "version": 10,
     "worktree": {
       "base_branch": "skein/U3__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "b4462d41a2488a563eb73b2143207b7910378a28",
+      "branch": "skein/U3",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3"
     }
   },
   "U3__integrate": {
