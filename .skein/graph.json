@@ -3348,15 +3348,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "ce7463a356b24c5b9ca9538ccaabdf7d",
+      "base_branch": "skein/U2w__integrate__integrate-base",
+      "claim_token": "1aab5a835fd242c4a475ef7eb2f6a52f",
+      "claimed_at": "2026-11-18T23:10:58.952509+00:00",
+      "holder": "inan",
+      "last_heartbeat": "2026-11-18T23:10:58.952509+00:00",
+      "node_version": 5,
+      "ttl_seconds": 1800,
+      "worker_id": "inan"
     },
     "depends_on": [
       "U2s",
@@ -3381,9 +3381,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Integrate parents of U2w",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "skein/U2w__integrate__integrate-base",
       "branch": null,
