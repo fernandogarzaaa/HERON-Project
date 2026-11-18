@@ -1700,11 +1700,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Sandbox fixes from U2's review and U2c: launch and rename escapes, TLS roots for CLIs",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U2f__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "b14a4ba9bae2f27fb3304dc5d7f46d053fa99435",
+      "branch": "skein/U2f",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U2f"
     }
   },
   "U2f__integrate": {
