@@ -958,7 +958,16 @@
     }
   },
   "U1f": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "5c21e62d013a4f6695bef52cc8e84540",
+        "ended_at": "2026-11-18T16:16:18.011470+00:00",
+        "error": "completion command failed (adapter exit=1); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-18T16:03:17.485048+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -970,22 +979,58 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "5c21e62d013a4f6695bef52cc8e84540",
-      "base_branch": "skein/U1f__integrate-base",
-      "claim_token": "974b9001e21742ae985faf4b19c8fa91",
-      "claimed_at": "2026-11-18T16:03:17.485048+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T16:14:18.046130+00:00",
-      "node_version": 3,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2",
       "SYNC5"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins",
+        "duration_ms": 11466,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T161416534638_0.log"
+      },
+      {
+        "command": "cargo test --locked --features desktop --bin heron-desktop",
+        "duration_ms": 95145,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T161428004163_1.log"
+      },
+      {
+        "command": "cargo clippy --locked --all-targets -- -D warnings",
+        "duration_ms": 14019,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T161603151601_2.log"
+      },
+      {
+        "command": "bash eval/require-tests.sh --lib -- firmlink_alias_is_classified_like_its_target walkers_never_read_uncovered_ask_tier_entries firmlink_alias_is_denied_in_the_sandbox m8_forwarded_telegram_message_taints working_folder_inside_refused_path_is_refused m4_globs_quotes_and_unlisted_secrets_ask walkers_skip_refused_and_secret_paths",
+        "duration_ms": 615,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T161617171965_3.log"
+      },
+      {
+        "command": "grep -q 'enum CredentialStore' src/cli_llm.rs",
+        "duration_ms": 214,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T161617789831_4.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T161618004824_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=1); see evidence",
     "id": "U1f",
     "integration_for": null,
     "intent": {
@@ -998,12 +1043,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-18T16:17:12.631886+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "unclaimed",
     "title": "Fixes from U1's security review: walkers, firmlink alias, credential_store, tests",
-    "version": 27,
+    "version": 31,
     "worktree": {
       "base_branch": "skein/U1f__integrate-base",
       "base_commit": "951510e283dc6494ee4770a3aaa3ec80a1a6e8de",
@@ -1488,7 +1533,7 @@
       "claim_token": "a7b5e748ccc04c57a27fe8b3f17bfaed",
       "claimed_at": "2026-11-18T16:14:43.150927+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-18T16:14:43.150927+00:00",
+      "last_heartbeat": "2026-11-18T16:16:13.803961+00:00",
       "node_version": 12,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -1528,9 +1573,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 14,
+    "version": 17,
     "worktree": {
       "base_branch": "skein/U2s__integrate-base",
       "base_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
