@@ -518,10 +518,6 @@ pub(crate) fn skip_seatbelt_test(why: &str) {
     eprintln!("{why}; skipping");
 }
 
-/// Held by a test while it changes a CLI's config-folder variable (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`).
-#[cfg(all(test, unix))]
-pub(crate) static CONFIG_DIR_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// Shown to the model when a sandboxed command fails in a way the sandbox explains.
 pub const DENIED_HINT: &str = "[This ran inside Heron's sandbox. Commands can change files only in the working folder and temporary folders. They can read the working folder, system and toolchain folders, and folders the user granted, but not the rest of the home folder, secrets or Heron's own data. To read another file, use read_file, which can ask the user.]";
 
