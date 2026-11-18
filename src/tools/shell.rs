@@ -404,6 +404,35 @@ mod tests {
         assert!(out.contains("read_file"), "the hint points at read_file: {out}");
     }
 
+    /// `/System/Volumes/Data<$HOME>/...` names the same file as `$HOME/...`, and `realpath` leaves it
+    /// as written: the profile denies the alias as it denies the path.
+    #[tokio::test]
+    async fn firmlink_alias_is_denied_in_the_sandbox() {
+        let cfg = Config::default();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let cfg = Config { home: tmp.0.join("heron-home"), ..Default::default() };
+        let ws = tmp.0.join("project");
+        std::fs::create_dir_all(&ws).unwrap();
+        let private = tmp.put("elsewhere/diary.txt", "ASK-TIER-CONTENT");
+        let refused = tmp.put("heron-home/config.toml", "REFUSED-CONTENT");
+        let alias = |p: &std::path::Path| std::path::PathBuf::from(format!("{}{}", crate::permissions::DATA_VOLUME, p.display()));
+        if std::fs::read_to_string(alias(&private)).ok().as_deref() != Some("ASK-TIER-CONTENT") {
+            eprintln!("{} does not name the same file here; skipping", alias(&private).display());
+            return;
+        }
+        let ctx = test_ctx(&cfg, &ws, "t");
+        for file in [alias(&private), alias(&refused)] {
+            for cmd in [format!("cat {}", q(&file)), format!("python3 -c \"print(open('{}').read())\"", file.display())] {
+                let out = sh(&ctx, &cmd).await;
+                assert!(!out.contains("-CONTENT"), "{cmd}: {out}");
+                assert!(out.contains("[exit code"), "{cmd}: {out}");
+            }
+        }
+    }
+
     #[tokio::test]
     async fn sandbox_cannot_read_cargo_credentials_via_python() {
         let cfg = Config::default();

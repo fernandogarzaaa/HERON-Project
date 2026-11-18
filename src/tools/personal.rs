@@ -72,17 +72,14 @@ async fn recall_unconfirmed(args: &Value, ctx: &ToolCtx) -> Result<String> {
 }
 
 /// What the background observer has noticed in the working folder (names and times only).
-/// File names are chosen by whoever made the files, so this is untrusted output.
+/// File names are chosen by whoever made the files, so this is untrusted output. It only reads: it
+/// never runs the observer, which writes to the store.
 async fn recent_activity(_args: &Value, ctx: &ToolCtx) -> Result<String> {
     if !ctx.cfg.agent.ambient_context {
         return Ok("Ambient observation is off.".into());
     }
-    let (store, ws, cfg) = (ctx.store.clone(), ctx.workspace.clone(), ctx.cfg.clone());
-    let seen = tokio::task::spawn_blocking(move || {
-        crate::ambient::observe(&store, &ws, cfg); // catch up, so awareness is current even without the background loop
-        crate::ambient::awareness(&store, &ws)
-    })
-    .await?;
+    let (store, ws) = (ctx.store.clone(), ctx.workspace.clone());
+    let seen = tokio::task::spawn_blocking(move || crate::ambient::awareness(&store, &ws)).await?;
     let text = crate::ambient::describe(&seen);
     Ok(if text.trim().is_empty() { "Nothing has been noticed in the working folder yet.".into() } else { text.trim().to_string() })
 }
@@ -485,4 +482,32 @@ pub fn tools() -> Vec<FnTool> {
             run: |a, c| Box::pin(use_skill(a, c)),
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::memory::Memory;
+    use crate::store::Store;
+    use std::sync::Arc;
+
+    /// `recent_activity` reports what the observer already noticed and never runs the observer itself,
+    /// which would write to the store.
+    #[tokio::test]
+    async fn recent_activity_only_reads() {
+        let ws = tempfile::tempdir().unwrap();
+        std::fs::write(ws.path().join("fresh-change.md"), "x").unwrap();
+        let store = Store::in_memory().unwrap();
+        let mut cfg = Config { home: ws.path().join("heron-home"), ..Default::default() };
+        cfg.agent.ambient_context = true;
+        let ctx = ToolCtx { workspace: dunce::canonicalize(ws.path()).unwrap(), memory: Memory::new(store.clone(), None), store: store.clone(), session_id: "s".into(), cfg: Arc::new(cfg), tainted: Default::default(), seen_urls: Default::default() };
+        let out = recent_activity(&json!({}), &ctx).await.unwrap();
+        assert!(!out.contains("fresh-change.md"), "{out}");
+        assert!(store.observations_since(0, 100).unwrap().is_empty(), "the tool recorded observations");
+        assert!(store.kv_get("observer_last").is_none(), "the tool ran the observer");
+        // What the observer did record is reported.
+        crate::ambient::observe(&store, &ctx.workspace, ctx.cfg.clone());
+        assert!(recent_activity(&json!({}), &ctx).await.unwrap().contains("fresh-change.md"));
+    }
 }

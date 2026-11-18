@@ -270,12 +270,13 @@ impl Policy {
     }
 
     /// The user's standing choice for one tool: "ask" (follow the mode), "allow" (never ask; risky actions
-    /// still ask) or "never" (always refuse).
+    /// still ask) or "never" (always refuse). The four read tools are never "allow": reads outside the
+    /// working folder are granted per folder, so a leftover tool-wide rule does not open them.
     pub fn tool_setting(&self, tool: &str) -> &'static str {
         let rule = format!("{tool}:*");
         if self.deny.read().unwrap().iter().any(|(r, _)| *r == rule) {
             "never"
-        } else if self.allow.read().unwrap().iter().any(|(r, _)| *r == rule) {
+        } else if !READ_TOOLS.contains(&tool) && self.allow.read().unwrap().iter().any(|(r, _)| *r == rule) {
             "allow"
         } else {
             "ask"
@@ -897,9 +898,11 @@ impl ReadRoots {
         ReadRoots { refused: with_canonical(refused), user_roots: with_canonical(user_roots) }
     }
 
-    /// The Refused location this path lies in, if any.
+    /// The Refused location this path lies in, if any. A path under `/System/Volumes/Data` is also
+    /// matched with that prefix removed (the macOS firmlink alias).
     pub fn refused(&self, path: &Path) -> Option<&Path> {
-        self.refused.iter().find(|r| path.starts_with(r)).map(PathBuf::as_path)
+        let stripped = without_data_volume(path);
+        self.refused.iter().find(|r| path.starts_with(r) || stripped.as_deref().is_some_and(|s| s.starts_with(r))).map(PathBuf::as_path)
     }
 
     /// Every Refused location, for the sandbox profile and for tests.
@@ -909,8 +912,19 @@ impl ReadRoots {
 
     /// Is this path in one of the user's own folders (where a read outside the working folder asks)?
     pub fn in_user_root(&self, path: &Path) -> bool {
-        self.user_roots.iter().any(|r| path.starts_with(r))
+        let stripped = without_data_volume(path);
+        self.user_roots.iter().any(|r| path.starts_with(r) || stripped.as_deref().is_some_and(|s| s.starts_with(r)))
     }
+}
+
+/// Where macOS mounts the data volume. `/System/Volumes/Data/Users/<me>/.codex` names the same folder
+/// as `~/.codex`, and `realpath` leaves it as written, so prefix matching alone would miss it.
+pub const DATA_VOLUME: &str = "/System/Volumes/Data";
+
+/// A path under [`DATA_VOLUME`] with that prefix removed (`/System/Volumes/Data/Users/x` is
+/// `/Users/x`), or None for any other path. A pure path operation, so it behaves the same everywhere.
+pub fn without_data_volume(path: &Path) -> Option<PathBuf> {
+    path.strip_prefix(DATA_VOLUME).ok().map(|rest| Path::new("/").join(rest))
 }
 
 /// The environment variables that point a CLI at another config folder (`CLAUDE_CONFIG_DIR`, ...).
@@ -952,14 +966,20 @@ fn with_canonical(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 /// (`LocalRead`), then in the user's own folders (`OutsideRead`), and anything else (`LocalRead`).
 /// Writes: Refused, then a secret match or anywhere outside the working folder (`Privileged`), and
 /// inside the working folder (`WorkspaceWrite`).
+///
+/// A path under `/System/Volumes/Data` (the macOS firmlink alias) is also classified with that prefix
+/// removed, and the stricter result wins.
 pub fn classify_path(path: &Path, workspace: &Path, cfg: &Config, write: bool) -> Effect {
     let roots = ReadRoots::of(cfg);
+    let workspace_alias = without_data_volume(workspace);
     let one = |p: &Path| -> Effect {
         if roots.refused(p).is_some() {
             return Effect::Refused;
         }
         let secret = is_secret_path(p);
-        let inside = is_inside(p, workspace);
+        // A file or working folder named by its alias is still inside.
+        let p_alias = without_data_volume(p);
+        let inside = [Some(p), p_alias.as_deref()].into_iter().flatten().any(|p| is_inside(p, workspace) || workspace_alias.as_deref().is_some_and(|w| is_inside(p, w)));
         match (write, secret, inside) {
             (true, false, true) => Effect::WorkspaceWrite,
             (true, _, _) => Effect::Privileged,
@@ -969,7 +989,9 @@ pub fn classify_path(path: &Path, workspace: &Path, cfg: &Config, write: bool) -
             (false, false, false) => Effect::LocalRead,
         }
     };
-    stricter(one(path), one(&canonical_existing(path)))
+    let forms = [path.to_path_buf(), canonical_existing(path)];
+    let aliases: Vec<PathBuf> = forms.iter().filter_map(|p| without_data_volume(p)).collect();
+    forms.iter().chain(&aliases).map(|p| one(p)).fold(one(path), stricter)
 }
 
 /// A working folder that lies inside a Refused location.
@@ -1619,8 +1641,8 @@ mod tests {
         assert_eq!(classify_path(&w.join("notes.md"), &w, &cfg, true), Effect::WorkspaceWrite);
     }
 
-    #[test]
-    fn working_folder_inside_refused_path_is_refused() {
+    #[tokio::test]
+    async fn working_folder_inside_refused_path_is_refused() {
         let ws = tempfile::tempdir().unwrap();
         let w = dunce::canonicalize(ws.path()).unwrap();
         let home = dirs::home_dir().unwrap();
@@ -1635,6 +1657,57 @@ mod tests {
         check_workspace(&w, &cfg).unwrap();
         check_workspace(&home, &cfg).unwrap();
         assert_eq!(classify_path(&home.join(".claude/settings.json"), &home, &cfg, false), Effect::Refused);
+
+        // The whole path: a turn whose working folder is inside Heron's home stops with that error
+        // before the model is asked anything, whichever surface started it.
+        let mut cfg = cfg;
+        cfg.agent.auto_memory = false;
+        let llm = Arc::new(crate::llm::ScriptedLlm::new(vec![crate::llm::Message::assistant("this reply must never be produced")]));
+        let app = crate::app::App::assemble(cfg.clone(), cfg.home.join("skills"), crate::store::Store::in_memory().unwrap(), llm.clone()).await.unwrap();
+        let mut session = crate::agent::Session::create(&app.store, "refused working folder").unwrap();
+        let err = app.agent(Arc::new(DenyAll)).run_turn(&mut session, "list the files here", &crate::agent::null_sink()).await.unwrap_err();
+        let text = err.to_string();
+        assert!(text.starts_with("the working folder is inside ") && text.ends_with("heron-home, which Heron never reads"), "{text}");
+        assert!(llm.requests.lock().unwrap().is_empty(), "the model was asked before the working folder was checked");
+    }
+
+    /// `/System/Volumes/Data/Users/<me>/.codex` is `~/.codex`; `realpath` leaves the alias as written.
+    #[test]
+    fn firmlink_alias_is_classified_like_its_target() {
+        let ws = tempfile::tempdir().unwrap();
+        let w = dunce::canonicalize(ws.path()).unwrap();
+        let home = dirs::home_dir().unwrap();
+        let alias = |p: &Path| PathBuf::from(format!("{DATA_VOLUME}{}", p.display()));
+        let cfg = Config { home: home.join(".heron-firmlink-test"), ..Default::default() };
+        assert_eq!(without_data_volume(&alias(&home)), Some(home.clone()));
+        assert_eq!(without_data_volume(&home), None);
+        // Reads: Refused, Ask tier and secrets are judged as their target is.
+        for (target, effect) in [
+            (home.join(".codex/auth.json"), Effect::Refused),
+            (cfg.home.join("heron.db"), Effect::Refused),
+            (home.join("Library/Keychains/login.keychain-db"), Effect::Refused),
+            (home.join("heron-firmlink-test/notes.md"), Effect::OutsideRead),
+            (home.join(".ssh/id_ed25519"), Effect::SensitiveRead),
+        ] {
+            assert_eq!(classify_path(&target, &w, &cfg, false), effect, "{}", target.display());
+            assert_eq!(classify_path(&alias(&target), &w, &cfg, false), effect, "alias of {}", target.display());
+        }
+        // Writes into a Refused folder by its alias are Refused too.
+        for target in [home.join(".codex/config.toml"), cfg.home.join("config.toml")] {
+            assert_eq!(classify_path(&alias(&target), &w, &cfg, true), Effect::Refused, "alias of {}", target.display());
+        }
+        // A working folder inside a Refused folder is refused by either name.
+        let err = check_workspace(&alias(&home.join(".claude/projects")), &cfg).unwrap_err();
+        assert!(err.path.ends_with(".claude"), "{}", err.path.display());
+        assert!(check_workspace(&alias(&cfg.home.join("skills")), &cfg).is_err());
+        // A working folder opened by its alias name still holds its own files.
+        let project = home.join("heron-firmlink-test/project");
+        for ws in [alias(&project), project.clone()] {
+            for file in [project.join("a.txt"), alias(&project.join("a.txt"))] {
+                assert_eq!(classify_path(&file, &ws, &cfg, false), Effect::LocalRead, "{} in {}", file.display(), ws.display());
+                assert_eq!(classify_path(&file, &ws, &cfg, true), Effect::WorkspaceWrite, "{} in {}", file.display(), ws.display());
+            }
+        }
     }
 
     #[test]
@@ -1722,6 +1795,13 @@ mod tests {
         p.set_tool_setting("read_file", "never").unwrap();
         assert!(p.set_tool_setting("read_file", "allow").is_err());
         assert_eq!(p.tool_setting("read_file"), "never");
+        // Tool-wide rules left in the configuration stay loaded, but Settings never shows a read tool
+        // as "allow", a state it could not set.
+        let leftover = Policy::new(Mode::Ask, &READ_TOOLS.iter().map(|t| format!("{t}:*")).collect::<Vec<_>>(), &["find_files:*".into()]);
+        for tool in READ_TOOLS {
+            assert_eq!(leftover.tool_setting(tool), if tool == "find_files" { "never" } else { "ask" }, "{tool}");
+        }
+        assert!(leftover.allow_rules().contains(&"read_file:*".to_string()));
     }
 
     #[test]
