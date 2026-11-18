@@ -1368,7 +1368,7 @@
       "claim_token": "213133f08a9c47a388ad4919e0158972",
       "claimed_at": "2026-11-18T18:55:17.129647+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T18:56:47.394764+00:00",
+      "last_heartbeat": "2026-11-18T18:57:17.421119+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1396,7 +1396,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U1f's security review: /.vol fail-closed, alias in too_broad, read=: walker scope, tainted shell grants",
-    "version": 7,
+    "version": 8,
     "worktree": {
       "base_branch": "skein/U1g__integrate-base",
       "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
@@ -1870,10 +1870,10 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Containment check on each installed candidate CLI (measurement; records results, G4 is judged in U2w)",
-    "version": 24,
+    "version": 25,
     "worktree": {
       "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
-      "base_commit": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
+      "base_commit": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
       "branch": "skein/U2c",
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U2c"
     }
