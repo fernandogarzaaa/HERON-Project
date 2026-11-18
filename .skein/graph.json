@@ -3995,7 +3995,7 @@
       "claim_token": "d3a680335b744f1a8dccf7df8c6fc1a2",
       "claimed_at": "2026-11-18T23:19:36.715840+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T23:34:37.499595+00:00",
+      "last_heartbeat": "2026-11-18T23:36:07.578890+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4023,7 +4023,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3's review: cross-core revoke, run start/end, overrides, risk-notice gates",
-    "version": 34,
+    "version": 37,
     "worktree": {
       "base_branch": "skein/U3f__integrate-base",
       "base_commit": "cdbee6468ef3eab77bfbddfb791a31dbbb48012a",
@@ -4420,7 +4420,16 @@
     }
   },
   "U6b": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "4d37df5da4504436b904fc8b1c99c648",
+        "ended_at": "2026-11-18T23:36:19.021561+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-18T23:30:04.716987+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -4432,21 +4441,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "4d37df5da4504436b904fc8b1c99c648",
-      "base_branch": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
-      "claim_token": "e0ed77eb1ae3445eb3782a299bfc52a9",
-      "claimed_at": "2026-11-18T23:30:04.716987+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T23:34:35.220732+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U6"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -q 'Research preview' README.md && grep -q 'docs/ACCEPTED_RISKS.md' README.md && grep -qF 'Reading a file outside the working folder asks first, in every mode except Yolo.' README.md",
+        "duration_ms": 207,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U6b_20261118T233618737769_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U6b_20261118T233618945496_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: say whether you want those four stale spots fixed in a follow-up README edit.",
     "id": "U6b",
     "integration_for": null,
     "intent": {
@@ -4458,13 +4479,26 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "4d37df5da4504436b904fc8b1c99c648",
+      "base_commit": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
+      "changed_files": [
+        "README.md"
+      ],
+      "commit": "f7db6019dcbe0d3d875e8289cb89ca2eedd8b088",
+      "diff_stats": {
+        "README.md": {
+          "added": 53,
+          "deleted": 40
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "README research-preview banner, platform text, phone row, mode-table change",
-    "version": 12,
+    "version": 16,
     "worktree": {
       "base_branch": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
       "base_commit": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
