@@ -1109,9 +1109,14 @@ impl std::fmt::Display for WorkspaceRefused {
 
 impl std::error::Error for WorkspaceRefused {}
 
-/// A session may not work inside Heron's own home, a CLI's login folder or a personal store.
+/// A session may not work inside Heron's own home, a CLI's login folder or a personal store, nor behind
+/// a name that can't be resolved to where it really is (`/.nofollow<path>`, see [`unresolvable`]): such
+/// a name would not look like the Refused location it leads to.
 /// A working folder that only contains one (the home folder, say) is fine: Refused still wins inside it.
 pub fn check_workspace(workspace: &Path, cfg: &Config) -> std::result::Result<(), WorkspaceRefused> {
+    if unresolvable(workspace) {
+        return Err(WorkspaceRefused { path: workspace.to_path_buf() });
+    }
     let roots = ReadRoots::of(cfg);
     for p in [workspace.to_path_buf(), canonical_existing(workspace)] {
         if let Some(r) = roots.refused(&p) {
@@ -1769,6 +1774,50 @@ mod tests {
         let err = app.agent(Arc::new(DenyAll)).run_turn(&mut session, "list the files here", &crate::agent::null_sink()).await.unwrap_err();
         let text = err.to_string();
         assert!(text.starts_with("the working folder is inside ") && text.ends_with("heron-home, which Heron never reads"), "{text}");
+        assert!(llm.requests.lock().unwrap().is_empty(), "the model was asked before the working folder was checked");
+    }
+
+    /// `/.nofollow<path>`, `/.resolve/<flags><path>` and `/.vol/<device>/<inode>` name `<path>` to the
+    /// kernel, but `realpath` fails on them or returns them unchanged, so a working folder written that
+    /// way would not look like the Refused location it is. Such a folder never starts a turn.
+    #[tokio::test]
+    async fn working_folder_behind_kernel_prefix_is_refused() {
+        let ws = tempfile::tempdir().unwrap();
+        let w = dunce::canonicalize(ws.path()).unwrap();
+        let home = dirs::home_dir().unwrap();
+        let cfg = Config { home: w.join("heron-home"), ..Default::default() };
+        let by = |prefix: &str, p: &Path| PathBuf::from(format!("{prefix}{}", p.display()));
+        let mut behind = vec![];
+        for target in [cfg.home.clone(), cfg.home.join("skills"), home.join(".claude/projects"), w.clone(), w.join("project")] {
+            behind.extend([by("/.nofollow", &target), by("/.NoFollow", &target), by("/.resolve/0", &target), by("/System/Volumes/Data/.nofollow", &target), by("/.nofollow/../.nofollow", &target)]);
+        }
+        behind.extend([PathBuf::from("/.vol/1/2"), PathBuf::from("/.nofollow"), PathBuf::from("/.resolve")]);
+        for path in &behind {
+            let err = check_workspace(path, &cfg).expect_err(&path.display().to_string());
+            assert!(err.to_string().starts_with("the working folder is inside "), "{} gave {err}", path.display());
+        }
+        // A name that only looks like a prefix is an ordinary folder.
+        check_workspace(&w.join(".nofollow-not-a-prefix"), &cfg).unwrap();
+        check_workspace(&w, &cfg).unwrap();
+        // A link whose target is behind a prefix is refused by its canonical form.
+        #[cfg(unix)]
+        {
+            let link = w.join("by-prefix");
+            std::os::unix::fs::symlink(by("/.nofollow", &cfg.home), &link).unwrap();
+            assert!(check_workspace(&link, &cfg).is_err(), "a link into /.nofollow");
+        }
+
+        // The whole path: a turn whose working folder is behind a prefix stops with the error before
+        // the model is asked anything.
+        let mut cfg = cfg;
+        cfg.agent.auto_memory = false;
+        let llm = Arc::new(crate::llm::ScriptedLlm::new(vec![crate::llm::Message::assistant("this reply must never be produced")]));
+        let mut app = crate::app::App::assemble(cfg.clone(), w.join("ws"), crate::store::Store::in_memory().unwrap(), llm.clone()).await.unwrap();
+        // `assemble` creates and canonicalizes the folder, which a prefixed name can't survive.
+        app.workspace = by("/.nofollow", &cfg.home);
+        let mut session = crate::agent::Session::create(&app.store, "prefixed working folder").unwrap();
+        let err = app.agent(Arc::new(DenyAll)).run_turn(&mut session, "list the files here", &crate::agent::null_sink()).await.unwrap_err();
+        assert!(err.downcast_ref::<WorkspaceRefused>().is_some(), "{err:#}");
         assert!(llm.requests.lock().unwrap().is_empty(), "the model was asked before the working folder was checked");
     }
 
