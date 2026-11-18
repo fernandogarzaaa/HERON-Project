@@ -1437,10 +1437,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "951510e283dc6494ee4770a3aaa3ec80a1a6e8de",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "ef365d44351c207de067ab0088576949c28a7f9b",
+        "result_commit": "c8c38259ee5b6edaafdb15d118124350b3b1a1bf",
+        "shipped_at": "2026-11-18T20:15:41.131162+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U1's security review: walkers, firmlink alias, credential_store, tests",
-    "version": 110,
+    "version": 111,
     "worktree": {
       "base_branch": "skein/U1f__integrate-base",
       "base_commit": "951510e283dc6494ee4770a3aaa3ec80a1a6e8de",
