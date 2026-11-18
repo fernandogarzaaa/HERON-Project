@@ -1,8 +1,9 @@
 //! Local HTTP server behind the desktop app and web UI.
 //! Loopback-only by default; every API call requires the per-launch token.
 
-use crate::agent::{Event, EventSink, Session};
+use crate::agent::Session;
 use crate::app::App;
+use crate::events::Item;
 use crate::permissions::{Approval, ApprovalRequest, Approver, Mode};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -19,29 +20,48 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
-use tokio_stream::wrappers::ReceiverStream;
+use tokio::sync::oneshot;
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
 
-// A stalled HTTP client must not accumulate unbounded streaming events.
-const CHAT_EVENT_CAPACITY: usize = 128;
-type Tx = mpsc::Sender<Value>;
+/// A live approval waiting for `POST /api/approve`.
+struct PendingApproval {
+    session_id: String,
+    run_id: String,
+    tx: oneshot::Sender<Approval>,
+}
 
 pub struct ServerState {
     pub app: Arc<App>,
     pub token: String,
     /// True unless the user deliberately bound the server to a non-loopback address.
     pub loopback_only: bool,
-    approvals: Mutex<HashMap<String, (String, oneshot::Sender<Approval>)>>,
+    approvals: Mutex<HashMap<String, PendingApproval>>,
     /// One-time, ten-minute OAuth authorization attempts. Never persisted or exposed to the model.
     oauth_pending: Mutex<HashMap<String, crate::oauth::Pending>>,
     /// Serialize callback token installation with account disconnect.
     oauth_transition: tokio::sync::Mutex<()>,
-    /// Replies in progress, by conversation. The number tells one reply from the next in the same
-    /// conversation, so a reply that is finishing can never clear the entry of the one that followed it.
-    running: Mutex<HashMap<String, (u64, tokio::task::AbortHandle, Tx)>>,
-    next_run: std::sync::atomic::AtomicU64,
+    /// Runs in progress, by conversation, with their run id: a run that is finishing can never
+    /// clear the entry of the one that followed it. Only `POST /api/cancel` aborts a run.
+    running: Mutex<HashMap<String, (String, tokio::task::AbortHandle)>>,
+}
+
+impl ServerState {
+    fn new(app: Arc<App>, token: String, loopback_only: bool) -> Arc<ServerState> {
+        Arc::new(ServerState { app, token, loopback_only, approvals: Default::default(), oauth_pending: Default::default(), oauth_transition: Default::default(), running: Default::default() })
+    }
+
+    /// The run is over: clear its entry. False when a cancel got there first, in which case the
+    /// cancel has published the run's last events.
+    fn finish(&self, sid: &str, run_id: &str) -> bool {
+        let mut running = self.running.lock().unwrap();
+        if running.get(sid).is_some_and(|(id, _)| id == run_id) {
+            running.remove(sid);
+            true
+        } else {
+            false
+        }
+    }
 }
 
 type S = State<Arc<ServerState>>;
@@ -113,10 +133,16 @@ async fn auth(State(st): S, headers: HeaderMap, req: Request, next: Next) -> Res
     next.run(req).await
 }
 
+/// The router, loopback-only unless `[server] bind` names another address.
 pub fn router(app: Arc<App>, token: String) -> Router {
     let bind = app.cfg().server.bind.clone();
     let loopback_only = matches!(bind.as_str(), "127.0.0.1" | "localhost" | "::1");
-    let state = Arc::new(ServerState { app, token, loopback_only, approvals: Default::default(), oauth_pending: Default::default(), oauth_transition: Default::default(), running: Default::default(), next_run: Default::default() });
+    router_with(app, token, loopback_only)
+}
+
+/// The router, with loopback-only checking as given (from the address actually bound).
+pub fn router_with(app: Arc<App>, token: String, loopback_only: bool) -> Router {
+    let state = ServerState::new(app, token, loopback_only);
     let api = Router::new()
         .route("/state", get(get_state))
         .route("/sessions", get(list_sessions).post(new_session))
@@ -167,6 +193,11 @@ pub fn router(app: Arc<App>, token: String) -> Router {
         .route("/suggestions", get(list_suggestions))
         .route("/suggestions/{id}", post(answer_suggestion))
         .route("/settings", get(get_settings).post(set_settings))
+        .route("/events", get(get_events))
+        .route("/risk-notice", get(get_risk_notice).post(accept_risk_notice))
+        .route("/providers", get(list_providers))
+        .route("/providers/{id}/accept-version", post(accept_provider_version))
+        .route("/grants", get(list_grants).delete(revoke_grant))
         .layer(middleware::from_fn_with_state(state.clone(), auth));
     Router::new()
         .route("/", get(|| async { ([(header::CACHE_CONTROL, "no-store"), (header::HeaderName::from_static("content-security-policy"), "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")], Html(INDEX_HTML)) }))
@@ -181,15 +212,36 @@ pub async fn serve(app: Arc<App>, listener: tokio::net::TcpListener, token: Stri
     // Before anything can be started from the app: if this Heron is to own background work, it takes
     // ownership (and reports what the previous one left unfinished) now, never in the middle of its own work.
     app.own_background_work();
+    run_server(app.clone(), listener, router(app, token)).await
+}
+
+async fn run_server(app: Arc<App>, listener: tokio::net::TcpListener, router: Router) -> Result<()> {
     tokio::spawn(app.clone().scheduler_loop());
     tokio::spawn(app.clone().observer_loop());
     crate::telegram::spawn_if_configured(&app);
-    axum::serve(listener, router(app, token)).await?;
+    axum::serve(listener, router).await?;
     Ok(())
+}
+
+/// A server that is running: where it is, its token, and whether this core runs background work.
+pub struct Started {
+    /// The launch URL, with the token.
+    pub url: String,
+    pub port: u16,
+    pub token: String,
+    /// False when another Heron on this home already holds `background.lock`.
+    pub background_owner: bool,
+    pub task: tokio::task::JoinHandle<Result<()>>,
 }
 
 /// Bind and start serving in the background. Returns the launch URL (with token) and the server task.
 pub async fn start(app: Arc<App>, bind: &str, port: u16) -> Result<(String, tokio::task::JoinHandle<Result<()>>)> {
+    let started = start_endpoint(app, bind, port).await?;
+    Ok((started.url, started.task))
+}
+
+/// Bind and start serving in the background. Loopback-only checking follows the address bound.
+pub async fn start_endpoint(app: Arc<App>, bind: &str, port: u16) -> Result<Started> {
     let listener = match tokio::net::TcpListener::bind((bind, port)).await {
         Ok(l) => l,
         // The preferred port is taken (perhaps another Heron window): fall back to any free port.
@@ -199,7 +251,17 @@ pub async fn start(app: Arc<App>, bind: &str, port: u16) -> Result<(String, toki
     let token = new_token();
     let host = if addr.ip().is_unspecified() || addr.ip().is_loopback() { "127.0.0.1".to_string() } else { addr.ip().to_string() };
     let url = format!("http://{host}:{}/?token={token}", addr.port());
-    Ok((url, tokio::spawn(serve(app, listener, token))))
+    // Before anything can be started from the app: if this Heron is to own background work, it takes
+    // ownership (and reports what the previous one left unfinished) now, never in the middle of its own work.
+    let background_owner = app.own_background_work();
+    let router = router_with(app.clone(), token.clone(), addr.ip().is_loopback());
+    let task = tokio::spawn(run_server(app, listener, router));
+    Ok(Started { url, port: addr.port(), token, background_owner, task })
+}
+
+/// The one line `heron serve --print-endpoint` prints for the Mac app.
+pub fn endpoint_line(started: &Started) -> String {
+    json!({"port": started.port, "token": started.token, "background_owner": started.background_owner, "version": env!("CARGO_PKG_VERSION")}).to_string()
 }
 
 // ---------- state & settings ----------
@@ -213,6 +275,7 @@ async fn get_state(State(st): S) -> ApiResult {
         "workspace": st.app.workspace.display().to_string(), "has_key": cfg.api_key().is_some() || is_local(&cfg.llm.base_url) || crate::llm::is_demo(&cfg), "demo": crate::llm::is_demo(&cfg),
         "memories": st.app.store.memory_count(), "unread": unread, "paused": st.app.paused(), "waiting": st.app.store.pending_approvals()?.len(), "onboarded": st.app.store.kv_get("onboarded").is_some(), "suggestions": st.app.store.list_suggestions(true, 50)?.len(), "mcp": st.app.mcp_status, "usage": usage,
         "tools": st.app.tools.names().len(), "os": std::env::consts::OS, "sandbox": crate::sandbox::active(&cfg).name(),
+        "risk_notice_accepted": crate::risk_notice::accepted(&st.app.store), "risk_notice_required": crate::risk_notice::required(),
     })))
 }
 
@@ -242,6 +305,7 @@ async fn get_settings(State(st): S) -> ApiResult {
         "browser": crate::browser::find(&cfg).map(|p| p.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()), "browser_visible": cfg.agent.browser_visible,
         "workspace": st.app.workspace.display().to_string(), "home": cfg.home.display().to_string(),
         "allow_rules": st.app.policy.allow_rules(), "secret_storage": cfg.secret_storage(),
+        "rule_notices": st.app.policy.rule_notices().into_iter().map(|(rule, notice)| json!({"rule": rule, "notice": notice})).collect::<Vec<_>>(),
         "mcp": st.app.mcp_status, "mcp_changed": st.app.mcp_pending.keys().collect::<Vec<_>>(),
     })))
 }
@@ -347,7 +411,12 @@ struct ModeBody {
 }
 
 async fn set_mode(State(st): S, Json(b): Json<ModeBody>) -> ApiResult {
-    st.app.policy.set_mode(Mode::parse(&b.mode)?);
+    let mode = Mode::parse(&b.mode)?;
+    // The config file stays the one source of truth, so the mode survives a restart.
+    let mut cfg = (*st.app.cfg()).clone();
+    cfg.permissions.mode = mode.name().to_string();
+    st.app.update_config(cfg)?;
+    st.app.policy.set_mode(mode);
     Ok(Json(json!({"mode": st.app.policy.mode().name()})))
 }
 
@@ -380,86 +449,46 @@ async fn delete_session(State(st): S, Path(id): Path<String>) -> ApiResult {
 
 // ---------- chat ----------
 
-/// Abort only this run, never a newer reply in the same conversation.
-fn abort_matching_run(state: &ServerState, sid: &str, run_id: u64) {
-    let abort = {
-        let mut running = state.running.lock().unwrap();
-        if running.get(sid).is_some_and(|(id, _, _)| *id == run_id) {
-            let entry = running.remove(sid);
-            if entry.is_some() {
-                // Keep the running lock until old approvals are removed.
-                // Otherwise the next run can insert a new approval for the
-                // same session between removal and cleanup.
-                state.approvals.lock().unwrap().retain(|_, (session, _)| session != sid);
-            }
-            entry.map(|(_, abort, _)| abort)
-        } else { None }
-    };
-    if let Some(abort) = abort {
-        abort.abort();
-    }
-}
-
-/// A disconnected SSE response cancels its run and pending approvals.
-struct ChatEventStream {
-    rx: ReceiverStream<Value>,
-    state: Arc<ServerState>,
-    session_id: String,
-    run_id: u64,
-}
-
-impl futures_util::Stream for ChatEventStream {
-    type Item = Value;
-
-    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
-        futures_util::Stream::poll_next(std::pin::Pin::new(&mut self.get_mut().rx), cx)
-    }
-}
-
-impl Drop for ChatEventStream {
-    fn drop(&mut self) {
-        abort_matching_run(&self.state, &self.session_id, self.run_id);
-    }
-}
-
 struct WebApprover {
     state: Arc<ServerState>,
     session_id: String,
-    tx: Tx,
+    run_id: String,
 }
 
 #[async_trait]
 impl Approver for WebApprover {
     async fn approve(&self, req: &ApprovalRequest) -> Approval {
+        let app = &self.state.app;
         let id = uuid::Uuid::new_v4().simple().to_string();
-        let (tx, rx) = oneshot::channel();
-        self.state.approvals.lock().unwrap().insert(id.clone(), (self.session_id.clone(), tx));
-        let prompt = json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
-            "always_rule": req.always_rule, "can_always": req.can_always(), "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted});
-        // Do not leave an invisible approval pending if the SSE receiver is
-        // stalled or gone; a sensitive action must fail closed.
-        if !matches!(tokio::time::timeout(Duration::from_secs(15), self.tx.send(prompt)).await, Ok(Ok(()))) {
-            self.state.approvals.lock().unwrap().remove(&id);
-            return Approval::Deny(Some("could not deliver the approval request to the client".into()));
+        let (tx, mut rx) = oneshot::channel();
+        self.state.approvals.lock().unwrap().insert(id.clone(), PendingApproval { session_id: self.session_id.clone(), run_id: self.run_id.clone(), tx });
+        // The approval waits on the bus, not on one connection: any client can answer it.
+        app.events.publish(&self.session_id, &self.run_id, json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
+            "always_rule": req.always_rule, "can_always": req.can_always(), "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted}));
+        let wait = Duration::from_secs(app.cfg().server.approval_timeout_secs);
+        match tokio::time::timeout(wait, &mut rx).await {
+            Ok(Ok(answer)) => return answer,
+            // Cancelled: `cancel` cleared it and published `approval_resolved`.
+            Ok(Err(_)) => return Approval::Deny(Some("the reply was stopped".into())),
+            Err(_) => {}
         }
-        // If nobody answers (window closed), decline rather than hang forever.
-        let answer = tokio::time::timeout(Duration::from_secs(900), rx).await;
-        self.state.approvals.lock().unwrap().remove(&id);
-        match answer {
-            Ok(Ok(a)) => a,
-            _ => Approval::Deny(Some("no answer to the approval request".into())),
+        // Nobody answered in time. If an answer or a cancel took the entry at this very moment, it wins.
+        if self.state.approvals.lock().unwrap().remove(&id).is_none() {
+            return rx.await.unwrap_or(Approval::Deny(Some("the reply was stopped".into())));
         }
-    }
-}
-
-fn event_json(e: Event) -> Value {
-    match e {
-        Event::Text(t) => json!({"type": "text", "text": t}),
-        Event::ToolStart { id, name, summary, risk } => json!({"type": "tool_start", "id": id, "name": name, "summary": summary, "risk": risk.label()}),
-        Event::ToolEnd { id, name, ok, preview } => json!({"type": "tool_end", "id": id, "name": name, "ok": ok, "preview": preview}),
-        Event::Notice(t) => json!({"type": "notice", "text": t}),
-        Event::Usage(u) => json!({"type": "usage", "prompt": u.prompt_tokens, "completion": u.completion_tokens}),
-        Event::Model { name, why } => json!({"type": "model", "name": name, "why": why}),
+        // Park it with today's deny-and-carry-on: the user can still approve it later, from the list
+        // of waiting approvals. The UUID is never reused.
+        let origin = app.store.session_origin(&self.session_id).unwrap_or_else(|| "user".into());
+        match app.store.park_approval(&self.session_id, &req.tool, &req.args.to_string(), &req.summary, &req.detail, req.risk.label(), req.tainted, &origin) {
+            Ok(parked_id) => {
+                app.events.publish(&self.session_id, &self.run_id, json!({"type": "approval_parked", "id": id, "parked_id": parked_id}));
+                Approval::Deny(Some(crate::permissions::PARKED_FOR_LATER.into()))
+            }
+            Err(_) => {
+                app.events.publish(&self.session_id, &self.run_id, json!({"type": "approval_resolved", "id": id, "decision": "deny"}));
+                Approval::Deny(Some("no answer to the approval request".into()))
+            }
+        }
     }
 }
 
@@ -469,82 +498,94 @@ struct ChatBody {
     message: String,
 }
 
+fn session_busy() -> Response {
+    (StatusCode::CONFLICT, Json(json!({"error": "session_busy", "message": "Heron is still replying in this conversation. Stop it first, or wait."}))).into_response()
+}
+
 async fn chat(State(st): S, Json(body): Json<ChatBody>) -> std::result::Result<Response, ApiError> {
     let message = body.message.trim().to_string();
     if message.is_empty() {
         return Err(bad("Type a message first."));
     }
-    let mut session = match body.session_id.as_deref().filter(|s| !s.is_empty()) {
+    // Checked before anything starts: once the SSE response begins, its status can no longer change.
+    if crate::risk_notice::blocks(&st.app.store) {
+        return Err(ApiError(StatusCode::PRECONDITION_REQUIRED, "risk_notice_not_accepted".into()));
+    }
+    if let Some(id) = body.session_id.as_deref().filter(|s| !s.is_empty()) {
+        if st.running.lock().unwrap().contains_key(id) {
+            return Ok(session_busy());
+        }
+    }
+    let session = match body.session_id.as_deref().filter(|s| !s.is_empty()) {
         Some(id) => Session::load(&st.app.store, id).map_err(|e| ApiError(StatusCode::NOT_FOUND, e.to_string()))?,
         None => Session::create(&st.app.store, "")?,
     };
     let sid = session.id.clone();
-    let (tx, rx) = mpsc::channel::<Value>(CHAT_EVENT_CAPACITY);
-    let run_id = st.next_run.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let run_id = crate::events::new_run_id();
+    // Subscribed before the run's first event, so this response sees all of them.
+    let events = st.app.events.subscribe(None);
     {
         let mut running = st.running.lock().unwrap();
         if running.contains_key(&sid) {
-            return Err(ApiError(StatusCode::CONFLICT, "Heron is still replying in this conversation. Stop it first, or wait.".into()));
+            return Ok(session_busy());
         }
-        tx.try_send(json!({"type": "session", "id": sid.clone()})).map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "chat event queue unavailable".into()))?;
-        let finished = move |state: &ServerState, sid: &str| {
-            let mut running = state.running.lock().unwrap();
-            if running.get(sid).map(|(id, _, _)| *id == run_id).unwrap_or(false) {
-                running.remove(sid);
-            }
-        };
-        let state = st.clone();
-        let task_tx = tx.clone();
-        let task_sid = sid.clone();
-        let handle = tokio::spawn(async move {
-            let agent = state.app.agent(Arc::new(WebApprover { state: state.clone(), session_id: task_sid.clone(), tx: task_tx.clone() }));
-            let sink_tx = task_tx.clone();
-            let sink_state = state.clone();
-            let sink_sid = task_sid.clone();
-            let notified = Arc::new(std::sync::atomic::AtomicBool::new(false));
-            // EventSink is synchronous and may be called from a worker thread.
-            let sink_runtime = tokio::runtime::Handle::current();
-            let sink: EventSink = Arc::new(move |e| {
-                let Err(failure) = sink_tx.try_send(event_json(e)) else { return };
-                // No silent event loss or unbounded buffering. A full queue
-                // means the consumer is not keeping up: stop this reply.
-                if notified.swap(true, std::sync::atomic::Ordering::SeqCst) { return; }
-                if matches!(failure, mpsc::error::TrySendError::Full(_)) {
-                    let error_tx = sink_tx.clone();
-                    sink_runtime.spawn(async move {
-                        let error = json!({"type": "error", "message": "Streaming stopped: the client could not keep up with Heron's reply."});
-                        // One best-effort error after the already queued events.
-                        // A fully stalled connection cannot hold this task forever.
-                        let _ = tokio::time::timeout(Duration::from_secs(5), error_tx.send(error)).await;
-                    });
-                }
-                abort_matching_run(&sink_state, &sink_sid, run_id);
-            });
-            match agent.run_turn(&mut session, &message, &sink).await {
-                Ok(text) => {
-                    if task_tx.send(json!({"type": "done", "text": text, "title": state.app.store.session_title(&task_sid)})).await.is_err() {
-                        finished(&state, &task_sid);
-                        return;
-                    }
-                    state.app.persist_rules();
-                    // Free the conversation before the (slower) background learning step.
-                    finished(&state, &task_sid);
-                    let learned = agent.learn(&session, &message, &text).await;
-                    if !learned.is_empty() {
-                        let _ = task_tx.send(json!({"type": "learned", "items": learned})).await;
-                    }
-                }
-                Err(e) => {
-                    let _ = task_tx.send(json!({"type": "error", "message": format!("{e:#}")})).await;
-                }
-            }
-            finished(&state, &task_sid);
-        });
-        running.insert(sid.clone(), (run_id, handle.abort_handle(), tx));
+        st.app.events.publish(&sid, &run_id, json!({"type": "session", "id": sid, "run_id": run_id}));
+        let handle = tokio::spawn(run_chat(st.clone(), session, message, run_id.clone()));
+        running.insert(sid, (run_id.clone(), handle.abort_handle()));
     }
-    let stream = ChatEventStream { rx: ReceiverStream::new(rx), state: st, session_id: sid, run_id }
-        .map(|v| Ok::<_, std::convert::Infallible>(SseEvent::default().data(v.to_string())));
+    // Dropping this response, or its falling behind, ends only the response: the run goes on, and a
+    // client picks it up again from `/api/events`.
+    let stream = run_view(events, run_id).map(|item| Ok::<_, std::convert::Infallible>(sse(&item)));
     Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))).into_response())
+}
+
+/// One run's events from a subscription, ending right after its `run_end` (or a `resync`), without
+/// waiting for whatever the bus publishes next.
+fn run_view(events: crate::events::Subscription, run_id: String) -> impl futures_util::Stream<Item = Item> + Send {
+    futures_util::stream::unfold((events, run_id, false), |(mut sub, run_id, ended)| async move {
+        if ended {
+            return None;
+        }
+        loop {
+            let item = sub.next().await?;
+            let last = match &item {
+                Item::Event(e) if e.run_id != run_id => continue,
+                Item::Event(e) => e.kind() == "run_end",
+                Item::Resync { .. } => true,
+            };
+            return Some((item, (sub, run_id, last)));
+        }
+    })
+}
+
+fn sse(item: &Item) -> SseEvent {
+    match item {
+        Item::Event(e) => SseEvent::default().id(e.seq.to_string()).data(e.envelope().to_string()),
+        Item::Resync { .. } => SseEvent::default().data(item.json().to_string()),
+    }
+}
+
+/// One chat run, as its own task. Whoever ends the run publishes its last events: this task when the
+/// turn ends, or `cancel` when it stops the run first.
+async fn run_chat(st: Arc<ServerState>, mut session: Session, message: String, run_id: String) {
+    let sid = session.id.clone();
+    let agent = st.app.agent(Arc::new(WebApprover { state: st.clone(), session_id: sid.clone(), run_id: run_id.clone() }));
+    let outcome = agent.run_turn(&mut session, &message, &st.app.sink_for(&sid, &run_id)).await;
+    // Free the conversation before the (slower) background learning step.
+    if !st.finish(&sid, &run_id) {
+        return;
+    }
+    if outcome.is_ok() {
+        st.app.persist_rules();
+    }
+    st.app.publish_outcome(&sid, &run_id, outcome.as_deref());
+    if let Ok(text) = &outcome {
+        let learned = agent.learn(&session, &message, text).await;
+        if !learned.is_empty() {
+            st.app.events.publish(&sid, &run_id, json!({"type": "learned", "items": learned}));
+        }
+    }
+    st.app.publish_run_end(&sid, &run_id);
 }
 
 #[derive(Deserialize)]
@@ -554,15 +595,17 @@ struct ApproveBody {
 }
 
 async fn approve(State(st): S, Json(b): Json<ApproveBody>) -> ApiResult {
-    let Some((_, tx)) = st.approvals.lock().unwrap().remove(&b.id) else {
+    let Some(pending) = st.approvals.lock().unwrap().remove(&b.id) else {
         return Err(ApiError(StatusCode::NOT_FOUND, "That request is no longer waiting for an answer.".into()));
     };
-    let _ = tx.send(match b.decision.as_str() {
-        "once" => Approval::Once,
-        "always" => Approval::Always,
-        "session" => Approval::Session,
-        _ => Approval::Deny(None),
-    });
+    let (answer, decision) = match b.decision.as_str() {
+        "once" => (Approval::Once, "once"),
+        "always" => (Approval::Always, "always"),
+        "session" => (Approval::Session, "session"),
+        _ => (Approval::Deny(None), "deny"),
+    };
+    st.app.events.publish(&pending.session_id, &pending.run_id, json!({"type": "approval_resolved", "id": b.id, "decision": decision}));
+    let _ = pending.tx.send(answer);
     Ok(Json(json!({"ok": true})))
 }
 
@@ -572,22 +615,144 @@ struct SessionBody {
 }
 
 async fn cancel(State(st): S, Json(b): Json<SessionBody>) -> ApiResult {
-    let entry = {
+    let (entry, cleared) = {
         let mut running = st.running.lock().unwrap();
         let entry = running.remove(&b.session_id);
+        // Stopped before its approvals are dropped, so a refused approval cannot wake the run for one
+        // more step.
+        if let Some((_, handle)) = &entry {
+            handle.abort();
+        }
         // A new chat must not register its approval between removing the
         // previous run and clearing that previous run's approvals.
-        st.approvals.lock().unwrap().retain(|_, (sid, _)| *sid != b.session_id);
-        entry
+        let mut approvals = st.approvals.lock().unwrap();
+        let ids: Vec<String> = approvals.iter().filter(|(_, p)| p.session_id == b.session_id).map(|(id, _)| id.clone()).collect();
+        let cleared: Vec<(String, PendingApproval)> = ids.into_iter().filter_map(|id| approvals.remove(&id).map(|p| (id, p))).collect();
+        (entry, cleared)
     };
-    if let Some((_, handle, tx)) = entry {
-        handle.abort();
-        // With a bounded queue this send is async. Give the SSE receiver a
-        // brief chance to consume its explicit cancellation event, but never
-        // make Stop wait indefinitely behind an unresponsive client.
-        let _ = tokio::time::timeout(Duration::from_secs(2), tx.send(json!({"type": "cancelled"}))).await;
+    for (id, p) in cleared {
+        st.app.events.publish(&p.session_id, &p.run_id, json!({"type": "approval_resolved", "id": id, "decision": "cancelled"}));
     }
-    Ok(Json(json!({"ok": true})))
+    let cancelled = match entry {
+        Some((run_id, _)) => {
+            st.app.events.publish(&b.session_id, &run_id, json!({"type": "cancelled"}));
+            st.app.publish_run_end(&b.session_id, &run_id);
+            true
+        }
+        None => false,
+    };
+    Ok(Json(json!({"ok": true, "cancelled": cancelled})))
+}
+
+// ---------- the event bus, the risk notice, providers and grants ----------
+
+#[derive(Deserialize)]
+struct EventsQuery {
+    since: Option<String>,
+}
+
+/// Every event on the bus as SSE: after `since` when given, otherwise new events only.
+async fn get_events(State(st): S, Query(q): Query<EventsQuery>) -> std::result::Result<Response, ApiError> {
+    let since = match q.since.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => Some(s.parse::<u64>().map_err(|_| bad("since must be a sequence number"))?),
+        None => None,
+    };
+    let stream = st.app.events.subscribe(since).into_stream().map(|item| Ok::<_, std::convert::Infallible>(sse(&item)));
+    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))).into_response())
+}
+
+async fn get_risk_notice(State(st): S) -> ApiResult {
+    Ok(Json(json!({"version": crate::risk_notice::version(), "text": crate::risk_notice::TEXT, "accepted_version": crate::risk_notice::accepted_version(&st.app.store), "required": crate::risk_notice::required()})))
+}
+
+#[derive(Deserialize)]
+struct RiskNoticeBody {
+    version: u32,
+}
+
+async fn accept_risk_notice(State(st): S, Json(b): Json<RiskNoticeBody>) -> std::result::Result<StatusCode, ApiError> {
+    if b.version != crate::risk_notice::version() {
+        return Err(ApiError(StatusCode::CONFLICT, format!("Version {} is not the current risk notice ({}). Reload it and read it again.", b.version, crate::risk_notice::version())));
+    }
+    crate::risk_notice::accept(&st.app.store, b.version)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Every CLI provider: installed, its version against the tested range, and the login.
+async fn list_providers(State(st): S) -> ApiResult {
+    let cfg = st.app.cfg();
+    let specs = crate::cli_llm::providers();
+    let probed = futures_util::future::join_all(specs.iter().map(|spec| crate::cli_llm::probe_status(&cfg, spec))).await;
+    let items: Vec<Value> = specs
+        .iter()
+        .zip(probed)
+        .map(|(spec, status)| {
+            let output = status.version.clone().unwrap_or_default();
+            let parsed = crate::cli_llm::extract_version(&output);
+            let version = status.version.as_ref().map(|_| match parsed {
+                Some((a, b, c)) => format!("{a}.{b}.{c}"),
+                None => output.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string(),
+            });
+            let accepted = st.app.store.kv_get(&crate::cli_llm::version_ok_key(spec.id));
+            let in_range = match (spec.supported, status.version.as_ref()) {
+                (Some(range), Some(_)) => Some(parsed.is_some_and(|v| range.contains(v))),
+                _ => None,
+            };
+            json!({
+                "id": spec.id, "display_name": spec.display_name, "installed": status.installed, "version": version,
+                "supported": spec.supported.map(|r| format!(">={}.{}.{} <{}.{}.{}", r.min.0, r.min.1, r.min.2, r.below.0, r.below.1, r.below.2)),
+                "in_range": in_range, "logged_in": status.logged_in, "experimental": spec.experimental,
+                "version_accepted": version.is_some() && accepted.is_some() && accepted == version,
+            })
+        })
+        .collect();
+    Ok(Json(json!(items)))
+}
+
+#[derive(Deserialize)]
+struct AcceptVersionBody {
+    version: String,
+}
+
+/// The user accepts one untested version of a CLI (CUJ 5).
+async fn accept_provider_version(State(st): S, Path(id): Path<String>, Json(b): Json<AcceptVersionBody>) -> ApiResult {
+    if crate::cli_llm::spec_for(&id).is_none() {
+        return Err(ApiError(StatusCode::NOT_FOUND, "Unknown provider.".into()));
+    }
+    let version = b.version.trim();
+    if version.is_empty() {
+        return Err(bad("Say which version to accept."));
+    }
+    st.app.store.kv_set(&crate::cli_llm::version_ok_key(&id), version)?;
+    Ok(Json(json!({"id": id, "version_accepted": version})))
+}
+
+/// Every standing allow rule: folder reads (`read:`) and tool rules.
+async fn list_grants(State(st): S) -> ApiResult {
+    let grants: Vec<Value> = st.app.policy.allow_rules().into_iter().map(|rule| json!({"kind": if rule.starts_with("read:") { "read" } else { "tool" }, "rule": rule})).collect();
+    Ok(Json(json!(grants)))
+}
+
+#[derive(Deserialize)]
+struct GrantBody {
+    rule: String,
+}
+
+/// Revoke a standing rule everywhere it lives: the policy, the saved "always" answers and the
+/// settings file.
+async fn revoke_grant(State(st): S, Json(b): Json<GrantBody>) -> ApiResult {
+    let removed = st.app.policy.remove_allow(&b.rule);
+    let mut cfg = (*st.app.cfg()).clone();
+    let in_config = cfg.permissions.allow.contains(&b.rule);
+    if !removed && !in_config {
+        return Err(ApiError(StatusCode::NOT_FOUND, "That permission is not granted.".into()));
+    }
+    if in_config {
+        cfg.permissions.allow.retain(|r| *r != b.rule);
+        st.app.update_config(cfg)?;
+    }
+    st.app.persist_rules();
+    Ok(Json(json!({"ok": true, "rule": b.rule})))
 }
 
 #[derive(Deserialize)]
@@ -1368,82 +1533,445 @@ async fn get_audit(State(st): S) -> ApiResult {
 }
 
 #[cfg(test)]
-mod stream_backpressure_tests {
+mod tests {
     use super::*;
+    use crate::config::Config;
+    use crate::llm::{ChatRequest, ChatResponse, DeltaFn, Llm, Message, ScriptedLlm};
+    use crate::store::Store;
+    use std::collections::VecDeque;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
-    #[tokio::test]
-    async fn dropped_chat_stream_aborts_only_its_original_run_and_clears_approvals() {
-        use crate::config::Config;
-        use crate::llm::ScriptedLlm;
-        use crate::store::Store;
+    /// Connections to the router over in-memory pipes. Every request goes through `router` and
+    /// `axum::serve` as it does over TCP, without a port, so these tests also run where binding one
+    /// is not allowed.
+    struct Pipes(tokio::sync::mpsc::UnboundedReceiver<DuplexStream>);
 
+    impl axum::serve::Listener for Pipes {
+        type Io = DuplexStream;
+        type Addr = std::net::SocketAddr;
+
+        async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+            match self.0.recv().await {
+                Some(io) => (io, ([127, 0, 0, 1], 0).into()),
+                None => std::future::pending().await,
+            }
+        }
+
+        fn local_addr(&self) -> std::io::Result<Self::Addr> {
+            Ok(([127, 0, 0, 1], 0).into())
+        }
+    }
+
+    struct Harness {
+        dir: tempfile::TempDir,
+        app: Arc<App>,
+        connect: tokio::sync::mpsc::UnboundedSender<DuplexStream>,
+    }
+
+    /// The server over `router`, with the given model. `accept` accepts the risk notice first.
+    async fn harness(llm: Arc<dyn Llm>, accept: bool, tweak: impl FnOnce(&mut Config)) -> Harness {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
         cfg.agent.auto_memory = false;
-        let app = Arc::new(App::assemble(
-            cfg,
-            dir.path().join("workspace"),
-            Store::in_memory().unwrap(),
-            Arc::new(ScriptedLlm::new(vec![])),
-        ).await.unwrap());
-        let state = Arc::new(ServerState {
-            app,
-            token: "test".into(),
-            loopback_only: true,
-            approvals: Default::default(),
-            oauth_pending: Default::default(),
-            oauth_transition: Default::default(),
-            running: Default::default(),
-            next_run: Default::default(),
-        });
-        let task = tokio::spawn(async { std::future::pending::<()>().await });
-        let (tx, rx) = mpsc::channel(1);
-        state.running.lock().unwrap().insert("s".into(), (42, task.abort_handle(), tx));
+        tweak(&mut cfg);
+        cfg.ensure_home().unwrap();
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm).await.unwrap());
+        if accept {
+            crate::risk_notice::accept_current(&app.store).unwrap();
+        }
+        let (connect, incoming) = tokio::sync::mpsc::unbounded_channel();
+        let served = router(app.clone(), "test-token".into());
+        tokio::spawn(async move { axum::serve(Pipes(incoming), served).await });
+        Harness { dir, app, connect }
+    }
 
-        // A stale SSE connection from a previous run cannot abort a newer one.
-        drop(ChatEventStream {
-            rx: ReceiverStream::new(rx),
-            state: state.clone(),
-            session_id: "s".into(),
-            run_id: 41,
-        });
-        assert!(state.running.lock().unwrap().contains_key("s"));
-        assert!(!task.is_finished());
+    fn scripted(answers: Vec<Message>) -> Arc<dyn Llm> {
+        Arc::new(ScriptedLlm::new(answers))
+    }
 
-        let (approval_tx, approval_rx) = oneshot::channel();
-        state.approvals.lock().unwrap().insert("a".into(), ("s".into(), approval_tx));
-        let (_unused_tx, current_rx) = mpsc::channel(1);
-        drop(ChatEventStream {
-            rx: ReceiverStream::new(current_rx),
-            state: state.clone(),
-            session_id: "s".into(),
-            run_id: 42,
-        });
-        assert!(!state.running.lock().unwrap().contains_key("s"));
-        assert!(state.approvals.lock().unwrap().is_empty());
-        assert!(task.await.unwrap_err().is_cancelled());
-        assert!(approval_rx.await.is_err());
+    fn write(path: &str, content: &str) -> Message {
+        ScriptedLlm::tool_call("write_file", json!({"path": path, "content": content}))
+    }
+
+    /// A response: its status, and the body still to be read.
+    struct Reply {
+        status: u16,
+        body: BufReader<DuplexStream>,
+    }
+
+    impl Reply {
+        async fn json(mut self) -> Value {
+            let mut text = String::new();
+            tokio::time::timeout(Duration::from_secs(20), self.body.read_to_string(&mut text)).await.expect("the body stalled").unwrap();
+            if text.trim().is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or_else(|_| panic!("not JSON: {text}")) }
+        }
+
+        fn events(self) -> SseReader {
+            assert_eq!(self.status, 200);
+            SseReader { body: self.body, pending: VecDeque::new() }
+        }
+    }
+
+    impl Harness {
+        /// One HTTP/1.0 request to `/api{path}` with the token; the server closes the connection when
+        /// the response ends, so the body runs to EOF.
+        async fn send(&self, method: &str, path: &str, body: Value) -> Reply {
+            let (mut client, server) = tokio::io::duplex(1 << 16);
+            self.connect.send(server).unwrap();
+            let body = if body.is_null() { String::new() } else { body.to_string() };
+            let head = format!("{method} /api{path} HTTP/1.0\r\nHost: 127.0.0.1\r\nx-heron-token: test-token\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n", body.len());
+            client.write_all(format!("{head}{body}").as_bytes()).await.unwrap();
+            let mut reader = BufReader::new(client);
+            let mut status_line = String::new();
+            tokio::time::timeout(Duration::from_secs(20), reader.read_line(&mut status_line)).await.expect("no response").unwrap();
+            let status = status_line.split_whitespace().nth(1).and_then(|c| c.parse().ok()).unwrap_or_else(|| panic!("bad status line {status_line:?}"));
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).await.unwrap();
+                if line.trim().is_empty() {
+                    break;
+                }
+            }
+            Reply { status, body: reader }
+        }
+
+        /// A request that must succeed, and its JSON body.
+        async fn json(&self, method: &str, path: &str, body: Value) -> Value {
+            let reply = self.send(method, path, body).await;
+            let status = reply.status;
+            let v = reply.json().await;
+            assert!((200..300).contains(&status), "{method} {path}: {status} {v}");
+            v
+        }
+
+        async fn chat(&self, body: Value) -> SseReader {
+            self.send("POST", "/chat", body).await.events()
+        }
+    }
+
+    /// Reads the `data:` lines of an SSE response as JSON.
+    struct SseReader {
+        body: BufReader<DuplexStream>,
+        pending: VecDeque<Value>,
+    }
+
+    impl SseReader {
+        /// The next event, or `None` when the stream has ended.
+        async fn next(&mut self) -> Option<Value> {
+            loop {
+                if let Some(v) = self.pending.pop_front() {
+                    return Some(v);
+                }
+                let mut line = String::new();
+                let n = tokio::time::timeout(Duration::from_secs(20), self.body.read_line(&mut line)).await.expect("the stream stalled").ok()?;
+                if n == 0 {
+                    return None;
+                }
+                if let Some(data) = line.trim_end().strip_prefix("data:") {
+                    self.pending.push_back(serde_json::from_str(data.trim()).unwrap());
+                }
+            }
+        }
+
+        /// Events up to and including the first of type `kind`.
+        async fn until(&mut self, kind: &str) -> Vec<Value> {
+            let mut out = vec![];
+            while let Some(v) = self.next().await {
+                let done = v["type"] == kind;
+                out.push(v);
+                if done {
+                    return out;
+                }
+            }
+            panic!("the stream ended before a {kind} event: {out:?}");
+        }
+
+        /// Every event until the stream ends.
+        async fn all(&mut self) -> Vec<Value> {
+            let mut out = vec![];
+            while let Some(v) = self.next().await {
+                out.push(v);
+            }
+            out
+        }
+    }
+
+    fn types(events: &[Value]) -> Vec<&str> {
+        events.iter().map(|e| e["type"].as_str().unwrap_or("")).collect()
+    }
+
+    fn find<'a>(events: &'a [Value], kind: &str) -> &'a Value {
+        events.iter().find(|e| e["type"] == kind).unwrap_or_else(|| panic!("no {kind} in {events:?}"))
+    }
+
+    #[tokio::test]
+    async fn chat_returns_428_before_the_notice_is_accepted() {
+        let h = harness(scripted(vec![Message::assistant("Hello.")]), false, |_| {}).await;
+        if crate::risk_notice::required() {
+            let refused = h.send("POST", "/chat", json!({"message": "hi"})).await;
+            assert_eq!(refused.status, 428);
+            assert_eq!(refused.json().await, json!({"error": "risk_notice_not_accepted"}));
+            assert!(h.app.store.list_sessions(10).unwrap().is_empty(), "no session row was created");
+            assert_eq!(h.json("GET", "/state", Value::Null).await["risk_notice_accepted"], false);
+            // The notice is accepted through the API, and only in its current version.
+            let notice = h.json("GET", "/risk-notice", Value::Null).await;
+            let version = notice["version"].as_u64().unwrap();
+            assert_eq!(notice["accepted_version"], Value::Null);
+            assert_eq!(notice["text"], crate::risk_notice::TEXT);
+            assert_eq!(h.send("POST", "/risk-notice", json!({"version": version + 1})).await.status, 409);
+            assert_eq!(h.send("POST", "/chat", json!({"message": "hi"})).await.status, 428);
+            assert_eq!(h.send("POST", "/risk-notice", json!({"version": version})).await.status, 204);
+            assert_eq!(h.json("GET", "/risk-notice", Value::Null).await["accepted_version"], version);
+            assert_eq!(h.json("GET", "/state", Value::Null).await["risk_notice_accepted"], true);
+        }
+        // Accepted (or not needed on this platform): the chat starts.
+        let events = h.chat(json!({"message": "hi"})).await.all().await;
+        assert_eq!(events[0]["type"], "session");
+        assert_eq!(find(&events, "done")["text"], "Hello.");
+        assert_eq!(h.app.store.list_sessions(10).unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn busy_session_returns_409_with_its_code() {
+        // The first reply waits on an approval, so the conversation stays busy.
+        let h = harness(scripted(vec![write("a.txt", "a"), Message::assistant("Done.")]), true, |_| {}).await;
+        let mut first = h.chat(json!({"message": "write a"})).await;
+        let sid = first.next().await.unwrap()["id"].as_str().unwrap().to_string();
+        first.until("approval").await;
+        let busy = h.send("POST", "/chat", json!({"session_id": sid, "message": "again"})).await;
+        assert_eq!(busy.status, 409);
+        assert_eq!(busy.json().await, json!({"error": "session_busy", "message": "Heron is still replying in this conversation. Stop it first, or wait."}));
+        assert_eq!(h.json("GET", &format!("/sessions/{sid}"), Value::Null).await["busy"], true);
+        // Once it is stopped, the conversation takes a new message.
+        assert_eq!(h.json("POST", "/cancel", json!({"session_id": sid})).await["cancelled"], true);
+        let mut again = h.chat(json!({"session_id": sid, "message": "again"})).await;
+        assert_eq!(again.next().await.unwrap()["id"], sid.as_str());
+    }
+
+    /// A CLI whose installed version Heron has not been tested with.
+    struct UntestedCli;
+
+    #[async_trait]
+    impl Llm for UntestedCli {
+        async fn chat(&self, _req: ChatRequest, _on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
+            Err(crate::cli_llm::CliVersionUntested { id: "codex-cli".into(), found: "9.9.9".into() }.into())
+        }
+    }
+
+    #[tokio::test]
+    async fn untested_cli_version_arrives_as_an_sse_error_code() {
+        let h = harness(Arc::new(UntestedCli), true, |_| {}).await;
+        // The response has started, so the error cannot be an HTTP status: it is an event with a code.
+        let events = h.chat(json!({"message": "hi"})).await.all().await;
+        assert_eq!(types(&events), vec!["session", "error", "run_end"], "{events:?}");
+        let error = find(&events, "error");
+        assert_eq!((error["code"].as_str(), error["provider"].as_str(), error["version"].as_str()), (Some("cli_version_untested"), Some("codex-cli"), Some("9.9.9")));
+        assert!(error["message"].as_str().unwrap().contains("9.9.9"), "{error}");
+        let run_id = &events[0]["run_id"];
+        assert!(events.iter().all(|e| e["run_id"] == *run_id));
+    }
+
+    #[tokio::test]
+    async fn run_survives_dropped_chat_stream() {
+        let h = harness(scripted(vec![write("kept.txt", "still here"), Message::assistant("Wrote it.")]), true, |_| {}).await;
+        let mut chat = h.chat(json!({"message": "write kept.txt"})).await;
+        let session = chat.next().await.unwrap();
+        let (sid, run_id) = (session["id"].as_str().unwrap().to_string(), session["run_id"].as_str().unwrap().to_string());
+        let approval = chat.until("approval").await.pop().unwrap();
+        // The window closes in the middle of the turn.
+        drop(chat);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(h.json("GET", &format!("/sessions/{sid}"), Value::Null).await["busy"], true, "the run is still going");
+        // Another client answers the approval, and picks the run up again from the bus.
+        assert_eq!(h.json("POST", "/approve", json!({"id": approval["id"], "decision": "once"})).await["ok"], true);
+        let mut events = h.send("GET", &format!("/events?since={}", approval["seq"]), Value::Null).await.events();
+        let rest = events.until("run_end").await;
+        assert!(rest.iter().all(|e| e["run_id"] == run_id.as_str()), "{rest:?}");
+        assert_eq!(find(&rest, "approval_resolved")["decision"], "once");
+        assert_eq!(find(&rest, "done")["text"], "Wrote it.");
+        assert_eq!(std::fs::read_to_string(h.app.workspace.join("kept.txt")).unwrap(), "still here");
+        assert_eq!(h.json("GET", &format!("/sessions/{sid}"), Value::Null).await["busy"], false);
+    }
+
+    #[tokio::test]
+    async fn cancel_reports_whether_a_run_was_stopped() {
+        let h = harness(scripted(vec![write("never.txt", "x"), Message::assistant("Wrote it.")]), true, |_| {}).await;
+        assert_eq!(h.json("POST", "/cancel", json!({"session_id": "nothing-running"})).await, json!({"ok": true, "cancelled": false}));
+        let mut chat = h.chat(json!({"message": "write never.txt"})).await;
+        let sid = chat.next().await.unwrap()["id"].as_str().unwrap().to_string();
+        let approval = chat.until("approval").await.pop().unwrap();
+        assert_eq!(h.json("POST", "/cancel", json!({"session_id": sid})).await, json!({"ok": true, "cancelled": true}));
+        // The stream reports the stop, then ends.
+        let rest = chat.all().await;
+        assert_eq!(types(&rest), vec!["approval_resolved", "cancelled", "run_end"], "{rest:?}");
+        assert_eq!((&rest[0]["id"], rest[0]["decision"].as_str()), (&approval["id"], Some("cancelled")));
+        assert!(!h.app.workspace.join("never.txt").exists());
+        assert_eq!(h.send("POST", "/approve", json!({"id": approval["id"], "decision": "once"})).await.status, 404);
+        assert_eq!(h.json("GET", &format!("/sessions/{sid}"), Value::Null).await["busy"], false);
+        assert_eq!(h.json("POST", "/cancel", json!({"session_id": sid})).await["cancelled"], false);
+    }
+
+    #[tokio::test]
+    async fn approval_waits_on_the_bus_then_parks_on_timeout() {
+        let h = harness(
+            scripted(vec![write("answered.txt", "yes"), Message::assistant("First done."), write("parked.txt", "later"), Message::assistant("Carried on.")]),
+            true,
+            |c| c.server.approval_timeout_secs = 2,
+        )
+        .await;
+        // Answered in time: the answer goes on the bus and the action is done.
+        let mut chat = h.chat(json!({"message": "first"})).await;
+        let sid = chat.next().await.unwrap()["id"].as_str().unwrap().to_string();
+        let approval = chat.until("approval").await.pop().unwrap();
+        assert_eq!(approval["tool"], "write_file");
+        h.json("POST", "/approve", json!({"id": approval["id"], "decision": "once"})).await;
+        let rest = chat.all().await;
+        let resolved = find(&rest, "approval_resolved");
+        assert_eq!((&resolved["id"], resolved["decision"].as_str()), (&approval["id"], Some("once")));
+        assert_eq!(find(&rest, "done")["text"], "First done.");
+        assert!(h.app.workspace.join("answered.txt").exists());
+
+        // Nobody answers: after the timeout it is parked, and the turn carries on without it.
+        let started = std::time::Instant::now();
+        let mut chat = h.chat(json!({"session_id": sid, "message": "second"})).await;
+        let live = chat.until("approval").await.pop().unwrap();
+        let rest = chat.all().await;
+        assert!(started.elapsed() >= Duration::from_secs(2), "it waited for the answer first");
+        assert!(!types(&rest).contains(&"approval_resolved"), "{rest:?}");
+        let parked = find(&rest, "approval_parked");
+        assert_eq!(parked["id"], live["id"]);
+        let parked_id = parked["parked_id"].as_i64().unwrap();
+        assert_eq!(find(&rest, "done")["text"], "Carried on.");
+        assert_eq!(types(&rest).last(), Some(&"run_end"));
+        assert!(!h.app.workspace.join("parked.txt").exists());
+        let waiting = h.app.store.pending_approvals().unwrap();
+        assert_eq!(waiting.len(), 1);
+        assert_eq!((waiting[0].id, waiting[0].tool.as_str(), waiting[0].origin.as_str()), (parked_id, "write_file", "user"));
+        // The live id is never reused; the parked request is answered on its own route.
+        assert_eq!(h.send("POST", "/approve", json!({"id": live["id"], "decision": "once"})).await.status, 404);
+        h.json("POST", &format!("/approvals/{parked_id}"), json!({"action": "approve"})).await;
+        assert_eq!(std::fs::read_to_string(h.app.workspace.join("parked.txt")).unwrap(), "later");
+    }
+
+    #[tokio::test]
+    async fn mode_change_is_written_to_config() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let saved = || toml::from_str::<Config>(&std::fs::read_to_string(h.dir.path().join("home/config.toml")).unwrap()).unwrap();
+        assert_eq!(h.json("POST", "/mode", json!({"mode": "auto"})).await["mode"], "auto");
+        assert_eq!(saved().permissions.mode, "auto");
+        assert_eq!(h.app.policy.mode(), Mode::Auto);
+        assert_eq!(h.app.cfg().permissions.mode, "auto");
+        // A mode that does not exist changes nothing.
+        assert_eq!(h.send("POST", "/mode", json!({"mode": "bogus"})).await.status, 400);
+        assert_eq!(saved().permissions.mode, "auto");
+        h.json("POST", "/mode", json!({"mode": "readonly"})).await;
+        assert_eq!(saved().permissions.mode, "readonly");
+        assert_eq!(h.app.policy.mode(), Mode::ReadOnly);
+    }
+
+    #[tokio::test]
+    async fn grants_can_be_listed_and_revoked() {
+        let h = harness(scripted(vec![]), true, |c| c.permissions.allow = vec!["task_add:*".into()]).await;
+        let notes = h.dir.path().join("Notes");
+        std::fs::create_dir_all(&notes).unwrap();
+        h.app.policy.add_allow("shell:git *").unwrap();
+        h.app.policy.add_allow(&format!("read:{}/**", notes.display())).unwrap();
+        h.app.persist_rules();
+        let read_rule = h.app.policy.allow_rules().into_iter().find(|r| r.starts_with("read:")).unwrap();
+        let grants = h.json("GET", "/grants", Value::Null).await;
+        let listed: Vec<(String, String)> = grants.as_array().unwrap().iter().map(|g| (g["rule"].as_str().unwrap().to_string(), g["kind"].as_str().unwrap().to_string())).collect();
+        for want in [("task_add:*", "tool"), ("shell:git *", "tool"), (read_rule.as_str(), "read")] {
+            assert!(listed.contains(&(want.0.to_string(), want.1.to_string())), "{want:?} in {listed:?}");
+        }
+        assert_eq!(listed.len(), 3);
+        let saved_rules = || h.app.store.kv_get("allow_rules").unwrap_or_default();
+        assert!(saved_rules().contains("shell:git *"));
+
+        // A rule from an "always" answer goes from the policy and the saved answers.
+        h.json("DELETE", "/grants", json!({"rule": "shell:git *"})).await;
+        assert!(!h.app.policy.allow_rules().contains(&"shell:git *".to_string()));
+        assert!(!saved_rules().contains("shell:git *"));
+        h.json("DELETE", "/grants", json!({"rule": read_rule})).await;
+        assert!(!saved_rules().contains(&read_rule));
+        // A rule from the settings file goes from the file too.
+        h.json("DELETE", "/grants", json!({"rule": "task_add:*"})).await;
+        let saved = toml::from_str::<Config>(&std::fs::read_to_string(h.dir.path().join("home/config.toml")).unwrap()).unwrap();
+        assert!(saved.permissions.allow.is_empty(), "{:?}", saved.permissions.allow);
+        assert!(h.json("GET", "/grants", Value::Null).await.as_array().unwrap().is_empty());
+        assert_eq!(h.send("DELETE", "/grants", json!({"rule": "shell:git *"})).await.status, 404);
+        // Nothing comes back after a restart.
+        let restarted = App::assemble(saved, h.dir.path().join("ws"), h.app.store.clone(), scripted(vec![])).await.unwrap();
+        assert!(restarted.policy.allow_rules().is_empty(), "{:?}", restarted.policy.allow_rules());
+    }
+
+    #[tokio::test]
+    async fn print_endpoint_line_has_port_token_and_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        let app = Arc::new(App::assemble(cfg.clone(), dir.path().join("ws"), Store::in_memory().unwrap(), scripted(vec![])).await.unwrap());
+        let started = start_endpoint(app, "127.0.0.1", 0).await.unwrap();
+        let line = endpoint_line(&started);
+        assert!(!line.contains('\n'), "one line: {line}");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v, json!({"port": started.port, "token": started.token, "background_owner": true, "version": env!("CARGO_PKG_VERSION")}));
+        assert_ne!(started.port, 0);
+        assert_eq!(started.token.len(), 64);
+        // The token works on the port the line names.
+        let state = reqwest::Client::new().get(format!("http://127.0.0.1:{}/api/state", v["port"])).header("x-heron-token", v["token"].as_str().unwrap()).send().await.unwrap();
+        assert_eq!(state.status(), 200);
+        // A second core on the same home finds the background work already taken.
+        let other = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), scripted(vec![])).await.unwrap());
+        let second = start_endpoint(other, "127.0.0.1", 0).await.unwrap();
+        let v2: Value = serde_json::from_str(&endpoint_line(&second)).unwrap();
+        assert_eq!(v2["background_owner"], false);
+        assert_ne!(v2["port"], v["port"]);
+        assert_ne!(v2["token"], v["token"]);
+        started.task.abort();
+        second.task.abort();
+    }
+
+    #[tokio::test]
+    async fn stream_ends_after_run_end() {
+        let h = harness(scripted(vec![Message::assistant("Hello there.")]), true, |_| {}).await;
+        // Another run's events on the bus are not part of this response.
+        h.app.events.publish("elsewhere", "another-run", json!({"type": "text", "text": "not mine"}));
+        let events = h.chat(json!({"message": "hi"})).await.all().await;
+        let session = &events[0];
+        assert_eq!(session["type"], "session");
+        assert_eq!(session["id"], session["session_id"]);
+        let run_id = session["run_id"].as_str().unwrap();
+        assert!(uuid::Uuid::parse_str(run_id).is_ok(), "{run_id}");
+        assert!(events.iter().all(|e| e["run_id"] == run_id), "{events:?}");
+        let seqs: Vec<u64> = events.iter().map(|e| e["seq"].as_u64().unwrap()).collect();
+        assert!(seqs.windows(2).all(|w| w[0] < w[1]), "{seqs:?}");
+        assert_eq!(find(&events, "done")["text"], "Hello there.");
+        assert_eq!(types(&events).last(), Some(&"run_end"), "the stream ended right after run_end: {events:?}");
+        assert_eq!(types(&events).iter().filter(|t| **t == "run_end").count(), 1);
     }
 
     #[tokio::test]
     async fn stalled_chat_reader_cannot_accumulate_unlimited_events() {
-        let (tx, mut rx) = mpsc::channel::<Value>(CHAT_EVENT_CAPACITY);
-        for i in 0..CHAT_EVENT_CAPACITY {
-            tx.try_send(json!({"type":"text","text":i.to_string()}))
-                .expect("the channel must accept up to its fixed capacity");
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let run_id = crate::events::new_run_id();
+        // A `/api/chat` reader that stops reading while a chatty run goes on.
+        let mut stalled = Box::pin(run_view(h.app.events.subscribe(None), run_id.clone()));
+        let tail_from = h.app.events.last_seq();
+        let sink = h.app.sink_for("s", &run_id);
+        for i in 0..crate::events::LIVE_CAPACITY + 10 {
+            sink(crate::agent::Event::Text(i.to_string()));
         }
-        assert!(matches!(
-            tx.try_send(json!({"type":"text","text":"overflow"})),
-            Err(mpsc::error::TrySendError::Full(_))
-        ));
-        // A resumed client frees exactly one slot.
-        assert!(rx.recv().await.is_some());
-        assert!(tx.try_send(json!({"type":"notice","text":"resumed"})).is_ok());
-        rx.close();
-        while rx.try_recv().is_ok() {}
-        assert!(matches!(
-            tx.try_send(json!({"type":"text","text":"late"})),
-            Err(mpsc::error::TrySendError::Closed(_))
-        ));
+        h.app.publish_outcome("s", &run_id, Ok("all of it"));
+        h.app.publish_run_end("s", &run_id);
+        // Nothing beyond the bus's fixed capacity was kept for it: it is told to resync and dropped.
+        let got: Vec<Item> = tokio::time::timeout(Duration::from_secs(5), stalled.as_mut().collect::<Vec<_>>()).await.unwrap();
+        assert!(matches!(got.as_slice(), [Item::Resync { .. }]), "{got:?}");
+        // The run itself finished: its end is on the bus for a client that comes back.
+        let mut back = h.app.events.subscribe(Some(tail_from));
+        let mut kinds = vec![];
+        while let Ok(Some(Item::Event(e))) = tokio::time::timeout(Duration::from_millis(200), back.next()).await {
+            kinds.push(e.kind().to_string());
+        }
+        assert_eq!(kinds.len(), crate::events::LIVE_CAPACITY + 12);
+        assert_eq!(&kinds[kinds.len() - 2..], ["done", "run_end"]);
     }
 }

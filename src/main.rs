@@ -54,6 +54,10 @@ enum Cmd {
         /// Do not open the browser automatically
         #[arg(long)]
         no_open: bool,
+        /// For the Mac app: bind 127.0.0.1 on a free port, print one JSON line with the port and
+        /// token, and exit when stdin closes
+        #[arg(long)]
+        print_endpoint: bool,
     },
     /// Run only the scheduler (reminders and recurring jobs)
     Daemon,
@@ -230,6 +234,53 @@ fn terminal_sink() -> EventSink {
         }
         let _ = out.flush();
     })
+}
+
+/// Resolves when a read from stdin returns 0 bytes. A plain thread, because a blocking read on
+/// tokio's stdin can hold up the runtime's shutdown.
+async fn stdin_closed() {
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    std::thread::spawn(move || {
+        let mut stdin = std::io::stdin();
+        let mut buf = [0u8; 1024];
+        loop {
+            match stdin.read(&mut buf) {
+                Ok(0) => break,
+                Ok(_) => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+        let _ = tx.send(());
+    });
+    let _ = rx.await;
+}
+
+/// The status `heron`, `heron chat` and `heron run` exit with when the risk notice is not accepted
+/// and nobody is at a terminal to accept it.
+const RISK_NOTICE_EXIT: i32 = 3;
+
+/// Before the first turn: on a terminal, show the risk notice and ask; otherwise say where to accept
+/// it and exit with status 3.
+fn ensure_risk_notice(app: &App) -> Result<()> {
+    if !heron::risk_notice::blocks(&app.store) {
+        return Ok(());
+    }
+    if !std::io::stdin().is_terminal() {
+        eprintln!("Accept Heron's risk notice in the Mac app or by running `heron` in a terminal");
+        std::process::exit(RISK_NOTICE_EXIT);
+    }
+    println!("{}", heron::risk_notice::TEXT);
+    print!("Accept these risks? [y/N] ");
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    if matches!(line.trim().to_lowercase().as_str(), "y" | "yes") {
+        heron::risk_notice::accept_current(&app.store)?;
+        return Ok(());
+    }
+    eprintln!("Heron does not run until its risk notice is accepted.");
+    std::process::exit(RISK_NOTICE_EXIT);
 }
 
 async fn turn(app: &App, agent: &Agent, session: &mut Session, input: &str) -> Result<String> {
@@ -466,13 +517,24 @@ async fn providers(cfg: &Config) -> Result<()> {
             "                  {} — login: `{}`",
             spec.cost_note, spec.login_command
         );
-        if !st.installed || st.logged_in == Some(false) {
+        if shows_provider_hint(&st, probes_refused(cfg)) {
             println!("                  {}", st.hint);
         }
     }
     println!();
     println!("* = selected in the current config. Full list, login steps and safety rules: docs/cli-providers.md");
     Ok(())
+}
+
+/// Are probes refused here? The same check as `probe_status`: on macOS, no sandbox means no CLI.
+fn probes_refused(cfg: &Config) -> bool {
+    heron::sandbox::required() && heron::sandbox::active(cfg) == heron::sandbox::Kind::None
+}
+
+/// Does `heron providers` print the probe's hint under a provider? When it is missing, logged out, or
+/// refused because the sandbox is off (the hint then says so, as `heron doctor` does).
+fn shows_provider_hint(st: &heron::cli_llm::ProviderStatus, refused: bool) -> bool {
+    !st.installed || st.logged_in == Some(false) || refused
 }
 
 async fn doctor(cfg: &Config) -> Result<()> {
@@ -650,6 +712,9 @@ async fn real_main() -> Result<()> {
         cfg.mcp.servers.clear(); // acting as a server: do not spawn our own MCP clients
     }
     let app = Arc::new(App::build(cfg, workspace).await?);
+    if matches!(command, Cmd::Chat { .. } | Cmd::Run { .. }) {
+        ensure_risk_notice(&app)?;
+    }
 
     match command {
         Cmd::Chat { cont, session } => {
@@ -682,8 +747,23 @@ async fn real_main() -> Result<()> {
             let agent = app.agent(Arc::new(TerminalApprover));
             turn(&app, &agent, &mut session, &text).await.map(|_| ())
         }
-        Cmd::Serve { port, no_open } => {
+        Cmd::Serve { port, no_open, print_endpoint } => {
             let cfg = app.cfg();
+            if print_endpoint {
+                // The Mac app's core: loopback whatever the config says, a free port, and one line
+                // on stdout for the app to read through the pipe. Nothing is written to disk.
+                let started = heron::server::start_endpoint(app.clone(), "127.0.0.1", 0).await?;
+                let mut out = std::io::stdout().lock();
+                writeln!(out, "{}", heron::server::endpoint_line(&started))?;
+                out.flush()?;
+                drop(out);
+                // The kernel closes stdin when the app exits for any reason, so no core is orphaned.
+                return tokio::select! {
+                    r = started.task => r?,
+                    _ = stdin_closed() => Ok(()),
+                    _ = tokio::signal::ctrl_c() => Ok(()),
+                };
+            }
             let (url, handle) = heron::server::start(app.clone(), &cfg.server.bind, port.unwrap_or(cfg.server.port)).await?;
             println!("Heron is running at:\n\n  {url}\n\nKeep this window open. Press Ctrl-C to quit.");
             if !no_open {
@@ -798,5 +878,27 @@ mod tests {
             "failed printing to stdout: Input/output error (os error 5)"
         ));
         assert!(!is_broken_pipe_print("something else entirely"));
+    }
+
+    #[test]
+    fn providers_shows_the_hint_when_probes_are_refused() {
+        let st = |installed: bool, logged_in: Option<bool>| heron::cli_llm::ProviderStatus {
+            id: "codex-cli".into(),
+            display_name: "Codex".into(),
+            installed,
+            version: None,
+            logged_in,
+            plan: None,
+            hint: "the sandbox is off, so Heron won't run Codex".into(),
+        };
+        // Installed with no login probed: the refusal is the only reason to print the hint.
+        assert!(shows_provider_hint(&st(true, None), true));
+        assert!(!shows_provider_hint(&st(true, None), false));
+        assert!(!shows_provider_hint(&st(true, Some(true)), false));
+        assert!(shows_provider_hint(&st(false, None), false) && shows_provider_hint(&st(true, Some(false)), false));
+        // Refused exactly when probe_status refuses: on macOS with the sandbox off.
+        let mut off = Config::default();
+        off.agent.sandbox = "off".into();
+        assert_eq!(probes_refused(&off), cfg!(target_os = "macos"));
     }
 }

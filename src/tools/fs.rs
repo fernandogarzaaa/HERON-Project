@@ -2,7 +2,7 @@
 
 use super::{arg_str, opt_bool, opt_i64, opt_str, schema, FnTool, ToolCtx};
 use crate::config::Config;
-use crate::permissions::{classify_path, resolve_path, stricter, without_data_volume, Effect, ReadRoots};
+use crate::permissions::{classify_path, resolve_path, stricter, unresolvable, without_data_volume, Effect, ReadRoots};
 use crate::util::preview;
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
@@ -682,7 +682,7 @@ async fn edit_file(args: &Value, ctx: &ToolCtx) -> Result<String> {
 }
 
 async fn list_dir(args: &Value, ctx: &ToolCtx) -> Result<String> {
-    let path = resolve_path(&ctx.workspace, opt_str(args, "path").unwrap_or("."));
+    let path = walk_root(args, ctx)?;
     let mut entries: Vec<(bool, String, u64)> = vec![];
     let mut rd = tokio::fs::read_dir(&path).await.with_context(|| format!("cannot list {}", path.display()))?;
     while let Some(e) = rd.next_entry().await? {
@@ -715,8 +715,9 @@ async fn list_dir(args: &Value, ctx: &ToolCtx) -> Result<String> {
 /// when the call's own read target was itself such a read (and so was asked about or granted) and the
 /// file really lies under it, or when a grant covers it: a standing one, or one of this conversation's
 /// while it is not tainted. A `read:` grant covers its folder; a `read=:` grant covers its one path and
-/// nothing under it. A link in the working folder that points into the Ask tier, or a walk rooted at
-/// `/` (which is `LocalRead`), reaches nothing the user did not open.
+/// nothing under it, even when it is the walk's own root. A link in the working folder that points
+/// into the Ask tier, or a walk rooted at `/` (which is `LocalRead`), reaches nothing the user did not
+/// open.
 struct WalkScope {
     workspace: PathBuf,
     cfg: std::sync::Arc<Config>,
@@ -746,8 +747,13 @@ impl WalkScope {
                 ReadGrant::Exact(p) => exact.extend(path_forms(p)),
             }
         }
-        if root_effect == Effect::OutsideRead {
-            folders.extend(path_forms(root.to_path_buf()));
+        // The call's own root opens its folder when the call was itself an outside read, so was asked
+        // about or covered by a grant. A `read=:` grant on the root is the one exception: it covers
+        // that one path, so a walk it let through opens nothing under it.
+        let root_forms = path_forms(root.to_path_buf());
+        let exact_on_root = root_forms.iter().any(|r| exact.contains(r));
+        if root_effect == Effect::OutsideRead && !exact_on_root {
+            folders.extend(root_forms);
         }
         WalkScope { workspace: ctx.workspace.clone(), cfg: ctx.cfg.clone(), roots: ReadRoots::of(&ctx.cfg), folders, exact }
     }
@@ -776,15 +782,31 @@ impl WalkScope {
         }
     }
 
-    /// Folders the walk does not enter: Refused ones, and Ask-tier ones that no folder grant opens and
-    /// that hold neither the working folder nor anything opened (every file in them would be skipped).
+    /// Folders the walk does not enter: Refused ones (by location, or because where they lead can't be
+    /// determined), and Ask-tier ones that no folder grant opens and that hold neither the working
+    /// folder nor anything opened (every file in them would be skipped).
     fn prunes(&self, dir: &Path) -> bool {
         if self.roots.refused(dir).is_some() {
             return true;
         }
+        let effect = classify_path(dir, &self.workspace, &self.cfg, false);
+        if effect == Effect::Refused {
+            return true;
+        }
         let leads_somewhere = self.workspace.starts_with(dir) || self.folders.iter().any(|o| o.starts_with(dir)) || self.exact.iter().any(|e| e.starts_with(dir) && e != dir);
-        !leads_somewhere && classify_path(dir, &self.workspace, &self.cfg, false) == Effect::OutsideRead && !self.under_folder(dir)
+        !leads_somewhere && effect == Effect::OutsideRead && !self.under_folder(dir)
     }
+}
+
+/// The folder `list_dir`, `search_files` or `find_files` starts from. A root whose real location
+/// can't be determined (a `/.vol` path, say) is refused before anything is opened.
+fn walk_root(args: &Value, ctx: &ToolCtx) -> Result<PathBuf> {
+    let raw = opt_str(args, "path").unwrap_or(".");
+    let root = resolve_path(&ctx.workspace, raw);
+    if unresolvable(&root) {
+        bail!("{raw} can't be resolved to where it really is, so Heron won't read it");
+    }
+    Ok(root)
 }
 
 /// Walk a folder for the search tools. Build output is skipped, and a folder [`WalkScope::prunes`] is
@@ -804,7 +826,7 @@ fn walker(root: &Path, scope: std::sync::Arc<WalkScope>) -> ignore::Walk {
 
 async fn search_files(args: &Value, ctx: &ToolCtx) -> Result<String> {
     let pattern = arg_str(args, "pattern")?.to_string();
-    let root = resolve_path(&ctx.workspace, opt_str(args, "path").unwrap_or("."));
+    let root = walk_root(args, ctx)?;
     let glob = match opt_str(args, "glob") {
         Some(g) => Some(globset::Glob::new(g).map_err(|e| anyhow!("bad glob: {e}"))?.compile_matcher()),
         None => None,
@@ -853,7 +875,7 @@ async fn search_files(args: &Value, ctx: &ToolCtx) -> Result<String> {
 
 async fn find_files(args: &Value, ctx: &ToolCtx) -> Result<String> {
     let pattern = arg_str(args, "glob")?;
-    let root = resolve_path(&ctx.workspace, opt_str(args, "path").unwrap_or("."));
+    let root = walk_root(args, ctx)?;
     let g = globset::Glob::new(pattern).map_err(|e| anyhow!("bad glob: {e}"))?.compile_matcher();
     let scope = std::sync::Arc::new(WalkScope::new(&root, read_risk(args, ctx), ctx));
     tokio::task::spawn_blocking(move || {
@@ -1598,6 +1620,218 @@ mod tier_tests {
         assert!(scope(&standing).skips(&other.join("letter.txt")));
         // A folder nothing opens is not entered, unless the working folder or a grant lies inside it.
         assert!(scope(&standing).prunes(&other) && !scope(&standing).prunes(&base) && !scope(&standing).prunes(&asked));
+    }
+
+    /// One "this conversation" answer on `list_dir` of a too-broad folder stores `read=:<folder>`. A
+    /// search of that folder is let through by the same grant, but the grant is one path: nothing under
+    /// it is opened. A `read:` grant does open the folder's contents.
+    #[tokio::test]
+    async fn exact_grant_on_walk_root_opens_no_subtree() {
+        let (_dir, ws, home) = dirs_for_test();
+        let outside = ask_tier_dir();
+        let root = dunce::canonicalize(outside.path()).unwrap();
+        std::fs::create_dir_all(root.join("inner")).unwrap();
+        std::fs::write(root.join("diary.txt"), "TOKEN top-level").unwrap();
+        std::fs::write(root.join("inner/letter.txt"), "TOKEN inner").unwrap();
+        let c = ctx(&ws, &home);
+        let search = json!({"pattern": "TOKEN", "path": root.to_string_lossy()});
+        let find = json!({"glob": "**/*.txt", "path": root.to_string_lossy()});
+        assert_eq!(read_risk(&search, &c), Effect::OutsideRead, "the fixture must be in the Ask tier");
+        let grant = |rule: String| c.store.kv_set("grants:s", &serde_json::to_string(&[rule]).unwrap()).unwrap();
+
+        grant(format!("read=:{}", read_target(&search, &c).display()));
+        let found = search_files(&search, &c).await.unwrap();
+        assert_eq!(found, "no matches", "a single-path grant on the walk's root opened what is under it");
+        let listed = find_files(&find, &c).await.unwrap();
+        assert_eq!(listed, "no files match", "a single-path grant on the walk's root listed what is under it");
+        let scope = WalkScope::new(&root, Effect::OutsideRead, &c);
+        assert!(scope.skips(&root.join("diary.txt")) && scope.skips(&root.join("inner/letter.txt")));
+        assert!(scope.prunes(&root.join("inner")));
+
+        // A folder grant opens the folder's contents.
+        grant(format!("read:{}/**", root.display()));
+        let found = search_files(&search, &c).await.unwrap();
+        assert!(found.contains("diary.txt:1:") && found.contains("letter.txt:1:"), "{found}");
+        let listed = find_files(&find, &c).await.unwrap();
+        assert!(listed.contains("diary.txt") && listed.contains("letter.txt"), "{listed}");
+
+        // Once outside content is present the single-path grant no longer applies, so the walk was
+        // asked about on its own, and opens its root.
+        grant(format!("read=:{}", root.display()));
+        c.tainted.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(search_files(&search, &c).await.unwrap().contains("diary.txt:1:"));
+    }
+
+    /// `/.vol/<device>/<inode>/...` opens a file by volume id, and `realpath` fails on it, so its
+    /// written form says nothing about where it leads. Such a path is Refused for reads and writes in
+    /// every mode, and the listing and search tools refuse it as a root.
+    #[tokio::test]
+    async fn volume_id_paths_are_refused() {
+        let (_dir, ws, home) = dirs_for_test();
+        let c = ctx(&ws, &home);
+        let mut paths: Vec<PathBuf> = ["/.vol/16777232/2/Users/me/.codex/config.toml", "/.vol/1/2", "/.VOL/1/2/notes.md", "/System/Volumes/Data/.vol/1/2/notes.md", "/.vol"].iter().map(PathBuf::from).collect();
+        std::fs::write(c.workspace.join("notes.md"), "VOLUME-CONTENT").unwrap();
+        // The real thing where it exists: the working folder, and a Refused folder, by volume id.
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let meta = std::fs::metadata(&c.workspace).unwrap();
+            let by_id = PathBuf::from(format!("/.vol/{}/{}", meta.dev(), meta.ino()));
+            if by_id.join("notes.md").exists() {
+                paths.extend([by_id.join("notes.md"), by_id.join("new.md"), by_id.clone()]);
+            } else {
+                eprintln!("{} is not reachable here; checking written forms only", by_id.display());
+            }
+            let home_meta = std::fs::metadata(dirs::home_dir().unwrap()).unwrap();
+            paths.push(PathBuf::from(format!("/.vol/{}/{}/.codex/config.toml", home_meta.dev(), home_meta.ino())));
+            // A link in the working folder into Heron's home by volume id: Refused however `realpath`
+            // treats it (failing, returning the `/.vol` form, or returning the real path), and a search
+            // of the working folder does not read through it.
+            std::fs::write(home.join("config.toml"), "REFUSED-BY-VOLUME").unwrap();
+            let home_meta = std::fs::metadata(&home).unwrap();
+            let link = c.workspace.join("by-volume.toml");
+            std::os::unix::fs::symlink(format!("/.vol/{}/{}/config.toml", home_meta.dev(), home_meta.ino()), &link).unwrap();
+            eprintln!("canonical form of a link into /.vol: {:?}", dunce::canonicalize(&link));
+            for write in [false, true] {
+                assert_eq!(classify_path(&link, &c.workspace, &c.cfg, write), Effect::Refused, "link (write: {write})");
+            }
+            let found = search_files(&json!({"pattern": "BY-VOLUME|VOLUME-CONTENT"}), &c).await.unwrap();
+            assert!(found.contains("notes.md:1:") && !found.contains("REFUSED-BY-VOLUME"), "{found}");
+            std::fs::remove_file(&link).unwrap();
+        }
+        // A walk of `/` does not enter `/.vol`.
+        assert!(WalkScope::new(Path::new("/"), Effect::LocalRead, &c).prunes(Path::new("/.vol")));
+        for path in &paths {
+            assert!(crate::permissions::unresolvable(path), "{}", path.display());
+            for write in [false, true] {
+                assert_eq!(classify_path(path, &c.workspace, &c.cfg, write), Effect::Refused, "{} (write: {write})", path.display());
+            }
+            let args = json!({"path": path.to_string_lossy(), "pattern": "CONTENT", "glob": "*"});
+            for tool in ["read_file", "list_dir", "search_files", "find_files"] {
+                for mode in [Mode::ReadOnly, Mode::Ask, Mode::Auto, Mode::Yolo] {
+                    let (effect, v) = verdict(&c, tool, &args, mode, &["*".into(), format!("{tool}:*")]);
+                    assert_eq!(effect, Effect::Refused, "{tool} {} in {mode:?}", path.display());
+                    assert!(matches!(v, Verdict::Deny(_)), "{tool} {} in {mode:?}: {v:?}", path.display());
+                }
+            }
+            for write_tool in ["write_file", "edit_file"] {
+                let (effect, v) = verdict(&c, write_tool, &json!({"path": path.to_string_lossy()}), Mode::Yolo, &["*".into()]);
+                assert_eq!(effect, Effect::Refused, "{write_tool} {}", path.display());
+                assert!(matches!(v, Verdict::Deny(_)), "{write_tool} {}: {v:?}", path.display());
+            }
+            // The tools refuse such a root even when called directly.
+            for result in [list_dir(&args, &c).await, search_files(&args, &c).await, find_files(&args, &c).await] {
+                let err = result.expect_err(&format!("{} was walked", path.display()));
+                assert!(err.to_string().contains("can't be resolved"), "{err}");
+            }
+        }
+        // An ordinary path that resolves is judged as before.
+        assert!(!crate::permissions::unresolvable(&c.workspace.join("notes.md")));
+        assert!(!crate::permissions::unresolvable(&c.workspace.join("not-yet/new.md")));
+        assert_eq!(classify_path(&c.workspace.join("notes.md"), &c.workspace, &c.cfg, false), Effect::LocalRead);
+        assert!(list_dir(&json!({}), &c).await.is_ok());
+    }
+
+    /// `/.nofollow/<path>` and `/.resolve/<flags>/<path>` name the file at `<path>`, and `realpath`
+    /// returns them unchanged, so like `/.vol` they are Refused for reads and writes in every mode:
+    /// in any letter case, after `..` and `//`, behind the data and boot volume aliases, and through a
+    /// link in the working folder. The listing and search tools refuse them as a root.
+    #[tokio::test]
+    async fn kernel_prefix_paths_are_refused() {
+        use crate::permissions::DATA_VOLUME;
+        let (_dir, ws, home) = dirs_for_test();
+        let c = ctx(&ws, &home);
+        let home = dunce::canonicalize(&home).unwrap();
+        let secret = home.join("config.toml");
+        std::fs::write(&secret, "REFUSED-KERNEL-CONTENT").unwrap();
+        std::fs::write(c.workspace.join("notes.md"), "WORKSPACE-CONTENT").unwrap();
+        let (s, h, w) = (secret.display().to_string(), home.display().to_string(), c.workspace.display().to_string());
+        let up = "../".repeat(c.workspace.components().count() - 1);
+        let mut written: Vec<String> = vec![
+            format!("/.nofollow{s}"),
+            format!("/.NoFollow{s}"),
+            format!("/.resolve/1{s}"),
+            format!("/.RESOLVE/1{s}"),
+            format!("/.vol/1/2{s}"),
+            format!("//.nofollow/{s}"),
+            format!("/private/../.nofollow{s}"),
+            format!("/tmp/x/../../.resolve/1{s}"),
+            format!("{DATA_VOLUME}/.nofollow{s}"),
+            format!("/.nofollow{h}"),
+            format!("/.nofollow{w}/notes.md"),
+            format!("/.nofollow{w}/not-yet/new.md"),
+            "/.nofollow".into(),
+            "/.resolve".into(),
+            // Relative to the working folder: `..` up to `/`, then the prefix.
+            format!("{up}.nofollow{s}"),
+        ];
+        // The boot volume's entry in `/Volumes` is a link to `/`.
+        for entry in std::fs::read_dir("/Volumes").into_iter().flatten().flatten() {
+            if dunce::canonicalize(entry.path()).is_ok_and(|r| r == Path::new("/")) {
+                let boot = entry.path().display().to_string();
+                written.extend([format!("{boot}/.nofollow{s}"), format!("{boot}{DATA_VOLUME}/.nofollow{s}"), format!("/volumes/{}/.Nofollow{s}", entry.file_name().to_string_lossy())]);
+            }
+        }
+        let rules = |tool: &str| ["*".to_string(), format!("{tool}:*"), format!("read:{h}/**"), format!("read:/.nofollow{h}/**")];
+        for raw in &written {
+            let path = c.workspace.join(raw);
+            assert!(crate::permissions::unresolvable(&path), "{raw}");
+            for write in [false, true] {
+                assert_eq!(classify_path(&path, &c.workspace, &c.cfg, write), Effect::Refused, "{raw} (write: {write})");
+            }
+            let args = json!({"path": raw, "pattern": "CONTENT", "glob": "*"});
+            for tool in ["read_file", "list_dir", "search_files", "find_files"] {
+                for mode in [Mode::ReadOnly, Mode::Ask, Mode::Auto, Mode::Yolo] {
+                    let (effect, v) = verdict(&c, tool, &args, mode, &rules(tool));
+                    assert_eq!(effect, Effect::Refused, "{tool} {raw} in {mode:?}");
+                    assert!(matches!(v, Verdict::Deny(_)), "{tool} {raw} in {mode:?}: {v:?}");
+                }
+            }
+            for write_tool in ["write_file", "edit_file"] {
+                let (effect, v) = verdict(&c, write_tool, &json!({"path": raw}), Mode::Yolo, &["*".into()]);
+                assert_eq!(effect, Effect::Refused, "{write_tool} {raw}");
+                assert!(matches!(v, Verdict::Deny(_)), "{write_tool} {raw}: {v:?}");
+            }
+            for result in [list_dir(&args, &c).await, search_files(&args, &c).await, find_files(&args, &c).await] {
+                let err = result.expect_err(&format!("{raw} was walked"));
+                assert!(err.to_string().contains("can't be resolved"), "{err}");
+            }
+        }
+        // A link in the working folder to Heron's home through `/.nofollow`: Refused however `realpath`
+        // treats it, and a search or listing of the working folder does not read through it. A link to
+        // `/` followed by the prefix is the prefix once the link is followed.
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(format!("/.nofollow{s}"), c.workspace.join("by-prefix.toml")).unwrap();
+            std::os::unix::fs::symlink(format!("/.nofollow{h}"), c.workspace.join("home-by-prefix")).unwrap();
+            std::os::unix::fs::symlink("/", c.workspace.join("root")).unwrap();
+            eprintln!("canonical form of a link into /.nofollow: {:?}", dunce::canonicalize(c.workspace.join("by-prefix.toml")));
+            for raw in ["by-prefix.toml", "home-by-prefix/config.toml", "home-by-prefix", &format!("root/.nofollow{s}"), &format!("root/.nofollow{w}/not-yet/new.md"), "root/.nofollow", "root/.resolve"] {
+                let path = c.workspace.join(raw);
+                for write in [false, true] {
+                    assert_eq!(classify_path(&path, &c.workspace, &c.cfg, write), Effect::Refused, "link {raw} (write: {write})");
+                }
+                for tool in ["read_file", "list_dir", "search_files", "find_files"] {
+                    let (effect, v) = verdict(&c, tool, &json!({"path": raw, "pattern": "CONTENT", "glob": "*"}), Mode::Yolo, &rules(tool));
+                    assert_eq!(effect, Effect::Refused, "{tool} link {raw}");
+                    assert!(matches!(v, Verdict::Deny(_)), "{tool} link {raw}: {v:?}");
+                }
+            }
+            let found = search_files(&json!({"pattern": "KERNEL-CONTENT|WORKSPACE-CONTENT"}), &c).await.unwrap();
+            assert!(found.contains("notes.md:1:") && !found.contains("REFUSED-KERNEL-CONTENT"), "{found}");
+            let listed = find_files(&json!({"glob": "*"}), &c).await.unwrap();
+            assert!(listed.contains("notes.md") && !listed.contains("config.toml") && !listed.contains("by-prefix.toml"), "{listed}");
+            // Called directly (past the policy), the walkers still open nothing through the link.
+            for args in [json!({"path": "home-by-prefix", "pattern": "CONTENT"}), json!({"path": "home-by-prefix", "glob": "*"})] {
+                for out in [search_files(&args, &c).await, find_files(&args, &c).await].into_iter().flatten() {
+                    assert!(!out.contains("REFUSED-KERNEL-CONTENT") && !out.contains("config.toml"), "{out}");
+                }
+            }
+        }
+        // An ordinary path that resolves is judged as before.
+        assert!(!crate::permissions::unresolvable(&c.workspace.join("notes.md")));
+        assert!(!crate::permissions::unresolvable(&c.workspace.join(".nofollow-not-a-prefix/new.md")));
+        assert_eq!(classify_path(&c.workspace.join("notes.md"), &c.workspace, &c.cfg, false), Effect::LocalRead);
     }
 
     /// M-4, the `read_file` half: credential files the old list did not name now ask. The glob and

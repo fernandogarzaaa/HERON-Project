@@ -467,6 +467,8 @@ impl Agent {
         // A working folder inside Heron's home, a CLI login or a personal store never starts a turn,
         // whichever surface asked for it.
         crate::permissions::check_workspace(&self.workspace, &self.cfg)?;
+        // Before anything is written: no turn runs until the risk notice is accepted (B2).
+        crate::risk_notice::check(&self.store)?;
         let before = session.messages.len();
         repair_transcript(&mut session.messages);
         if session.persist && session.messages.len() != before {
@@ -627,6 +629,7 @@ impl Agent {
             let audit_args = redact_secrets(&preview(&call.function.arguments, 600));
             let tainted = ctx.tainted.load(std::sync::atomic::Ordering::SeqCst);
             let verdict = self.policy.decide(&Call { tool: name, summary: &summary, effect: risk, read_target: target.as_deref() }, ctx);
+            let mut grant_after_call = false;
             let decision = match verdict {
                 Verdict::Allow => "allowed",
                 Verdict::Deny(reason) => {
@@ -658,9 +661,9 @@ impl Agent {
                             }
                         }
                         Approval::Session => {
-                            if may_grant_for_conversation(name, risk, tainted) {
-                                grant_for_session(ctx, name, &summary, target.as_deref());
-                            }
+                            // Recorded once this call has run: a `read=:` grant on a walk's root covers
+                            // that one path, and the walk the user was just asked about still opens it.
+                            grant_after_call = may_grant_for_conversation(name, risk, tainted);
                             "approved-for-conversation"
                         }
                         Approval::Deny(reason) => {
@@ -681,6 +684,9 @@ impl Agent {
                 Ok(r) => r,
                 Err(_) => Err(anyhow::anyhow!("tool timed out after {}s", limit.as_secs())),
             };
+            if grant_after_call {
+                grant_for_session(ctx, name, &summary, target.as_deref());
+            }
             let (ok, text) = match outcome {
                 Ok(t) => {
                     let t = truncate_middle(&t, self.cfg.agent.max_tool_output_chars);
@@ -830,6 +836,7 @@ mod tests {
     fn agent_with(llm: ScriptedLlm, mode: Mode, approver: Arc<dyn Approver>, ws: &std::path::Path) -> (Agent, Arc<ScriptedLlm>) {
         let llm = Arc::new(llm);
         let store = Store::in_memory().unwrap();
+        crate::risk_notice::accept_current(&store).unwrap();
         let mut cfg = Config { home: ws.join(".heron-home"), ..Default::default() };
         cfg.agent.auto_memory = false;
         let agent = Agent {
@@ -846,6 +853,31 @@ mod tests {
             token_limit: None,
         };
         (agent, llm)
+    }
+
+    #[tokio::test]
+    async fn risk_notice_blocks_turns_until_accepted() {
+        let ws = tempfile::tempdir().unwrap();
+        let (agent, llm) = agent_with(ScriptedLlm::new(vec![Message::assistant("Hello.")]), Mode::Auto, Arc::new(DenyAll), ws.path());
+        crate::risk_notice::revoke(&agent.store);
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let first = agent.run_turn(&mut s, "hi", &null_sink()).await;
+        if crate::risk_notice::required() {
+            let err = first.expect_err("no turn before the notice is accepted");
+            assert!(err.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some(), "{err:#}");
+            // Refused before anything was written or sent.
+            assert!(llm.requests.lock().unwrap().is_empty());
+            assert!(agent.store.load_messages(&s.id).unwrap().is_empty());
+            assert!(agent.store.session_title(&s.id).is_empty());
+            assert!(s.messages.is_empty());
+            crate::risk_notice::accept_current(&agent.store).unwrap();
+            assert_eq!(agent.run_turn(&mut s, "hi", &null_sink()).await.unwrap(), "Hello.");
+        } else {
+            // Elsewhere turns run as they always have (Q11).
+            assert_eq!(first.unwrap(), "Hello.");
+        }
+        assert_eq!(llm.requests.lock().unwrap().len(), 1);
+        assert_eq!(agent.store.load_messages(&s.id).unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -1435,6 +1467,62 @@ mod tests {
         assert!(session_grant(&ctx, "read_file", &tool.summary(&args), Some(&target)));
         assert!(!session_grant(&ctx, "read_file", "other", Some(&target.with_file_name("other.txt"))));
         assert!(session_grants(&ctx).iter().any(|g| g.starts_with("read=:")), "{:?}", session_grants(&ctx));
+    }
+
+    /// "This conversation" on a walk of a too-broad folder stores `read=:<folder>`, and a later walk
+    /// that grant lets through opens nothing under the folder. The walk the user answered was itself
+    /// asked about, so the grant is recorded only once it has run: while it runs, no `read=:` grant
+    /// names its root, and it opens the folder as an answer of "once" would.
+    #[tokio::test]
+    async fn conversation_grant_is_recorded_after_the_walk_it_answers() {
+        type Seen = Arc<std::sync::Mutex<Vec<bool>>>;
+        struct Walk(Seen);
+        #[async_trait::async_trait]
+        impl crate::tools::Tool for Walk {
+            fn name(&self) -> &str {
+                "search_files"
+            }
+            fn description(&self) -> &str {
+                "a walk that records the grants it ran under"
+            }
+            fn parameters(&self) -> Value {
+                json!({"type": "object"})
+            }
+            fn summary(&self, _: &Value) -> String {
+                "/x/ in ~".into()
+            }
+            fn risk(&self, _: &Value, _: &crate::tools::ToolCtx) -> Effect {
+                Effect::OutsideRead
+            }
+            fn read_target(&self, _: &Value, _: &crate::tools::ToolCtx) -> Option<std::path::PathBuf> {
+                dirs::home_dir()
+            }
+            async fn call(&self, _: &Value, ctx: &crate::tools::ToolCtx) -> anyhow::Result<String> {
+                self.0.lock().unwrap().push(session_grants(ctx).iter().any(|g| g.starts_with("read=:")));
+                Ok("searched".into())
+            }
+        }
+        struct ThisConversation(std::sync::atomic::AtomicUsize);
+        #[async_trait::async_trait]
+        impl Approver for ThisConversation {
+            async fn approve(&self, _: &ApprovalRequest) -> Approval {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Approval::Session
+            }
+        }
+        let ws = tempfile::tempdir().unwrap();
+        let llm = ScriptedLlm::new(vec![ScriptedLlm::tool_call("search_files", json!({})), ScriptedLlm::tool_call("search_files", json!({})), Message::assistant("ok")]);
+        let approver = Arc::new(ThisConversation(Default::default()));
+        let (mut agent, _) = agent_with(llm, Mode::Ask, approver.clone(), ws.path());
+        let seen: Seen = Default::default();
+        let mut tools = ToolRegistry::builtin();
+        tools.register(Arc::new(Walk(seen.clone())));
+        agent.tools = Arc::new(tools);
+        let mut s = Session::create(&agent.store, "").unwrap();
+        agent.run_turn(&mut s, "search my home folder", &null_sink()).await.unwrap();
+        assert_eq!(approver.0.load(std::sync::atomic::Ordering::SeqCst), 1, "the second walk is covered by the conversation grant");
+        assert_eq!(*seen.lock().unwrap(), vec![false, true], "the answered walk ran before its single-path grant was recorded");
+        assert_eq!(session_grants(&agent.tool_ctx(&s.id)), vec![format!("read=:{}", dirs::home_dir().unwrap().display())]);
     }
 
     #[test]

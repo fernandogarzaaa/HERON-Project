@@ -685,7 +685,9 @@ mod tests {
     async fn app_with(llm: ScriptedLlm, dir: &Path) -> (App, Arc<ScriptedLlm>) {
         let cfg = Config { home: dir.join("home"), ..Default::default() };
         let llm = Arc::new(llm);
-        (App::assemble(cfg, dir.join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap(), llm)
+        let app = App::assemble(cfg, dir.join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap();
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        (app, llm)
     }
 
     #[tokio::test]
