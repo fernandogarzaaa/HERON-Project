@@ -3979,15 +3979,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "5b4b14bdb7504abaac1c2f5d66816122",
+      "base_branch": "8047772e846dae955c305212a242eb77b2c99f6b",
+      "claim_token": "be7ac83b9de74b3886f0c48edcbd6395",
+      "claimed_at": "2026-11-18T22:53:52.298943+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-18T22:53:52.298943+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "U3"
@@ -4009,11 +4009,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Integration tests for U1 to U3, and the recorded API fixtures",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "8047772e846dae955c305212a242eb77b2c99f6b",
       "branch": null,
       "path": null
     }
