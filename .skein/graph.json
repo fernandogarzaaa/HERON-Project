@@ -367,11 +367,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "genesis json audit of the pass-rule grammar (item 8c)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
-      "branch": null,
-      "path": null
+      "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "branch": "skein/U0g",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U0g"
     }
   },
   "U1": {
