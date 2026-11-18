@@ -1035,6 +1035,14 @@
         "holder": "agent-1",
         "outcome": "failed",
         "started_at": "2026-11-18T15:38:46.303341+00:00"
+      },
+      {
+        "attempt_id": "e669924ab43e45ae917a3b551623c511",
+        "ended_at": "2026-11-18T16:03:16.973926+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T16:01:23.848114+00:00"
       }
     ],
     "attempts_used": 1,
@@ -1048,15 +1056,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "e669924ab43e45ae917a3b551623c511",
-      "base_branch": "skein/U2__integrate-base",
-      "claim_token": "6610c3c13de145f7bf914987804ecd03",
-      "claimed_at": "2026-11-18T16:01:23.848114+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T16:01:23.848114+00:00",
-      "node_version": 138,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U1",
@@ -1065,17 +1073,17 @@
     "evidence": [
       {
         "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- sandboxed_shell_cannot_read_ask_tier_paths sandbox_cannot_read_cargo_credentials_via_python granted_folder_is_readable_in_the_sandbox build_and_git_still_work_under_deny_default_reads every_registry_config_dir_is_refused_in_the_sandbox m4_sandbox_denies_globs_quotes_and_unlisted_secrets shell_refused_when_sandbox_off cli_turn_refused_when_sandbox_off fake_cli_child_env_is_exactly_the_allowlist fake_cli_cannot_write_outside_its_run_folder fake_cli_argv_turns_tools_off api_keys_reach_only_listed_providers cli_run_folder_is_under_tmpdir_and_removed version_extraction_reads_first_semver version_outside_range_needs_acceptance mcp_refuse_all_advertises_given_schemas_and_refuses_calls to_v3_adds_columns_and_keeps_rows audit_v2_hash_covers_provider_and_version verify_audit_accepts_mixed_v1_and_v2_rows sessions_record_their_origin unattended_model_steps_wait_on_subscription_provider unknown_auth_is_held run_now_is_not_held canary_real_cli",
-        "duration_ms": 13703,
-        "exit_code": 101,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2_20261118T155657333710_0.log"
+        "duration_ms": 14330,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2_20261118T160302487425_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2_20261118T155711038828_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2_20261118T160316818868_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: To run the full check yourself in this session, set `sandbox.network.allowLocalBinding: true` (via `/sandbox`). That fixes the 7 port-binding failures; the Seatbelt-inside-Seatbelt ones still need a run outside the sandbox.",
     "id": "U2",
     "integration_for": null,
     "intent": {
@@ -1087,13 +1095,86 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "e669924ab43e45ae917a3b551623c511",
+      "base_commit": "eb3e96bef0585c9d76bc0f76d6c4c3431d87a3ef",
+      "changed_files": [
+        "src/agent.rs",
+        "src/app.rs",
+        "src/cli_llm.rs",
+        "src/config.rs",
+        "src/llm.rs",
+        "src/main.rs",
+        "src/mcp.rs",
+        "src/permissions.rs",
+        "src/sandbox.rs",
+        "src/server.rs",
+        "src/store.rs",
+        "src/telegram.rs",
+        "src/tools/shell.rs"
+      ],
+      "commit": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
+      "diff_stats": {
+        "src/agent.rs": {
+          "added": 42,
+          "deleted": 4
+        },
+        "src/app.rs": {
+          "added": 238,
+          "deleted": 23
+        },
+        "src/cli_llm.rs": {
+          "added": 882,
+          "deleted": 156
+        },
+        "src/config.rs": {
+          "added": 39,
+          "deleted": 6
+        },
+        "src/llm.rs": {
+          "added": 34,
+          "deleted": 1
+        },
+        "src/main.rs": {
+          "added": 18,
+          "deleted": 4
+        },
+        "src/mcp.rs": {
+          "added": 98,
+          "deleted": 1
+        },
+        "src/permissions.rs": {
+          "added": 1,
+          "deleted": 1
+        },
+        "src/sandbox.rs": {
+          "added": 497,
+          "deleted": 30
+        },
+        "src/server.rs": {
+          "added": 23,
+          "deleted": 4
+        },
+        "src/store.rs": {
+          "added": 191,
+          "deleted": 17
+        },
+        "src/telegram.rs": {
+          "added": 1,
+          "deleted": 1
+        },
+        "src/tools/shell.rs": {
+          "added": 329,
+          "deleted": 7
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Deny-default sandbox for shell and CLI child, macOS sandbox-off refusal, CLI environment and run folder, version contrac",
-    "version": 140,
+    "version": 144,
     "worktree": {
       "base_branch": "skein/U2__integrate-base",
       "base_commit": "eb3e96bef0585c9d76bc0f76d6c4c3431d87a3ef",
