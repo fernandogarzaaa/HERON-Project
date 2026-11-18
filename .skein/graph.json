@@ -4331,15 +4331,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "4d37df5da4504436b904fc8b1c99c648",
+      "base_branch": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
+      "claim_token": "e0ed77eb1ae3445eb3782a299bfc52a9",
+      "claimed_at": "2026-11-18T23:30:04.716987+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-18T23:30:04.716987+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "U6"
@@ -4361,11 +4361,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "README research-preview banner, platform text, phone row, mode-table change",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
       "branch": null,
       "path": null
     }
