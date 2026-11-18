@@ -1396,11 +1396,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from U1f's security review: /.vol fail-closed, alias in too_broad, read=: walker scope, tainted shell grants",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U1g__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
+      "branch": "skein/U1g",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U1g"
     }
   },
   "U1g__integrate": {
