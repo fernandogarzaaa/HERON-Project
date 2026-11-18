@@ -1429,7 +1429,16 @@
     }
   },
   "U1g": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "d0d5a32c8e1e4dfd9d21612b29825b68",
+        "ended_at": "2026-11-18T19:14:29.635957+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T18:55:17.129647+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1441,22 +1450,52 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "d0d5a32c8e1e4dfd9d21612b29825b68",
-      "base_branch": "skein/U1g__integrate-base",
-      "claim_token": "213133f08a9c47a388ad4919e0158972",
-      "claimed_at": "2026-11-18T18:55:17.129647+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T19:10:17.888234+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2f",
       "SYNC7"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins",
+        "duration_ms": 15464,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1g_20261118T191408388170_0.log"
+      },
+      {
+        "command": "cargo test --locked --features desktop --bin heron-desktop",
+        "duration_ms": 3932,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1g_20261118T191423854930_1.log"
+      },
+      {
+        "command": "cargo clippy --locked --all-targets -- -D warnings",
+        "duration_ms": 1043,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1g_20261118T191427789503_2.log"
+      },
+      {
+        "command": "bash eval/require-tests.sh --lib -- volume_id_paths_are_refused firmlink_alias_grants_are_too_broad exact_grant_on_walk_root_opens_no_subtree tainted_conversation_grants_do_not_reach_the_sandbox firmlink_alias_is_denied_in_the_sandbox",
+        "duration_ms": 634,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1g_20261118T191428834562_3.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1g_20261118T191429469769_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U1g",
     "integration_for": null,
     "intent": {
@@ -1468,13 +1507,46 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "d0d5a32c8e1e4dfd9d21612b29825b68",
+      "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
+      "changed_files": [
+        "src/agent.rs",
+        "src/permissions.rs",
+        "src/sandbox.rs",
+        "src/tools/fs.rs",
+        "src/tools/shell.rs"
+      ],
+      "commit": "6750b378a45ea32d3b794539dedc3549769c6c5b",
+      "diff_stats": {
+        "src/agent.rs": {
+          "added": 63,
+          "deleted": 3
+        },
+        "src/permissions.rs": {
+          "added": 108,
+          "deleted": 11
+        },
+        "src/sandbox.rs": {
+          "added": 7,
+          "deleted": 6
+        },
+        "src/tools/fs.rs": {
+          "added": 143,
+          "deleted": 11
+        },
+        "src/tools/shell.rs": {
+          "added": 58,
+          "deleted": 2
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Fixes from U1f's security review: /.vol fail-closed, alias in too_broad, read=: walker scope, tainted shell grants",
-    "version": 34,
+    "version": 43,
     "worktree": {
       "base_branch": "skein/U1g__integrate-base",
       "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
@@ -2241,7 +2313,7 @@
       "claim_token": "db8744acc03e4a90b525377ef6457754",
       "claimed_at": "2026-11-18T18:59:50.577591+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T19:10:21.115477+00:00",
+      "last_heartbeat": "2026-11-18T19:14:21.291602+00:00",
       "node_version": 23,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -2283,7 +2355,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 46,
+    "version": 54,
     "worktree": {
       "base_branch": "skein/U2s__integrate-base",
       "base_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
