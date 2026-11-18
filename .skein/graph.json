@@ -432,11 +432,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Sync: capture the feat/heron-v1 head for U2g",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/heron-v1",
-      "branch": null,
-      "path": null
+      "base_commit": "5a81acc436abc65639c9a09f5567035e9959bd93",
+      "branch": "skein/SYNC8",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC8"
     }
   },
   "U0": {
