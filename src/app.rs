@@ -477,10 +477,12 @@ impl App {
         let agent = self.agent(Arc::new(DenyAll));
         let mut ctx = agent.tool_ctx(&parked.session_id);
         // The call keeps the taint it was parked with: a `remember` parked from a conversation that
-        // had read outside content is still saved as unconfirmed (M-7). A shell call also sees outside
-        // content that reached the conversation after it was parked: once the conversation is
-        // tainted, its read grants must not reach the call's sandbox.
-        let tainted_now = parked.tool == "shell" && self.store.kv_get(&format!("tainted:{}", parked.session_id)).is_some();
+        // had read outside content is still saved as unconfirmed (M-7). A shell call or a walk
+        // (`search_files`, `find_files`) also sees outside content that reached the conversation after
+        // it was parked: once the conversation is tainted, its grants must not reach the call's
+        // sandbox or open the walk's files.
+        let sees_conversation_grants = matches!(parked.tool.as_str(), "shell" | "search_files" | "find_files");
+        let tainted_now = sees_conversation_grants && self.store.kv_get(&format!("tainted:{}", parked.session_id)).is_some();
         ctx.tainted = Arc::new(std::sync::atomic::AtomicBool::new(parked.tainted || tainted_now));
         // Re-check against today's rules: what was allowed to be asked then may be blocked now.
         let risk = tool.risk(&args, &ctx);
@@ -1563,6 +1565,44 @@ mod tests {
         app.run_parked(clean).await.unwrap();
         let mine = app.store.list_memories(None, 10).unwrap().into_iter().find(|m| m.content.contains("short morning")).unwrap();
         assert!(mine.confirmed);
+    }
+
+    /// A `search_files` or `find_files` walk parked from a clean conversation runs with the
+    /// conversation's taint as it is when the user approves it: once outside content has reached the
+    /// conversation, its grants no longer open the Ask-tier files a link in the working folder leads to.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn parked_walk_sees_taint_set_after_it_was_parked() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        let app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        // A file in the user's own folders outside the working folder (the Ask tier), reached through
+        // a link in the working folder.
+        let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        let outside = tempfile::Builder::new().prefix("heron-ask-tier-test").tempdir_in(target).unwrap();
+        let asked = dunce::canonicalize(outside.path()).unwrap().join("asked");
+        std::fs::create_dir_all(&asked).unwrap();
+        std::fs::write(asked.join("diary.txt"), "PARKED-WALK-TOKEN").unwrap();
+        std::os::unix::fs::symlink(asked.join("diary.txt"), app.workspace.join("granted-link.txt")).unwrap();
+        for (tool, args, reaches) in [("search_files", json!({"pattern": "PARKED-WALK-TOKEN"}), "granted-link.txt:1:"), ("find_files", json!({"glob": "*link*"}), "granted-link.txt")] {
+            // One conversation per tool, so the first walk's taint does not reach the second.
+            let session = Session::create(&app.store, "job").unwrap();
+            app.store.kv_set(&format!("grants:{}", session.id), &serde_json::to_string(&[format!("read:{}/**", asked.display())]).unwrap()).unwrap();
+            let park = || app.store.park_approval(&session.id, tool, &args.to_string(), tool, "", "read", false, "a job").unwrap();
+            // The positive control: while the conversation is clean its grant opens the file.
+            let before = park();
+            let out = app.run_parked(before).await.unwrap();
+            assert!(out.contains(reaches), "{tool}: {out}");
+            // The same walk parked again from the clean conversation, then outside content reaches the
+            // conversation before it is approved.
+            let after = park();
+            assert!(!app.store.get_approval(after).unwrap().tainted);
+            app.store.kv_set(&format!("tainted:{}", session.id), "1").unwrap();
+            let out = app.run_parked(after).await.unwrap();
+            assert!(!out.contains("granted-link.txt"), "{tool}: a conversation grant opened a file after outside content arrived: {out}");
+        }
     }
 
     /// A shell call parked from a clean conversation runs with the conversation's taint as it is when
