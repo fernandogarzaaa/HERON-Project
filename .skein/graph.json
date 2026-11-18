@@ -975,7 +975,7 @@
       "claim_token": "974b9001e21742ae985faf4b19c8fa91",
       "claimed_at": "2026-11-18T16:03:17.485048+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T16:10:17.922640+00:00",
+      "last_heartbeat": "2026-11-18T16:13:48.034269+00:00",
       "node_version": 3,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1003,7 +1003,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U1's security review: walkers, firmlink alias, credential_store, tests",
-    "version": 19,
+    "version": 26,
     "worktree": {
       "base_branch": "skein/U1f__integrate-base",
       "base_commit": "951510e283dc6494ee4770a3aaa3ec80a1a6e8de",
@@ -1462,7 +1462,16 @@
     }
   },
   "U2s": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "c8c7b7004a7d43f28e866fcdc6be5499",
+        "ended_at": "2026-11-18T16:13:51.692473+00:00",
+        "error": "completion command failed (adapter exit=1); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-18T16:10:32.865388+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1474,15 +1483,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "c8c7b7004a7d43f28e866fcdc6be5499",
-      "base_branch": "skein/U2s__integrate-base",
-      "claim_token": "0ebbca4a43074c068b77e23bfce0cefb",
-      "claimed_at": "2026-11-18T16:10:32.865388+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-18T16:10:32.865388+00:00",
-      "node_version": 3,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U0",
@@ -1490,8 +1499,20 @@
       "U2",
       "U2c"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash eval/spike/run-spike.sh && python3 -I eval/check_gate.py --spike eval/spike/envelope/summary.json eval/spike/hybrid/summary.json --report eval/spike/topology.md",
+        "duration_ms": 209,
+        "exit_code": 127,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2s_20261118T161351475427_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2s_20261118T161351685120_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=1); see evidence",
     "id": "U2s",
     "integration_for": null,
     "intent": {
@@ -1504,12 +1525,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-18T16:14:43.127037+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 5,
+    "version": 12,
     "worktree": {
       "base_branch": "skein/U2s__integrate-base",
       "base_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
