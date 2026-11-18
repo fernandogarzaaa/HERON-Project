@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron mock: Chat</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+</head>
+<body>
+<div class="stage">
+  <div class="window">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div id="sb"></div>
+    <section class="main">
+      <div id="tb"></div>
+      <div class="content">
+        <div class="scroll" style="padding-bottom:140px">
+          <div class="thread">
+            <div class="msg-user">Summarise the Northwind invoice email and draft a reply saying we'll pay on Friday. Save the draft in my drafts folder.</div>
+
+            <div class="reply">
+              <div id="av1"></div>
+              <div class="body">
+                <div class="track" aria-label="Steps Heron took">
+                  <div class="step ok" data-icon="envelope"><span>Searched email for “Northwind invoice”</span><code>search_knowledge · 0.8 s</code></div>
+                  <div class="step ok" data-icon="globe" id="st-email"><span>Read 1 email from billing@northwind.example <span class="tag outside">Outside content</span></span><code>untrusted</code></div>
+                  <div class="step ok" data-icon="doc.text"><span>Read invoices/NW-1142.pdf</span><code>read_file · 1.1 s</code></div>
+                </div>
+                <p>Northwind sent invoice <b>NW-1142</b> on 3 November for <b>€2,480.00</b>: 31 hours of design work in October at €80 an hour. Payment was due yesterday, 17 November. The email asks for a remittance note when you pay.</p>
+                <p>Here's the reply I'd send. I'll save it as a draft so you can check it first.</p>
+                <div class="track" aria-label="Steps Heron took">
+                  <div class="step wait" data-icon="hand.raised"><span>Waiting for you: create drafts/northwind-reply.md</span><code>write_file</code></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="composer" aria-label="Message Heron">
+          <div class="ph">Heron is waiting for your answer above.</div>
+          <div class="bar"><span>Working in ~/Work</span><span class="grow"></span><span>Esc stops Heron</span><button class="send stop" aria-label="Stop">${stop}</button></div>
+        </div>
+      </div>
+      <!-- Live approval: a sheet on the window. -->
+      <div class="scrim" id="scrim"></div>
+      <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="ap-title">
+        <div class="sheet-head">
+          <div id="av2"></div>
+          <div>
+            <h2 id="ap-title">Create a file in your working folder?</h2>
+            <p>Heron wants to save the reply draft for Northwind.</p>
+          </div>
+        </div>
+        <div class="detail">~/Work/drafts/northwind-reply.md  ·  new file, 612 bytes</div>
+        <ul class="impact">
+          <li><span data-icon="folder"></span><span>Writes one new file. Nothing existing is changed, and Undo can remove it.</span></li>
+          <li style="color:var(--outside)" id="ap-taint"><span data-icon="globe"></span><span>This conversation has read outside content: an email from billing@northwind.example. Check that this is what you asked for.</span></li>
+        </ul>
+        <p class="faint" id="ap-once" style="margin:0;font-size:var(--t-callout)">Because this conversation has read outside content, Heron asks every time. This permission can't be saved.</p>
+        <div class="scope" id="ap-scope" role="radiogroup" aria-label="How long to allow">
+          <label><span class="radio on"></span><div>Only this time</div></label>
+          <label><span class="radio"></span><div>For the rest of this conversation<span>File writes in ~/Work won't ask again until you start a new conversation.</span></div></label>
+          <label><span class="radio"></span><div>Always in ~/Work/drafts<span>You can remove this in Settings › Permissions.</span></div></label>
+        </div>
+        <div class="sheet-foot">
+          <button class="btn link">Show details</button>
+          <span class="grow"></span>
+          <button class="btn lg">Don't allow</button>
+          <button class="btn lg primary">Allow</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.getElementById("sb").outerHTML = sidebar("chat", { state: "awaitingApproval", status: "Waiting for your approval", recent: ["Northwind invoice reply", "Prep · Tue 18 Nov", "Flights to Lisbon", "Summarise the Q4 notes"] });
+  document.getElementById("tb").outerHTML = toolbar("Northwind invoice reply", '<span class="chip-outside" title="This conversation has read outside content, so Heron asks before it writes, sends or reads outside your folder.">' + icon("globe") + 'Outside content</span>');
+  document.getElementById("av1").outerHTML = avatar("ripple", "awaitingApproval", 28);
+  document.getElementById("av2").outerHTML = avatar("ripple", "awaitingApproval", 40);
+  document.querySelector(".send").innerHTML = icon("stop.fill");
+  // Default: a tainted run, so can_session and can_always are false (server.rs). tainted=0 shows the clean case with all three scopes.
+  const clean = q.get("tainted") === "0";
+  document.getElementById("ap-scope").hidden = !clean;
+  document.getElementById("ap-once").hidden = clean;
+  document.getElementById("ap-taint").hidden = clean;
+  if (clean) { document.getElementById("st-email").hidden = true; const c = document.querySelector(".chip-outside"); if (c) c.hidden = true; }
+  if (q.get("sheet") === "0") { document.getElementById("sheet").hidden = true; document.getElementById("scrim").hidden = true; }
+</script>
+</body>
+</html>

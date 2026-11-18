@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron mock: Inbox</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+</head>
+<body>
+<div class="stage">
+  <div class="window">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div id="sb"></div>
+    <section class="main">
+      <div id="tb"></div>
+      <div class="content">
+        <div class="split">
+          <div class="pane-list" role="listbox" aria-label="Inbox">
+            <div class="grp">Waiting for you</div>
+            <div class="li" role="option" aria-selected="true"><span class="unread wait"></span><div><b>Send the weekly summary to Priya?</b><span>From “Friday summary”. Nobody was here to answer at 07:00.</span><time>07:00</time></div></div>
+            <div class="li" role="option"><span class="unread wait"></span><div><b>Run <span class="mono">npm test</span> in ~/Work/site?</b><span>From “Nightly check”.</span><time>Yesterday</time></div></div>
+            <div class="grp">Suggestions</div>
+            <div class="li" role="option"><span class="unread"></span><div><b>Draft the Lisbon packing list?</b><span>Your flight is tomorrow at 07:10 and there's no list in Notes yet.</span><time>08:12</time></div></div>
+            <div class="grp">Delivered</div>
+            <div class="li" role="option"><span class="unread"></span><div><b>Morning briefing</b><span>Three events today. The Northwind invoice is overdue by one day.</span><time>07:30</time></div></div>
+            <div class="li" role="option"><span class="unread no"></span><div><b>Inbox watch: 2 emails from Maria</b><span>Lunch moved to 12:30. She shared the Q4 deck.</span><time>Yesterday</time></div></div>
+            <div class="li" role="option"><span class="unread no"></span><div><b>Reminder: call the bank</b><span>You asked for this reminder last Friday.</span><time>Mon</time></div></div>
+          </div>
+          <div class="pane-detail">
+            <div class="sheet-head" style="grid-template-columns:44px 1fr">
+              <div id="av"></div>
+              <div>
+                <h2 class="display h-title" style="margin:0">Send the weekly summary to Priya?</h2>
+                <p class="muted" style="margin:4px 0 0">Heron wanted to do this at 07:00 during “Friday summary”. Nobody was here to answer, so it skipped this step and carried on.</p>
+              </div>
+            </div>
+            <div style="display:grid;gap:var(--s4);margin-top:var(--s5);max-width:620px">
+              <div class="detail">send_email
+to:      priya@northwind.example
+subject: Weekly summary, 11 to 15 November
+body:    412 words, from notes/weekly/2026-46.md</div>
+              <ul class="impact">
+                <li><span data-icon="envelope"></span><span>Sends an email from your account. A sent email can't be taken back.</span></li>
+                <li style="color:var(--outside)"><span data-icon="globe"></span><span>The job had read outside content (2 emails) before this step. Check the recipient and the text.</span></li>
+              </ul>
+              <div class="btn-row"><button class="btn lg">Dismiss</button><button class="btn lg primary">Approve and send</button><span class="grow"></span><button class="btn link">Open “Friday summary”</button></div>
+              <p class="faint" style="font-size:var(--t-callout);margin:0">Approving runs this one step now, with the job's permissions. It doesn't change what the job may do next time.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<script>
+  document.getElementById("sb").outerHTML = sidebar("inbox", { inbox: 3 });
+  document.getElementById("tb").outerHTML = toolbar("Inbox", '<div class="seg" role="tablist"><span aria-selected="true">All</span><span>Waiting</span><span>Delivered</span></div><button class="tb">Mark all as read</button>');
+  document.getElementById("av").outerHTML = avatar("ripple", "awaitingApproval", 44);
+</script>
+</body>
+</html>

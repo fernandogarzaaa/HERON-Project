@@ -12,7 +12,7 @@
   --paper:#EDF1F4; --surface:#F9FBFC; --ink:#16212B; --muted:#566878; --line:#D2DAE1;
   --slate:#2F6690; --slate-ink:#fff; --slate-soft:#DCE7EF;
   --talon:#C98F00; --talon-soft:#FBF0CC; --talon-ink:#4A3600;
-  --danger:#B3362B; --danger-soft:#F8E1DE; --ok:#2B7A57;
+  --danger:#B3362B; --danger-soft:#F8E1DE; --danger-ink:#fff; --ok:#2B7A57;
   --serif:"Iowan Old Style","Sitka Display","Sitka Text",Constantia,Charter,Georgia,serif;
   --sans:"Avenir Next","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
   --mono:ui-monospace,"SF Mono","Cascadia Code",Consolas,"Liberation Mono",monospace;
@@ -22,7 +22,7 @@
   --paper:#10181F; --surface:#17212A; --ink:#E3EAF0; --muted:#93A4B3; --line:#293642;
   --slate:#7DB3D8; --slate-ink:#0D1B26; --slate-soft:#1D3040;
   --talon:#EDB92B; --talon-soft:#352C0F; --talon-ink:#F6E3A6;
-  --danger:#EC7A6F; --danger-soft:#3A1D1A; --ok:#6EC49C;
+  --danger:#EC7A6F; --danger-soft:#3A1D1A; --danger-ink:#1A0B09; --ok:#6EC49C;
 }}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -30,6 +30,7 @@ html,body{height:100%;margin:0}
 body{font:16px/1.55 var(--sans);color:var(--ink);background:var(--paper);display:grid;grid-template-columns:264px minmax(0,1fr);-webkit-font-smoothing:antialiased}
 button,input,textarea,select{font:inherit;color:inherit}
 button{cursor:pointer}
+::placeholder{color:var(--muted);opacity:1}
 :focus-visible{outline:2px solid var(--slate);outline-offset:2px;border-radius:4px}
 h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:-.01em;margin:0}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
@@ -46,7 +47,7 @@ nav button{display:flex;justify-content:space-between;align-items:center;padding
 nav button:hover{background:var(--slate-soft)}
 nav button[aria-current="page"]{background:var(--slate-soft);font-weight:600}
 .count{font-size:12px;font-weight:700;background:var(--talon);color:#201700;border-radius:9px;padding:0 7px;line-height:18px}
-.rail h2{font:600 13px/1 var(--sans);color:var(--muted);padding:14px 10px 6px;letter-spacing:0}
+.rail .rail-h{margin:0;font:600 13px/1 var(--sans);color:var(--muted);padding:14px 10px 6px;letter-spacing:0}
 .sessions{flex:1;overflow:auto;min-height:0;display:flex;flex-direction:column;gap:1px}
 .sessions button{display:block;width:100%;border:0;background:none;padding:6px 10px;border-radius:6px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14.5px}
 .sessions button:hover{background:var(--slate-soft)}
@@ -63,7 +64,7 @@ main{display:flex;flex-direction:column;min-width:0;height:100vh}
 .modes button{border:0;background:none;padding:5px 11px;font-size:13.5px;border-right:1px solid var(--line)}
 .modes button:last-child{border-right:0}
 .modes button[aria-pressed="true"]{background:var(--slate);color:var(--slate-ink);font-weight:600}
-.modes button[data-mode="yolo"][aria-pressed="true"]{background:var(--danger);color:#fff}
+.modes button[data-mode="yolo"][aria-pressed="true"]{background:var(--danger);color:var(--danger-ink)}
 .ghost{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:5px 11px;font-size:13.5px}
 .ghost:hover{border-color:var(--slate)}
 .view{flex:1;overflow:auto;min-height:0}
@@ -204,8 +205,8 @@ td.m{font:12.5px/1.5 var(--mono)}
 
 @media (max-width:760px){
   body{grid-template-columns:1fr}
-  .rail{position:fixed;inset:0 20% 0 0;z-index:5;background:var(--paper);transform:translateX(-102%);transition:transform .18s ease-out;box-shadow:0 0 0 100vmax rgba(0,0,0,0)}
-  body.nav-open .rail{transform:none;box-shadow:0 0 0 100vmax rgba(0,0,0,.35)}
+  .rail{position:fixed;inset:0 20% 0 0;z-index:5;background:var(--paper);transform:translateX(-102%);visibility:hidden;transition:transform .18s ease-out,visibility 0s .18s;box-shadow:0 0 0 100vmax rgba(0,0,0,0)}
+  body.nav-open .rail{transform:none;visibility:visible;transition-delay:0s;box-shadow:0 0 0 100vmax rgba(0,0,0,.35)}
   .menu{display:block}
   .bar,.composer{padding-left:16px;padding-right:16px}
   .col{padding:20px 16px 32px}
@@ -277,14 +278,14 @@ td,.meta,.note,#hint,.usage{font-variant-numeric:tabular-nums}
     <button data-view="activity">Activity log</button>
     <button data-view="settings">Settings</button>
   </nav>
-  <h2 id="recent-h">Recent conversations</h2>
-  <div class="sessions" id="sessions" aria-labelledby="recent-h"></div>
+  <p class="rail-h" id="recent-h">Recent conversations</p>
+  <div class="sessions" id="sessions" role="group" aria-labelledby="recent-h"></div>
   <footer id="foot"></footer>
 </aside>
 
 <main>
   <header class="bar">
-    <button class="menu" id="menu" aria-label="Open menu">Menu</button>
+    <button class="menu" id="menu" aria-controls="rail" aria-expanded="false">Menu</button>
     <h1 id="title">New conversation</h1>
     <button class="ghost" id="undo" hidden title="Restore the last file Heron changed in this conversation">Undo<span class="long"> last file change</span></button>
     <div class="modes" id="modes" role="group" aria-label="How much Heron may do without asking">
@@ -757,6 +758,7 @@ input.addEventListener('input', grow);
 document.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); startNew(); } if (e.key === 'Escape') { if (document.body.classList.contains('nav-open')) document.body.classList.remove('nav-open'); else if (busy) stop(); } });
 $('#new').onclick = startNew;
 $('#menu').onclick = () => document.body.classList.toggle('nav-open');
+new MutationObserver(() => $('#menu').setAttribute('aria-expanded', document.body.classList.contains('nav-open'))).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 async function undoLast(confirmed) {
   // "Restore anyway" answers a question about one change in one conversation: it carries both, so
   // switching conversations (or Heron changing another file) meanwhile cannot redirect it.

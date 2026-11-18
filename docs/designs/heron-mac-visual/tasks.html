@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron mock: Tasks</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+<style>
+  .tk .row { grid-template-columns: 16px 1fr auto auto; }
+  .tk .cbx { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--ink3); }
+  .tk .cbx.heron { border-style: dashed; border-color: var(--accent); }
+  .tk .done b { text-decoration: line-through; color: var(--ink3); }
+  .tk .done .cbx { background: var(--accent); border-color: var(--accent); }
+  .add { display: flex; gap: var(--s2); align-items: center; padding: 10px var(--s3); color: var(--ink3); border-top: 1px solid var(--hairline); }
+  .add svg { width: 14px; height: 14px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="window">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div id="sb"></div>
+    <section class="main">
+      <div id="tb"></div>
+      <div class="content">
+        <div class="scroll">
+          <div style="max-width:760px;margin:0 auto">
+            <h1 class="display h-title">Tasks</h1>
+            <p class="lede">Yours and Heron's. Heron can add tasks when you ask, and works through the ones you hand to it.</p>
+            <div class="sec-h">Yours <small>4 open</small></div>
+            <div class="group tk">
+              <div class="row"><span class="cbx"></span><div class="t"><b>Pay Northwind invoice NW-1142</b><span>€2,480.00, due 17 Nov</span></div><span class="tag danger">Overdue</span><button class="btn" aria-label="More" data-icon="ellipsis.circle"></button></div>
+              <div class="row"><span class="cbx"></span><div class="t"><b>Book the Lisbon hotel</b></div><span class="tag">Today</span><button class="btn" aria-label="More" data-icon="ellipsis.circle"></button></div>
+              <div class="row"><span class="cbx"></span><div class="t"><b>Send Q4 plan to the contractors</b></div><span class="tag">Fri</span><button class="btn" aria-label="More" data-icon="ellipsis.circle"></button></div>
+              <div class="row"><span class="cbx"></span><div class="t"><b>Renew the domain for the studio site</b></div><span class="faint">No date</span><button class="btn" aria-label="More" data-icon="ellipsis.circle"></button></div>
+              <div class="add" data-icon="plus">Add a task</div>
+            </div>
+            <div class="sec-h">Heron is doing <small>1</small></div>
+            <div class="group tk">
+              <div class="row"><span class="cbx heron"></span><div class="t"><b>Collect October receipts into one PDF</b><span>Started 10:02 · 14 of 22 receipts</span></div><span class="tag accent">Working</span><button class="btn">Open</button></div>
+            </div>
+            <div class="sec-h">Done this week</div>
+            <div class="group tk">
+              <div class="row done"><span class="cbx"></span><div class="t"><b>Reply to the Lisbon conference</b></div><span class="faint">Mon</span><span></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<script>
+  document.getElementById("sb").outerHTML = sidebar("tasks");
+  document.getElementById("tb").outerHTML = toolbar("Tasks", '<span class="search">' + icon("magnifyingglass") + 'Search tasks</span>');
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/designs/heron-mac-visual/*.html"
+        ],
+        "createdAt": "2026-11-18T13:57:06.003Z",
+        "reason": "Agent: mock window frame, toolbar, segmented control and menu bar strip are edge-to-edge containers by design; their children carry their own padding (checked in screenshots)"
+      },
+      {
+        "rule": "low-contrast",
+        "value": "*",
+        "files": [
+          "docs/designs/heron-mac-visual/index.html"
+        ],
+        "createdAt": "2026-11-18T13:57:06.018Z",
+        "reason": "Agent: static pass pairs dark-mode tokens with light-mode backgrounds; rendered contrast measured in headless Chrome passes AA in light and dark"
+      }
+    ]
+  }
+}

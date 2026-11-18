@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron mock: Settings</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+<style>
+  .settings .lights { top: 12px; left: 14px; }
+  .wtitle { position: absolute; top: 9px; left: 0; right: 0; text-align: center; font-size: var(--t-body); font-weight: 600; color: var(--ink2); }
+  .kv .row { grid-template-columns: 1fr auto; }
+  .prov .row { grid-template-columns: 28px 1fr auto; }
+  .grant .row { grid-template-columns: 28px 1fr auto; }
+  .pane { display: none; } .pane.on { display: grid; gap: var(--s5); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="settings">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="wtitle" id="wtitle">Model</div>
+    <nav class="set-tabs" id="tabs"></nav>
+    <div class="set-body">
+      <!-- Model: /api/providers -->
+      <div class="pane" id="p-model">
+        <div class="form-sec"><h3>Model connection</h3>
+          <div class="group prov">
+            <div class="row"><span class="radio on"></span><div class="t"><b>Claude Code <span class="tag ok">Signed in</span></b><span>Version 2.1.4 · tested range 2.0 to 2.1 · subscription login</span></div><span class="tag accent">In use</span></div>
+            <div class="row"><span class="radio"></span><div class="t"><b>Gemini CLI <span class="tag waiting">Untested version</span></b><span>Version 0.9.2 isn't in the tested range (0.6 to 0.8).</span></div><button class="btn">Use anyway…</button></div>
+            <div class="row"><span class="radio dis"></span><div class="t"><b>Codex <span class="tag danger">Signed out</span></b><span>Run <code class="mono">codex login</code> in Terminal, then check again.</span></div><button class="btn">Copy command</button></div>
+            <div class="row"><span class="radio"></span><div class="t"><b>API key</b><span>Any OpenAI-compatible endpoint or a model on this Mac.</span></div><button class="btn">Set up…</button></div>
+          </div>
+          <p class="note">Heron never stores your CLI password. It runs the app you're signed in to, inside the sandbox, with its own tools turned off.</p>
+        </div>
+        <div class="form-sec"><h3>Unattended work</h3>
+          <div class="group kv"><div class="row"><div class="t"><b>Let schedules use a subscription login</b><span>Off: scheduled runs wait until you open Heron. Check your provider's terms before turning this on.</span></div><span class="toggle off" role="switch" aria-checked="false"></span></div></div>
+        </div>
+      </div>
+
+      <!-- Permissions: sandbox, mode, grants, rule notices -->
+      <div class="pane" id="p-permissions">
+        <div class="form-sec"><h3>Sandbox</h3>
+          <div class="group kv"><div class="row"><div class="t"><b><span class="dot"></span>On (macOS sandbox)</b><span>Commands and CLI models can read ~/Work and the folders you allow below. Everything else asks first, and secrets are always refused.</span></div><span></span></div></div>
+        </div>
+        <div class="form-sec"><h3>When Heron wants to act</h3>
+          <div class="group kv">
+            <div class="row"><div class="t"><b>Permission mode</b><span>Ask first: Heron asks before it changes files, runs commands or sends anything.</span></div><span class="field" style="gap:6px">Ask first ▾</span></div>
+          </div>
+        </div>
+        <div class="form-sec"><h3>What you've allowed</h3>
+          <div class="group grant">
+            <div class="row"><span class="ic" data-icon="folder"></span><div class="t"><b>Write files in ~/Work/drafts</b><span>Always · allowed 18 Nov from “Northwind invoice reply”</span></div><button class="btn">Remove</button></div>
+            <div class="row"><span class="ic" data-icon="doc.text"></span><div class="t"><b>Read ~/Documents/Receipts</b><span>Always · allowed 12 Nov</span></div><button class="btn">Remove</button></div>
+            <div class="row"><span class="ic" data-icon="terminal"></span><div class="t"><b>Run <span class="mono">git</span> in ~/Work/site</b><span>This conversation only · “Fix the footer links”</span></div><button class="btn">Remove</button></div>
+          </div>
+        </div>
+        <div class="form-sec"><h3>Older rules</h3>
+          <div class="group kv"><div class="row"><div class="t"><b class="mono">read_file:*</b><span>From your settings file. It no longer opens reads outside your working folder. Add a folder above instead.</span></div><span class="tag waiting">No longer applies</span></div></div>
+        </div>
+      </div>
+
+      <!-- Appearance -->
+      <div class="pane" id="p-appearance">
+        <div class="form-sec"><h3>Avatar</h3><div class="group kv"><div class="row"><div class="t" style="display:flex;gap:var(--s3);align-items:center"><span id="ap-av"></span><div><b>Ripple</b><span>Ripple, Heron, Letter or your picture</span></div></div><span class="field">Ripple ▾</span></div></div></div>
+        <div class="form-sec"><h3>Look</h3><div class="group kv">
+          <div class="row"><div class="t"><b>Theme</b></div><span class="field">Dusk ▾</span></div>
+          <div class="row"><div class="t"><b>Accent colour</b></div><span class="field">System ▾</span></div>
+          <div class="row"><div class="t"><b>Appearance</b><span>Follows macOS unless you choose</span></div><div class="seg"><span aria-selected="true">System</span><span>Light</span><span>Dark</span></div></div>
+          <div class="row"><div class="t"><b>Text size</b><span>Chat and reading text. ⌘+ and ⌘− also work in a conversation.</span></div><div class="seg"><span>S</span><span aria-selected="true">M</span><span>L</span><span>XL</span></div></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const tab = q.get("tab") || "model";
+  const tabs = [["general", "General", "gearshape"], ["heron", "Heron", "person.crop.circle"], ["appearance", "Appearance", "paintpalette"], ["model", "Model", "cpu"], ["permissions", "Permissions", "hand.raised"], ["connections", "Connections", "link"], ["usage", "Usage", "chart.bar"]];
+  document.getElementById("tabs").innerHTML = tabs.map(([id, l, ic]) => `<a href="settings.html?tab=${id}" ${id === tab ? 'aria-current="page"' : ""}>${icon(ic)}<span>${l}</span></a>`).join("");
+  const pane = document.getElementById("p-" + tab) || document.getElementById("p-model");
+  pane.classList.add("on");
+  document.getElementById("wtitle").textContent = (tabs.find((t) => t[0] === tab) || tabs[3])[1];
+  document.getElementById("ap-av").outerHTML = avatar("ripple", "idle", 36);
+</script>
+</body>
+</html>

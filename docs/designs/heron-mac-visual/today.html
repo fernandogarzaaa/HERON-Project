@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron mock: Today</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+</head>
+<body>
+<div class="stage">
+  <div class="window">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div id="sb"></div>
+    <section class="main">
+      <div id="tb"></div>
+      <div class="content" style="display:grid;grid-template-rows:auto 1fr">
+        <div>
+          <div class="banner" id="b-other" hidden><span data-icon="iphone"></span><span>Another Heron is running your schedules and phone connection. This window still works as usual.</span><button class="btn link">Learn more</button></div>
+          <div class="banner waiting" id="b-paused" hidden><span data-icon="pause.circle"></span><span>Heron is paused. It starts nothing on its own until you resume it. You can still ask it for things.</span><button class="btn">Resume</button></div>
+        </div>
+        <div class="scroll">
+          <h1 class="display h-large">Good morning, Sam.</h1>
+          <p class="lede">Tuesday 18 November. Three events, two tasks due, and one thing waiting for you.</p>
+
+          <div class="prep">
+            <div id="av"></div>
+            <div><b>Prep my day</b><p>Heron reads today's calendar, your due tasks and anything waiting, then suggests an order for the day. It can draft replies and add tasks, and asks before saving any.</p></div>
+            <button class="btn lg primary">Prep my day</button>
+          </div>
+
+          <div class="today-grid">
+            <div class="panel">
+              <h2><span>Today</span><span class="faint" style="font-weight:400">From your calendar</span></h2>
+              <div class="ev"><time>09:30</time><i></i><div><b>Design review with Northwind</b><span>Video call · 45 min</span></div></div>
+              <div class="ev"><time>12:30</time><i style="background:var(--ink3)"></i><div><b>Lunch with Maria</b><span>Café Lindo</span></div></div>
+              <div class="ev"><time>16:00</time><i></i><div><b>Q4 planning</b><span>Studio · 1 h</span></div></div>
+              <div class="ev"><time class="faint">Tomorrow</time><i style="background:transparent"></i><div><span>Flight to Lisbon at 07:10</span></div></div>
+            </div>
+            <div style="display:grid;gap:var(--s5);align-content:start">
+              <div class="panel">
+                <h2><span>Waiting for you</span><span class="tag waiting">1</span></h2>
+                <div class="row" style="padding:6px 0;border:0;grid-template-columns:auto 1fr auto"><span class="unread wait" style="margin:0"></span><div class="t"><b>Send the weekly summary to Priya?</b><span>From “Friday summary” · parked at 07:00</span></div><button class="btn">Review</button></div>
+                <div class="row" style="padding:6px 0;grid-template-columns:auto 1fr auto"><span class="unread no" style="margin:0"></span><div class="t"><b>2 new memories to check</b><span>Learned from email</span></div><button class="btn">Review</button></div>
+              </div>
+              <div class="panel">
+                <h2><span>Due</span><span class="faint" style="font-weight:400">4 open</span></h2>
+                <div class="row" style="padding:6px 0;border:0;grid-template-columns:auto 1fr auto"><span class="cb" style="width:14px;height:14px;border:1px solid var(--ink3);border-radius:3px"></span><div class="t"><b>Pay Northwind invoice NW-1142</b></div><span class="tag danger">Overdue</span></div>
+                <div class="row" style="padding:6px 0;grid-template-columns:auto 1fr auto"><span class="cb" style="width:14px;height:14px;border:1px solid var(--ink3);border-radius:3px"></span><div class="t"><b>Book the Lisbon hotel</b></div><span class="tag">Today</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.getElementById("sb").outerHTML = sidebar("today", { inbox: 1 });
+  document.getElementById("tb").outerHTML = toolbar("Today");
+  document.getElementById("av").outerHTML = avatar("ripple", "idle", 40);
+  if (q.get("banner") === "other") document.getElementById("b-other").hidden = false;
+  if (q.get("banner") === "paused") document.getElementById("b-paused").hidden = false;
+</script>
+</body>
+</html>
