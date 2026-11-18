@@ -2351,10 +2351,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "b867c5e80a014a711f9d14ed18ff02ad5aaac715",
+        "result_commit": "fd48f6a7c4082df9a2ed474b8da9d673c1673e4f",
+        "shipped_at": "2026-11-18T20:15:41.571625+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Containment check on each installed candidate CLI (measurement; records results, G4 is judged in U2w)",
-    "version": 32,
+    "version": 33,
     "worktree": {
       "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
       "base_commit": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
