@@ -3728,7 +3728,7 @@
       "worker_id": null
     },
     "depends_on": [
-      "U4",
+      "U4b",
       "U2w"
     ],
     "evidence": [],
@@ -3750,7 +3750,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": null,
       "branch": null,
