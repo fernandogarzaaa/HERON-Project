@@ -270,7 +270,16 @@
     }
   },
   "U0b": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "f4cb84e4475644ceb7b1b3ee21828b0c",
+        "ended_at": "2026-11-18T14:13:45.836851+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T14:05:46.848123+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -282,21 +291,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "f4cb84e4475644ceb7b1b3ee21828b0c",
-      "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
-      "claim_token": "3e9cc2d0f38b4ae695ffed79b4848372",
-      "claimed_at": "2026-11-18T14:05:46.848123+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T14:09:47.137808+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U0"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash eval/run-core-tasks.sh --provider claude-cli --driver eve --runs 3 --out eval/baseline --artifacts \"${TMPDIR:-/tmp}/heron-baseline-runs\" && python3 -I eval/check_gate.py --schema-only eval/baseline/summary.json",
+        "duration_ms": 449482,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U0b_20261118T140616223312_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U0b_20261118T141345707499_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: `bash eval/run-core-tasks.sh --provider claude-cli --driver eve --runs 3 --out eval/baseline --artifacts \"${TMPDIR:-/tmp}/heron-baseline-runs\" && python3 -I eval/check_gate.py --schema-only eval/baseline/summary.json`",
     "id": "U0b",
     "integration_for": null,
     "intent": {
@@ -308,13 +329,26 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "f4cb84e4475644ceb7b1b3ee21828b0c",
+      "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "changed_files": [
+        "eval/baseline/summary.json"
+      ],
+      "commit": "d77fa178a89241f54e733da4485b96809f09277d",
+      "diff_stats": {
+        "eval/baseline/summary.json": {
+          "added": 421,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Baseline run on today's `main` code (measurement only)",
-    "version": 11,
+    "version": 19,
     "worktree": {
       "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
       "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
@@ -340,7 +374,7 @@
       "claim_token": "a7dbb0d0185e4c9883a9f47e745d1120",
       "claimed_at": "2026-11-18T14:09:47.182777+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-18T14:09:47.182777+00:00",
+      "last_heartbeat": "2026-11-18T14:13:17.448842+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -365,9 +399,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "genesis json audit of the pass-rule grammar (item 8c)",
-    "version": 3,
+    "version": 10,
     "worktree": {
       "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
       "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
