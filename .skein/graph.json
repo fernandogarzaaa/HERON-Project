@@ -2072,9 +2072,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from U1h's review: kernel-prefix working folder, parked walk taint",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U1i__integrate-base",
       "branch": null,
       "path": null
     }
