@@ -321,6 +321,11 @@ export component MainWindow inherits Window {
     in-out property <[string]> settings-tool-settings: [];
     in-out property <[McpLine]> settings-mcp-lines: [];
     in-out property <string> settings-mcp-note: "";
+    in-out property <string> settings-google-client-id: "";
+    in-out property <string> settings-microsoft-client-id: "";
+    in-out property <bool> settings-google-connected: false;
+    in-out property <bool> settings-microsoft-connected: false;
+    in-out property <string> settings-oauth-status: "";
     in-out property <[ConnectorLine]> settings-connector-lines: [];
     in-out property <string> settings-connector-vault-note: "";
     in-out property <string> settings-connector-feedback: "";
@@ -348,6 +353,10 @@ export component MainWindow inherits Window {
     callback settings-reset-persona();
     callback settings-set-tool(string, int);
     callback settings-accept-mcp(string);
+    callback settings-connect-oauth(string, string);
+    callback settings-sync-oauth(string);
+    callback settings-disconnect-oauth(string);
+    callback settings-refresh-oauth();
     callback settings-refresh-connectors();
     callback settings-add-connector(string, string, string);
     callback settings-remove-connector(string);
@@ -751,6 +760,11 @@ export component MainWindow inherits Window {
                     tool-settings: root.settings-tool-settings;
                     mcp-lines: root.settings-mcp-lines;
                     mcp-note: root.settings-mcp-note;
+                    google-client-id <=> root.settings-google-client-id;
+                    microsoft-client-id <=> root.settings-microsoft-client-id;
+                    google-connected: root.settings-google-connected;
+                    microsoft-connected: root.settings-microsoft-connected;
+                    oauth-status: root.settings-oauth-status;
                     connector-lines: root.settings-connector-lines;
                     connector-vault-note: root.settings-connector-vault-note;
                     connector-feedback: root.settings-connector-feedback;
@@ -778,6 +792,10 @@ export component MainWindow inherits Window {
                     reset-persona => { root.settings-reset-persona(); }
                     set-tool(name, index) => { root.settings-set-tool(name, index); }
                     accept-mcp(name) => { root.settings-accept-mcp(name); }
+                    connect-oauth(p, id) => { root.settings-connect-oauth(p, id); }
+                    sync-oauth(p) => { root.settings-sync-oauth(p); }
+                    disconnect-oauth(p) => { root.settings-disconnect-oauth(p); }
+                    refresh-oauth => { root.settings-refresh-oauth(); }
                     refresh-connectors => { root.settings-refresh-connectors(); }
                     add-connector(id, name, endpoint) => { root.settings-add-connector(id, name, endpoint); }
                     remove-connector(id) => { root.settings-remove-connector(id); }
