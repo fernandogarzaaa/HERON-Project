@@ -1354,6 +1354,21 @@ impl Store {
         )
     }
 
+    /// As `search_knowledge`, over several sources in one ranked query, so the best matches win
+    /// across all of them rather than the newest from each.
+    pub fn search_knowledge_in(&self, match_expr: &str, sources: &[&str], limit: usize) -> Result<Vec<KnowledgeItem>> {
+        let marks = vec!["?"; sources.len()].join(",");
+        let sql = format!(
+            "SELECT k.id, k.source, k.ref, k.title, k.body, k.ts FROM knowledge_fts f JOIN knowledge k ON k.id=f.rowid
+             WHERE knowledge_fts MATCH ? AND k.source IN ({marks}) ORDER BY bm25(knowledge_fts) LIMIT ?"
+        );
+        let limit = limit as i64;
+        let mut args: Vec<&dyn rusqlite::ToSql> = vec![&match_expr];
+        args.extend(sources.iter().map(|s| s as &dyn rusqlite::ToSql));
+        args.push(&limit);
+        self.knowledge_rows(&sql, &args)
+    }
+
     /// Items of a source, newest first. `undigested_only` = not yet learned from.
     pub fn knowledge_of(&self, source: &str, undigested_only: bool, limit: usize) -> Result<Vec<KnowledgeItem>> {
         self.knowledge_rows(

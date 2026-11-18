@@ -563,15 +563,12 @@ pub fn search(store: &Store, query: &str, source: Option<&str>, limit: usize) ->
         Some("calendar") => &["calendar", "google_calendar", "microsoft_calendar"],
         _ => &[],
     };
+    // The best matches are chosen by relevance across every alias at once; only then are they shown
+    // newest first. Picking the newest per source first would drop strong older matches.
     let mut hits = if aliases.is_empty() { store.search_knowledge(&expr, source, limit)? } else {
-        let mut combined = vec![];
-        for name in aliases {
-            combined.extend(store.search_knowledge(&expr, Some(name), limit)?);
-        }
-        combined
+        store.search_knowledge_in(&expr, aliases, limit)?
     };
     hits.sort_by(|a, b| b.ts.cmp(&a.ts));
-    hits.truncate(limit);
     if hits.is_empty() {
         return Ok("nothing found in the connected sources".into());
     }
@@ -713,4 +710,22 @@ mod tests {
         assert!(upcoming_items[1].starts_with("Dentist —"), "legacy calendar stays unprefixed");
         assert_eq!(connected_summary(&app.store), "4 calendar events");
     }
+
+    #[test]
+    fn searching_several_providers_returns_the_best_matches_not_the_newest() {
+        let store = Store::in_memory().unwrap();
+        // An older Google message matches both words; newer Microsoft and ICS entries match one.
+        store.upsert_knowledge("google_email", "g1", "Acme invoice overdue", "The Acme invoice is overdue", 100).unwrap();
+        store.upsert_knowledge("microsoft_email", "m1", "Lunch", "About the invoice for lunch", 300).unwrap();
+        store.upsert_knowledge("email", "e1", "Weekly note", "Nothing about invoices here, just an invoice", 200).unwrap();
+        let best = search(&store, "acme invoice", Some("email"), 1).unwrap();
+        assert!(best.contains("Acme invoice overdue"), "{best}");
+        // Shown newest first once chosen, across every provider of that kind.
+        let all = search(&store, "invoice", Some("email"), 3).unwrap();
+        let order: Vec<usize> = ["[microsoft_email]", "[email]", "[google_email]"].iter().map(|s| all.find(s).unwrap()).collect();
+        assert!(order.windows(2).all(|w| w[0] < w[1]), "{all}");
+        // Calendar aliases and other kinds stay separate.
+        assert_eq!(search(&store, "invoice", Some("calendar"), 3).unwrap(), "nothing found in the connected sources");
+    }
+
 }
