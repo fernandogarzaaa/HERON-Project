@@ -287,7 +287,7 @@
       "claim_token": "3e9cc2d0f38b4ae695ffed79b4848372",
       "claimed_at": "2026-11-18T14:05:46.848123+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T14:06:17.082126+00:00",
+      "last_heartbeat": "2026-11-18T14:09:17.129576+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -314,12 +314,64 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Baseline run on today's `main` code (measurement only)",
-    "version": 4,
+    "version": 10,
     "worktree": {
       "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
       "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
       "branch": "skein/U0b",
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U0b"
+    }
+  },
+  "U0g": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "eval/genesis/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U0"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U0g",
+    "integration_for": null,
+    "intent": {
+      "completion": "python3 -I -m unittest discover -s eval/genesis -t eval && genesis audit-evaluator eval/genesis/pass-rules-json.yaml --suite json",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', item 8c (work unit U0g), plus the U0 items 1-9 it builds on (eval/pass_rules.py, eval/core-tasks.md, eval/genesis.yaml for the code-py precedent). Run 'genesis suites' and read genesis 0.4.0's json suite to get the task/completion format right; mark anything you can't confirm UNVERIFIED.",
+      "goal": "genesis json audit of the pass-rule grammar (item 8c): a strict run-record verifier whose verdict is pass_rules.evaluate, a dataset with known-good and known-bad records for every rule kind, the genesis spec, and tests."
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "genesis json audit of the pass-rule grammar (item 8c)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
     }
   },
   "U1": {
