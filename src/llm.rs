@@ -89,6 +89,11 @@ pub trait Llm: Send + Sync {
     async fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>> {
         bail!("embeddings not supported by this provider")
     }
+
+    /// Which model acts, for the activity log: `(provider, cli_version)`.
+    fn audit_identity(&self) -> (String, String) {
+        ("unknown".into(), String::new())
+    }
 }
 
 pub struct HttpLlm {
@@ -421,6 +426,11 @@ impl Llm for HttpLlm {
             .map(|d| d["embedding"].as_array().map(|a| a.iter().filter_map(|x| x.as_f64()).map(|x| x as f32).collect()).unwrap_or_default())
             .collect())
     }
+
+    fn audit_identity(&self) -> (String, String) {
+        let host = url::Url::parse(&self.base_url).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_default();
+        (format!("http:{host}"), String::new())
+    }
 }
 
 /// Lets the app replace the model client at runtime (e.g. after the user changes settings).
@@ -466,6 +476,9 @@ impl Llm for SwappableLlm {
     async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         self.current().embed(texts).await
     }
+    fn audit_identity(&self) -> (String, String) {
+        self.current().audit_identity()
+    }
 }
 
 /// Build the model client for a configuration. `base_url = "demo"` selects the built-in demo model,
@@ -476,6 +489,11 @@ impl Llm for SwappableLlm {
 /// (see `cli_llm`); "http" is the default. With HERON_CASSETTE set, model calls
 /// are recorded to (or replayed from) that file.
 pub fn build(cfg: &Config) -> Result<std::sync::Arc<dyn Llm>> {
+    build_with_store(cfg, None)
+}
+
+/// [`build`], with the store a CLI provider reads accepted versions from.
+pub fn build_with_store(cfg: &Config, store: Option<&crate::store::Store>) -> Result<std::sync::Arc<dyn Llm>> {
     let cassette = std::env::var("HERON_CASSETTE").ok().filter(|p| !p.is_empty()).map(std::path::PathBuf::from);
     let replay = std::env::var("HERON_CASSETTE_MODE").map(|m| m.eq_ignore_ascii_case("replay")).unwrap_or(false);
     if let (Some(path), true) = (&cassette, replay) {
@@ -501,7 +519,7 @@ pub fn build(cfg: &Config) -> Result<std::sync::Arc<dyn Llm>> {
     let inner: std::sync::Arc<dyn Llm> = if is_demo(cfg) {
         std::sync::Arc::new(DemoLlm)
     } else if crate::cli_llm::is_cli_provider(cfg.llm.provider.trim()) {
-        std::sync::Arc::new(crate::cli_llm::CliLlm::from_config(cfg)?)
+        std::sync::Arc::new(crate::cli_llm::CliLlm::from_config(std::sync::Arc::new(cfg.clone()), store.cloned())?)
     } else {
         std::sync::Arc::new(HttpLlm::from_config(cfg)?)
     };
@@ -582,6 +600,13 @@ impl Llm for Cassette {
             }
         }
     }
+
+    fn audit_identity(&self) -> (String, String) {
+        match &self.inner {
+            Some(inner) => inner.audit_identity(),
+            None => ("replay".into(), String::new()),
+        }
+    }
 }
 
 pub fn is_demo(cfg: &Config) -> bool {
@@ -653,6 +678,10 @@ impl Llm for DemoLlm {
         }
         Ok(ChatResponse { message: reply, usage: Usage::default(), model: "demo".into() })
     }
+
+    fn audit_identity(&self) -> (String, String) {
+        ("demo".into(), String::new())
+    }
 }
 
 /// Deterministic scripted model for tests and offline demos.
@@ -685,6 +714,10 @@ impl Llm for ScriptedLlm {
             on_delta(c);
         }
         Ok(ChatResponse { message: msg, usage: Usage { prompt_tokens: 10, completion_tokens: 5 }, model: "scripted".into() })
+    }
+
+    fn audit_identity(&self) -> (String, String) {
+        ("demo".into(), String::new())
     }
 }
 

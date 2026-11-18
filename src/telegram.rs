@@ -365,7 +365,7 @@ fn session_for(app: &App, fresh: bool) -> Result<Session> {
             return Ok(s);
         }
     }
-    let s = Session::create(&app.store, "Phone conversation")?;
+    let s = Session::create_with_origin(&app.store, "Phone conversation", crate::agent::Origin::Telegram)?;
     app.store.kv_set("telegram_session", &s.id)?;
     Ok(s)
 }

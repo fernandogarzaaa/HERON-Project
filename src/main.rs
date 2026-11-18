@@ -87,7 +87,14 @@ enum Cmd {
     /// Show how many tokens have been used, what is left and where the month is heading
     Usage,
     /// Serve Heron's memory and tasks to other apps over MCP (stdio)
-    McpServe,
+    McpServe {
+        /// Advertise the tools listed in --schemas and refuse every call (used inside a CLI's sandbox).
+        #[arg(long)]
+        refuse_all: bool,
+        /// JSON array of {name, description, inputSchema} for --refuse-all.
+        #[arg(long)]
+        schemas: Option<PathBuf>,
+    },
     /// Save a complete copy of Heron's data (conversations, memory, reminders, automations, activity log)
     Backup {
         /// Where to write the copy (default: the `backups` folder inside Heron's home). Must not exist yet.
@@ -583,6 +590,13 @@ async fn main() {
 
 async fn real_main() -> Result<()> {
     let cli = Cli::parse();
+    // The refuse-all server runs inside a CLI's sandbox, where Heron's home is Refused: it returns
+    // before the config is loaded or the database opened.
+    if let Some(Cmd::McpServe { refuse_all: true, schemas }) = &cli.command {
+        let Some(schemas) = schemas else { bail!("--refuse-all needs --schemas <file>") };
+        let schemas = heron::mcp::read_refuse_all_schemas(schemas)?;
+        return heron::mcp::serve_refuse_all(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &schemas).await;
+    }
     let mut cfg = Config::load()?;
     if let Some(m) = &cli.mode {
         Mode::parse(m)?;
@@ -631,13 +645,13 @@ async fn real_main() -> Result<()> {
         _ => {}
     }
 
-    let uses_app_folder = matches!(command, Cmd::Serve { .. } | Cmd::Daemon | Cmd::McpServe);
+    let uses_app_folder = matches!(command, Cmd::Serve { .. } | Cmd::Daemon | Cmd::McpServe { .. });
     let workspace = match cli.workspace {
         Some(w) => w,
         None if uses_app_folder && !cfg.agent.workspace.is_empty() => cfg.app_workspace(),
         None => std::env::current_dir().context("cannot determine current directory")?,
     };
-    if matches!(command, Cmd::McpServe) {
+    if matches!(command, Cmd::McpServe { .. }) {
         cfg.mcp.servers.clear(); // acting as a server: do not spawn our own MCP clients
     }
     let app = Arc::new(App::build(cfg, workspace).await?);
@@ -747,7 +761,7 @@ async fn real_main() -> Result<()> {
             }
             Ok(())
         }
-        Cmd::McpServe => {
+        Cmd::McpServe { .. } => {
             let agent = app.agent(Arc::new(DenyAll));
             // One session id per connection, so each program's calls are told apart in the log.
             let ctx = agent.tool_ctx(&format!("mcp-{}", uuid::Uuid::new_v4().simple()));

@@ -500,7 +500,7 @@ pub fn always_rule(tool: &str, summary: &str, target: Option<&Path>) -> Option<S
 }
 
 /// The folder a `read:` rule grants, with `~` expanded. `None` for any other rule.
-fn read_rule_folder(rule: &str) -> Option<PathBuf> {
+pub(crate) fn read_rule_folder(rule: &str) -> Option<PathBuf> {
     let rest = rule.strip_prefix("read:")?;
     let rest = rest.strip_suffix("/**").or_else(|| rest.strip_suffix("\\**")).unwrap_or(rest);
     let rest = if rest.len() > 1 { rest.trim_end_matches(['/', '\\']) } else { rest };

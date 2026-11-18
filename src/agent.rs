@@ -47,9 +47,41 @@ pub struct Session {
     pub seen_urls: crate::tools::SeenUrls,
 }
 
+/// Where a conversation came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// The user, in the app, the terminal or `heron run`.
+    User,
+    /// A message from the user's phone.
+    Telegram,
+    /// A schedule or a watch.
+    Schedule,
+    /// An automation's steps.
+    Automation,
+    /// Work Heron proposed on its own.
+    Proactive,
+}
+
+impl Origin {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Origin::User => "user",
+            Origin::Telegram => "telegram",
+            Origin::Schedule => "schedule",
+            Origin::Automation => "automation",
+            Origin::Proactive => "proactive",
+        }
+    }
+}
+
 impl Session {
+    /// A new conversation the user started.
     pub fn create(store: &Store, title: &str) -> Result<Session> {
-        Ok(Session { id: store.create_session(title)?, messages: vec![], summary: None, persist: true, tainted: Default::default(), seen_urls: Default::default() })
+        Self::create_with_origin(store, title, Origin::User)
+    }
+
+    pub fn create_with_origin(store: &Store, title: &str, origin: Origin) -> Result<Session> {
+        Ok(Session { id: store.create_session(title, origin.as_str())?, messages: vec![], summary: None, persist: true, tainted: Default::default(), seen_urls: Default::default() })
     }
 
     pub fn load(store: &Store, id: &str) -> Result<Session> {
@@ -567,6 +599,12 @@ impl Agent {
         Some(tool.risk(&args, ctx))
     }
 
+    /// Append to the activity log, recording which model acted.
+    fn audit(&self, session_id: &str, tool: &str, args: &str, decision: &str, result: &str) {
+        let (provider, cli_version) = self.llm.audit_identity();
+        self.store.audit_row(&crate::store::AuditRow { session_id, tool, args, decision, result, provider: &provider, cli_version: &cli_version });
+    }
+
     /// Execute one tool call through the permission gate. Always returns text for the model (errors included).
     fn execute_call<'a>(&'a self, call: &'a ToolCall, ctx: &'a ToolCtx, sink: &'a EventSink) -> BoxFuture<'a, String> {
         Box::pin(async move {
@@ -592,7 +630,7 @@ impl Agent {
             let decision = match verdict {
                 Verdict::Allow => "allowed",
                 Verdict::Deny(reason) => {
-                    self.store.audit(&ctx.session_id, name, &audit_args, "denied-by-policy", &reason);
+                    self.audit(&ctx.session_id, name, &audit_args, "denied-by-policy", &reason);
                     sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk });
                     sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: format!("blocked: {reason}") });
                     return format!("Permission denied: {reason}. Do not retry or work around this; tell the user.");
@@ -627,7 +665,7 @@ impl Agent {
                         }
                         Approval::Deny(reason) => {
                             let reason = reason.unwrap_or_else(|| "the user declined this action".into());
-                            self.store.audit(&ctx.session_id, name, &audit_args, "denied-by-user", &reason);
+                            self.audit(&ctx.session_id, name, &audit_args, "denied-by-user", &reason);
                             sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk });
                             sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: "Not allowed, so this was not done.".into() });
                             return format!("Permission denied: {reason}. Do not retry or work around this; ask the user how they want to proceed.");
@@ -657,7 +695,7 @@ impl Agent {
                 }
                 Err(e) => (false, format!("Error: {e:#}")),
             };
-            self.store.audit(&ctx.session_id, name, &audit_args, decision, &redact_secrets(&preview(&text, 300)));
+            self.audit(&ctx.session_id, name, &audit_args, decision, &redact_secrets(&preview(&text, 300)));
             sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok, preview: preview(&text, 200) });
             text
         })
