@@ -73,3 +73,11 @@ Status: resolved
 | M6 | The App Intents check can't be done by an agent and passes either way | A mechanical check for the metadata folder in the built bundle, with a stated fallback that deletes the intent and records `Status: deferred to v1.1` |
 | M7 | The `[features]` schema and key registry are undefined | `FeatureKey` and `KEYS` are defined, and `FeaturesConfig` uses flattened flags plus `shortcuts_allowed` |
 | Dropped by the reviewer | Telegram's `can_always` site; `tool_timeout_secs` below 5 s; `base.json` conflicts on rebase; how the fixtures are recorded | Fixed anyway: v1's `execute_call` is the single `can_always` site; F5's timeout never goes below 5 s. The other two remain choices for the build agents |
+
+## Author's final pass (after the re-audit)
+
+*   **F8 relied on F5's `once_only`, and F7 relied on F1's panel,** across separate graphs. `permissions::once_only` and its four enforcement tests moved into B2. F7's graph is now cut from F1's branch, like F9's.
+*   **Stale names removed:** `mark_tainted` is now `taint::mark` everywhere, and F5's file list no longer names `main.rs` or `telegram.rs`.
+*   **QF4 is now a proposal for the owner,** not a recorded answer.
+*   **The `RUST` shorthand in the check column is written out in full,** so each check can be pasted as it is.
+*   **What these reports record:** each report holds the reviewers' findings in short form, with their resolutions. The reviewers' full text is in the session transcript. The stage 8 findings are merged into this file.

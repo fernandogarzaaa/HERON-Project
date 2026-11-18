@@ -154,7 +154,7 @@ heron-v1.md itself is committed on branch `docs/heron-v1-rerun-fixes` (commit `c
 
 ## Open Questions
 
-The owner decides QF1 to QF3. Each has a proposed answer. QF4 is recorded with its answer, and QF5 is a note for the owner.
+The owner decides QF1 to QF4. Each has a proposed answer. QF5 is a note for the owner.
 
 *   **QF1, which features are in v1.**
     *   **Proposed answer:** F1 to F9 are built in rank order, and v1 commits to F1 to F5. F10 moves to v1.1.
@@ -174,7 +174,7 @@ The owner decides QF1 to QF3. Each has a proposed answer. QF4 is recorded with i
     *   **Proposed answer:** a finished feature ships on if it needs no new macOS permission, sends nothing out, and creates nothing the owner didn't ask for. That is F1, F2, F3 and F4.
     *   The others ship off, and the owner turns them on in Settings, Features: F5, F6 (turning it on creates a schedule), F7, F8 and F9.
 *   **QF4, how features reach `main`.**
-    *   **Answer:** one pull request per feature from its feature branch. It is rebased onto `main` and opened once v1's second pull request has merged.
+    *   **Proposed answer:** one pull request per feature from its feature branch. It is rebased onto `main` and opened once v1's second pull request has merged.
     *   Features merge in rank order. The Q7 rows below show each feature touches one or two Q7 paths, so the owner reviews several small pull requests rather than one large one.
     *   A feature that hasn't merged isn't on `main`, so no forced-off list is needed.
 *   **QF5, a note for the owner.**
@@ -607,7 +607,7 @@ Today's warning line has three limits:
     *   `POST /api/shortcuts/allowed {"names": [...]}` saves `shortcuts_allowed` through `App::update_config`. A name that isn't in `shortcuts list` returns `400 {"error":"unknown_shortcut","message":…}`.
 *   **The tool.** `run_shortcut {name: string, input?: string}`. A name that isn't on `shortcuts_allowed` is refused before the decision function, with "That shortcut isn't one you've allowed Heron to run."
     *   **Effect `ExternalWrite`.** A shortcut can send or change anything, so a call asks in `ask` and `auto` mode, and always when the conversation is tainted. In `yolo` mode on a clean conversation, it runs.
-    *   **Once only.** `ExternalWrite` isn't a high effect, so without a change a standing rule (`*`, `*:*` or `run_shortcut:*`), a conversation grant or a Settings "allow" would let every ticked shortcut run unasked. F5s adds one function, `permissions::once_only(tool)`, true for `run_shortcut` (and for `draft_email` in F8). It is checked wherever `high()` gates grants:
+    *   **Once only.** `ExternalWrite` isn't a high effect, so without a change a standing rule (`*`, `*:*` or `run_shortcut:*`), a conversation grant or a Settings "allow" would let every ticked shortcut run unasked. Heron gets one function, `permissions::once_only(tool)`, true for `run_shortcut` and `draft_email` (F8). B2 adds it, so F5 and F8 don't depend on each other. It is checked wherever `high()` gates grants:
         *   allow rules don't cover a once-only tool;
         *   the conversation grant check doesn't apply to it;
         *   every place that computes whether "always" is offered (v1's `execute_call`, which feeds the web approver, the terminal prompt and Telegram) doesn't offer it;
@@ -773,7 +773,7 @@ When it is planned, it gets its own delta. That delta starts from two choices:
 *   **The base branch.** `feat/v1-features-base` is cut from `feat/heron-v1` at the commit where `verify` first passed.
     *   `verify` may pass with `HERON_G9_PENDING=1`, before the G9 trial ends. That is enough, because these units don't change G9's count.
     *   The base units B1 to B6 ship onto it before any feature graph starts.
-*   **One graph per feature.** Each feature has a skein graph on `feat/v1-<slug>`. It is cut from the base branch, or from the branch of the feature it builds on (F4 from F3, F9 from F1).
+*   **One graph per feature.** Each feature has a skein graph on `feat/v1-<slug>`. It is cut from the base branch, or from the branch of the feature it builds on (F4 from F3; F7 and F9 from F1, because both add to F1's panel).
     *   Each graph ends in a gate unit, `scripts/verify-feature.sh <slug>`.
     *   At most two feature graphs build at once, in rank order, so the owner's Q7 reviews keep pace.
 *   **The gates run on the owner's Mac.** Gate units run the feature tasks on claude-cli, so they run on the owner's Mac with claude-cli logged in, like heron-v1.md's measurement units. They run one at a time, so two gates never share one login's quota.
@@ -908,7 +908,7 @@ These are owner steps, done before any `skein run`.
 1.  v1's `verify` unit has passed on `feat/heron-v1`, with or without `HERON_G9_PENDING=1`.
 2.  The owner has answered QF1 to QF3. A feature that QF1 leaves out gets no graph.
 3.  **The base branch.** The owner cuts `feat/v1-features-base` from that commit and commits `eval/features/base.json` = `{"v1_verify_commit": "<sha>"}`. Then they run `skein init` and add the base graph's nodes.
-4.  **Each feature branch.** Once the base graph is done, the owner cuts each feature branch from the base branch's tip, or from its parent feature's tip. They commit `eval/features/base.json` = `{"v1_verify_commit": "<sha>", "features_base_commit": "<sha of the tip it was cut from>"}`, then add that graph's nodes. Files committed after a node starts don't reach it, so this happens first.
+4.  **Each feature branch.** Once the base graph is done, the owner cuts each feature branch from the base branch's tip, or from its parent feature's tip (F4 from F3; F7 and F9 from F1). They commit `eval/features/base.json` = `{"v1_verify_commit": "<sha>", "features_base_commit": "<sha of the tip it was cut from>"}`, then add that graph's nodes. Files committed after a node starts don't reach it, so this happens first.
 5.  The skein backend `claude_build_rust` from heron-v1.md is registered. Every node uses it.
 6.  Gate units run on the owner's Mac with claude-cli logged in, one at a time.
 
@@ -970,7 +970,7 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
     *   **The registry.** Each tool definition gains `feature: Option<&'static str>`. `ToolRegistry::names_for(cfg)` returns the names whose key is on.
     *   **Its readers.** The agent's tool list, its unknown-tool check, `save_automation`'s validation and `Workflow::validate` all use `names_for`.
 
-##### 6. `src/taint.rs` (Create), `src/child.rs` (Create), `src/cli_llm.rs` (Modify), `src/agent.rs` (Modify), `src/app.rs` (Modify), `src/telegram.rs` (Modify), `src/mcp.rs` (Modify), `src/store.rs` (Modify)
+##### 6. `src/taint.rs` (Create), `src/child.rs` (Create), `src/cli_llm.rs` (Modify), `src/permissions.rs` (Modify), `src/main.rs` (Modify), `src/agent.rs` (Modify), `src/app.rs` (Modify), `src/telegram.rs` (Modify), `src/mcp.rs` (Modify), `src/store.rs` (Modify)
 
 *   **Type / Scope:** turn start and taint (Q7).
 *   **Proposed Changes:**
@@ -985,6 +985,7 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
         *   It returns true the first time.
         *   It sets `flag`, writes the kv value with a new `Store::kv_insert_if_absent`, and publishes `tainted` the first time.
         *   It replaces every `tainted:` write.
+    *   **`permissions::once_only(tool) -> bool`** (Q7: `permissions.rs`), true for `run_shortcut` and `draft_email`, checked in four places: the allow-rule step; `may_grant_for_conversation`; where v1's `execute_call` computes `can_always`, which the web approver, the terminal prompt and Telegram read; and `set_tool_setting`, which rejects "allow" for a once-only tool. It names tools that don't exist yet, which is harmless, so F5 and F8 don't depend on each other.
     *   **`child.rs`:** the three helpers moved from `cli_llm.rs` (see [Processes outside the shell tool](#processes-outside-the-shell-tool)); `cli_llm.rs` calls them, with no change in behaviour (Q7: `cli_llm.rs`).
     *   **`App::notify(&self, title, body, source, session_id: Option<&str>, run_id: Option<&str>)`** replaces the free `notify()` at its four call sites in `app.rs`. It publishes `notification` while the `notify=1` count is above zero, and always runs a configured `notify_command`.
 
@@ -1006,7 +1007,8 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
 *   `chat_context_taints_before_the_model_call`
 *   `chat_context_limits_are_enforced`
 *   `context_never_reaches_learn_or_the_title`
-*   `mark_tainted_keeps_the_first_source`
+*   `taint_mark_keeps_the_first_source`
+*   `once_only_tools_ignore_star_rules`, `once_only_tools_get_no_conversation_grant`, `once_only_tools_cannot_be_set_to_allow`, `terminal_and_telegram_offer_once_only`, each with a test-only tool named `run_shortcut`
 *   `old_taint_value_still_counts`
 *   `notices_go_to_the_bus_when_a_client_notifies`
 *   `notices_use_notify_when_no_client_does`
@@ -1196,15 +1198,10 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
 
 #### F5: run your Shortcuts
 
-##### 27. `src/tools/shortcuts.rs` (Create), `src/tools/mod.rs` (Modify), `src/permissions.rs` (Modify), `src/agent.rs` (Modify), `src/server.rs` (Modify), `src/main.rs` (Modify), `src/telegram.rs` (Modify), `src/features.rs` (Modify), `src/config.rs` (Modify)
+##### 27. `src/tools/shortcuts.rs` (Create), `src/tools/mod.rs` (Modify), `src/server.rs` (Modify), `src/features.rs` (Modify), `src/config.rs` (Modify)
 
 *   **Proposed Changes:**
-    *   **`run_shortcut`,** reusing `cli_llm.rs`'s environment, temporary-folder and process-group helpers.
-    *   **`permissions::once_only(tool) -> bool`,** checked in four places:
-        *   at the allow-rule step;
-        *   in `may_grant_for_conversation`;
-        *   where v1's `execute_call` computes `can_always`, which the web approver, the terminal prompt and Telegram read;
-        *   in `set_tool_setting`, which rejects "allow" for a once-only tool.
+    *   **`run_shortcut`,** using B2's `child.rs` helpers. It is once only through B2's `permissions::once_only`.
     *   **The key** `shortcuts` (title "Run your Shortcuts") and `shortcuts_allowed`.
     *   **The routes** `GET /api/shortcuts` and `POST /api/shortcuts/allowed`.
 *   **Tests** (with a fake binary):
@@ -1217,10 +1214,6 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
     *   `shortcut_process_is_killed_on_drop`
     *   `shortcuts_gets_only_the_allowlisted_env`
     *   `allowed_names_must_exist`
-    *   `once_only_tools_ignore_star_rules`
-    *   `once_only_tools_get_no_conversation_grant`
-    *   `once_only_tools_cannot_be_set_to_allow`
-    *   `terminal_and_telegram_offer_once_only`
     *   `decision_table_run_shortcut`
 
 ##### 28. `tests/integration.rs` (Modify), `tests/fixtures/api/shortcuts.json` (Create)
@@ -1278,11 +1271,10 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
 
 #### F8: email drafts
 
-##### 36. `src/tools/mail_draft.rs` (Create), `src/tools/mod.rs` (Modify), `src/permissions.rs` (Modify), `src/features.rs` (Modify)
+##### 36. `src/tools/mail_draft.rs` (Create), `src/tools/mod.rs` (Modify), `src/features.rs` (Modify)
 
 *   **Proposed Changes:**
     *   **`draft_email`,** with its URL built through the `url` crate.
-    *   **`once_only`** returns true for `draft_email`.
     *   **The key** `email_drafts` (title "Email drafts").
 *   **Tests** (with a fake `open`):
     *   `draft_email_builds_an_escaped_mailto`
@@ -1325,12 +1317,11 @@ Every unit starts after v1's `verify` unit (see Preconditions). B1 to B6 run on 
 
 *   "none" in the depends-on column means no dependency other than v1's `verify` and the base graph.
 *   In the check column, `\|` is the table's escape for a shell pipe `|`.
-*   `RUST` stands for `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings`. It is written out in full when the nodes are added.
 
 | id | what to build | scope | depends on | check | model role |
 |---|---|---|---|---|---|
 | B1 | Feature task format, `--task-file`, `bins`, two new rules, the `--features` validators, the genesis cases | `eval/**` | none | `python3 -I -m unittest discover -s eval/tests -t eval && python3 -I eval/check_tasks.py eval/core-tasks.md` | feature, refactoring: sonnet high |
-| B2 | `[features]` and `names_for`, `/api/features`, `ContentEntry`, chat context, `mark_tainted`, `App::notify` | `src/**` | none | `RUST && bash eval/require-tests.sh --lib -- missing_feature_key_takes_its_default feature_key_round_trips_through_update_config tools_follow_their_key_without_restart off_feature_tools_are_hidden_refused_and_rejected_by_workflows context_app_name_is_sanitised every_content_entry_is_trusted_or_taints chat_context_taints_before_the_model_call chat_context_limits_are_enforced context_never_reaches_learn_or_the_title mark_tainted_keeps_the_first_source old_taint_value_still_counts notices_go_to_the_bus_when_a_client_notifies notices_use_notify_when_no_client_does notify_command_still_runs_when_a_client_notifies` | hardest tasks: opus high |
+| B2 | `[features]` and `names_for`, `/api/features`, `ContentEntry`, chat context, `taint::mark`, `once_only`, `child.rs`, `App::notify` | `src/**` | none | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- missing_feature_key_takes_its_default feature_key_round_trips_through_update_config tools_follow_their_key_without_restart off_feature_tools_are_hidden_refused_and_rejected_by_workflows context_app_name_is_sanitised every_content_entry_is_trusted_or_taints chat_context_taints_before_the_model_call chat_context_limits_are_enforced context_never_reaches_learn_or_the_title taint_mark_keeps_the_first_source old_taint_value_still_counts once_only_tools_ignore_star_rules once_only_tools_get_no_conversation_grant once_only_tools_cannot_be_set_to_allow terminal_and_telegram_offer_once_only notices_go_to_the_bus_when_a_client_notifies notices_use_notify_when_no_client_does notify_command_still_runs_when_a_client_notifies` | hardest tasks: opus high |
 | B2t | Integration tests and the `features` fixture | `tests/**` | B2 | `cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_features_lists_and_sets_keys api_chat_context_taints_the_session api_events_notify_flag_routes_notices && test -s tests/fixtures/api/features.json` | feature, refactoring: sonnet high |
 | B3 | `scripts/verify-feature.sh` | `scripts/**` | B1 | `bash -n scripts/verify-feature.sh && grep -q 'eval/features/base.json' scripts/verify-feature.sh && grep -q 'heron-desktop' scripts/verify-feature.sh` | feature, refactoring: sonnet high |
 | B4 | Settings › Features, `FeatureRow`, `NotificationPoster`, `FeaturesClient` | `macos/**` | B2t | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q FeaturesSettingsTests` | feature, refactoring: sonnet high |
@@ -1341,32 +1332,32 @@ Every unit starts after v1's `verify` unit (see Preconditions). B1 to B6 run on 
 | F1p | `NSServices` entry | `packaging/macos/**` | none | `/usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSMessage' packaging/macos/Info.plist \| grep -qx askHeron && /usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSMenuItem:default' packaging/macos/Info.plist \| grep -qx 'Ask Heron'` | feature, refactoring: sonnet high |
 | F1d | Guide, threat-model line, index line | `docs/**` | none | `test -s docs/features/quick_entry.md && grep -qxF -- '- ChatContext (Services selection, App Intent text, window text): outside content; taints the session.' docs/engineering/SECURITY_THREAT_MODEL.md` | judgment and prose: opus high |
 | F1g | F1 gate | `scripts/gates/quick_entry` (check only) | F1c, F1a, F1p, F1d | `bash scripts/verify-feature.sh quick_entry` | feature, refactoring: sonnet high |
-| F2s | `why`, `approval.why`, session taint, Telegram sentence, `ask_reasons` | `src/**` | none | `RUST && bash eval/require-tests.sh --lib -- why_matches_the_old_warning_when_untainted why_is_never_empty why_names_the_taint_source why_covers_outside_reads tainted_event_published_once telegram_refusal_names_the_taint_source ask_reasons_off_leaves_out_why` | hardest tasks: opus high |
+| F2s | `why`, `approval.why`, session taint, Telegram sentence, `ask_reasons` | `src/**` | none | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- why_matches_the_old_warning_when_untainted why_is_never_empty why_names_the_taint_source why_covers_outside_reads tainted_event_published_once telegram_refusal_names_the_taint_source ask_reasons_off_leaves_out_why` | hardest tasks: opus high |
 | F2t | Re-recorded fixtures, `api_approval_carries_why` | `tests/**` | F2s | `cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_approval_carries_why api_fixtures_match_the_live_core` | feature, refactoring: sonnet high |
 | F2c | `ft2` | `eval/**` | none | `python3 -I eval/check_tasks.py --features eval/features/ask_reasons.md` | feature, refactoring: sonnet high |
 | F2a | Taint chip, `why` on the sheet, models | `macos/**` | F2t | `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q TaintChipTests` | feature, refactoring: sonnet high |
 | F2g | F2 gate | `scripts/gates/ask_reasons` (check only) | F2s, F2t, F2c, F2a | `bash scripts/verify-feature.sh ask_reasons` | feature, refactoring: sonnet high |
-| F3s | Run records, `GET /api/runs` | `src/**` | none | `RUST && bash eval/require-tests.sh --lib -- run_record_follows_the_bus waiting_returns_to_running run_record_is_written_before_run_end parked_calls_are_not_counted_as_the_run run_records_are_pruned_to_500` | feature, refactoring: sonnet high |
+| F3s | Run records, `GET /api/runs` | `src/**` | none | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- run_record_follows_the_bus waiting_returns_to_running run_record_is_written_before_run_end parked_calls_are_not_counted_as_the_run run_records_are_pruned_to_500` | feature, refactoring: sonnet high |
 | F3t | Integration tests, `runs` fixture | `tests/**` | F3s | `cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_runs_lists_a_finished_run api_run_record_survives_a_dropped_stream && test -s tests/fixtures/api/runs.json` | feature, refactoring: sonnet high |
 | F3a | Runs screen, badge, notifications | `macos/**` | F3t | `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q 'RunsTests.*notificationHasNoApproveAction'` | feature, refactoring: sonnet high |
 | F3g | F3 gate | `scripts/gates/runs` (check only) | F3s, F3t, F3a | `bash scripts/verify-feature.sh runs` | feature, refactoring: sonnet high |
-| F4s | Recorded-checkpoint undo, route | `src/**` | none (graph cut from F3's branch) | `RUST && bash eval/require-tests.sh --lib -- undo_recorded_restores_files_newest_first undo_recorded_ignores_a_reused_id undo_recorded_stops_at_a_later_runs_change undo_recorded_stops_at_an_edited_file restore_anyway_restores_one_and_continues undo_lists_other_changes_and_what_it_cannot_undo undo_unknown_and_active_runs undo_appends_one_audit_row audit_chain_intact_after_undo` | hardest tasks: opus high |
+| F4s | Recorded-checkpoint undo, route | `src/**` | none (graph cut from F3's branch) | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- undo_recorded_restores_files_newest_first undo_recorded_ignores_a_reused_id undo_recorded_stops_at_a_later_runs_change undo_recorded_stops_at_an_edited_file restore_anyway_restores_one_and_continues undo_lists_other_changes_and_what_it_cannot_undo undo_unknown_and_active_runs undo_appends_one_audit_row audit_chain_intact_after_undo` | hardest tasks: opus high |
 | F4t | Integration tests, `undo-files` fixture | `tests/**` | F4s | `cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_undo_files_restores_a_runs_files api_undo_files_ignores_a_reused_checkpoint_id api_undo_files_lists_what_it_cannot_undo` | feature, refactoring: sonnet high |
 | F4a | Undo button and lists | `macos/**` | F4t | `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q UndoRunTests` | feature, refactoring: sonnet high |
 | F4g | F4 gate | `scripts/gates/undo_files` (check only) | F4s, F4t, F4a | `bash scripts/verify-feature.sh undo_files` | feature, refactoring: sonnet high |
-| F5s | `run_shortcut`, `once_only`, shortcuts routes, key | `src/**` | none | `RUST && bash eval/require-tests.sh --lib -- shortcut_not_on_allowlist_is_refused run_shortcut_is_external_write_with_untrusted_output shortcut_without_input_omits_the_flag shortcut_output_is_read_from_the_output_file_and_capped shortcut_failure_reports_exit_and_stderr shortcut_timeout_is_below_the_tool_timeout shortcut_process_is_killed_on_drop shortcuts_gets_only_the_allowlisted_env allowed_names_must_exist once_only_tools_ignore_star_rules once_only_tools_get_no_conversation_grant once_only_tools_cannot_be_set_to_allow terminal_and_telegram_offer_once_only decision_table_run_shortcut` | hardest tasks: opus high |
+| F5s | `run_shortcut`, shortcuts routes, key | `src/**` | none | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- shortcut_not_on_allowlist_is_refused run_shortcut_is_external_write_with_untrusted_output shortcut_without_input_omits_the_flag shortcut_output_is_read_from_the_output_file_and_capped shortcut_failure_reports_exit_and_stderr shortcut_timeout_is_below_the_tool_timeout shortcut_process_is_killed_on_drop shortcuts_gets_only_the_allowlisted_env allowed_names_must_exist decision_table_run_shortcut` | hardest tasks: opus high |
 | F5t | Integration test, `shortcuts` fixture | `tests/**` | F5s | `cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_shortcuts_lists_and_saves_the_allowlist` | feature, refactoring: sonnet high |
 | F5c | `ft5`, `ft5b`, fake binary, page | `eval/**` | none | `python3 -I eval/check_tasks.py --features eval/features/shortcuts.md && test -x eval/fixtures/features/shortcuts/bin/shortcuts` | feature, refactoring: sonnet high |
 | F5a | Shortcuts picker | `macos/**` | F5t | `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q ShortcutsPickerTests` | feature, refactoring: sonnet high |
 | F5d | Guide, threat-model line, index line | `docs/**` | none | `test -s docs/features/shortcuts.md && grep -qxF -- '- /usr/bin/shortcuts (list; run <ticked name>): runs outside the sandbox; every run asks once.' docs/engineering/SECURITY_THREAT_MODEL.md` | judgment and prose: opus high |
 | F5g | F5 gate | `scripts/gates/shortcuts` (check only) | F5s, F5t, F5c, F5a, F5d | `bash scripts/verify-feature.sh shortcuts` | feature, refactoring: sonnet high |
-| F6s | `today_counts`, `count_day`, the `workflow` field | `src/**` | none | `RUST && bash eval/require-tests.sh --lib -- today_counts_lists_only_non_zero_counts today_counts_uses_the_local_day_and_plurals today_counts_has_no_titles brief_workflow_runs_without_a_model schedule_with_workflow_is_validated decision_table_today_counts` | feature, refactoring: sonnet high |
+| F6s | `today_counts`, `count_day`, the `workflow` field | `src/**` | none | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- today_counts_lists_only_non_zero_counts today_counts_uses_the_local_day_and_plurals today_counts_has_no_titles brief_workflow_runs_without_a_model schedule_with_workflow_is_validated decision_table_today_counts` | feature, refactoring: sonnet high |
 | F6c | `ft6` | `eval/**` | none | `python3 -I eval/check_tasks.py --features eval/features/morning_brief.md` | feature, refactoring: sonnet high |
 | F6a | Brief switch | `macos/**` | F6s | `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q 'BriefTests.*scheduleHasNoModelStep'` | feature, refactoring: sonnet high |
 | F6g | F6 gate | `scripts/gates/morning_brief` (check only) | F6s, F6c, F6a | `bash scripts/verify-feature.sh morning_brief` | feature, refactoring: sonnet high |
-| F7a | Dictation button, spoken replies | `macos/**` | none | `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q 'VoiceTests.*speechStopsOnKey'` | feature, refactoring: sonnet high |
+| F7a | Dictation button, spoken replies | `macos/**` | none (graph cut from F1's branch) | `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q 'VoiceTests.*speechStopsOnKey'` | feature, refactoring: sonnet high |
 | F7g | F7 gate | `scripts/gates/voice` (check only) | F7a | `bash scripts/verify-feature.sh voice` | feature, refactoring: sonnet high |
-| F8s | `draft_email`, `once_only` entry, key | `src/**` | none | `RUST && bash eval/require-tests.sh --lib -- draft_email_builds_an_escaped_mailto draft_email_sets_only_subject_and_body draft_email_rejects_addresses_with_query_characters draft_email_never_sends draft_email_body_is_capped draft_email_is_external_write draft_email_offers_once_only decision_table_draft_email` | feature, refactoring: sonnet high |
+| F8s | `draft_email`, key | `src/**` | none | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- draft_email_builds_an_escaped_mailto draft_email_sets_only_subject_and_body draft_email_rejects_addresses_with_query_characters draft_email_never_sends draft_email_body_is_capped draft_email_is_external_write draft_email_offers_once_only decision_table_draft_email` | feature, refactoring: sonnet high |
 | F8c | `ft8`, fake binary, page | `eval/**` | none | `python3 -I eval/check_tasks.py --features eval/features/email_drafts.md && test -x eval/fixtures/features/email_drafts/bin/open` | feature, refactoring: sonnet high |
 | F8a | F8's row | `macos/**` | none | `swift test --package-path macos/HeronMac && grep -q email_drafts macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift` | feature, refactoring: sonnet high |
 | F8d | Guide, threat-model line, index line | `docs/**` | none | `test -s docs/features/email_drafts.md && grep -qxF -- '- /usr/bin/open (one mailto: URL): opens a compose window; never sends; asks once.' docs/engineering/SECURITY_THREAT_MODEL.md` | judgment and prose: opus high |
