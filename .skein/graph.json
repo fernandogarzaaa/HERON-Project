@@ -198,11 +198,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Sync: capture the feat/heron-v1 head for U1f",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/heron-v1",
-      "branch": null,
-      "path": null
+      "base_commit": "8ed94a67ff92f90d55a8974434015796d6d544a3",
+      "branch": "skein/SYNC5",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC5"
     }
   },
   "U0": {
