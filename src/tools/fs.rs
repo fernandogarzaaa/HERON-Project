@@ -2,7 +2,7 @@
 
 use super::{arg_str, opt_bool, opt_i64, opt_str, schema, FnTool, ToolCtx};
 use crate::config::Config;
-use crate::permissions::{classify_path, resolve_path, stricter, Effect, ReadRoots};
+use crate::permissions::{classify_path, resolve_path, stricter, without_data_volume, Effect, ReadRoots};
 use crate::util::preview;
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
@@ -710,19 +710,96 @@ async fn list_dir(args: &Value, ctx: &ToolCtx) -> Result<String> {
     Ok(out)
 }
 
-/// Walk a folder for the search tools. Build output is skipped, and a Refused folder (Heron's home,
-/// a CLI login, a personal store) is never entered.
-fn walker(root: &Path, cfg: &Config) -> ignore::Walk {
-    let roots = ReadRoots::of(cfg);
-    ignore::WalkBuilder::new(root)
-        .hidden(false)
-        .filter_entry(move |e| !matches!(e.file_name().to_str(), Some(".git" | "node_modules" | "target" | ".venv" | "__pycache__")) && roots.refused(e.path()).is_none())
-        .build()
+/// What one `search_files` or `find_files` call may open. Refused locations and secrets are never
+/// opened. A file in the user's own folders outside the working folder (`OutsideRead`) is opened only
+/// when the call's own read target was itself such a read (and so was asked about or granted) and the
+/// file really lies under it, or when a grant covers it: a standing one, or one of this conversation's
+/// while it is not tainted. A `read:` grant covers its folder; a `read=:` grant covers its one path and
+/// nothing under it. A link in the working folder that points into the Ask tier, or a walk rooted at
+/// `/` (which is `LocalRead`), reaches nothing the user did not open.
+struct WalkScope {
+    workspace: PathBuf,
+    cfg: std::sync::Arc<Config>,
+    roots: std::sync::Arc<ReadRoots>,
+    /// Folders under which an `OutsideRead` entry may be opened.
+    folders: Vec<PathBuf>,
+    /// Single paths that may be opened, and nothing under them.
+    exact: Vec<PathBuf>,
 }
 
-/// Files the search tools pass over: Refused locations and anything that looks like a secret.
-fn walker_skips(path: &Path, workspace: &Path, cfg: &Config) -> bool {
-    matches!(classify_path(path, workspace, cfg, false), Effect::Refused | Effect::SensitiveRead)
+/// A path as written and canonical, each also without the `/System/Volumes/Data` prefix.
+fn path_forms(p: PathBuf) -> Vec<PathBuf> {
+    let real = dunce::canonicalize(&p).unwrap_or_else(|_| p.clone());
+    [p, real].into_iter().flat_map(|p| [without_data_volume(&p), Some(p)]).flatten().collect()
+}
+
+impl WalkScope {
+    fn new(root: &Path, root_effect: Effect, ctx: &ToolCtx) -> WalkScope {
+        use crate::sandbox::ReadGrant;
+        let tainted = ctx.tainted.load(std::sync::atomic::Ordering::SeqCst);
+        // A conversation grant stops applying once outside content is present, as it does for a read.
+        let grants = crate::sandbox::read_grants(&ctx.cfg, &ctx.store, (!tainted).then_some(ctx.session_id.as_str()));
+        let (mut folders, mut exact) = (vec![], vec![]);
+        for grant in grants {
+            match grant {
+                ReadGrant::Folder(p) => folders.extend(path_forms(p)),
+                ReadGrant::Exact(p) => exact.extend(path_forms(p)),
+            }
+        }
+        if root_effect == Effect::OutsideRead {
+            folders.extend(path_forms(root.to_path_buf()));
+        }
+        WalkScope { workspace: ctx.workspace.clone(), cfg: ctx.cfg.clone(), roots: ReadRoots::of(&ctx.cfg), folders, exact }
+    }
+
+    /// The place this path really is (links followed), also without the data-volume prefix.
+    fn real_forms(path: &Path) -> Vec<PathBuf> {
+        let real = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        [without_data_volume(&real), Some(real)].into_iter().flatten().collect()
+    }
+
+    fn under_folder(&self, path: &Path) -> bool {
+        Self::real_forms(path).iter().any(|p| self.folders.iter().any(|o| p.starts_with(o)))
+    }
+
+    /// Does the place this path really is lie under an opened folder, or is it an opened path?
+    fn covers(&self, path: &Path) -> bool {
+        self.under_folder(path) || Self::real_forms(path).iter().any(|p| self.exact.contains(p))
+    }
+
+    /// Files the search tools pass over.
+    fn skips(&self, path: &Path) -> bool {
+        match classify_path(path, &self.workspace, &self.cfg, false) {
+            Effect::Refused | Effect::SensitiveRead => true,
+            Effect::OutsideRead => !self.covers(path),
+            _ => false,
+        }
+    }
+
+    /// Folders the walk does not enter: Refused ones, and Ask-tier ones that no folder grant opens and
+    /// that hold neither the working folder nor anything opened (every file in them would be skipped).
+    fn prunes(&self, dir: &Path) -> bool {
+        if self.roots.refused(dir).is_some() {
+            return true;
+        }
+        let leads_somewhere = self.workspace.starts_with(dir) || self.folders.iter().any(|o| o.starts_with(dir)) || self.exact.iter().any(|e| e.starts_with(dir) && e != dir);
+        !leads_somewhere && classify_path(dir, &self.workspace, &self.cfg, false) == Effect::OutsideRead && !self.under_folder(dir)
+    }
+}
+
+/// Walk a folder for the search tools. Build output is skipped, and a folder [`WalkScope::prunes`] is
+/// never entered.
+fn walker(root: &Path, scope: std::sync::Arc<WalkScope>) -> ignore::Walk {
+    ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .filter_entry(move |e| {
+            if matches!(e.file_name().to_str(), Some(".git" | "node_modules" | "target" | ".venv" | "__pycache__")) {
+                return false;
+            }
+            let is_dir = e.file_type().is_some_and(|t| t.is_dir());
+            scope.roots.refused(e.path()).is_none() && !(is_dir && e.depth() > 0 && scope.prunes(e.path()))
+        })
+        .build()
 }
 
 async fn search_files(args: &Value, ctx: &ToolCtx) -> Result<String> {
@@ -734,12 +811,11 @@ async fn search_files(args: &Value, ctx: &ToolCtx) -> Result<String> {
     };
     let re = regex::RegexBuilder::new(&pattern).case_insensitive(opt_bool(args, "ignore_case")).build().map_err(|e| anyhow!("bad regex: {e}"))?;
     let max = 200usize;
-    let cfg = ctx.cfg.clone();
-    let workspace = ctx.workspace.clone();
+    let scope = std::sync::Arc::new(WalkScope::new(&root, read_risk(args, ctx), ctx));
     tokio::task::spawn_blocking(move || {
         let mut out = String::new();
         let mut hits = 0usize;
-        'files: for entry in walker(&root, &cfg).flatten() {
+        'files: for entry in walker(&root, scope.clone()).flatten() {
             let p = entry.path();
             if !p.is_file() {
                 continue;
@@ -750,8 +826,8 @@ async fn search_files(args: &Value, ctx: &ToolCtx) -> Result<String> {
                     continue;
                 }
             }
-            if walker_skips(p, &workspace, &cfg) {
-                continue; // never grep through credential files or Heron's own data
+            if scope.skips(p) {
+                continue; // never grep through credential files, Heron's own data or unopened folders
             }
             let Ok(bytes) = std::fs::read(p) else { continue };
             if bytes.len() as u64 > MAX_READ_BYTES || bytes.iter().take(4096).any(|b| *b == 0) {
@@ -779,12 +855,12 @@ async fn find_files(args: &Value, ctx: &ToolCtx) -> Result<String> {
     let pattern = arg_str(args, "glob")?;
     let root = resolve_path(&ctx.workspace, opt_str(args, "path").unwrap_or("."));
     let g = globset::Glob::new(pattern).map_err(|e| anyhow!("bad glob: {e}"))?.compile_matcher();
-    let cfg = ctx.cfg.clone();
-    let workspace = ctx.workspace.clone();
+    let scope = std::sync::Arc::new(WalkScope::new(&root, read_risk(args, ctx), ctx));
     tokio::task::spawn_blocking(move || {
-        let mut found: Vec<String> = walker(&root, &cfg)
+        // A name is listed only where its file could be read.
+        let mut found: Vec<String> = walker(&root, scope.clone())
             .flatten()
-            .filter(|e| e.path().is_file() && !walker_skips(e.path(), &workspace, &cfg))
+            .filter(|e| e.path().is_file() && !scope.skips(e.path()))
             .filter_map(|e| {
                 let rel = e.path().strip_prefix(&root).unwrap_or(e.path()).to_path_buf();
                 (g.is_match(&rel) || e.path().file_name().map(|f| g.is_match(f)).unwrap_or(false)).then(|| rel.display().to_string())
@@ -1414,19 +1490,123 @@ mod tier_tests {
         let inside = search_files(&json!({"pattern": "TOKEN", "path": home.to_string_lossy()}), &c).await.unwrap();
         assert_eq!(inside, "no matches");
         assert_eq!(find_files(&json!({"glob": "*", "path": home.to_string_lossy()}), &c).await.unwrap(), "no files match");
+
+        // A file link in the working folder that points into the Ask tier is passed over: reading it
+        // would ask.
+        let outside = ask_tier_dir();
+        let diary = outside.path().join("diary.txt");
+        std::fs::write(&diary, "TOKEN ask-tier").unwrap();
+        assert_eq!(classify_path(&diary, &c.workspace, &c.cfg, false), Effect::OutsideRead, "the fixture must be in the Ask tier");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&diary, ws.join("docs/linked.txt")).unwrap();
+            let found = search_files(&json!({"pattern": "TOKEN"}), &c).await.unwrap();
+            assert!(found.contains("guide.md:1:"), "{found}");
+            assert!(!found.contains("linked.txt") && !found.contains("ask-tier"), "search_files followed a link into the Ask tier: {found}");
+            let listed = find_files(&json!({"glob": "**/*"}), &c).await.unwrap();
+            assert!(listed.contains("guide.md") && !listed.contains("linked.txt"), "{listed}");
+        }
+
+        // A walk rooted at `/` is `LocalRead`, yet it reaches every user's home: the same filter both
+        // walkers use passes over the Ask tier there, and does not enter the home folder at all. (A real
+        // walk of the whole disk is too slow for a test.)
+        let slash = json!({"path": "/"});
+        assert_eq!(read_risk(&slash, &c), Effect::LocalRead);
+        let scope = WalkScope::new(Path::new("/"), read_risk(&slash, &c), &c);
+        assert!(scope.skips(&diary), "a /-rooted walk would read {}", diary.display());
+        assert!(scope.skips(&c.workspace.join(".env")) && scope.skips(&c.workspace.join(".heron-home/config.toml")));
+        assert!(!scope.skips(&c.workspace.join("notes.md")), "the working folder is still searched");
+        let user_home = dirs::home_dir().unwrap();
+        if !c.workspace.starts_with(&user_home) {
+            assert!(scope.prunes(&user_home), "a /-rooted walk enters the home folder");
+        }
     }
 
-    /// M-4, the `read_file` half: globs, quotes and backslashes are never expanded into a secret's
-    /// name, and credential files the old list did not name now ask.
+    /// A folder under the home folder, outside the working folder and not Refused: the Ask tier. It sits
+    /// in the build folder, so it is removed with the other build output if a run is cut short.
+    fn ask_tier_dir() -> tempfile::TempDir {
+        let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        tempfile::Builder::new().prefix("heron-ask-tier-test").tempdir_in(target).unwrap()
+    }
+
+    /// The Ask-tier entries a walk may open: those under a call that was itself an outside read (and
+    /// so was asked about or granted), and those a `read:` grant covers. A conversation grant stops
+    /// counting once outside content is present; a standing grant does not.
+    #[tokio::test]
+    async fn walkers_never_read_uncovered_ask_tier_entries() {
+        let (_dir, ws, home) = dirs_for_test();
+        std::fs::write(ws.join("notes.md"), "TOKEN plain").unwrap();
+        let outside = ask_tier_dir();
+        let base = dunce::canonicalize(outside.path()).unwrap();
+        let (asked, other) = (base.join("asked"), base.join("other"));
+        std::fs::create_dir_all(&asked).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(asked.join("diary.txt"), "TOKEN asked-folder").unwrap();
+        std::fs::write(other.join("letter.txt"), "TOKEN other-folder").unwrap();
+        let c = ctx(&ws, &home);
+        assert_eq!(classify_path(&asked.join("diary.txt"), &c.workspace, &c.cfg, false), Effect::OutsideRead, "the fixture must be in the Ask tier");
+
+        // A search of a folder the user was asked about reads that folder...
+        let args = json!({"pattern": "TOKEN", "path": asked.to_string_lossy()});
+        assert_eq!(read_risk(&args, &c), Effect::OutsideRead);
+        let found = search_files(&args, &c).await.unwrap();
+        assert!(found.contains("diary.txt:1:"), "{found}");
+        assert!(find_files(&json!({"glob": "*.txt", "path": asked.to_string_lossy()}), &c).await.unwrap().contains("diary.txt"));
+        // ...but a link in it that leads elsewhere in the Ask tier is passed over.
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(other.join("letter.txt"), asked.join("letter-link.txt")).unwrap();
+            let found = search_files(&args, &c).await.unwrap();
+            assert!(found.contains("diary.txt:1:") && !found.contains("other-folder"), "{found}");
+            let listed = find_files(&json!({"glob": "*", "path": asked.to_string_lossy()}), &c).await.unwrap();
+            assert!(listed.contains("diary.txt") && !listed.contains("letter-link"), "{listed}");
+        }
+
+        // A walk of the working folder or of `/` opens what a grant covers, and only that.
+        let scope = |c: &ToolCtx| WalkScope::new(Path::new("/"), Effect::LocalRead, c);
+        assert!(scope(&c).skips(&asked.join("diary.txt")) && scope(&c).skips(&other.join("letter.txt")));
+        // A single-file grant (`read=:`, given where a folder was too broad) opens that file only,
+        // never what is under it.
+        let exact = |p: &Path| serde_json::to_string(&[format!("read=:{}", p.display())]).unwrap();
+        c.store.kv_set("grants:s", &exact(&base)).unwrap();
+        assert!(scope(&c).skips(&asked.join("diary.txt")), "a single-file grant on {} opened a file under it", base.display());
+        c.store.kv_set("grants:s", &exact(&asked.join("diary.txt"))).unwrap();
+        assert!(!scope(&c).skips(&asked.join("diary.txt")), "a single-file grant opens its file");
+        assert!(scope(&c).skips(&other.join("letter.txt")));
+        assert!(scope(&c).prunes(&other), "a single-file grant leads into no other folder");
+        let grant = format!("read:{}/**", asked.display());
+        c.store.kv_set("grants:s", &serde_json::to_string(&[&grant]).unwrap()).unwrap();
+        assert!(!scope(&c).skips(&asked.join("diary.txt")), "a conversation grant opens its folder");
+        assert!(scope(&c).skips(&other.join("letter.txt")), "and nothing else");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(asked.join("diary.txt"), ws.join("granted-link.txt")).unwrap();
+            assert!(search_files(&json!({"pattern": "TOKEN"}), &c).await.unwrap().contains("granted-link.txt:1:"));
+        }
+        // Once outside content is present, the conversation grant no longer applies.
+        c.tainted.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(scope(&c).skips(&asked.join("diary.txt")), "a conversation grant held after outside content");
+        #[cfg(unix)]
+        assert!(!search_files(&json!({"pattern": "TOKEN"}), &c).await.unwrap().contains("granted-link.txt"));
+        // A standing grant does.
+        let mut cfg = (*c.cfg).clone();
+        cfg.permissions.allow = vec![grant.clone()];
+        let standing = ToolCtx { cfg: Arc::new(cfg), ..ctx(&ws, &home) };
+        standing.tainted.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(!scope(&standing).skips(&asked.join("diary.txt")), "a standing grant opens its folder");
+        assert!(scope(&standing).skips(&other.join("letter.txt")));
+        // A folder nothing opens is not entered, unless the working folder or a grant lies inside it.
+        assert!(scope(&standing).prunes(&other) && !scope(&standing).prunes(&base) && !scope(&standing).prunes(&asked));
+    }
+
+    /// M-4, the `read_file` half: credential files the old list did not name now ask. The glob and
+    /// quote half belongs to the shell (`read_file` never expanded globs, before or after M-4), and is
+    /// checked by `m4_sandbox_denies_globs_quotes_and_unlisted_secrets` in `shell.rs`.
     #[tokio::test]
     async fn m4_globs_quotes_and_unlisted_secrets_ask() {
         let (_dir, ws, home) = dirs_for_test();
-        std::fs::write(ws.join(".env"), "SECRET=FAKE-M4").unwrap();
         let c = ctx(&ws, &home);
-        for tricky in [".en?", ".e*", "\".env\"", "'.env'", ".e\\nv", "[.]env"] {
-            let out = read_file(&json!({"path": tricky}), &c).await;
-            assert!(out.as_ref().map(|t| !t.contains("FAKE-M4")).unwrap_or(true), "{tricky} read the secret: {out:?}");
-        }
         let user_home = dirs::home_dir().unwrap();
         let unlisted = [
             "~/.cargo/credentials.toml",

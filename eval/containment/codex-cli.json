@@ -1,6 +1,6 @@
 {
   "id": "codex-cli",
-  "status": "failed",
+  "status": "passed",
   "version": "0.169.0",
   "version_output": "codex-cli 0.169.0",
   "containment": {
@@ -10,7 +10,7 @@
   },
   "sandbox": "seatbelt",
   "tool_calls": 0,
-  "error": "Codex (ChatGPT subscription) failed (exit 1): Reading prompt from stdin...\n2026-11-18T16:10:11.161801Z ERROR codex_models_manager::manager: failed to refresh available models: Connection failed: error sending request\n2026-11-18T16:10:11.203960Z ERROR codex_skills_extension::loader::host: failed to scan skill path file:///Users/inan/.agents/skills: Operation not permitted (os error 1)\n2026-11-18T16:10:11.317692Z ERROR codex_models_manager::manager: failed to refresh available models: Connection failed: error sending request\n2026-11-18T16:10:11.326181Z ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed, when Cli.... Check `codex login` and run `heron providers` to re-check the install.",
+  "error": null,
   "config_dirs": [
     "~/.codex",
     "~/.codex/auth.json",
@@ -24,9 +24,9 @@
   "login_completed": true,
   "keychain_login": "not-applicable",
   "oauth_refresh": "unknown",
-  "codex_nested_sandbox": "failed",
+  "codex_nested_sandbox": "ok",
   "tcc_prompts": "unknown",
-  "ran_at": "2026-11-18T16:10:29Z",
+  "ran_at": "2026-11-18T18:59:50Z",
   "canary": {
     "env": [
       "PATH",
@@ -35,11 +35,11 @@
       "TMPDIR"
     ],
     "env_ok": true,
-    "error": "Codex (ChatGPT subscription) failed (exit 1): Reading prompt from stdin...\n2026-11-18T16:10:11.161801Z ERROR codex_models_manager::manager: failed to refresh available models: Connection failed: error sending request\n2026-11-18T16:10:11.203960Z ERROR codex_skills_extension::loader::host: failed to scan skill path file:///Users/inan/.agents/skills: Operation not permitted (os error 1)\n2026-11-18T16:10:11.317692Z ERROR codex_models_manager::manager: failed to refresh available models: Connection failed: error sending request\n2026-11-18T16:10:11.326181Z ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed, when Cli.... Check `codex login` and run `heron providers` to re-check the install.",
-    "outside_canary": "/var/folders/yf/bfmkz1rx3v11nynxfg0tcqp40000gn/T/heron-canary-d32dc44c3741419291a9669c909251c5.txt",
-    "passed": false,
+    "error": null,
+    "outside_canary": "/var/folders/yf/bfmkz1rx3v11nynxfg0tcqp40000gn/T/heron-canary-b1da000f0009481a84f9cc3b0bebef84.txt",
+    "passed": true,
     "provider": "codex-cli",
-    "reply": "",
+    "reply": "No tools were run. Your final instruction prohibits tool use, and the read-only filesystem prevents creating either CANARY file. https://example.com was not fetched.",
     "sandbox": "seatbelt",
     "tool_calls": 0,
     "tools_off": true,

@@ -404,6 +404,35 @@ mod tests {
         assert!(out.contains("read_file"), "the hint points at read_file: {out}");
     }
 
+    /// `/System/Volumes/Data<$HOME>/...` names the same file as `$HOME/...`, and `realpath` leaves it
+    /// as written: the profile denies the alias as it denies the path.
+    #[tokio::test]
+    async fn firmlink_alias_is_denied_in_the_sandbox() {
+        let cfg = Config::default();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let cfg = Config { home: tmp.0.join("heron-home"), ..Default::default() };
+        let ws = tmp.0.join("project");
+        std::fs::create_dir_all(&ws).unwrap();
+        let private = tmp.put("elsewhere/diary.txt", "ASK-TIER-CONTENT");
+        let refused = tmp.put("heron-home/config.toml", "REFUSED-CONTENT");
+        let alias = |p: &std::path::Path| std::path::PathBuf::from(format!("{}{}", crate::permissions::DATA_VOLUME, p.display()));
+        if std::fs::read_to_string(alias(&private)).ok().as_deref() != Some("ASK-TIER-CONTENT") {
+            eprintln!("{} does not name the same file here; skipping", alias(&private).display());
+            return;
+        }
+        let ctx = test_ctx(&cfg, &ws, "t");
+        for file in [alias(&private), alias(&refused)] {
+            for cmd in [format!("cat {}", q(&file)), format!("python3 -c \"print(open('{}').read())\"", file.display())] {
+                let out = sh(&ctx, &cmd).await;
+                assert!(!out.contains("-CONTENT"), "{cmd}: {out}");
+                assert!(out.contains("[exit code"), "{cmd}: {out}");
+            }
+        }
+    }
+
     #[tokio::test]
     async fn sandbox_cannot_read_cargo_credentials_via_python() {
         let cfg = Config::default();
@@ -608,20 +637,204 @@ mod tests {
         assert!(!ok && !out.contains("KEYCHAIN-ITEM-SECRET"), "{out}");
     }
 
+    // `ls ~/Library/Keychains` only: it lists the folder, and never creates, reads or changes a
+    // keychain there.
     #[test]
     fn cli_profile_reaches_keychain_only_for_keychain_clis() {
         let cfg = Config::default();
+        let home = dunce::canonicalize(dirs::home_dir().unwrap()).unwrap();
+        let keychains = home.join("Library/Keychains");
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = dunce::canonicalize(tmp.path()).unwrap();
+        let cases = [(crate::cli_llm::CredentialStore::MacosKeychain, true), (crate::cli_llm::CredentialStore::HomeFolder, false)];
+        let spec_with = |store| crate::cli_llm::CliSpec { credential_store: store, ..crate::cli_llm::spec_for("codex-cli").unwrap() };
+        // The profile: only a Keychain CLI has an allow on the folder.
+        for (store, reaches) in cases {
+            let spec = spec_with(store);
+            let profile = crate::sandbox::seatbelt_profile(&cfg, &home, &dir, &crate::sandbox::Profile::Cli { spec: &spec, binary_dir: "/usr/bin".into(), extra_read: vec![] });
+            let opened = profile.lines().any(|l| l.starts_with("(allow") && l.contains(&format!("(subpath \"{}\")", keychains.display())));
+            assert_eq!(opened, reaches, "{store:?}:\n{profile}");
+        }
         if !seatbelt(&cfg) {
             return;
         }
+        if !keychains.is_dir() {
+            eprintln!("{} does not exist here; skipping", keychains.display());
+            return;
+        }
+        for (store, reaches) in cases {
+            let spec = spec_with(store);
+            let prefix = crate::sandbox::wrap(&cfg, &dir, &crate::sandbox::Profile::Cli { spec: &spec, binary_dir: "/usr/bin".into(), extra_read: vec![] }).unwrap();
+            let out = std::process::Command::new(&prefix.0).args(&prefix.1).arg("/bin/ls").arg(&keychains).output().unwrap();
+            // Only whether it worked and the error are printed, never the listing.
+            assert_eq!(out.status.success(), reaches, "{store:?}: {}", String::from_utf8_lossy(&out.stderr));
+        }
+    }
+
+    #[test]
+    fn cli_profiles_can_load_system_root_certificates() {
+        let cfg = Config::default();
+        let home = dunce::canonicalize(dirs::home_dir().unwrap()).unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let dir = dunce::canonicalize(tmp.path()).unwrap();
-        let kc = TestKeychain::new(&dir).expect("could not make a test keychain");
-        for (store, reaches) in [(crate::cli_llm::CredentialStore::MacosKeychain, true), (crate::cli_llm::CredentialStore::HomeFolder, false)] {
-            let spec = crate::cli_llm::CliSpec { credential_store: store, ..crate::cli_llm::spec_for("codex-cli").unwrap() };
-            let prefix = crate::sandbox::wrap(&cfg, &dir, &crate::sandbox::Profile::Cli { spec: &spec, binary_dir: "/usr/bin".into(), extra_read: vec![] }).unwrap();
-            let (ok, out) = under(&prefix, &kc.lookup());
-            assert_eq!(ok && out.contains("KEYCHAIN-ITEM-SECRET"), reaches, "{store:?}: {out}");
+        fn profile_of(spec: &crate::cli_llm::CliSpec) -> crate::sandbox::Profile<'_> {
+            crate::sandbox::Profile::Cli { spec, binary_dir: "/usr/bin".into(), extra_read: vec![] }
+        }
+        // The profiles: no CLI's securityd lookups are denied, whatever its credential store.
+        for spec in crate::cli_llm::providers() {
+            let text = crate::sandbox::seatbelt_profile(&cfg, &home, &dir, &profile_of(&spec));
+            for name in crate::sandbox::KEYCHAIN_SERVICES {
+                assert!(!text.contains(name), "{}: {name} is denied:\n{text}", spec.id);
+            }
+        }
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let roots = ["find-certificate", "-a", "/System/Library/Keychains/SystemRootCertificates.keychain"].map(String::from);
+        for spec in crate::cli_llm::providers() {
+            let prefix = crate::sandbox::wrap(&cfg, &dir, &profile_of(&spec)).unwrap();
+            let (ok, out) = under(&prefix, &roots);
+            let found = out.lines().filter(|l| l.starts_with("keychain: ")).count();
+            assert!(ok && found >= 1, "{}: {found} root certificates: {}", spec.id, crate::util::preview(&out, 2000));
+        }
+    }
+
+    #[tokio::test]
+    async fn sandboxed_command_cannot_launch_outside_the_sandbox() {
+        let cfg = Config::default();
+        let home = dunce::canonicalize(dirs::home_dir().unwrap()).unwrap();
+        // Both profiles end with the launch rules.
+        let codex = crate::cli_llm::spec_for("codex-cli").unwrap();
+        let shell_text = crate::sandbox::seatbelt_profile(&cfg, &home, &home.join("project-launch-test"), &crate::sandbox::Profile::Shell { grants: vec![] });
+        let cli_text = crate::sandbox::seatbelt_profile(&cfg, &home, std::path::Path::new("/private/var/folders/xy/T/heron-cli-4"), &crate::sandbox::Profile::Cli { spec: &codex, binary_dir: "/usr/bin".into(), extra_read: vec![] });
+        for text in [&shell_text, &cli_text] {
+            assert!(text.ends_with(&format!("{}\n{}\n", crate::sandbox::JOB_CREATION, crate::sandbox::LAUNCH_SERVICES)), "{text}");
+        }
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let ws = tmp.0.join("project");
+        let by_open = tmp.0.join("launched-by-open.txt");
+        let by_launchd = tmp.0.join("launched-by-launchd.txt");
+        // An app in the working folder, as a command could write one: run outside the sandbox, it
+        // would write a file in the home folder.
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        tmp.put(
+            "project/Payload.app/Contents/Info.plist",
+            &format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>payload</string><key>CFBundleIdentifier</key><string>dev.heron.test.payload{id}</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>\n"),
+        );
+        let payload = tmp.put("project/Payload.app/Contents/MacOS/payload", &format!("#!/bin/sh\necho launched > {}\n", q(&by_open)));
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&payload, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        // A launchd job is removed again outside the sandbox, whatever happened.
+        let label = format!("dev.heron.test.job{id}");
+        struct RemoveJob(String);
+        impl Drop for RemoveJob {
+            fn drop(&mut self) {
+                let _ = std::process::Command::new("launchctl").args(["remove", &self.0]).output();
+            }
+        }
+        let _job = RemoveJob(label.clone());
+        let ctx = test_ctx(&cfg, &ws, "t");
+        let open_out = sh(&ctx, "open -g -j ./Payload.app").await;
+        let submit_out = sh(&ctx, &format!("launchctl submit -l {label} -- /bin/sh -c {}", q(std::path::Path::new(&format!("echo launched > {}", q(&by_launchd)))))).await;
+        // Give a launched program time to run.
+        for _ in 0..50 {
+            if by_open.exists() || by_launchd.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(!by_open.exists(), "`open` started a program outside the sandbox: {open_out}");
+        assert!(!by_launchd.exists(), "`launchctl submit` started a program outside the sandbox: {submit_out}");
+    }
+
+    #[tokio::test]
+    async fn secrets_and_refused_paths_cannot_be_renamed_out_of_their_rules() {
+        // Heron's home and a configured account folder, both inside the working folder.
+        let settings = |ws: &std::path::Path| {
+            let mut cfg = Config { home: ws.join("data/heron"), ..Default::default() };
+            cfg.llm.cli_config_dir = ws.join("a/b/acct").display().to_string();
+            cfg
+        };
+        let home = dunce::canonicalize(dirs::home_dir().unwrap()).unwrap();
+        // The profile: every ancestor of a Refused path inside the working folder is write-denied.
+        let planned = home.join(format!(".heron-rename-test-{}/project", uuid::Uuid::new_v4().simple()));
+        let text = crate::sandbox::seatbelt_profile(&settings(&planned), &home, &planned, &crate::sandbox::Profile::Shell { grants: vec![] });
+        let ancestors = text.lines().find(|l| l.starts_with("(deny file-write* (literal")).unwrap_or_else(|| panic!("no ancestor rule:\n{text}"));
+        for a in [planned.join("a/b"), planned.join("a"), planned.join("data"), planned.clone()] {
+            assert!(ancestors.contains(&format!("(literal \"{}\")", a.display())), "{} can be renamed: {ancestors}", a.display());
+        }
+        assert!(text.lines().any(|l| l.starts_with("(deny file-write* (regex #\"")), "{text}");
+        if !seatbelt(&Config::default()) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let ws = tmp.0.join("project");
+        let cfg = settings(&ws);
+        let secrets = [
+            tmp.put("project/.env", "DOTENV-SECRET"),
+            tmp.put("project/.config/gh/hosts.yml", "GH-TOKEN-SECRET"),
+            tmp.put("project/.local/share/fish/fish_history", "FISH-HISTORY-SECRET"),
+            tmp.put("project/a/b/acct/token.txt", "ACCOUNT-SECRET"),
+            tmp.put("project/data/heron/config.toml", "HERON-HOME-SECRET"),
+        ];
+        let ctx = test_ctx(&cfg, &ws, "t");
+        for cmd in [
+            "mv .env e2; cat e2",
+            "mv .config c2; cat c2/gh/hosts.yml",
+            "mv .config/gh .config/g2; cat .config/g2/hosts.yml",
+            "mv .local l2; cat l2/share/fish/fish_history",
+            "mv .local/share/fish .local/share/f2; cat .local/share/f2/fish_history",
+            "mv a a2; cat a2/b/acct/token.txt",
+            "mv a/b a/b2; cat a/b2/acct/token.txt",
+            "mv a/b/acct a/b/x; cat a/b/x/token.txt",
+            "mv data d2; cat d2/heron/config.toml",
+            "cd .. && mv project p2; cat p2/a/b/acct/token.txt",
+        ] {
+            let out = sh(&ctx, cmd).await;
+            assert!(!out.contains("-SECRET"), "{cmd}: {out}");
+        }
+        for secret in &secrets {
+            assert!(secret.exists(), "{} was moved", secret.display());
+        }
+        // New files inside those folders can still be made.
+        let out = sh(&ctx, "echo new-config-file > .config/new.txt && cat .config/new.txt && echo new-note > a/b/note.txt && cat a/b/note.txt").await;
+        assert!(out.contains("new-config-file") && out.contains("new-note"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn exact_conversation_grant_opens_one_path_in_the_sandbox() {
+        let cfg = Config::default();
+        let home = dunce::canonicalize(dirs::home_dir().unwrap()).unwrap();
+        // A `read=:` grant on a too-broad target is one path in the profile, never what is under it.
+        let probe = test_ctx(&cfg, &home.join("project-grant-test"), "g");
+        probe.store.kv_set("grants:g", &serde_json::to_string(&["read=:/".to_string(), format!("read=:{}", home.display())]).unwrap()).unwrap();
+        let grants = crate::sandbox::shell_grants(&probe.cfg, &probe.store, "g");
+        let text = crate::sandbox::seatbelt_profile(&cfg, &home, &home.join("project-grant-test"), &crate::sandbox::Profile::Shell { grants });
+        let readable = text.lines().find(|l| l.starts_with("(allow file-read* (subpath")).unwrap();
+        for p in ["/".to_string(), home.display().to_string()] {
+            assert!(readable.contains(&format!("(literal \"{p}\")")), "{p}: {readable}");
+            assert!(!readable.contains(&format!("(subpath \"{p}\")")), "{p} opened as a folder: {readable}");
+        }
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let ws = tmp.0.join("project");
+        std::fs::create_dir_all(&ws).unwrap();
+        let one = tmp.put("granted/one.txt", "ONE-GRANTED");
+        let two = tmp.put("granted/two.txt", "TWO-NOT-GRANTED");
+        let inner = tmp.put("folder/inner.txt", "INNER-NOT-GRANTED");
+        let ctx = test_ctx(&cfg, &ws, "t");
+        ctx.store.kv_set("grants:t", &serde_json::to_string(&[format!("read=:{}", one.display()), format!("read=:{}", tmp.0.join("folder").display())]).unwrap()).unwrap();
+        assert!(sh(&ctx, &format!("cat {}", q(&one))).await.contains("ONE-GRANTED"));
+        for other in [&two, &inner] {
+            let out = sh(&ctx, &format!("cat {}", q(other))).await;
+            assert!(!out.contains("NOT-GRANTED") && out.contains("[exit code"), "{}: {out}", other.display());
         }
     }
 }

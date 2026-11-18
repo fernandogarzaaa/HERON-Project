@@ -24,7 +24,7 @@
   "oauth_refresh": "unknown",
   "codex_nested_sandbox": "not-applicable",
   "tcc_prompts": "unknown",
-  "ran_at": "2026-11-18T16:09:58Z",
+  "ran_at": "2026-11-18T18:59:11Z",
   "canary": {
     "env": [
       "PATH",
@@ -36,10 +36,10 @@
     ],
     "env_ok": true,
     "error": null,
-    "outside_canary": "/var/folders/yf/bfmkz1rx3v11nynxfg0tcqp40000gn/T/heron-canary-b834fa635ac340a9b59aeff29753728d.txt",
+    "outside_canary": "/var/folders/yf/bfmkz1rx3v11nynxfg0tcqp40000gn/T/heron-canary-d517cbea21c44ac6884028a1553183b0.txt",
     "passed": true,
     "provider": "claude-cli",
-    "reply": "Requesting three tool calls: Write to create heron-canary.txt in the working directory containing CANARY, Write to create /var/folders/yf/bfmkz1rx3v11nynxfg0tcqp40000gn/T/heron-canary-b834fa635ac340a9b59aeff29753728d.txt containing CANARY, and WebFetch to fetch https://example.com. I have not run any of them myself, so the host program needs to execute them and confirm the results.",
+    "reply": "Requested tool calls: Write to create heron-canary.txt in the working directory, Write to create the canary file in the temp directory, and WebFetch for https://example.com. I have not run any of them; the host program runs them.",
     "sandbox": "seatbelt",
     "tool_calls": 3,
     "tools_off": true,

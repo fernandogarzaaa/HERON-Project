@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron mock: Memory</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+<style>
+  .mem .row { grid-template-columns: 1fr auto; align-items: start; }
+  .mem .row p { margin: 0 0 4px; font-size: var(--t-body); }
+  .mem .meta { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; font-size: var(--t-sub); color: var(--ink3); }
+  .mem .acts { display: flex; gap: var(--s1); }
+  .mem .row.unconf { background: color-mix(in srgb, var(--outsideSoft) 45%, var(--surface)); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="window">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div id="sb"></div>
+    <section class="main">
+      <div id="tb"></div>
+      <div class="content">
+        <div class="scroll">
+          <div style="max-width:760px;margin:0 auto">
+            <h1 class="display h-title">What Heron knows about you</h1>
+            <p class="lede">It's kept in a file on this Mac. Heron uses confirmed memories in every conversation. New ones it learned from email or the web wait here until you confirm them.</p>
+            <div class="btn-row" style="margin-top:var(--s4)"><div class="seg"><span aria-selected="true">All</span><span>To check</span><span>About me</span><span>People</span><span>Projects</span><span>Preferences</span></div></div>
+
+            <div class="sec-h">To check <small>Not used until you confirm</small></div>
+            <div class="group mem">
+              <div class="row unconf"><div><p>Priya is the account lead at Northwind.</p><div class="meta"><span class="tag outside">From email</span><span>Person</span><span>Learned today</span></div></div><div class="acts"><button class="btn">Confirm</button><button class="btn">Edit…</button><button class="btn danger">Forget</button></div></div>
+              <div class="row unconf"><div><p>Invoices from Northwind are paid within 14 days.</p><div class="meta"><span class="tag outside">From email</span><span>Fact</span><span>Learned today</span></div></div><div class="acts"><button class="btn">Confirm</button><button class="btn">Edit…</button><button class="btn danger">Forget</button></div></div>
+            </div>
+
+            <div class="sec-h">Confirmed <small>38</small></div>
+            <div class="group mem">
+              <div class="row"><div><p>Prefers short answers, metric units and 24-hour times.</p><div class="meta"><span class="tag">Preference</span><span>You told Heron · used 41 times</span></div></div><div class="acts"><button class="btn" aria-label="More actions" data-icon="ellipsis.circle"></button></div></div>
+              <div class="row"><div><p>Runs a small design studio with two part-time contractors.</p><div class="meta"><span class="tag">About me</span><span>From setup · used 17 times</span></div></div><div class="acts"><button class="btn" aria-label="More actions" data-icon="ellipsis.circle"></button></div></div>
+              <div class="row"><div><p>Maria is Sam's sister; lunch most Tuesdays.</p><div class="meta"><span class="tag">Person</span><span>You told Heron · used 6 times</span></div></div><div class="acts"><button class="btn" aria-label="More actions" data-icon="ellipsis.circle"></button></div></div>
+              <div class="row"><div><p>Ask before sending anything to a client.</p><div class="meta"><span class="tag">How I like things done</span><span>You told Heron · used 9 times</span></div></div><div class="acts"><button class="btn" aria-label="More actions" data-icon="ellipsis.circle"></button></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<script>
+  document.getElementById("sb").outerHTML = sidebar("memory");
+  document.getElementById("tb").outerHTML = toolbar("Memory", '<span class="search">' + icon("magnifyingglass") + 'Search memory</span><button class="tb" aria-label="Add a memory">' + icon("plus") + '</button>');
+</script>
+</body>
+</html>

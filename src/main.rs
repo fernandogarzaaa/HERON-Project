@@ -425,12 +425,7 @@ async fn providers(cfg: &Config) -> Result<()> {
     println!();
     println!("  http            API key via an OpenAI-compatible endpoint (the default)");
     for spec in heron::cli_llm::providers() {
-        let st = heron::cli_llm::probe_status(
-            &spec,
-            heron::cli_llm::override_for_provider(spec.id, &cfg.llm.provider, &cfg.llm.cli_command),
-            heron::cli_llm::override_for_provider(spec.id, &cfg.llm.provider, &cfg.llm.cli_config_dir),
-        )
-        .await;
+        let st = heron::cli_llm::probe_status(cfg, &spec).await;
         let mark = if cfg.llm.provider == spec.id {
             "*"
         } else {
@@ -509,7 +504,7 @@ async fn doctor(cfg: &Config) -> Result<()> {
     println!("     provider    {}", cfg.llm.provider);
     if heron::cli_llm::is_cli_provider(cfg.llm.provider.trim()) {
         let spec = heron::cli_llm::spec_for(cfg.llm.provider.trim()).unwrap();
-        let st = heron::cli_llm::probe_status(&spec, &cfg.llm.cli_command, &cfg.llm.cli_config_dir).await;
+        let st = heron::cli_llm::probe_status(cfg, &spec).await;
         let login = match st.logged_in {
             Some(true) => format!(
                 "logged in{}",
