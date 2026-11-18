@@ -3339,15 +3339,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "e7538a2f0ab041e199eaef2fc48324d8",
+      "base_branch": "skein/U2w__integrate-base",
+      "claim_token": "6e44f1bfdf264d14ad03085183224a92",
+      "claimed_at": "2026-11-18T23:12:10.850713+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-18T23:12:10.850713+00:00",
+      "node_version": 5,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U2s",
@@ -3372,9 +3372,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Apply U2s's topology and U2c's Tier 1 results; delete the losing topology code",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "skein/U2w__integrate-base",
       "branch": null,
