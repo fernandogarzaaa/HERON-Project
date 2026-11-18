@@ -3920,11 +3920,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from U3's review: cross-core revoke, run start/end, overrides, risk-notice gates",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U3f__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "cdbee6468ef3eab77bfbddfb791a31dbbb48012a",
+      "branch": "skein/U3f",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3f"
     }
   },
   "U3f__integrate": {
