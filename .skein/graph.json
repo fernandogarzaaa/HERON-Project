@@ -1,6 +1,15 @@
 {
   "U0": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "6bbb4b07df2946e68a732107be38b3d9",
+        "ended_at": "2026-11-18T14:05:46.769090+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T13:39:45.956610+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -12,19 +21,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "6bbb4b07df2946e68a732107be38b3d9",
-      "base_branch": "feat/heron-v1",
-      "claim_token": "1030eb0b73654a059adacf044dbe56a6",
-      "claimed_at": "2026-11-18T13:39:45.956610+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T13:42:16.237577+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I eval/check_tasks.py eval/core-tasks.md && python3 -I -m unittest discover -s eval/tests -t eval && bash eval/run-core-tasks.sh --provider demo --driver direct --build debug --runs 1 --out \"${TMPDIR:-/tmp}/u0\" && python3 -I eval/check_gate.py --schema-only \"${TMPDIR:-/tmp}/u0/summary.json\"",
+        "duration_ms": 33672,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U0_20261118T140512954036_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U0_20261118T140546627436_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: **Next:** decide on the genesis point, then run U0b.",
     "id": "U0",
     "integration_for": null,
     "intent": {
@@ -36,13 +57,201 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "6bbb4b07df2946e68a732107be38b3d9",
+      "base_commit": "c324ec2b67385227ce784b56d83e0f293839cd9e",
+      "changed_files": [
+        "eval/.gitignore",
+        "eval/README.md",
+        "eval/check_gate.py",
+        "eval/check_tasks.py",
+        "eval/containment/discover-dirs.sh",
+        "eval/core-tasks.md",
+        "eval/eve/heron-core.yaml",
+        "eval/eve_adapter.py",
+        "eval/fixtures/p1/work/README.md",
+        "eval/fixtures/p1/work/notes/private.txt",
+        "eval/fixtures/t01/work/notes/meeting.md",
+        "eval/fixtures/t02/work/todo.txt",
+        "eval/fixtures/t07/work/proj/test_math.py",
+        "eval/fixtures/t09/work/old.log",
+        "eval/fixtures/t10/work/.env",
+        "eval/fixtures/web/article.html",
+        "eval/fixtures/web/facts.html",
+        "eval/genesis.yaml",
+        "eval/genesis_verifier.py",
+        "eval/owner-use.md",
+        "eval/owner-use.sh",
+        "eval/pass_rules.py",
+        "eval/require-tests.sh",
+        "eval/run-core-tasks.sh",
+        "eval/run_core_tasks.py",
+        "eval/tasks_md.py",
+        "eval/tests/__init__.py",
+        "eval/tests/grader_cases.jsonl",
+        "eval/tests/test_adapter.py",
+        "eval/tests/test_check_gate.py",
+        "eval/tests/test_check_tasks.py",
+        "eval/tests/test_eve_driver.py",
+        "eval/tests/test_genesis_verifier.py",
+        "eval/tests/test_pass_rules.py",
+        "eval/tests/test_runner.py",
+        "eval/tests/test_scripts.py"
+      ],
+      "commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "diff_stats": {
+        "eval/.gitignore": {
+          "added": 4,
+          "deleted": 0
+        },
+        "eval/README.md": {
+          "added": 170,
+          "deleted": 0
+        },
+        "eval/check_gate.py": {
+          "added": 412,
+          "deleted": 0
+        },
+        "eval/check_tasks.py": {
+          "added": 118,
+          "deleted": 0
+        },
+        "eval/containment/discover-dirs.sh": {
+          "added": 75,
+          "deleted": 0
+        },
+        "eval/core-tasks.md": {
+          "added": 226,
+          "deleted": 0
+        },
+        "eval/eve/heron-core.yaml": {
+          "added": 22,
+          "deleted": 0
+        },
+        "eval/eve_adapter.py": {
+          "added": 247,
+          "deleted": 0
+        },
+        "eval/fixtures/p1/work/README.md": {
+          "added": 14,
+          "deleted": 0
+        },
+        "eval/fixtures/p1/work/notes/private.txt": {
+          "added": 1,
+          "deleted": 0
+        },
+        "eval/fixtures/t01/work/notes/meeting.md": {
+          "added": 7,
+          "deleted": 0
+        },
+        "eval/fixtures/t02/work/todo.txt": {
+          "added": 2,
+          "deleted": 0
+        },
+        "eval/fixtures/t07/work/proj/test_math.py": {
+          "added": 16,
+          "deleted": 0
+        },
+        "eval/fixtures/t09/work/old.log": {
+          "added": 2,
+          "deleted": 0
+        },
+        "eval/fixtures/t10/work/.env": {
+          "added": 1,
+          "deleted": 0
+        },
+        "eval/fixtures/web/article.html": {
+          "added": 14,
+          "deleted": 0
+        },
+        "eval/fixtures/web/facts.html": {
+          "added": 9,
+          "deleted": 0
+        },
+        "eval/genesis.yaml": {
+          "added": 28,
+          "deleted": 0
+        },
+        "eval/genesis_verifier.py": {
+          "added": 191,
+          "deleted": 0
+        },
+        "eval/owner-use.md": {
+          "added": 44,
+          "deleted": 0
+        },
+        "eval/owner-use.sh": {
+          "added": 73,
+          "deleted": 0
+        },
+        "eval/pass_rules.py": {
+          "added": 193,
+          "deleted": 0
+        },
+        "eval/require-tests.sh": {
+          "added": 41,
+          "deleted": 0
+        },
+        "eval/run-core-tasks.sh": {
+          "added": 6,
+          "deleted": 0
+        },
+        "eval/run_core_tasks.py": {
+          "added": 659,
+          "deleted": 0
+        },
+        "eval/tasks_md.py": {
+          "added": 59,
+          "deleted": 0
+        },
+        "eval/tests/__init__.py": {
+          "added": 0,
+          "deleted": 0
+        },
+        "eval/tests/grader_cases.jsonl": {
+          "added": 3,
+          "deleted": 0
+        },
+        "eval/tests/test_adapter.py": {
+          "added": 253,
+          "deleted": 0
+        },
+        "eval/tests/test_check_gate.py": {
+          "added": 308,
+          "deleted": 0
+        },
+        "eval/tests/test_check_tasks.py": {
+          "added": 160,
+          "deleted": 0
+        },
+        "eval/tests/test_eve_driver.py": {
+          "added": 106,
+          "deleted": 0
+        },
+        "eval/tests/test_genesis_verifier.py": {
+          "added": 165,
+          "deleted": 0
+        },
+        "eval/tests/test_pass_rules.py": {
+          "added": 195,
+          "deleted": 0
+        },
+        "eval/tests/test_runner.py": {
+          "added": 331,
+          "deleted": 0
+        },
+        "eval/tests/test_scripts.py": {
+          "added": 258,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Evaluation harness: 10 tasks and a probe, adapter, runner, validators, owner-use count, genesis spec",
-    "version": 8,
+    "version": 55,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "c324ec2b67385227ce784b56d83e0f293839cd9e",
