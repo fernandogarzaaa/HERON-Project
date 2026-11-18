@@ -2373,6 +2373,14 @@
         "holder": "agent-1",
         "outcome": "released",
         "started_at": "2026-11-18T19:33:10.973333+00:00"
+      },
+      {
+        "attempt_id": "0bc65b39a4244ba684398fa31eb6701f",
+        "ended_at": "2026-11-18T19:39:46.361655+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T19:34:47.688899+00:00"
       }
     ],
     "attempts_used": 0,
@@ -2386,15 +2394,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "0bc65b39a4244ba684398fa31eb6701f",
-      "base_branch": "skein/U2g__integrate-base",
-      "claim_token": "6318c87d2f474c458b336f19aafdd2e8",
-      "claimed_at": "2026-11-18T19:34:47.688899+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T19:34:47.688899+00:00",
-      "node_version": 48,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U1g",
@@ -2403,41 +2411,41 @@
     "evidence": [
       {
         "command": "cargo test --locked --lib --bins",
-        "duration_ms": 21266,
-        "exit_code": 101,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2g_20261118T193120746120_0.log"
+        "duration_ms": 11302,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2g_20261118T193921145293_0.log"
       },
       {
         "command": "cargo test --locked --features desktop --bin heron-desktop",
-        "duration_ms": 17956,
+        "duration_ms": 2303,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2g_20261118T193142014968_1.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2g_20261118T193932453328_1.log"
       },
       {
         "command": "cargo clippy --locked --all-targets -- -D warnings",
-        "duration_ms": 833,
+        "duration_ms": 416,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2g_20261118T193159972799_2.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2g_20261118T193934758617_2.log"
       },
       {
         "command": "HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins",
-        "duration_ms": 23201,
-        "exit_code": 101,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2g_20261118T193200809197_3.log"
+        "duration_ms": 10864,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2g_20261118T193935176464_3.log"
       },
       {
         "command": "bash eval/require-tests.sh --lib -- broad_config_dir_override_opens_nothing_in_a_cli_sandbox probes_run_contained_like_the_turn sandboxed_command_cannot_launch_outside_the_sandbox",
-        "duration_ms": 622,
+        "duration_ms": 218,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2g_20261118T193224014235_4.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2g_20261118T193946046344_4.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2g_20261118T193224637095_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2g_20261118T193946265140_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence\n[release note] released by agent-1",
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U2g",
     "integration_for": null,
     "intent": {
@@ -2449,13 +2457,41 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "0bc65b39a4244ba684398fa31eb6701f",
+      "base_commit": "8b7fc85330722c2e9a05671d8a851ec180d9fefb",
+      "changed_files": [
+        "src/cli_llm.rs",
+        "src/main.rs",
+        "src/sandbox.rs",
+        "src/tools/shell.rs"
+      ],
+      "commit": "e16f319d9e65295f5563628e4034d62e99a3048a",
+      "diff_stats": {
+        "src/cli_llm.rs": {
+          "added": 54,
+          "deleted": 13
+        },
+        "src/main.rs": {
+          "added": 34,
+          "deleted": 1
+        },
+        "src/sandbox.rs": {
+          "added": 14,
+          "deleted": 0
+        },
+        "src/tools/shell.rs": {
+          "added": 131,
+          "deleted": 4
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Regression tests that run each reproduced U2 escape under Seatbelt",
-    "version": 50,
+    "version": 60,
     "worktree": {
       "base_branch": "skein/U2g__integrate-base",
       "base_commit": "8b7fc85330722c2e9a05671d8a851ec180d9fefb",
