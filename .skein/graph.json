@@ -1754,29 +1754,44 @@
     }
   },
   "U1h__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "8aac7e69dcbe4a64b9d2914ebcf23d2c",
+        "ended_at": "2026-11-18T19:39:47.018705+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-18T19:39:46.634368+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "8aac7e69dcbe4a64b9d2914ebcf23d2c",
-      "base_branch": "skein/U1h__integrate__integrate-base",
-      "claim_token": "6166b6bb47d24b42bc5810cacf6faf11",
-      "claimed_at": "2026-11-18T19:39:46.634368+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-18T19:39:46.634368+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2g",
       "SYNC9"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 0cef7a3df55aea2583545ed7381954fcec8821f1",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['e16f319d9e65295f5563628e4034d62e99a3048a', '0cef7a3df55aea2583545ed7381954fcec8821f1'] into skein/U1h__integrate-base.",
     "id": "U1h__integrate",
     "integration_for": "U1h",
     "intent": {
@@ -1788,16 +1803,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "e16f319d9e65295f5563628e4034d62e99a3048a",
+      "changed_files": [],
+      "commit": "f41079b309c95d49ef9f50968f80c0072b885df4",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of U1h",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/U1h__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "e16f319d9e65295f5563628e4034d62e99a3048a",
+      "branch": "skein/U1h__integrate-base",
       "path": null
     }
   },
