@@ -3332,22 +3332,31 @@
     }
   },
   "U2w__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "b97468d108bc4c1c8448954cafe8ae70",
+        "ended_at": "2026-11-18T23:08:01.355317+00:00",
+        "error": "auto-merge conflicted on: eval/containment/claude-cli.json, eval/containment/codex-cli.json, eval/containment/opencode-cli.json; resolve the conflicts in branch 'skein/U2w__integrate-base' and mark the node done",
+        "holder": "skein-auto-merge",
+        "outcome": "interrupted",
+        "started_at": "2026-11-18T23:08:01.037655+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "b97468d108bc4c1c8448954cafe8ae70",
-      "base_branch": "skein/U2w__integrate__integrate-base",
-      "claim_token": "fb29ead3972f44dda14c0e4495dc6b8d",
-      "claimed_at": "2026-11-18T23:08:01.037655+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-18T23:08:01.037655+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2s",
@@ -3372,9 +3381,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "needs_human",
     "title": "Integrate parents of U2w",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U2w__integrate__integrate-base",
       "branch": null,
