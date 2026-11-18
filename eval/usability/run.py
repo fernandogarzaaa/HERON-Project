@@ -208,7 +208,9 @@ def all_events(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def score_fixture(fixture: Dict[str, Any], success: Dict[str, Any]) -> Dict[str, Any]:
     """Score a recorded or synthetic run: write its files and audit rows to a scratch folder,
     then apply the task's rule."""
-    sys.path.insert(0, os.path.join(EVAL, "genesis"))
+    if os.path.join(EVAL, "genesis") not in sys.path:
+        # appended, not inserted: eval/genesis/build_cases.py must not shadow eval/usability/genesis's
+        sys.path.append(os.path.join(EVAL, "genesis"))
     import json_verifier  # U0g's materializer: files to a working folder, audit rows to heron.db
 
     steps = fixture["steps"]
@@ -262,7 +264,8 @@ def summary_md(summary: Dict[str, Any]) -> str:
     for e in summary["runs"]:
         done = e.get("completed")
         lines.append("| %s | %s | %s%s | %s | %s | %s | %s | %s |" % (
-            e["task"], e["persona"] + (" (api-only)" if e.get("persona_note") else ""), e["status"], " (%s)" % e["reason"] if e.get("reason") else "",
+            e["task"], e["persona"] + (" (api-only)" if e.get("persona_note") else ""), e["status"],
+            " (%s)" % e["reason"] if e.get("reason") else "",
             "-" if done is None else ("yes" if done else "**no**"), e.get("time_ms", "-"), e.get("asks", "-"),
             len(e.get("errors") or []) if done is not None else "-",
             len(e.get("confusion_points") or []) if done is not None else "-"))

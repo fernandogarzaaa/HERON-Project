@@ -35,9 +35,11 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 USABILITY = os.path.dirname(HERE)
 EVAL = os.path.dirname(USABILITY)
-for path in (USABILITY, EVAL, os.path.join(EVAL, "genesis")):
+for path in (USABILITY, EVAL):
     if path not in sys.path:
         sys.path.insert(0, path)
+if os.path.join(EVAL, "genesis") not in sys.path:
+    sys.path.append(os.path.join(EVAL, "genesis"))  # last, so U0g's build_cases.py shadows nothing here
 
 import json_verifier  # noqa: E402  (U0g: strict_loads, Reject, reference tasks)
 import rules  # noqa: E402

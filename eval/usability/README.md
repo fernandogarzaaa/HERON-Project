@@ -35,7 +35,7 @@ sandbox it needs `sandbox.network.allowLocalBinding: true`, or a run outside the
 | `fixtures/synthetic/` | Runs written by hand from the spec for flows this core can't run yet. Each one says so in `_provenance`. |
 | `genesis/` | The audit of the `completed` verdict: spec, verifier, case builder, cases. |
 | `mac/drive-mac.sh`, `mac/gallery.py` | The Mac app driver stub and the screen gallery for EVE. |
-| `tests/` | Unit tests (73). The six API tests bind a port and skip inside the sandbox. |
+| `tests/` | Unit tests (91). The 12 that bind a port skip inside the sandbox. `tests/fake_heron.py` is a fake core with both API shapes: today's (pre-U3), and U3's with `FAKE_HERON_U3=1`. `test_live.py` runs the live path against it end to end, u01 and u07 included. |
 
 ## Personas
 
@@ -184,6 +184,18 @@ false-reject 0.0% over 9 controls. The suite bridge passed `json@0.1.0`. One `[b
 case and whitespace variants of the gold record are rejected, which the strict parser does on
 purpose.
 
+## Test quality
+
+    cd eval && testteeth run --lang python --root . --pytest-args "usability/tests -q -p no:cacheprovider" \
+        --fail-under 70 usability/rules.py usability/client.py usability/run.py usability/genesis/verifier.py
+
+Run it from `eval/`, not from this folder: the harness imports `eval/eve_adapter.py`,
+`pass_rules.py` and the U0g verifier. Run it outside the sandbox too, or the 12 tests that bind
+a port are skipped and their code counts as uncovered. Last run (2026-11-19): **78.5%, passing**
+(768 of 978 mutants killed, 165 survived, 45 not covered, 4 timeouts). Most survivors are in
+transport-failure branches (a reset socket, a read timeout), in the EVE bridge's HTTP handler,
+which runs in a thread under `eve chat`, and in `Core.stop`'s terminate and kill fallbacks.
+
 ## The Mac app plan (U4)
 
 `macos/HeronMac` doesn't exist on this branch yet, so the Mac run is a script stub plus this plan.
@@ -224,7 +236,7 @@ checks in `tasks.md` are a manual pass, done against the accessibility dumps.
 
 | needs | blocks |
 |---|---|
-| U3 (core API contract) | u01 and u07 live, and the `--print-endpoint` path against a real core (it's covered by a fake-core test). |
+| U3 (core API contract) | u01 and u07 against a real core, and the `--print-endpoint` path there. Against the U3-shaped fake core, both tasks and the endpoint line already run in `tests/test_live.py`. |
 | A real-model run (`--provider claude-cli`, owner's quota) | u04, u05, u09 and u10 live, and the EVE driver against real replies. |
 | U4 (`macos/HeronMac`) plus a bundle (U7) | Everything in `mac/`. |
 | EVE's Playwright browser | The screenshot scan (step 4b). |
