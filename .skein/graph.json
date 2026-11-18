@@ -1027,9 +1027,17 @@
         "holder": "agent-1",
         "outcome": "failed",
         "started_at": "2026-11-18T14:54:22.225717+00:00"
+      },
+      {
+        "attempt_id": "7a0da2f06a514874b7e6403c8c9640ad",
+        "ended_at": "2026-11-18T15:57:11.042731+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-18T15:38:46.303341+00:00"
       }
     ],
-    "attempts_used": 0,
+    "attempts_used": 1,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -1040,15 +1048,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "7a0da2f06a514874b7e6403c8c9640ad",
-      "base_branch": "skein/U2__integrate-base",
-      "claim_token": "995a73cf937944c4bde9be00d73c92b8",
-      "claimed_at": "2026-11-18T15:38:46.303341+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T15:38:46.303341+00:00",
-      "node_version": 97,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U1",
@@ -1057,14 +1065,14 @@
     "evidence": [
       {
         "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- sandboxed_shell_cannot_read_ask_tier_paths sandbox_cannot_read_cargo_credentials_via_python granted_folder_is_readable_in_the_sandbox build_and_git_still_work_under_deny_default_reads every_registry_config_dir_is_refused_in_the_sandbox m4_sandbox_denies_globs_quotes_and_unlisted_secrets shell_refused_when_sandbox_off cli_turn_refused_when_sandbox_off fake_cli_child_env_is_exactly_the_allowlist fake_cli_cannot_write_outside_its_run_folder fake_cli_argv_turns_tools_off api_keys_reach_only_listed_providers cli_run_folder_is_under_tmpdir_and_removed version_extraction_reads_first_semver version_outside_range_needs_acceptance mcp_refuse_all_advertises_given_schemas_and_refuses_calls to_v3_adds_columns_and_keeps_rows audit_v2_hash_covers_provider_and_version verify_audit_accepts_mixed_v1_and_v2_rows sessions_record_their_origin unattended_model_steps_wait_on_subscription_provider unknown_auth_is_held run_now_is_not_held canary_real_cli",
-        "duration_ms": 16189,
+        "duration_ms": 13703,
         "exit_code": 101,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2_20261118T153727792330_0.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2_20261118T155657333710_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2_20261118T153743983259_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2_20261118T155711038828_adapter.log"
       }
     ],
     "handoff_note": "completion command failed (adapter exit=0); see evidence",
@@ -1083,9 +1091,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "failed",
     "title": "Deny-default sandbox for shell and CLI child, macOS sandbox-off refusal, CLI environment and run folder, version contrac",
-    "version": 99,
+    "version": 136,
     "worktree": {
       "base_branch": "skein/U2__integrate-base",
       "base_commit": "eb3e96bef0585c9d76bc0f76d6c4c3431d87a3ef",
