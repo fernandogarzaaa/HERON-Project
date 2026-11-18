@@ -880,7 +880,16 @@
     }
   },
   "U2": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "4cfb22ba508d4271bf4638c4115db923",
+        "ended_at": "2026-11-18T14:53:05.197894+00:00",
+        "error": "human edited claimed node",
+        "holder": "agent-1",
+        "outcome": "interrupted",
+        "started_at": "2026-11-18T14:52:08.365445+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -892,15 +901,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "4cfb22ba508d4271bf4638c4115db923",
-      "base_branch": "skein/U2__integrate-base",
-      "claim_token": "7ac9c50c57614010b88f52b838ac5400",
-      "claimed_at": "2026-11-18T14:52:08.365445+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T14:52:08.365445+00:00",
-      "node_version": 3,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U1",
@@ -923,9 +932,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "needs_human",
     "title": "Deny-default sandbox for shell and CLI child, macOS sandbox-off refusal, CLI environment and run folder, version contrac",
-    "version": 5,
+    "version": 7,
     "worktree": {
       "base_branch": "skein/U2__integrate-base",
       "base_commit": "eb3e96bef0585c9d76bc0f76d6c4c3431d87a3ef",
