@@ -304,11 +304,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Baseline run on today's `main` code (measurement only)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
-      "branch": null,
-      "path": null
+      "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "branch": "skein/U0b",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U0b"
     }
   },
   "U1": {
