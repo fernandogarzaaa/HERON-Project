@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -324,6 +324,41 @@ impl Default for ServerConfig {
     }
 }
 
+/// Set in `saved` every value that differs between `old` and `new`, leaving the rest of `saved` alone.
+/// Tables are compared key by key; any other value (a list, a string) is changed as a whole.
+fn apply_changes(saved: &mut toml::Value, old: &toml::Value, new: &toml::Value) {
+    use toml::Value;
+    if old == new {
+        return;
+    }
+    let (Value::Table(old), Value::Table(new)) = (old, new) else {
+        *saved = new.clone();
+        return;
+    };
+    if !saved.is_table() {
+        *saved = Value::Table(Default::default());
+    }
+    let Value::Table(saved) = saved else { return };
+    for key in old.keys().chain(new.keys().filter(|k| !old.contains_key(*k))) {
+        match (old.get(key), new.get(key)) {
+            (Some(o), Some(n)) => match saved.get_mut(key) {
+                Some(s) => apply_changes(s, o, n),
+                None if o != n => {
+                    saved.insert(key.clone(), n.clone());
+                }
+                None => {}
+            },
+            (None, Some(n)) => {
+                saved.insert(key.clone(), n.clone());
+            }
+            (Some(_), None) => {
+                saved.remove(key);
+            }
+            (None, None) => {}
+        }
+    }
+}
+
 pub fn default_home() -> PathBuf {
     if let Ok(h) = std::env::var("HERON_HOME") {
         return PathBuf::from(h);
@@ -334,7 +369,32 @@ pub fn default_home() -> PathBuf {
 impl Config {
     /// Load config from `$HERON_HOME/config.toml` (defaults if absent), then apply env overrides.
     pub fn load() -> Result<Config> {
-        let home = default_home();
+        let mut cfg = Self::read_saved(&default_home())?;
+        if let Ok(v) = std::env::var("HERON_MODEL") {
+            cfg.llm.model = v;
+        }
+        if let Ok(v) = std::env::var("HERON_BASE_URL") {
+            cfg.llm.base_url = v;
+        }
+        if let Ok(v) = std::env::var("HERON_PROVIDER") {
+            cfg.llm.provider = v;
+        }
+        if let Ok(v) = std::env::var("HERON_CLI_COMMAND") {
+            cfg.llm.cli_command = v;
+        }
+        if let Ok(v) = std::env::var("HERON_CLI_MODEL") {
+            cfg.llm.cli_model = v;
+        }
+        if let Ok(v) = std::env::var("HERON_MODE") {
+            cfg.permissions.mode = v;
+        }
+        Ok(cfg)
+    }
+
+    /// The settings as saved in `<home>/config.toml` (defaults if absent), without the overrides from
+    /// the environment or the command line.
+    pub fn read_saved(home: &Path) -> Result<Config> {
+        let home = home.to_path_buf();
         let path = home.join("config.toml");
         let mut cfg: Config = if path.exists() {
             let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -357,25 +417,32 @@ impl Config {
             c
         };
         cfg.home = home;
-        if let Ok(v) = std::env::var("HERON_MODEL") {
-            cfg.llm.model = v;
-        }
-        if let Ok(v) = std::env::var("HERON_BASE_URL") {
-            cfg.llm.base_url = v;
-        }
-        if let Ok(v) = std::env::var("HERON_PROVIDER") {
-            cfg.llm.provider = v;
-        }
-        if let Ok(v) = std::env::var("HERON_CLI_COMMAND") {
-            cfg.llm.cli_command = v;
-        }
-        if let Ok(v) = std::env::var("HERON_CLI_MODEL") {
-            cfg.llm.cli_model = v;
-        }
-        if let Ok(v) = std::env::var("HERON_MODE") {
-            cfg.permissions.mode = v;
-        }
         Ok(cfg)
+    }
+
+    /// Apply `heron --mode` and `--model`. They hold for this run only: [`Config::save_changes`]
+    /// never writes them.
+    pub fn with_cli_overrides(mut self, mode: Option<&str>, model: Option<&str>) -> Result<Config> {
+        if let Some(m) = mode {
+            crate::permissions::Mode::parse(m)?;
+            self.permissions.mode = m.to_string();
+        }
+        if let Some(m) = model {
+            self.llm.model = m.to_string();
+        }
+        Ok(self)
+    }
+
+    /// Save the settings that differ between `before` and `self`, and only those: the file is read
+    /// again and each changed field is set in it. A value that came from the command line or the
+    /// environment (`--mode yolo`, `--model`, `HERON_MODEL`) is in both and is never written.
+    pub fn save_changes(&self, before: &Config) -> Result<()> {
+        let (old, new) = (toml::Value::try_from(before)?, toml::Value::try_from(self)?);
+        let mut saved = toml::Value::try_from(Self::read_saved(&self.home)?)?;
+        apply_changes(&mut saved, &old, &new);
+        let mut merged: Config = saved.try_into().context("the changed settings could not be combined with the saved ones; nothing was saved")?;
+        merged.home = self.home.clone();
+        merged.save()
     }
 
     pub fn api_key(&self) -> Option<String> {

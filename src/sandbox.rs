@@ -484,12 +484,23 @@ impl ReadGrant {
 /// What the user granted for reading: the standing `read:` rules, plus the `read:` and `read=:` grants
 /// of one conversation when `session_id` is given. Too-broad folders and relative paths are left out.
 pub fn read_grants(cfg: &Config, store: &crate::store::Store, session_id: Option<&str>) -> Vec<ReadGrant> {
+    read_grants_from(standing_rules(cfg, store), store, session_id)
+}
+
+/// The standing rules: those in the settings, and the saved "always" answers as they are now.
+pub fn standing_rules(cfg: &Config, store: &crate::store::Store) -> Vec<String> {
     let mut rules: Vec<String> = cfg.permissions.allow.clone();
-    let keys = std::iter::once("allow_rules".to_string()).chain(session_id.map(|s| format!("grants:{s}")));
-    for key in keys {
-        if let Some(saved) = store.kv_get(&key) {
-            rules.extend(serde_json::from_str::<Vec<String>>(&saved).unwrap_or_default());
-        }
+    if let Some(saved) = store.kv_get("allow_rules") {
+        rules.extend(serde_json::from_str::<Vec<String>>(&saved).unwrap_or_default());
+    }
+    rules
+}
+
+/// [`read_grants`], with the standing rules given.
+pub fn read_grants_from(standing: Vec<String>, store: &crate::store::Store, session_id: Option<&str>) -> Vec<ReadGrant> {
+    let mut rules = standing;
+    if let Some(saved) = session_id.and_then(|s| store.kv_get(&format!("grants:{s}"))) {
+        rules.extend(serde_json::from_str::<Vec<String>>(&saved).unwrap_or_default());
     }
     let mut out: Vec<ReadGrant> = vec![];
     for rule in rules {

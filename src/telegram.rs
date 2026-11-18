@@ -208,17 +208,56 @@ impl Bot {
 struct Shared {
     /// A question waiting for the owner's yes/no.
     pending: Mutex<Option<(String, oneshot::Sender<bool>)>>,
-    /// The reply in progress, with a number so a finished reply can only clear its own entry.
-    running: Mutex<Option<(u64, tokio::task::AbortHandle)>>,
+    /// The reply in progress.
+    running: Mutex<Option<Running>>,
     next_run: std::sync::atomic::AtomicU64,
 }
 
+/// A reply in progress: one run on the bus.
+struct Running {
+    /// A number, so a finished reply can only clear its own entry.
+    n: u64,
+    session_id: String,
+    run_id: String,
+    handle: tokio::task::AbortHandle,
+    /// Resolves once the reply's task has stopped, however it stopped.
+    done: oneshot::Receiver<()>,
+}
+
 impl Shared {
-    /// Halt the reply in progress, including a question it is waiting on. True if there was one.
-    fn stop(&self) -> bool {
+    /// Halt the reply in progress, including a question it is waiting on. The halted reply, if
+    /// there was one; its task may still be finishing the step it was in.
+    fn halt(&self) -> Option<Running> {
         self.pending.lock().unwrap().take();
-        self.running.lock().unwrap().take().map(|(_, h)| h.abort()).is_some()
+        let running = self.running.lock().unwrap().take();
+        if let Some(r) = &running {
+            r.handle.abort();
+        }
+        running
     }
+
+    /// The reply numbered `n` is over: clear its entry. False when a stop got there first, in which
+    /// case the stop ends the run on the bus.
+    fn finish(&self, n: u64) -> bool {
+        let mut running = self.running.lock().unwrap();
+        if running.as_ref().is_some_and(|r| r.n == n) {
+            running.take();
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// `/stop` and `/pause`: halt the reply in progress and end its run on the bus with `cancelled`
+/// and `run_end`, once its task has stopped, so nothing of that run follows `run_end`. True if
+/// there was one.
+async fn stop_reply(app: &App, shared: &Shared) -> bool {
+    let Some(r) = shared.halt() else { return false };
+    let _ = r.done.await;
+    app.events.publish(&r.session_id, &r.run_id, json!({"type": "cancelled"}));
+    app.publish_run_end(&r.session_id, &r.run_id);
+    true
 }
 
 // Settings can abort the gateway while separately spawned agent turns are
@@ -226,7 +265,7 @@ impl Shared {
 struct AbortAgentsOnDrop(Arc<Shared>);
 impl Drop for AbortAgentsOnDrop {
     fn drop(&mut self) {
-        self.0.stop();
+        self.0.halt();
     }
 }
 
@@ -417,13 +456,13 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
     // Stopping comes first: "/stop" while a question is waiting must halt the whole reply, not merely
     // answer the question with "no" and let the work carry on.
     if lower == "/stop" {
-        let stopped = shared.stop();
+        let stopped = stop_reply(app, shared).await;
         bot.send(chat, if stopped { "Stopped." } else { "Nothing is running." }).await;
         return;
     }
     if lower == "/pause" {
         app.set_paused(true);
-        shared.stop();
+        stop_reply(app, shared).await;
         bot.send(chat, "Paused. Heron will start nothing on its own (reminders, triggers, suggestions) until you send /resume.").await;
         return;
     }
@@ -472,58 +511,66 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
         }
         _ => {}
     }
-    {
+    let failed = {
         // The entry is written while the lock is held, so even a reply that finishes instantly finds
         // its own entry to clear instead of leaving a stale one behind.
         let mut running = shared.running.lock().unwrap();
-        if running.is_none() {
-            let run_id = shared.next_run.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let (app2, bot2, shared2) = (app.clone(), bot.clone(), shared.clone());
-            let task = tokio::spawn(async move {
-                let reply = async {
-                    let mut session = session_for(&app2, false)?;
-                    let input = turn_input(&app2.store, &session, &text, forwarded);
-                    let agent = app2.agent(Arc::new(TelegramApprover { bot: bot2.clone(), chat, shared: shared2.clone() }));
-                    // Phone turns publish to the bus like every other run.
-                    let (sid, run_id) = (session.id.clone(), crate::events::new_run_id());
-                    let outcome = agent.run_turn(&mut session, &input, &app2.sink_for(&sid, &run_id)).await;
-                    app2.publish_outcome(&sid, &run_id, outcome.as_deref());
-                    let text_out = match outcome {
-                        Ok(text) => text,
-                        Err(e) => {
-                            app2.publish_run_end(&sid, &run_id);
-                            return Err(e);
-                        }
-                    };
-                    app2.persist_rules();
-                    let learned = agent.learn(&session, &input, &text_out).await;
-                    if !learned.is_empty() {
-                        app2.events.publish(&sid, &run_id, json!({"type": "learned", "items": learned}));
-                    }
-                    app2.publish_run_end(&sid, &run_id);
-                    Ok::<_, anyhow::Error>(text_out)
+        if running.is_some() {
+            None
+        } else {
+            match session_for(app, false) {
+                Ok(session) => {
+                    *running = Some(start_reply(app, bot, shared, chat, session, text, forwarded));
+                    return;
                 }
-                .await;
-                {
-                    let mut running = shared2.running.lock().unwrap();
-                    if running.as_ref().map(|(id, _)| *id == run_id).unwrap_or(false) {
-                        running.take();
-                    }
-                }
-                match reply {
-                    Ok(t) if t.trim().is_empty() => bot2.send(chat, "(done)").await,
-                    Ok(t) => bot2.send(chat, &t).await,
-                    Err(e) if e.chain().any(|c| c.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some()) => {
-                        bot2.send(chat, RISK_NOTICE_REPLY).await
-                    }
-                    Err(e) => bot2.send(chat, &format!("Heron could not finish: {e:#}")).await,
-                }
-            });
-            *running = Some((run_id, task.abort_handle()));
-            return;
+                Err(e) => Some(e),
+            }
         }
+    };
+    if let Some(e) = failed {
+        bot.send(chat, &format!("Heron could not finish: {e:#}")).await;
+        return;
     }
     bot.send(chat, "Still working on your last message. Send /stop to halt it.").await;
+}
+
+/// Start a phone turn as its own task. It is a run on the bus like every other: `session` first,
+/// `run_end` last, whether it finishes or is stopped.
+fn start_reply(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i64, mut session: Session, text: String, forwarded: bool) -> Running {
+    let n = shared.next_run.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (sid, run_id) = (session.id.clone(), crate::events::new_run_id());
+    app.publish_run_start(&sid, &run_id);
+    let (app, bot, shared) = (app.clone(), bot.clone(), shared.clone());
+    let (session_id, bus_run) = (sid.clone(), run_id.clone());
+    let (stopped, done) = oneshot::channel::<()>();
+    let task = tokio::spawn(async move {
+        // Dropped when this task ends, however it ends: that is what a stop waits for.
+        let _stopped = stopped;
+        app.reload_rules();
+        let input = turn_input(&app.store, &session, &text, forwarded);
+        let agent = app.agent(Arc::new(TelegramApprover { bot: bot.clone(), chat, shared: shared.clone() }));
+        let outcome = agent.run_turn(&mut session, &input, &app.sink_for(&sid, &run_id)).await;
+        // A stop that got here first ends the run on the bus.
+        if !shared.finish(n) {
+            return;
+        }
+        app.publish_outcome(&sid, &run_id, outcome.as_deref());
+        if let Ok(text_out) = &outcome {
+            app.persist_rules();
+            let learned = agent.learn(&session, &input, text_out).await;
+            if !learned.is_empty() {
+                app.events.publish(&sid, &run_id, json!({"type": "learned", "items": learned}));
+            }
+        }
+        app.publish_run_end(&sid, &run_id);
+        match outcome {
+            Ok(t) if t.trim().is_empty() => bot.send(chat, "(done)").await,
+            Ok(t) => bot.send(chat, &t).await,
+            Err(e) if e.chain().any(|c| c.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some()) => bot.send(chat, RISK_NOTICE_REPLY).await,
+            Err(e) => bot.send(chat, &format!("Heron could not finish: {e:#}")).await,
+        }
+    });
+    Running { n, session_id, run_id: bus_run, handle: task.abort_handle(), done }
 }
 
 /// Forward results of scheduled and self-started work to the paired chat.
@@ -1019,13 +1066,71 @@ mod tests {
         assert!(shared.pending.lock().unwrap().is_none());
     }
 
+    /// A model that never answers: the turn stays in its model call until it is stopped.
+    struct Waits(Arc<std::sync::atomic::AtomicBool>);
+
+    #[async_trait]
+    impl crate::llm::Llm for Waits {
+        async fn chat(&self, _req: crate::llm::ChatRequest, _on_delta: crate::llm::DeltaFn<'_>) -> Result<crate::llm::ChatResponse> {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            std::future::pending().await
+        }
+    }
+
+    #[tokio::test]
+    async fn telegram_stop_ends_the_run_on_the_bus() {
+        use crate::events::Item;
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        cfg.ensure_home().unwrap();
+        let entered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(Waits(entered.clone()))).await.unwrap());
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        let bot = Bot {
+            client: reqwest::Client::new(),
+            base: "http://127.0.0.1:1/botOFFLINE".into(),
+            app: app.clone(),
+            account_id: "stop-bot".into(),
+            pairing_epoch: pairing_code(&app),
+            spool: ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap(),
+            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        let shared = Arc::<Shared>::default();
+        let mut bus = app.events.subscribe(None);
+        for command in ["/stop", "/pause"] {
+            entered.store(false, std::sync::atomic::Ordering::SeqCst);
+            handle_message(&app, &bot, &shared, 42, "summarize my notes".into(), false).await;
+            until("the turn reaches the model", || entered.load(std::sync::atomic::Ordering::SeqCst)).await;
+            handle_message(&app, &bot, &shared, 42, command.into(), false).await;
+            assert!(shared.running.lock().unwrap().is_none(), "{command} halted the reply");
+
+            let mut events = vec![];
+            while let Ok(Some(Item::Event(e))) = tokio::time::timeout(Duration::from_millis(300), bus.next()).await {
+                events.push(e);
+            }
+            let kinds: Vec<&str> = events.iter().map(|e| e.kind()).collect();
+            // One run: it started with `session {id, run_id}` and ended with `cancelled`, `run_end`.
+            let run = events.first().map(|e| e.run_id.clone()).unwrap_or_default();
+            assert!(events.iter().all(|e| e.run_id == run), "{command}: {kinds:?}");
+            assert_eq!(kinds.first(), Some(&"session"), "{command}: {kinds:?}");
+            let sid = app.store.kv_get("telegram_session").unwrap();
+            assert_eq!((events[0].session_id.as_str(), events[0].json["id"].as_str(), events[0].json["run_id"].as_str()), (sid.as_str(), Some(sid.as_str()), Some(run.as_str())));
+            assert_eq!(&kinds[kinds.len() - 2..], ["cancelled", "run_end"], "{command}: {kinds:?}");
+            assert_eq!(kinds.iter().filter(|k| **k == "run_end").count(), 1, "{command}: {kinds:?}");
+        }
+        assert!(app.paused());
+    }
+
     #[tokio::test]
     async fn stopping_gateway_aborts_detached_agent_turns() {
         let shared = Arc::<Shared>::default();
         let task = tokio::spawn(async {
             tokio::time::sleep(Duration::from_secs(120)).await;
         });
-        *shared.running.lock().unwrap() = Some((1, task.abort_handle()));
+        let (_stopped, done) = oneshot::channel();
+        *shared.running.lock().unwrap() = Some(Running { n: 1, session_id: "s".into(), run_id: "r".into(), handle: task.abort_handle(), done });
         let guard = AbortAgentsOnDrop(shared.clone());
         drop(guard);
         assert!(task.await.unwrap_err().is_cancelled());

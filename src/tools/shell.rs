@@ -17,9 +17,10 @@ fn risk(args: &Value, _ctx: &ToolCtx) -> Effect {
 }
 
 /// What the sandbox lets a command read besides the working folder: the standing `read:` rules
-/// always, and this conversation's grants only while no outside content is present, as for a read.
+/// always, taken from the run's live policy so a revoked one closes for the next command, and this
+/// conversation's grants only while no outside content is present, as for a read.
 fn sandbox_grants(ctx: &ToolCtx) -> Vec<crate::sandbox::ReadGrant> {
-    crate::sandbox::shell_grants(&ctx.cfg, &ctx.store, &ctx.session_id, ctx.tainted.load(std::sync::atomic::Ordering::SeqCst))
+    ctx.read_grants()
 }
 
 async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
