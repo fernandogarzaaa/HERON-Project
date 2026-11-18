@@ -67,8 +67,7 @@ mod tests {
     #[test]
     fn persona_round_trips_and_resets() {
         let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dir.path().join("home");
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
         assert!(is_default(&cfg));
         assert!(load(&cfg).contains("Lead with the answer"));
         save(&cfg, "# Who you are\n- Dry, funny, a little blunt.\n- Call me Dana.").unwrap();

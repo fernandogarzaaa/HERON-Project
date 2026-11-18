@@ -1,15 +1,20 @@
-//! Operating-system sandbox for commands the agent runs.
+//! Operating-system sandbox for commands the agent runs and for the CLI providers it spawns.
 //!
-//! Pattern matching on a command line can be fooled; the operating system cannot. Where a sandbox is
-//! available, every shell command runs inside one that:
-//!   - can change files only in the working folder, temporary folders and a few tool caches;
-//!   - cannot read Heron's own folder (settings, memory, keys) or the user's key folders (.ssh, .aws, ...).
-//! Everything else is readable and the network stays available, so builds, tests and git work as usual.
+//! Pattern matching on a command line can be fooled; the operating system cannot. On macOS every shell
+//! command, and every CLI provider child, runs inside a Seatbelt profile built by one function
+//! ([`seatbelt_profile`]):
+//!   - reads are denied by default under the user roots (`$HOME`, `/Users`, `/Volumes`) and Heron's
+//!     own home. The working folder (or the CLI's run folder), folders the user granted and the
+//!     toolchain folders builds and git need are opened again; Refused paths and secrets are then
+//!     denied again, whatever the command line says;
+//!   - writes are allowed only in the working folder, temporary folders and a few tool caches (for a
+//!     CLI: only its run folder and its own config folders).
 //!
-//! Linux uses bubblewrap (`bwrap`) when installed; macOS uses the built-in Seatbelt (`sandbox-exec`).
-//! Windows has no equivalent here yet. The layering (read-only root, private temp, hidden secrets, an
-//! environment without credentials) follows the approach of the sealbox project by the same author.
+//! Linux uses bubblewrap (`bwrap`) for the shell when installed, with today's rules. Windows has no
+//! equivalent here yet. On macOS a missing sandbox is not a fallback: [`required`] is true, and the
+//! callers refuse to run commands or CLIs without one.
 
+use crate::cli_llm::{CliSpec, CredentialStore};
 use crate::config::Config;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -54,6 +59,119 @@ pub fn active(cfg: &Config) -> Kind {
     if off { Kind::None } else { available() }
 }
 
+/// Must commands and CLIs run inside the sandbox? True on macOS: with the sandbox off there, the shell
+/// and CLI providers are refused instead of run unsandboxed (Q11). Elsewhere they run as before.
+pub fn required() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// What a sandbox is for.
+#[derive(Debug, Clone)]
+pub enum Profile<'a> {
+    /// A shell command. `grants` are the folders (and single files) the user granted for reading.
+    Shell { grants: Vec<PathBuf> },
+    /// A CLI provider child. `binary_dir` is the install folder of its binary. `extra_read` holds the
+    /// interpreter's folder when the binary is a script, and in debug builds the folder of Heron's own
+    /// executable when the hybrid topology is on.
+    Cli { spec: &'a CliSpec, binary_dir: PathBuf, extra_read: Vec<PathBuf> },
+}
+
+/// The mach services of the Keychain (securityd). Denied to shell commands and to CLIs that keep their
+/// login in their own folders, so a command cannot ask securityd for a Keychain item without touching
+/// any file.
+pub const KEYCHAIN_SERVICES: &[&str] = &["com.apple.SecurityServer", "com.apple.securityd.xpc", "com.apple.security.keychaind", "com.apple.securityd"];
+
+/// The secret check (`permissions::sensitive_path`) as Seatbelt regular expressions, written in lower
+/// case: [`seatbelt_regex`] makes each one case-insensitive, as the original is. Seatbelt sees absolute
+/// paths, so `(^|/)` becomes `/`. Left out on purpose: `^/(proc|sys|dev)/` (a read deny on `/dev` would
+/// block `/dev/null`, `/dev/urandom` and the terminal) and the `^/etc/...` alternatives (every command
+/// reads `/etc`). `seatbelt_secret_patterns_match_the_secret_check` checks the list against the original.
+pub const SEATBELT_SECRET_PATTERNS: &[&str] = &[
+    r"^.*/(\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.config/gcloud)(/.*)?$",
+    r"^.*/\.env(\.[-a-z0-9_.]+)?$",
+    r"^.*/(id_rsa|id_ed25519|id_ecdsa)(\.pub)?$",
+    r"^.*/\.(netrc|npmrc|pypirc|git-credentials)$",
+    r"^.*credentials(\.json)?$",
+    r"^.*\.pem$",
+    r"^.*\.key$",
+    r"^.*/heron\.db(-wal|-shm)?$",
+    r"^.*/\.heron/secrets\.json$",
+    r"^.*/\.config/gh/hosts\.yml$",
+    r"^.*/\.config/git/credentials$",
+    r"^.*credentials\.toml$",
+    r"^.*/\.(bash|zsh|sh|python|node_repl|psql|mysql|sqlite)_history$",
+    r"^.*/\.lesshst$",
+    r"^.*/\.zsh_sessions(/.*)?$",
+    r"^.*/\.local/share/fish/fish_history$",
+    r"^.*/(login data|login data for account|cookies|web data)(-journal)?$",
+];
+
+/// Folders under the home folder that builds, package managers and git need to read. Kept in step with
+/// `docs/cli-providers.md`. A folder is added only when the build check
+/// (`build_and_git_still_work_under_deny_default_reads`) needs it.
+pub const TOOLCHAIN_DIRS: &[&str] = &[
+    ".config/git",
+    ".cargo",
+    ".rustup",
+    ".npm",
+    ".nvm",
+    ".local/bin",
+    ".local/share/uv",
+    ".cache/uv",
+    ".cache/pip",
+    "Library/Caches/Homebrew",
+    "Library/Caches/pip",
+];
+
+/// A Seatbelt pattern made case-insensitive: every ASCII letter outside a bracket expression becomes
+/// `[xX]`. Inside brackets, a lower-case range gains its upper-case twin.
+pub fn seatbelt_regex(pattern: &str) -> String {
+    let mut out = String::new();
+    let mut chars = pattern.chars().peekable();
+    let mut in_bracket = false;
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                out.push(c);
+                if let Some(next) = chars.next() {
+                    out.push(next);
+                }
+            }
+            '[' if !in_bracket => {
+                in_bracket = true;
+                out.push(c);
+            }
+            ']' if in_bracket => {
+                in_bracket = false;
+                out.push(c);
+            }
+            'a'..='z' if in_bracket => {
+                out.push(c);
+                if chars.peek() == Some(&'-') {
+                    // A range such as `a-z`: add `A-Z` after it.
+                    chars.next();
+                    let end = chars.next().unwrap_or(c);
+                    out.push('-');
+                    out.push(end);
+                    out.push(c.to_ascii_uppercase());
+                    out.push('-');
+                    out.push(end.to_ascii_uppercase());
+                } else {
+                    out.push(c.to_ascii_uppercase());
+                }
+            }
+            c if c.is_ascii_alphabetic() && !in_bracket => {
+                out.push('[');
+                out.push(c.to_ascii_lowercase());
+                out.push(c.to_ascii_uppercase());
+                out.push(']');
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn existing(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
     paths.into_iter().filter(|p| p.exists()).map(|p| dunce::canonicalize(&p).unwrap_or(p)).collect()
 }
@@ -63,7 +181,7 @@ fn writable_extras(home: &Path) -> Vec<PathBuf> {
     existing([".cache", ".cargo/registry", ".cargo/git", ".npm", ".rustup/toolchains", "Library/Caches"].iter().map(|d| home.join(d)))
 }
 
-/// Folders a command must not even read.
+/// Folders a command must not even read (the Linux sandbox).
 fn hidden(cfg: &Config, home: &Path, workspace: &Path) -> Vec<PathBuf> {
     let mut v = existing([".ssh", ".aws", ".gnupg", ".kube", ".docker", ".config/gcloud", ".netrc", ".git-credentials"].iter().map(|d| home.join(d)).chain([cfg.home.clone()]));
     // Never hide the folder we are working in (or one of its parents).
@@ -75,45 +193,395 @@ fn sbpl_quote(p: &Path) -> String {
     format!("\"{}\"", p.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// The command prefix that runs a program inside the sandbox, or None when there is no sandbox.
-/// The caller appends the shell and its arguments.
-pub fn wrap(cfg: &Config, workspace: &Path) -> Option<(String, Vec<String>)> {
+/// A path as written and its canonical form when that differs (`/var/...` and `/private/var/...`), so
+/// a rule matches whichever the kernel reports.
+fn both_forms(p: &Path) -> Vec<PathBuf> {
+    let mut v = vec![p.to_path_buf()];
+    if let Ok(real) = dunce::canonicalize(p) {
+        if real != p {
+            v.push(real);
+        }
+    }
+    v
+}
+
+fn subpaths<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> String {
+    let mut seen: Vec<PathBuf> = vec![];
+    let mut out = String::new();
+    for p in paths {
+        for form in both_forms(p) {
+            if !seen.contains(&form) {
+                out.push_str(&format!(" (subpath {})", sbpl_quote(&form)));
+                seen.push(form);
+            }
+        }
+    }
+    out
+}
+
+fn tilde(raw: &str, home: &Path) -> PathBuf {
+    if raw == "~" {
+        home.to_path_buf()
+    } else if let Some(rest) = raw.strip_prefix("~/") {
+        home.join(rest)
+    } else {
+        PathBuf::from(raw)
+    }
+}
+
+/// A CLI's own config folders: its registry `config_dirs`, plus, for a CLI that takes a config-folder
+/// variable, that variable's value and the configured `llm.cli_config_dir`.
+pub fn own_config_dirs(cfg: &Config, spec: &CliSpec, home: &Path) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = spec.config_dirs.iter().map(|d| tilde(d, home)).collect();
+    if let Some(var) = spec.config_dir_env {
+        if let Ok(value) = std::env::var(var) {
+            if !value.trim().is_empty() {
+                dirs.push(tilde(value.trim(), home));
+            }
+        }
+        if !cfg.llm.cli_config_dir.trim().is_empty() {
+            dirs.push(PathBuf::from(crate::cli_llm::normalize_config_dir(cfg.llm.cli_config_dir.trim())));
+        }
+    }
+    dirs
+}
+
+/// Files the user's git configuration points git at (`core.excludesFile`, `core.attributesFile`, and
+/// `include.path` / `includeIf` paths), read from `~/.gitconfig` and `~/.config/git/config`. Git stops
+/// with "cannot use ... as an exclude file" when it cannot read the excludes file it was told to use,
+/// so these are readable by shell commands; Refused and secret paths are still denied after them.
+pub fn git_config_files(home: &Path) -> Vec<PathBuf> {
+    let mut out = vec![];
+    for config in [home.join(".gitconfig"), home.join(".config/git/config")] {
+        let Ok(text) = std::fs::read_to_string(&config) else { continue };
+        let mut section = String::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                section = line.trim_start_matches('[').split([']', ' ', '"']).next().unwrap_or("").to_ascii_lowercase();
+                continue;
+            }
+            let Some((key, value)) = line.split_once('=') else { continue };
+            let key = key.trim().to_ascii_lowercase();
+            let wanted = (section == "core" && (key == "excludesfile" || key == "attributesfile")) || ((section == "include" || section == "includeif") && key == "path");
+            if !wanted {
+                continue;
+            }
+            let value = value.split(['#', ';']).next().unwrap_or("").trim().trim_matches('"');
+            if value.is_empty() {
+                continue;
+            }
+            let path = tilde(value, home);
+            let path = if path.is_absolute() { path } else { config.parent().map(|d| d.join(&path)).unwrap_or(path) };
+            if !out.contains(&path) {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+/// The Seatbelt profile for one command or CLI. Seatbelt applies the last rule that matches, so the
+/// order is the design: deny reads under the user roots, allow metadata everywhere, allow the readable
+/// set, deny writes except the writable set, then deny Refused paths and secrets again.
+pub fn seatbelt_profile(cfg: &Config, home: &Path, workdir: &Path, profile: &Profile) -> String {
+    let roots = crate::permissions::ReadRoots::of(cfg);
+    let mut p = String::from("(version 1)\n(allow default)\n");
+    p.push_str(&format!("(deny file-read*{})\n", subpaths(&[home.to_path_buf(), PathBuf::from("/Users"), PathBuf::from("/Volumes"), cfg.home.clone()])));
+    // Path resolution, `realpath` and git need to `stat` parent folders. This shows that a file exists,
+    // its size and its time, never its contents.
+    p.push_str("(allow file-read-metadata)\n");
+    let secrets = || {
+        let rules: Vec<String> = SEATBELT_SECRET_PATTERNS.iter().map(|r| format!(" (regex #\"{}\")", seatbelt_regex(r))).collect();
+        format!("(deny file-read*{})\n", rules.concat())
+    };
+    let keychain_deny = || {
+        let names: Vec<String> = KEYCHAIN_SERVICES.iter().map(|n| format!(" (global-name \"{n}\")")).collect();
+        format!("(deny mach-lookup{})\n", names.concat())
+    };
+    match profile {
+        Profile::Shell { grants } => {
+            let mut readable = vec![workdir.to_path_buf()];
+            readable.extend(grants.iter().cloned());
+            readable.extend(TOOLCHAIN_DIRS.iter().map(|d| home.join(d)));
+            let mut literals = vec![home.join(".gitconfig")];
+            literals.extend(git_config_files(home));
+            let literals: Vec<String> = literals.iter().flat_map(|p| both_forms(p)).map(|p| format!(" (literal {})", sbpl_quote(&p))).collect();
+            p.push_str(&format!("(allow file-read*{}{})\n", subpaths(&readable), literals.concat()));
+            p.push_str("(deny file-write*)\n");
+            let mut writable = vec![PathBuf::from("/private/tmp"), PathBuf::from("/private/var/folders"), PathBuf::from("/dev"), workdir.to_path_buf()];
+            writable.extend(writable_extras(home));
+            p.push_str(&format!("(allow file-write*{})\n", subpaths(&writable)));
+            p.push_str(&format!("(deny file-read* file-write*{})\n", subpaths(roots.refused_paths())));
+            p.push_str(&secrets());
+            p.push_str(&keychain_deny());
+        }
+        Profile::Cli { spec, binary_dir, extra_read } => {
+            let mut readable = vec![workdir.to_path_buf(), binary_dir.clone()];
+            readable.extend(extra_read.iter().cloned());
+            p.push_str(&format!("(allow file-read*{})\n", subpaths(&readable)));
+            p.push_str("(deny file-write*)\n");
+            p.push_str(&format!("(allow file-write*{})\n", subpaths(&[PathBuf::from("/dev"), workdir.to_path_buf()])));
+            let own = own_config_dirs(cfg, spec, home);
+            let own_forms: Vec<PathBuf> = own.iter().flat_map(|d| both_forms(d)).collect();
+            let refused: Vec<PathBuf> = roots.refused_paths().iter().filter(|r| !own_forms.iter().any(|o| r.starts_with(o))).cloned().collect();
+            if !refused.is_empty() {
+                p.push_str(&format!("(deny file-read* file-write*{})\n", subpaths(&refused)));
+            }
+            p.push_str(&secrets());
+            match spec.credential_store {
+                CredentialStore::MacosKeychain => p.push_str(&format!("(allow file-read* file-write*{})\n", subpaths(&[home.join("Library/Keychains")]))),
+                CredentialStore::HomeFolder => p.push_str(&keychain_deny()),
+            }
+            // Last, so they win over the Refused and secret rules: a CLI's own folders are the one
+            // exception to Refused, and only inside its own sandbox. A CLI with no folders of its own
+            // (custom-cli) gets no rule: a bare `(allow file-read* file-write*)` would open everything.
+            if !own.is_empty() {
+                p.push_str(&format!("(allow file-read* file-write*{})\n", subpaths(&own)));
+            }
+        }
+    }
+    p
+}
+
+/// The command prefix that runs a program inside the sandbox, or None when there is none. `workdir` is
+/// the working folder for the shell and the run folder for a CLI. The caller appends the program and
+/// its arguments. A CLI is wrapped only by Seatbelt: on Linux and Windows it runs as before.
+pub fn wrap(cfg: &Config, workdir: &Path, profile: &Profile) -> Option<(String, Vec<String>)> {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+    let home = dunce::canonicalize(&home).unwrap_or(home);
     let s = |p: &Path| p.to_string_lossy().to_string();
-    match active(cfg) {
-        Kind::None => None,
-        Kind::Bubblewrap => {
+    match (active(cfg), profile) {
+        (Kind::None, _) | (Kind::Bubblewrap, Profile::Cli { .. }) => None,
+        (Kind::Bubblewrap, Profile::Shell { .. }) => {
             let mut a: Vec<String> = ["--die-with-parent", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--tmpfs", "/tmp"].iter().map(|x| x.to_string()).collect();
-            for dir in writable_extras(&home).iter().chain([&workspace.to_path_buf()]) {
+            for dir in writable_extras(&home).iter().chain([&workdir.to_path_buf()]) {
                 a.extend(["--bind".to_string(), s(dir), s(dir)]);
             }
-            for path in hidden(cfg, &home, workspace) {
+            for path in hidden(cfg, &home, workdir) {
                 if path.is_dir() {
                     a.extend(["--tmpfs".to_string(), s(&path)]);
                 } else {
                     a.extend(["--ro-bind".to_string(), "/dev/null".to_string(), s(&path)]);
                 }
             }
-            a.extend(["--chdir".to_string(), s(workspace), "--".to_string()]);
+            a.extend(["--chdir".to_string(), s(workdir), "--".to_string()]);
             Some(("bwrap".to_string(), a))
         }
-        Kind::Seatbelt => {
-            let mut profile = String::from("(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write*");
-            for dir in [PathBuf::from("/private/tmp"), PathBuf::from("/private/var/folders"), PathBuf::from("/dev"), workspace.to_path_buf()].iter().chain(writable_extras(&home).iter()) {
-                profile.push_str(&format!(" (subpath {})", sbpl_quote(dir)));
-            }
-            profile.push_str(")\n");
-            for path in hidden(cfg, &home, workspace) {
-                profile.push_str(&format!("(deny file-read* file-write* (subpath {}))\n", sbpl_quote(&path)));
-            }
-            Some(("sandbox-exec".to_string(), vec!["-p".to_string(), profile]))
-        }
+        (Kind::Seatbelt, profile) => Some(("sandbox-exec".to_string(), vec!["-p".to_string(), seatbelt_profile(cfg, &home, workdir, profile)])),
     }
 }
 
+/// The folders (and single files) a shell command may read besides the working folder: the folders of
+/// the standing `read:` rules (in the settings file and those saved from approvals) and the `read:` and
+/// `read=:` grants of this conversation. A grant made earlier in the same turn that is not saved yet is
+/// not seen, so the command fails closed.
+pub fn shell_grants(cfg: &Config, store: &crate::store::Store, session_id: &str) -> Vec<PathBuf> {
+    let mut rules: Vec<String> = cfg.permissions.allow.clone();
+    for key in ["allow_rules".to_string(), format!("grants:{session_id}")] {
+        if let Some(saved) = store.kv_get(&key) {
+            rules.extend(serde_json::from_str::<Vec<String>>(&saved).unwrap_or_default());
+        }
+    }
+    let mut out: Vec<PathBuf> = vec![];
+    for rule in rules {
+        let path = if let Some(file) = rule.strip_prefix("read=:") {
+            Some(PathBuf::from(file))
+        } else {
+            crate::permissions::read_rule_folder(&rule).filter(|f| !crate::permissions::too_broad(f))
+        };
+        if let Some(path) = path.filter(|p| p.is_absolute()) {
+            if !out.contains(&path) {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
 /// Shown to the model when a sandboxed command fails in a way the sandbox explains.
-pub const DENIED_HINT: &str = "[This ran inside Heron's sandbox: commands can change files only in the working folder and temporary folders, and cannot read Heron's own data or the user's key folders. If the task legitimately needs more, tell the user; they can turn the sandbox off in the settings file (agent.sandbox = \"off\").]";
+pub const DENIED_HINT: &str = "[This ran inside Heron's sandbox. Commands can change files only in the working folder and temporary folders. They can read the working folder, system and toolchain folders, and folders the user granted, but not the rest of the home folder, secrets or Heron's own data. To read another file, use read_file, which can ask the user.]";
 
 pub fn looks_denied(output: &str) -> bool {
     ["Read-only file system", "Operation not permitted", "Permission denied"].iter().any(|m| output.contains(m))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seatbelt_secret_patterns_match_the_secret_check() {
+        let compiled: Vec<regex::Regex> = SEATBELT_SECRET_PATTERNS.iter().map(|r| regex::Regex::new(&seatbelt_regex(r)).unwrap()).collect();
+        let seatbelt = |p: &str| compiled.iter().any(|r| r.is_match(p));
+        let cases = [
+            "/Users/u/.ssh/id_rsa", "/Users/u/.ssh", "/Users/u/.SSH/config", "/Users/u/.aws/credentials", "/Users/u/.gnupg/x", "/Users/u/.kube/config", "/Users/u/.docker/config.json",
+            "/Users/u/.config/gcloud/a", "/Users/u/p/.env", "/Users/u/p/.env.local", "/Users/u/p/.ENV", "/Users/u/p/.envrc", "/Users/u/p/.environment", "/Users/u/id_ed25519.pub", "/Users/u/id_ecdsa",
+            "/Users/u/.netrc", "/Users/u/.npmrc", "/Users/u/.pypirc", "/Users/u/.git-credentials", "/Users/u/x/credentials", "/Users/u/x/credentials.json", "/Users/u/x/server.pem", "/Users/u/x/server.KEY",
+            "/Users/u/.heron/heron.db", "/Users/u/.heron/heron.db-wal", "/Users/u/.heron/secrets.json", "/Users/u/.config/gh/hosts.yml", "/Users/u/.config/git/credentials", "/Users/u/.cargo/credentials.toml",
+            "/Users/u/.bash_history", "/Users/u/.zsh_history", "/Users/u/.python_history", "/Users/u/.lesshst", "/Users/u/.zsh_sessions/abc.history", "/Users/u/.local/share/fish/fish_history",
+            "/Users/u/Library/Application Support/Google/Chrome/Default/Login Data", "/Users/u/Library/x/Cookies", "/Users/u/Library/x/Web Data-journal",
+            "/Users/u/p/notes.md", "/Users/u/p/src/main.rs", "/Users/u/p/keys.txt", "/Users/u/p/monkey", "/Users/u/p/history.md", "/Users/u/.cargo/config.toml", "/Users/u/p/.github/workflows/ci.yml",
+            "/Users/u/p/environment.ts", "/Users/u/p/.envy/x", "/opt/homebrew/bin/git", "/Users/u/p/my.pem.txt", "/Users/u/p/sshd/x",
+        ];
+        for path in cases {
+            assert_eq!(seatbelt(path), crate::permissions::is_secret_path(Path::new(path)), "{path}");
+        }
+        // The two left out on purpose.
+        assert!(crate::permissions::is_secret_path(Path::new("/etc/shadow")) && !seatbelt("/etc/shadow"));
+        assert!(!seatbelt("/dev/null") && !seatbelt("/dev/urandom"));
+    }
+
+    #[test]
+    fn seatbelt_regex_is_case_insensitive_outside_brackets() {
+        assert_eq!(seatbelt_regex(r"^.*/\.env$"), r"^.*/\.[eE][nN][vV]$");
+        assert_eq!(seatbelt_regex(r"[-a-z0-9_.]+"), r"[-a-zA-Z0-9_.]+");
+        assert_eq!(seatbelt_regex(r"[^/]"), r"[^/]");
+    }
+
+    fn cli_spec(id: &str) -> CliSpec {
+        crate::cli_llm::spec_for(id).unwrap()
+    }
+
+    #[test]
+    fn git_config_files_are_the_excludes_attributes_and_include_paths() {
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        std::fs::write(
+            h.join(".gitconfig"),
+            "[user]\n\tname = x\n[core]\n\texcludesfile = ~/.gitignore_global\n\tattributesFile = \"/srv/attrs\" # comment\n\teditor = vim\n[include]\n\tpath = extra.inc\n[includeIf \"gitdir:~/work/\"]\n\tpath = ~/.gitconfig-work\n[credential]\n\thelper = osxkeychain\n",
+        )
+        .unwrap();
+        assert_eq!(git_config_files(h), vec![h.join(".gitignore_global"), PathBuf::from("/srv/attrs"), h.join("extra.inc"), h.join(".gitconfig-work")]);
+        assert!(git_config_files(&h.join("nowhere")).is_empty());
+    }
+
+    /// The real home folder: the Refused list is built from it.
+    fn real_home() -> PathBuf {
+        let h = dirs::home_dir().unwrap();
+        dunce::canonicalize(&h).unwrap_or(h)
+    }
+
+    #[test]
+    fn shell_profile_has_the_designed_order() {
+        let home = real_home();
+        let h = home.display().to_string();
+        let cfg = Config { home: home.join(".heron-profile-test"), ..Default::default() };
+        let profile = seatbelt_profile(&cfg, &home, &home.join("project-profile-test"), &Profile::Shell { grants: vec![home.join("Documents/notes-profile-test")] });
+        let at = |needle: &str| profile.find(needle).unwrap_or_else(|| panic!("{needle} missing from:\n{profile}"));
+        let deny_roots = at(&format!("(deny file-read* (subpath \"{h}\") (subpath \"/Users\") (subpath \"/Volumes\") (subpath \"{h}/.heron-profile-test\"))"));
+        let metadata = at("(allow file-read-metadata)");
+        let readable = at(&format!("(allow file-read* (subpath \"{h}/project-profile-test\") (subpath \"{h}/Documents/notes-profile-test\") (subpath \"{h}/.config/git\")"));
+        assert!(profile[readable..].contains(&format!("(literal \"{h}/.gitconfig\")")));
+        let deny_write = at("(deny file-write*)");
+        let write = at(&format!("(allow file-write* (subpath \"/private/tmp\") (subpath \"/private/var/folders\") (subpath \"/dev\") (subpath \"{h}/project-profile-test\")"));
+        let refused = at(&format!("(deny file-read* file-write* (subpath \"{h}/.heron-profile-test\")"));
+        let secrets = at("(deny file-read* (regex #\"");
+        let keychain = at("(deny mach-lookup (global-name \"com.apple.SecurityServer\")");
+        assert!(deny_roots < metadata && metadata < readable && readable < deny_write && deny_write < write && write < refused && refused < secrets && secrets < keychain, "{profile}");
+        assert!(profile[refused..secrets].contains(&format!("{h}/.claude\"")) && profile[refused..secrets].contains(&format!("{h}/Library/Keychains\"")), "every Refused path is denied: {profile}");
+        assert!(profile.starts_with("(version 1)\n(allow default)\n"));
+    }
+
+    #[test]
+    fn cli_profile_is_narrower_and_opens_only_its_own_config() {
+        let home = real_home();
+        let h = home.display().to_string();
+        let cfg = Config { home: home.join(".heron-profile-test"), ..Default::default() };
+        let run = PathBuf::from("/private/var/folders/xy/T/heron-cli-1");
+        let codex = cli_spec("codex-cli");
+        let profile = seatbelt_profile(&cfg, &home, &run, &Profile::Cli { spec: &codex, binary_dir: PathBuf::from("/opt/homebrew/lib/node_modules/@openai/codex"), extra_read: vec![] });
+        let at = |needle: &str| profile.find(needle).unwrap_or_else(|| panic!("{needle} missing from:\n{profile}"));
+        at("(allow file-read* (subpath \"/private/var/folders/xy/T/heron-cli-1\") (subpath \"/opt/homebrew/lib/node_modules/@openai/codex\"))");
+        let write = at("(allow file-write* (subpath \"/dev\") (subpath \"/private/var/folders/xy/T/heron-cli-1\"))");
+        let refused = at(&format!("(deny file-read* file-write* (subpath \"{h}/.heron-profile-test\")"));
+        let secrets = at("(deny file-read* (regex #\"");
+        let keychain = at("(deny mach-lookup");
+        let own = at(&format!("(allow file-read* file-write* (subpath \"{h}/.codex\")"));
+        assert!(write < refused && refused < secrets && secrets < keychain && keychain < own, "{profile}");
+        // Its own folder is not in the Refused block; another CLI's is.
+        assert!(!profile[refused..secrets].contains(&format!("{h}/.codex\"")) && profile[refused..secrets].contains(&format!("{h}/.claude\"")), "{profile}");
+        // No grants, toolchain folders, .gitconfig or shared temp folders.
+        for absent in [".gitconfig", "/private/tmp\"", "/.cargo", "/.rustup"] {
+            assert!(!profile.contains(absent), "{absent} in:\n{profile}");
+        }
+        // A Keychain CLI gets the Keychain folder and no mach deny.
+        let claude = cli_spec("claude-cli");
+        let profile = seatbelt_profile(&cfg, &home, &run, &Profile::Cli { spec: &claude, binary_dir: home.join(".local/share/claude/versions"), extra_read: vec![] });
+        assert!(!profile.contains("mach-lookup"), "{profile}");
+        let keychain = profile.find(&format!("(allow file-read* file-write* (subpath \"{h}/Library/Keychains\")")).expect("keychain allow");
+        let own = profile.find(&format!("(allow file-read* file-write* (subpath \"{h}/.claude\") (subpath \"{h}/.claude.json\")")).expect("own config");
+        assert!(profile.find("(deny file-read* file-write*").unwrap() < keychain && keychain < own, "{profile}");
+    }
+
+    /// Every allow or deny in a profile names at least one path: Seatbelt reads a rule with no filter
+    /// as "everything", so an empty list must drop the rule, never leave it bare.
+    fn no_bare_file_rules(profile: &str) {
+        for line in profile.lines() {
+            let bare = ["(allow file-read*)", "(allow file-write*)", "(allow file-read* file-write*)", "(deny file-read* file-write*)"];
+            assert!(!bare.contains(&line.trim()), "bare rule `{line}` in:\n{profile}");
+        }
+    }
+
+    #[test]
+    fn a_cli_with_no_config_folders_gets_no_open_rule() {
+        let home = real_home();
+        let cfg = Config { home: home.join(".heron-profile-test"), ..Default::default() };
+        let custom = cli_spec("custom-cli");
+        assert!(own_config_dirs(&cfg, &custom, &home).is_empty(), "custom-cli has no folders of its own");
+        let profile = seatbelt_profile(&cfg, &home, Path::new("/private/var/folders/xy/T/heron-cli-2"), &Profile::Cli { spec: &custom, binary_dir: PathBuf::from("/usr/local/bin"), extra_read: vec![] });
+        no_bare_file_rules(&profile);
+        // The last file rule is still a deny: nothing after the secrets reopens the home folder.
+        let last_allow = profile.rfind("(allow file-").unwrap();
+        assert!(last_allow < profile.find("(deny file-read* (regex #\"").unwrap(), "{profile}");
+        // The other profiles have no bare rule either.
+        for id in ["claude-cli", "codex-cli", "gemini-cli", "opencode-cli"] {
+            let spec = cli_spec(id);
+            no_bare_file_rules(&seatbelt_profile(&cfg, &home, Path::new("/tmp/run"), &Profile::Cli { spec: &spec, binary_dir: PathBuf::from("/usr/local/bin"), extra_read: vec![] }));
+        }
+        no_bare_file_rules(&seatbelt_profile(&cfg, &home, Path::new("/tmp/ws"), &Profile::Shell { grants: vec![] }));
+    }
+
+    #[test]
+    fn shell_profile_refuses_every_registry_config_folder() {
+        // The text half of `every_registry_config_dir_is_refused_in_the_sandbox`, which runs only
+        // under Seatbelt: every CLI's config folder is in the Refused block, present on disk or not.
+        let home = real_home();
+        let cfg = Config { home: home.join(".heron-profile-test"), ..Default::default() };
+        let profile = seatbelt_profile(&cfg, &home, &home.join("project-profile-test"), &Profile::Shell { grants: vec![] });
+        let refused = &profile[profile.find("(deny file-read* file-write*").unwrap()..profile.find("(deny file-read* (regex #\"").unwrap()];
+        for spec in crate::cli_llm::providers() {
+            for d in spec.config_dirs {
+                let path = tilde(d, &home);
+                assert!(refused.contains(&format!("(subpath {})", sbpl_quote(&path))), "{} ({}) missing from the Refused block:\n{refused}", path.display(), spec.id);
+            }
+        }
+    }
+
+    #[test]
+    fn a_cli_is_wrapped_only_by_seatbelt() {
+        let cfg = Config { agent: crate::config::AgentConfig { sandbox: "off".into(), ..Default::default() }, ..Default::default() };
+        let spec = cli_spec("codex-cli");
+        assert!(wrap(&cfg, Path::new("/tmp"), &Profile::Cli { spec: &spec, binary_dir: PathBuf::from("/usr/bin"), extra_read: vec![] }).is_none());
+        assert!(wrap(&cfg, Path::new("/tmp"), &Profile::Shell { grants: vec![] }).is_none());
+        let on = Config::default();
+        let wrapped = wrap(&on, Path::new("/tmp"), &Profile::Cli { spec: &spec, binary_dir: PathBuf::from("/usr/bin"), extra_read: vec![] });
+        match available() {
+            Kind::Seatbelt => assert_eq!(wrapped.unwrap().0, "sandbox-exec"),
+            Kind::Bubblewrap | Kind::None => assert!(wrapped.is_none(), "a CLI is never wrapped by bubblewrap"),
+        }
+        assert_eq!(required(), cfg!(target_os = "macos"));
+    }
+
+    #[test]
+    fn shell_grants_come_from_standing_rules_and_this_conversation() {
+        let store = crate::store::Store::in_memory().unwrap();
+        let mut cfg = Config::default();
+        cfg.permissions.allow = vec!["read:/srv/docs/**".into(), "shell:git *".into(), "read:/**".into()];
+        store.kv_set("allow_rules", &serde_json::to_string(&["read:/srv/saved/**"]).unwrap()).unwrap();
+        store.kv_set("grants:s1", &serde_json::to_string(&["read:/srv/talk/**", "read=:/srv/one/file.txt", "write_file:*"]).unwrap()).unwrap();
+        store.kv_set("grants:s2", &serde_json::to_string(&["read:/srv/other/**"]).unwrap()).unwrap();
+        let grants = shell_grants(&cfg, &store, "s1");
+        assert_eq!(grants, vec![PathBuf::from("/srv/docs"), PathBuf::from("/srv/saved"), PathBuf::from("/srv/talk"), PathBuf::from("/srv/one/file.txt")], "a too-broad rule and another conversation's grant are left out");
+    }
 }

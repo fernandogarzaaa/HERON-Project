@@ -96,14 +96,45 @@ pub struct LlmConfig {
     /// choice, and the CLI still runs in a throwaway directory, never the
     /// workspace.
     pub cli_allow_agent_tools: bool,
-    /// Allow API-key variables into the CLI child's environment. Off by
-    /// default: for subscription providers they are removed, so a stray
-    /// OPENAI_API_KEY cannot flip a ChatGPT subscription turn into metered
-    /// API billing.
-    pub cli_allow_api_key: bool,
+    /// Which CLI providers may receive their API-key variables (`ANTHROPIC_API_KEY`,
+    /// `OPENAI_API_KEY`, ...). `false` (the default) for none, a list of provider ids such as
+    /// `["gemini-cli"]` for those, or `true` for every provider. A provider not allowed never sees
+    /// them, so a stray key cannot flip a subscription turn into metered API billing.
+    pub cli_allow_api_key: ApiKeyAllow,
+    /// Let scheduled and other unattended work call a CLI provider that is a subscription login.
+    /// Off by default: such work waits for the user instead.
+    pub allow_unattended_subscription: bool,
     /// Extra argv for "custom-cli", with {prompt} and {model} placeholders.
     /// If no arg contains {prompt}, the prompt is appended as the last arg.
     pub cli_args: Vec<String>,
+    /// Per CLI provider: is it a subscription login? A provider that is missing counts as one. Set
+    /// `false` for a CLI that routes to an API key or a local model. (Last, because it is a table.)
+    pub cli_subscription: BTreeMap<String, bool>,
+}
+
+/// `[llm] cli_allow_api_key`: `true`, `false`, or a list of provider ids. Kept in the form it was
+/// written, so old configs that say `true` or `false` load and save unchanged.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ApiKeyAllow {
+    Bool(bool),
+    List(Vec<String>),
+}
+
+impl Default for ApiKeyAllow {
+    fn default() -> Self {
+        ApiKeyAllow::Bool(false)
+    }
+}
+
+impl ApiKeyAllow {
+    /// May this provider receive its API-key variables?
+    pub fn allows(&self, id: &str) -> bool {
+        match self {
+            ApiKeyAllow::Bool(all) => *all,
+            ApiKeyAllow::List(ids) => ids.iter().any(|i| i == id),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,7 +270,9 @@ impl Default for LlmConfig {
             cli_model: String::new(),
             cli_config_dir: String::new(),
             cli_allow_agent_tools: false,
-            cli_allow_api_key: false,
+            cli_allow_api_key: ApiKeyAllow::default(),
+            cli_subscription: BTreeMap::new(),
+            allow_unattended_subscription: false,
             cli_args: vec![],
         }
     }
@@ -736,8 +769,7 @@ mod tests {
     #[ignore = "requires an authorized, unlocked native credential vault"]
     fn connector_vault_live_round_trip() {
         let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dir.path().join("native-vault-qualification");
+        let cfg = Config { home: dir.path().join("native-vault-qualification"), ..Default::default() };
         let name = format!("connector_{}_api_key", uuid::Uuid::new_v4().simple());
         cfg.store_vault_only_secret(&name, "disposable-first").unwrap();
         let first = vault::get_checked(&cfg.home, &name).unwrap();
@@ -765,8 +797,7 @@ mod tests {
     #[test]
     fn saving_settings_replaces_the_file_whole_and_keeps_the_previous_one() {
         let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dir.path().join("home");
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
         cfg.llm.model = "first-model".into();
         cfg.save().unwrap();
         let path = cfg.home.join("config.toml");
@@ -789,8 +820,7 @@ mod tests {
         // and cleans up after itself.
         let blocked = dir.path().join("blocked");
         std::fs::create_dir_all(blocked.join("config.toml")).unwrap();
-        let mut other = Config::default();
-        other.home = blocked.clone();
+        let other = Config { home: blocked.clone(), ..Default::default() };
         assert!(other.save().is_err());
         assert!(blocked.join("config.toml").is_dir());
         let stray: Vec<_> = std::fs::read_dir(&blocked).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".tmp-")).collect();
@@ -800,8 +830,7 @@ mod tests {
     #[test]
     fn secrets_round_trip_and_never_touch_the_config_file() {
         let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dir.path().join("home");
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
         assert_eq!(cfg.secret("api_key"), None);
         cfg.store_secret("api_key", "  sk-test-123  ").unwrap();
         cfg.store_secret("email_password", "app pass").unwrap();
@@ -810,8 +839,7 @@ mod tests {
         cfg.save().unwrap();
         assert!(!std::fs::read_to_string(cfg.home.join("config.toml")).unwrap().contains("sk-test"));
         // a different profile cannot see them
-        let mut other = Config::default();
-        other.home = dir.path().join("other");
+        let other = Config { home: dir.path().join("other"), ..Default::default() };
         assert_eq!(other.secret("api_key"), None);
         // removing one leaves the other
         cfg.store_secret("api_key", "").unwrap();
@@ -850,8 +878,7 @@ mod tests {
     #[test]
     fn a_damaged_secrets_file_is_never_overwritten() {
         let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dir.path().join("home");
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
         cfg.ensure_home().unwrap();
         let path = cfg.home.join("secrets.json");
         std::fs::write(&path, "{\"email_password\": \"keep me\", ").unwrap(); // cut off mid-write
@@ -870,8 +897,7 @@ mod tests {
     #[test]
     fn an_empty_key_variable_does_not_hide_the_configured_one() {
         let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dir.path().join("home");
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
         cfg.llm.api_key_env = "HERON_TEST_CONFIGURED_KEY".into();
         std::env::set_var("HERON_TEST_CONFIGURED_KEY", "sk-configured");
         let had = std::env::var("HERON_API_KEY").ok();

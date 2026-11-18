@@ -114,8 +114,21 @@ rate limits or a complete denial-of-service analysis.
 | T8 | The activity log is hash-chained but lives in the same database. | Someone who can rewrite the database can rewrite the whole chain. |
 | T9 | The local API's own endpoints (the buttons in the app) are not subject to the permission mode. | By design they are the user's direct actions; a program that steals the launch token can use them. |
 | T10 | Installers are unsigned. | A user cannot verify who built them. |
-| T12 | Telegram turns run in the desktop's permission mode. Accepted by the owner (C35-8). | In Auto or Yolo mode, whoever controls the paired Telegram account can run tools, including `shell`, with no prompt. Ask mode still asks for every change, and high-risk or outside-content requests are approved only at the computer. |
+| T12 | Telegram turns run in the desktop's permission mode. Accepted by the owner ([C35-8](../ACCEPTED_RISKS.md#c35-8-phone-turns-inherit-the-desktop-permission-mode)). | In Auto or Yolo mode, whoever controls the paired Telegram account can run tools, including `shell`, with no prompt. Ask mode still asks for every change, and high-risk or outside-content requests are approved only at the computer. |
 | T11 | Undo replaces by atomic exchange and verifies what was displaced (D-13). Removing a file still has only the narrowed check-then-remove gap: the check is repeated at the last moment, after the old version is ready on disk, but the check and the removal are still two steps. | A save from another program that lands in the instant between the removal check and the removal is deleted without a copy. No operating-system primitive closes that one. |
+
+## Accepted risks
+
+The owner-signed register is [ACCEPTED_RISKS.md](../ACCEPTED_RISKS.md). Each risk there links
+back to its entry here.
+
+- **C35-8**: phone turns inherit the desktop permission mode. It is recorded as T12 in the table
+  above, which links to
+  [its register entry](../ACCEPTED_RISKS.md#c35-8-phone-turns-inherit-the-desktop-permission-mode).
+- **R-1**: working-folder reads stay trusted, so injected text in a working-folder file can steer
+  the model to send other working-folder content out without a prompt; reads outside the working
+  folder and secret-looking paths still ask, which breaks the M-1 credential chain.
+  [Register entry](../ACCEPTED_RISKS.md#r-1-working-folder-content-can-be-sent-out-after-an-injected-read).
 
 ## Keeping this current
 

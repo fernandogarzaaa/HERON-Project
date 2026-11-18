@@ -1,6 +1,65 @@
 {
-  "U0": {
+  "SYNC2": {
     "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": "7b025f8b9f5d4be4987c37bcf22d464f",
+      "base_branch": "feat/heron-v1",
+      "claim_token": "ffd8de0f43224ee7b567d3c35133bca5",
+      "claimed_at": "2026-11-18T14:22:17.345488+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-18T14:22:17.345488+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
+    },
+    "depends_on": [],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "SYNC2",
+    "integration_for": null,
+    "intent": {
+      "completion": "test -f eval/containment/claude-cli.dirs.json && grep -q KEYCHAIN_SERVICES docs/designs/heron-v1.md && test -f eval/genesis/json_verifier.py",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U2's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "claimed",
+    "title": "Sync: capture the feat/heron-v1 head for U2",
+    "version": 2,
+    "worktree": {
+      "base_branch": "feat/heron-v1",
+      "branch": null,
+      "path": null
+    }
+  },
+  "U0": {
+    "attempts": [
+      {
+        "attempt_id": "6bbb4b07df2946e68a732107be38b3d9",
+        "ended_at": "2026-11-18T14:05:46.769090+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T13:39:45.956610+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -12,19 +71,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "6bbb4b07df2946e68a732107be38b3d9",
-      "base_branch": "feat/heron-v1",
-      "claim_token": "1030eb0b73654a059adacf044dbe56a6",
-      "claimed_at": "2026-11-18T13:39:45.956610+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T13:39:45.956610+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I eval/check_tasks.py eval/core-tasks.md && python3 -I -m unittest discover -s eval/tests -t eval && bash eval/run-core-tasks.sh --provider demo --driver direct --build debug --runs 1 --out \"${TMPDIR:-/tmp}/u0\" && python3 -I eval/check_gate.py --schema-only \"${TMPDIR:-/tmp}/u0/summary.json\"",
+        "duration_ms": 33672,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U0_20261118T140512954036_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U0_20261118T140546627436_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: **Next:** decide on the genesis point, then run U0b.",
     "id": "U0",
     "integration_for": null,
     "intent": {
@@ -36,21 +107,229 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "6bbb4b07df2946e68a732107be38b3d9",
+      "base_commit": "c324ec2b67385227ce784b56d83e0f293839cd9e",
+      "changed_files": [
+        "eval/.gitignore",
+        "eval/README.md",
+        "eval/check_gate.py",
+        "eval/check_tasks.py",
+        "eval/containment/discover-dirs.sh",
+        "eval/core-tasks.md",
+        "eval/eve/heron-core.yaml",
+        "eval/eve_adapter.py",
+        "eval/fixtures/p1/work/README.md",
+        "eval/fixtures/p1/work/notes/private.txt",
+        "eval/fixtures/t01/work/notes/meeting.md",
+        "eval/fixtures/t02/work/todo.txt",
+        "eval/fixtures/t07/work/proj/test_math.py",
+        "eval/fixtures/t09/work/old.log",
+        "eval/fixtures/t10/work/.env",
+        "eval/fixtures/web/article.html",
+        "eval/fixtures/web/facts.html",
+        "eval/genesis.yaml",
+        "eval/genesis_verifier.py",
+        "eval/owner-use.md",
+        "eval/owner-use.sh",
+        "eval/pass_rules.py",
+        "eval/require-tests.sh",
+        "eval/run-core-tasks.sh",
+        "eval/run_core_tasks.py",
+        "eval/tasks_md.py",
+        "eval/tests/__init__.py",
+        "eval/tests/grader_cases.jsonl",
+        "eval/tests/test_adapter.py",
+        "eval/tests/test_check_gate.py",
+        "eval/tests/test_check_tasks.py",
+        "eval/tests/test_eve_driver.py",
+        "eval/tests/test_genesis_verifier.py",
+        "eval/tests/test_pass_rules.py",
+        "eval/tests/test_runner.py",
+        "eval/tests/test_scripts.py"
+      ],
+      "commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "diff_stats": {
+        "eval/.gitignore": {
+          "added": 4,
+          "deleted": 0
+        },
+        "eval/README.md": {
+          "added": 170,
+          "deleted": 0
+        },
+        "eval/check_gate.py": {
+          "added": 412,
+          "deleted": 0
+        },
+        "eval/check_tasks.py": {
+          "added": 118,
+          "deleted": 0
+        },
+        "eval/containment/discover-dirs.sh": {
+          "added": 75,
+          "deleted": 0
+        },
+        "eval/core-tasks.md": {
+          "added": 226,
+          "deleted": 0
+        },
+        "eval/eve/heron-core.yaml": {
+          "added": 22,
+          "deleted": 0
+        },
+        "eval/eve_adapter.py": {
+          "added": 247,
+          "deleted": 0
+        },
+        "eval/fixtures/p1/work/README.md": {
+          "added": 14,
+          "deleted": 0
+        },
+        "eval/fixtures/p1/work/notes/private.txt": {
+          "added": 1,
+          "deleted": 0
+        },
+        "eval/fixtures/t01/work/notes/meeting.md": {
+          "added": 7,
+          "deleted": 0
+        },
+        "eval/fixtures/t02/work/todo.txt": {
+          "added": 2,
+          "deleted": 0
+        },
+        "eval/fixtures/t07/work/proj/test_math.py": {
+          "added": 16,
+          "deleted": 0
+        },
+        "eval/fixtures/t09/work/old.log": {
+          "added": 2,
+          "deleted": 0
+        },
+        "eval/fixtures/t10/work/.env": {
+          "added": 1,
+          "deleted": 0
+        },
+        "eval/fixtures/web/article.html": {
+          "added": 14,
+          "deleted": 0
+        },
+        "eval/fixtures/web/facts.html": {
+          "added": 9,
+          "deleted": 0
+        },
+        "eval/genesis.yaml": {
+          "added": 28,
+          "deleted": 0
+        },
+        "eval/genesis_verifier.py": {
+          "added": 191,
+          "deleted": 0
+        },
+        "eval/owner-use.md": {
+          "added": 44,
+          "deleted": 0
+        },
+        "eval/owner-use.sh": {
+          "added": 73,
+          "deleted": 0
+        },
+        "eval/pass_rules.py": {
+          "added": 193,
+          "deleted": 0
+        },
+        "eval/require-tests.sh": {
+          "added": 41,
+          "deleted": 0
+        },
+        "eval/run-core-tasks.sh": {
+          "added": 6,
+          "deleted": 0
+        },
+        "eval/run_core_tasks.py": {
+          "added": 659,
+          "deleted": 0
+        },
+        "eval/tasks_md.py": {
+          "added": 59,
+          "deleted": 0
+        },
+        "eval/tests/__init__.py": {
+          "added": 0,
+          "deleted": 0
+        },
+        "eval/tests/grader_cases.jsonl": {
+          "added": 3,
+          "deleted": 0
+        },
+        "eval/tests/test_adapter.py": {
+          "added": 253,
+          "deleted": 0
+        },
+        "eval/tests/test_check_gate.py": {
+          "added": 308,
+          "deleted": 0
+        },
+        "eval/tests/test_check_tasks.py": {
+          "added": 160,
+          "deleted": 0
+        },
+        "eval/tests/test_eve_driver.py": {
+          "added": 106,
+          "deleted": 0
+        },
+        "eval/tests/test_genesis_verifier.py": {
+          "added": 165,
+          "deleted": 0
+        },
+        "eval/tests/test_pass_rules.py": {
+          "added": 195,
+          "deleted": 0
+        },
+        "eval/tests/test_runner.py": {
+          "added": 331,
+          "deleted": 0
+        },
+        "eval/tests/test_scripts.py": {
+          "added": 258,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
-    "status": "claimed",
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "c324ec2b67385227ce784b56d83e0f293839cd9e",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "31fc53d6b8b762205fb5d4038bbb391043a32774",
+        "result_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+        "shipped_at": "2026-11-18T14:06:27.749949+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
     "title": "Evaluation harness: 10 tasks and a probe, adapter, runner, validators, owner-use count, genesis spec",
-    "version": 2,
+    "version": 56,
     "worktree": {
       "base_branch": "feat/heron-v1",
-      "branch": null,
-      "path": null
+      "base_commit": "c324ec2b67385227ce784b56d83e0f293839cd9e",
+      "branch": "skein/U0",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U0"
     }
   },
   "U0b": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "f4cb84e4475644ceb7b1b3ee21828b0c",
+        "ended_at": "2026-11-18T14:13:45.836851+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T14:05:46.848123+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -75,8 +354,20 @@
     "depends_on": [
       "U0"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash eval/run-core-tasks.sh --provider claude-cli --driver eve --runs 3 --out eval/baseline --artifacts \"${TMPDIR:-/tmp}/heron-baseline-runs\" && python3 -I eval/check_gate.py --schema-only eval/baseline/summary.json",
+        "duration_ms": 449482,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U0b_20261118T140616223312_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U0b_20261118T141345707499_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: `bash eval/run-core-tasks.sh --provider claude-cli --driver eve --runs 3 --out eval/baseline --artifacts \"${TMPDIR:-/tmp}/heron-baseline-runs\" && python3 -I eval/check_gate.py --schema-only eval/baseline/summary.json`",
     "id": "U0b",
     "integration_for": null,
     "intent": {
@@ -88,17 +379,163 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "f4cb84e4475644ceb7b1b3ee21828b0c",
+      "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "changed_files": [
+        "eval/baseline/summary.json"
+      ],
+      "commit": "d77fa178a89241f54e733da4485b96809f09277d",
+      "diff_stats": {
+        "eval/baseline/summary.json": {
+          "added": 421,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
-    "status": "unclaimed",
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "3b3efb852f054c17df6ed6efdb5fa638788b299d",
+        "result_commit": "d77fa178a89241f54e733da4485b96809f09277d",
+        "shipped_at": "2026-11-18T14:15:23.095139+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
     "title": "Baseline run on today's `main` code (measurement only)",
-    "version": 1,
+    "version": 20,
     "worktree": {
+      "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "branch": "skein/U0b",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U0b"
+    }
+  },
+  "U0g": {
+    "attempts": [
+      {
+        "attempt_id": "9ae71fd9103b4308a0a818b985d8620d",
+        "ended_at": "2026-11-18T14:21:09.970044+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-18T14:09:47.182777+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "eval/genesis/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
       "base_branch": null,
-      "branch": null,
-      "path": null
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U0"
+    ],
+    "evidence": [
+      {
+        "command": "python3 -I -m unittest discover -s eval/genesis -t eval && genesis audit-evaluator eval/genesis/pass-rules-json.yaml --suite json",
+        "duration_ms": 7546,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U0g_20261118T142102305971_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U0g_20261118T142109853636_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run `testteeth run --base main` and kill any surviving mutants in `json_verifier.py`.",
+    "id": "U0g",
+    "integration_for": null,
+    "intent": {
+      "completion": "python3 -I -m unittest discover -s eval/genesis -t eval && genesis audit-evaluator eval/genesis/pass-rules-json.yaml --suite json",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', item 8c (work unit U0g), plus the U0 items 1-9 it builds on (eval/pass_rules.py, eval/core-tasks.md, eval/genesis.yaml for the code-py precedent). Run 'genesis suites' and read genesis 0.4.0's json suite to get the task/completion format right; mark anything you can't confirm UNVERIFIED.",
+      "goal": "genesis json audit of the pass-rule grammar (item 8c): a strict run-record verifier whose verdict is pass_rules.evaluate, a dataset with known-good and known-bad records for every rule kind, the genesis spec, and tests."
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "9ae71fd9103b4308a0a818b985d8620d",
+      "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "changed_files": [
+        "eval/genesis/__init__.py",
+        "eval/genesis/build_cases.py",
+        "eval/genesis/cases.jsonl",
+        "eval/genesis/json_verifier.py",
+        "eval/genesis/pass-rules-json.yaml",
+        "eval/genesis/test_json_verifier.py"
+      ],
+      "commit": "d3ee40d0cbc6d5414325ca6fc46b0f57e505b203",
+      "diff_stats": {
+        "eval/genesis/__init__.py": {
+          "added": 0,
+          "deleted": 0
+        },
+        "eval/genesis/build_cases.py": {
+          "added": 245,
+          "deleted": 0
+        },
+        "eval/genesis/cases.jsonl": {
+          "added": 15,
+          "deleted": 0
+        },
+        "eval/genesis/json_verifier.py": {
+          "added": 355,
+          "deleted": 0
+        },
+        "eval/genesis/pass-rules-json.yaml": {
+          "added": 41,
+          "deleted": 0
+        },
+        "eval/genesis/test_json_verifier.py": {
+          "added": 606,
+          "deleted": 0
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "2d24a96fda4dc7b6649d324a5e147c2dc73e7073",
+        "result_commit": "d3ee40d0cbc6d5414325ca6fc46b0f57e505b203",
+        "shipped_at": "2026-11-18T14:22:08.903107+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
+    "title": "genesis json audit of the pass-rule grammar (item 8c)",
+    "version": 27,
+    "worktree": {
+      "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "branch": "skein/U0g",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U0g"
     }
   },
   "U1": {
@@ -114,15 +551,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "95ba7e9a75bc46e5b43d29ba6c94434d",
+      "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
+      "claim_token": "ebc3c8761a1145ddb76465d7df0b22a2",
+      "claimed_at": "2026-11-18T14:13:45.909285+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-18T14:22:16.416982+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U0b"
@@ -144,13 +581,14 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "in_progress",
     "title": "Clippy clean-up, one decision function, `Refused` and `OutsideRead`, `read:` grants, prompt-source registry, MCP taint, ",
-    "version": 1,
+    "version": 20,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
+      "base_commit": "d77fa178a89241f54e733da4485b96809f09277d",
+      "branch": "skein/U1",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U1"
     }
   },
   "U2": {
@@ -177,7 +615,8 @@
       "worker_id": null
     },
     "depends_on": [
-      "U1"
+      "U1",
+      "SYNC2"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -198,7 +637,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Deny-default sandbox for shell and CLI child, macOS sandbox-off refusal, CLI environment and run folder, version contrac",
-    "version": 1,
+    "version": 2,
     "worktree": {
       "base_branch": null,
       "branch": null,
@@ -282,6 +721,7 @@
     },
     "depends_on": [
       "U0",
+      "U0g",
       "U2",
       "U2c"
     ],
@@ -304,7 +744,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 1,
+    "version": 2,
     "worktree": {
       "base_branch": null,
       "branch": null,
@@ -419,7 +859,16 @@
     }
   },
   "U3a": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "6536f994143a42238124e096e55a8b93",
+        "ended_at": "2026-11-18T13:41:20.097703+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-18T13:39:47.954981+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -442,8 +891,20 @@
       "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "test \"$(head -1 docs/ACCEPTED_RISKS.md)\" = 'Version: 1' && grep -qx '## C35-8: Phone turns inherit the desktop permission mode' docs/ACCEPTED_RISKS.md && grep -qx '## R-1: Working-folder content can be sent out after an injected read' docs/ACCEPTED_RISKS.md && grep -q 'ACCEPTED_RISKS.md#c35-8-phone-turns-inherit-the-desktop-permission-mode' docs/engineering/SECURITY_THREAT_MODEL.md && grep -q 'ACCEPTED_RISKS.md#r-1-working-folder-content-can-be-sent-out-after-an-injected-read' docs/engineering/REMEDIATION_MATRIX.md && test \"$(grep -c '^Status: Accepted by the owner (fernandogarzaaa) on 2026-11-18.$' docs/ACCEPTED_RISKS.md)\" = 2",
+        "duration_ms": 206,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3a_20261118T134119789582_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3a_20261118T134119996867_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run the completion check from the task brief yourself, or approve it if skein prompts you.",
     "id": "U3a",
     "integration_for": null,
     "intent": {
@@ -455,17 +916,51 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "6536f994143a42238124e096e55a8b93",
+      "base_commit": "e94449377a7fdf27b8dfcf81c9f323c4b24506bc",
+      "changed_files": [
+        "docs/engineering/REMEDIATION_MATRIX.md",
+        "docs/engineering/SECURITY_THREAT_MODEL.md",
+        "docs/ACCEPTED_RISKS.md"
+      ],
+      "commit": "7c2cb9b314d809ef332c0d4f83b985d5a8bb7676",
+      "diff_stats": {
+        "docs/ACCEPTED_RISKS.md": {
+          "added": 48,
+          "deleted": 0
+        },
+        "docs/engineering/REMEDIATION_MATRIX.md": {
+          "added": 8,
+          "deleted": 0
+        },
+        "docs/engineering/SECURITY_THREAT_MODEL.md": {
+          "added": 14,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
-    "status": "unclaimed",
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "e94449377a7fdf27b8dfcf81c9f323c4b24506bc",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "c6dca9df2aef20e4a35c7065dfb23ba14cf85d8c",
+        "result_commit": "7c2cb9b314d809ef332c0d4f83b985d5a8bb7676",
+        "shipped_at": "2026-11-18T13:42:37.630113+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
     "title": "Risk register with C35-8 and R-1, and accepted-risk sections in the threat model and matrix",
-    "version": 1,
+    "version": 8,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "feat/heron-v1",
+      "base_commit": "e94449377a7fdf27b8dfcf81c9f323c4b24506bc",
+      "branch": "skein/U3a",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3a"
     }
   },
   "U4": {
@@ -808,6 +1303,7 @@
     "depends_on": [
       "U0",
       "U0b",
+      "U0g",
       "U3a",
       "U1",
       "U2",
@@ -841,7 +1337,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Full gate on the final branch",
-    "version": 1,
+    "version": 2,
     "worktree": {
       "base_branch": null,
       "branch": null,

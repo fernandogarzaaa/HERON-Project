@@ -53,7 +53,7 @@ pub fn find(cfg: &Config) -> Option<PathBuf> {
             }
         }
     } else if cfg!(windows) {
-        for root in ["ProgramFiles", "ProgramFiles(x86)", "LocalAppData"].iter().filter_map(|v| std::env::var_os(v)) {
+        for root in ["ProgramFiles", "ProgramFiles(x86)", "LocalAppData"].iter().filter_map(std::env::var_os) {
             for tail in [r"Google\Chrome\Application\chrome.exe", r"Microsoft\Edge\Application\msedge.exe", r"BraveSoftware\Brave-Browser\Application\brave.exe", r"Chromium\Application\chrome.exe"] {
                 places.push(Path::new(&root).join(tail));
             }
@@ -152,7 +152,7 @@ impl Conn {
     async fn eval(&self, script: &str) -> Result<Value> {
         let r = self.call("Runtime.evaluate", json!({"expression": script, "returnByValue": true, "awaitPromise": true})).await?;
         if let Some(problem) = r.get("exceptionDetails") {
-            bail!("the page reported an error: {}", crate::util::preview(&problem["exception"]["description"].as_str().unwrap_or("script failed").to_string(), 200));
+            bail!("the page reported an error: {}", crate::util::preview(problem["exception"]["description"].as_str().unwrap_or("script failed"), 200));
         }
         Ok(r["result"]["value"].clone())
     }
@@ -542,6 +542,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: |a, c| if a.get("url").and_then(|u| u.as_str()).map(|u| c.seen_urls.contains(u)).unwrap_or(false) { Effect::NetworkRead } else { Effect::NetworkEgress },
             detail: None,
             untrusted: true,
+            target: None,
             run: |a, c| Box::pin(open(a, c)),
         },
         FnTool {
@@ -552,6 +553,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: |_, _| Effect::LocalRead,
             detail: None,
             untrusted: true,
+            target: None,
             run: |a, c| Box::pin(read(a, c)),
         },
         FnTool {
@@ -572,6 +574,7 @@ pub fn tools() -> Vec<FnTool> {
                 None => format!("Click the {} on the page open in the browser", describe(a)),
             }),
             untrusted: true,
+            target: None,
             run: |a, c| Box::pin(click(a, c)),
         },
         FnTool {
@@ -582,6 +585,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: |_, _| Effect::ExternalWrite,
             detail: Some(|a, _| format!("Type this into the {} on the page open in the browser{}:\n\n{}", describe(a), if a.get("submit").and_then(|s| s.as_bool()).unwrap_or(false) { ", then press Enter" } else { "" }, a.get("text").and_then(|t| t.as_str()).unwrap_or(""))),
             untrusted: true,
+            target: None,
             run: |a, c| Box::pin(type_into(a, c)),
         },
     ]

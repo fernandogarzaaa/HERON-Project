@@ -87,7 +87,14 @@ enum Cmd {
     /// Show how many tokens have been used, what is left and where the month is heading
     Usage,
     /// Serve Heron's memory and tasks to other apps over MCP (stdio)
-    McpServe,
+    McpServe {
+        /// Advertise the tools listed in --schemas and refuse every call (used inside a CLI's sandbox).
+        #[arg(long)]
+        refuse_all: bool,
+        /// JSON array of {name, description, inputSchema} for --refuse-all.
+        #[arg(long)]
+        schemas: Option<PathBuf>,
+    },
     /// Save a complete copy of Heron's data (conversations, memory, reminders, automations, activity log)
     Backup {
         /// Where to write the copy (default: the `backups` folder inside Heron's home). Must not exist yet.
@@ -165,7 +172,7 @@ impl Approver for TerminalApprover {
             for line in req.detail.lines().take(30) {
                 eprintln!("  {line}");
             }
-            let can_always = !req.risk.high() && !req.tainted;
+            let can_always = req.can_always();
             loop {
                 eprint!("{}", if can_always { "Allow? [y]es / [a]lways / [n]o: " } else { "Allow? [y]es / [n]o: " });
                 let _ = std::io::stderr().flush();
@@ -420,8 +427,8 @@ async fn providers(cfg: &Config) -> Result<()> {
     for spec in heron::cli_llm::providers() {
         let st = heron::cli_llm::probe_status(
             &spec,
-            heron::cli_llm::override_for_provider(&spec.id, &cfg.llm.provider, &cfg.llm.cli_command),
-            heron::cli_llm::override_for_provider(&spec.id, &cfg.llm.provider, &cfg.llm.cli_config_dir),
+            heron::cli_llm::override_for_provider(spec.id, &cfg.llm.provider, &cfg.llm.cli_command),
+            heron::cli_llm::override_for_provider(spec.id, &cfg.llm.provider, &cfg.llm.cli_config_dir),
         )
         .await;
         let mark = if cfg.llm.provider == spec.id {
@@ -583,6 +590,13 @@ async fn main() {
 
 async fn real_main() -> Result<()> {
     let cli = Cli::parse();
+    // The refuse-all server runs inside a CLI's sandbox, where Heron's home is Refused: it returns
+    // before the config is loaded or the database opened.
+    if let Some(Cmd::McpServe { refuse_all: true, schemas }) = &cli.command {
+        let Some(schemas) = schemas else { bail!("--refuse-all needs --schemas <file>") };
+        let schemas = heron::mcp::read_refuse_all_schemas(schemas)?;
+        return heron::mcp::serve_refuse_all(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &schemas).await;
+    }
     let mut cfg = Config::load()?;
     if let Some(m) = &cli.mode {
         Mode::parse(m)?;
@@ -631,13 +645,13 @@ async fn real_main() -> Result<()> {
         _ => {}
     }
 
-    let uses_app_folder = matches!(command, Cmd::Serve { .. } | Cmd::Daemon | Cmd::McpServe);
+    let uses_app_folder = matches!(command, Cmd::Serve { .. } | Cmd::Daemon | Cmd::McpServe { .. });
     let workspace = match cli.workspace {
         Some(w) => w,
         None if uses_app_folder && !cfg.agent.workspace.is_empty() => cfg.app_workspace(),
         None => std::env::current_dir().context("cannot determine current directory")?,
     };
-    if matches!(command, Cmd::McpServe) {
+    if matches!(command, Cmd::McpServe { .. }) {
         cfg.mcp.servers.clear(); // acting as a server: do not spawn our own MCP clients
     }
     let app = Arc::new(App::build(cfg, workspace).await?);
@@ -714,7 +728,7 @@ async fn real_main() -> Result<()> {
         }
         Cmd::Usage => {
             let r = heron::usage::report(&app.store, &app.cfg(), app.background_budget().0);
-            let n = |v: u64| { let s = v.to_string(); let mut out = String::new(); for (i, c) in s.chars().enumerate() { if i > 0 && (s.len() - i) % 3 == 0 { out.push(','); } out.push(c); } out };
+            let n = |v: u64| { let s = v.to_string(); let mut out = String::new(); for (i, c) in s.chars().enumerate() { if i > 0 && (s.len() - i).is_multiple_of(3) { out.push(','); } out.push(c); } out };
             let window = |name: &str, w: &heron::usage::Window| match w.left {
                 Some(left) => println!("{name:<12} {} used of {} ({} left)", n(w.used), n(w.limit), n(left)),
                 None => println!("{name:<12} {} used (no limit set)", n(w.used)),
@@ -747,9 +761,10 @@ async fn real_main() -> Result<()> {
             }
             Ok(())
         }
-        Cmd::McpServe => {
+        Cmd::McpServe { .. } => {
             let agent = app.agent(Arc::new(DenyAll));
-            let ctx = agent.tool_ctx("mcp");
+            // One session id per connection, so each program's calls are told apart in the log.
+            let ctx = agent.tool_ctx(&format!("mcp-{}", uuid::Uuid::new_v4().simple()));
             heron::mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app.tools, &ctx, &app.policy).await
         }
         Cmd::Init | Cmd::Doctor | Cmd::Providers | Cmd::Eval { .. } | Cmd::Backup { .. } | Cmd::Restore { .. } => unreachable!(),

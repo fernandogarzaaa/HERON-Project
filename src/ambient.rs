@@ -2,24 +2,28 @@
 //! in the working folder changed recently, so that context is ready before it is asked for.
 //! Stateless and bounded: one capped directory walk per turn, no file contents read.
 
-use crate::permissions::{classify_path, Effect};
+use crate::config::Config;
+use crate::permissions::{classify_path, Effect, ReadRoots};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 const MAX_ENTRIES: usize = 20_000;
 
-/// Files modified within `window`, newest first, as (relative path, seconds ago).
-pub fn recent_changes(workspace: &Path, window: Duration, limit: usize) -> Vec<(String, u64)> {
+/// Files modified within `window`, newest first, as (relative path, seconds ago). Refused locations
+/// and secret-looking files are never observed, and a Refused folder is not entered.
+pub fn recent_changes(workspace: &Path, cfg: &Config, window: Duration, limit: usize) -> Vec<(String, u64)> {
     let now = SystemTime::now();
     let mut found: Vec<(String, u64)> = vec![];
+    let roots = ReadRoots::of(cfg);
     let walk = ignore::WalkBuilder::new(workspace)
         .max_depth(Some(6))
         .hidden(true)
-        .filter_entry(|e| !matches!(e.file_name().to_str(), Some("node_modules" | "target" | "dist" | "build" | "__pycache__" | "Library" | "AppData")))
+        .filter_entry(move |e| !matches!(e.file_name().to_str(), Some("node_modules" | "target" | "dist" | "build" | "__pycache__" | "Library" | "AppData")) && roots.refused(e.path()).is_none())
         .build();
     for entry in walk.flatten().take(MAX_ENTRIES) {
         let path = entry.path();
-        if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) || classify_path(path, workspace, false) == Effect::SensitiveRead {
+        if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) || matches!(classify_path(path, workspace, cfg, false), Effect::Refused | Effect::SensitiveRead) {
             continue;
         }
         let Ok(modified) = entry.metadata().map_err(|_| ()).and_then(|m| m.modified().map_err(|_| ())) else { continue };
@@ -55,9 +59,10 @@ mod tests {
         std::fs::write(d.path().join("notes/plan.md"), "x").unwrap();
         std::fs::write(d.path().join("target/out.bin"), "x").unwrap();
         std::fs::write(d.path().join(".env"), "SECRET=1").unwrap();
-        let r = recent_changes(d.path(), Duration::from_secs(3600), 10);
+        let cfg = Config { home: d.path().join("heron-home"), ..Default::default() };
+        let r = recent_changes(d.path(), &cfg, Duration::from_secs(3600), 10);
         assert_eq!(r.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(), vec!["notes/plan.md"]);
-        assert!(recent_changes(d.path(), Duration::from_secs(0), 10).is_empty() || r[0].1 == 0);
+        assert!(recent_changes(d.path(), &cfg, Duration::from_secs(0), 10).is_empty() || r[0].1 == 0);
         assert_eq!(describe_age(30), "just now");
         assert_eq!(describe_age(600), "10 min ago");
         assert_eq!(describe_age(7200), "2 h ago");
@@ -87,7 +92,7 @@ pub struct Awareness {
 }
 
 /// One observation pass: record files changed since the last pass. Returns how many new things were noticed.
-pub fn observe(store: &Store, workspace: &Path) -> usize {
+pub fn observe(store: &Store, workspace: &Path, cfg: Arc<Config>) -> usize {
     let now = crate::util::now_ts();
     let last: i64 = store.kv_get("observer_last").and_then(|v| v.parse().ok()).unwrap_or(now - DAY);
     // Look back a little past the last pass so nothing slips between two scans.
@@ -99,7 +104,7 @@ pub fn observe(store: &Store, workspace: &Path) -> usize {
         .filter_map(|p| Path::new(p).strip_prefix(workspace).ok().map(|r| r.to_string_lossy().replace('\\', "/")))
         .collect();
     let mut noticed = 0;
-    for (path, age) in recent_changes(workspace, window, 400) {
+    for (path, age) in recent_changes(workspace, &cfg, window, 400) {
         if own.contains(&path) {
             continue;
         }
@@ -232,8 +237,9 @@ mod observer_tests {
         // a file Heron wrote itself is not treated as the user's activity
         std::fs::write(d.path().join("by-heron.md"), "x").unwrap();
         store.save_checkpoint("s", &d.path().join("by-heron.md").to_string_lossy(), None, None).unwrap();
-        assert_eq!(observe(&store, d.path()), 5);
-        assert_eq!(observe(&store, d.path()), 0, "the same change is not counted twice");
+        let cfg = Arc::new(Config { home: d.path().join("heron-home"), ..Default::default() });
+        assert_eq!(observe(&store, d.path(), cfg.clone()), 5);
+        assert_eq!(observe(&store, d.path(), cfg), 0, "the same change is not counted twice");
         let a = awareness(&store, d.path());
         assert_eq!(a.focus[0], ("book/ch1".to_string(), 2));
         assert_eq!(a.branch.as_deref(), Some("chapter-two"));
@@ -252,8 +258,8 @@ mod observer_tests {
     fn usual_hours_needs_evidence_and_finds_the_working_day() {
         let mut hist = [0usize; 24];
         assert_eq!(usual_hours(&hist), None);
-        for h in 9..17 {
-            hist[h] = 10;
+        for slot in &mut hist[9..17] {
+            *slot = 10;
         }
         hist[22] = 2;
         assert_eq!(usual_hours(&hist), Some((9, 16)));

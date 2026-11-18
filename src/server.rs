@@ -235,7 +235,8 @@ async fn get_settings(State(st): S) -> ApiResult {
         "fallback_models": cfg.llm.fallback_models.join(", "), "key_source": key_source,
         "provider": cfg.llm.provider, "cli_command": cfg.llm.cli_command, "cli_model": cfg.llm.cli_model,
         "cli_config_dir": cfg.llm.cli_config_dir, "cli_allow_agent_tools": cfg.llm.cli_allow_agent_tools,
-        "cli_allow_api_key": cfg.llm.cli_allow_api_key, "providers": providers,
+        "cli_allow_api_key": cfg.llm.cli_allow_api_key, "cli_subscription": cfg.llm.cli_subscription,
+        "allow_unattended_subscription": cfg.llm.allow_unattended_subscription, "providers": providers,
         "mode": st.app.policy.mode().name(), "daemon_mode": cfg.permissions.daemon_mode, "auto_memory": cfg.agent.auto_memory,
         "neural_memory": cfg.agent.neural_memory, "neural_available": crate::embed::neural_built_in(),
         "browser": crate::browser::find(&cfg).map(|p| p.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()), "browser_visible": cfg.agent.browser_visible,
@@ -289,8 +290,26 @@ async fn set_settings(State(st): S, Json(body): Json<Value>) -> ApiResult {
     if let Some(v) = body.get("cli_allow_agent_tools").and_then(|v| v.as_bool()) {
         cfg.llm.cli_allow_agent_tools = v;
     }
-    if let Some(v) = body.get("cli_allow_api_key").and_then(|v| v.as_bool()) {
-        cfg.llm.cli_allow_api_key = v;
+    if let Some(v) = body.get("cli_allow_api_key") {
+        cfg.llm.cli_allow_api_key = match v {
+            Value::Bool(b) => crate::config::ApiKeyAllow::Bool(*b),
+            Value::Array(ids) => crate::config::ApiKeyAllow::List(
+                ids.iter().map(|id| id.as_str().map(|s| s.trim().to_string()).ok_or_else(|| bad("cli_allow_api_key must be true, false or a list of provider ids."))).collect::<std::result::Result<Vec<_>, _>>()?,
+            ),
+            _ => return Err(bad("cli_allow_api_key must be true, false or a list of provider ids.")),
+        };
+    }
+    if let Some(v) = body.get("cli_subscription") {
+        let Some(map) = v.as_object() else { return Err(bad("cli_subscription must be an object of {\"<provider id>\": true or false}.")) };
+        let mut subs = std::collections::BTreeMap::new();
+        for (id, flag) in map {
+            let Some(flag) = flag.as_bool() else { return Err(bad("cli_subscription must be an object of {\"<provider id>\": true or false}.")) };
+            subs.insert(id.clone(), flag);
+        }
+        cfg.llm.cli_subscription = subs;
+    }
+    if let Some(v) = body.get("allow_unattended_subscription").and_then(|v| v.as_bool()) {
+        cfg.llm.allow_unattended_subscription = v;
     }
     if let Some(v) = text("daemon_mode") {
         Mode::parse(&v)?;
@@ -339,7 +358,7 @@ async fn list_sessions(State(st): S) -> ApiResult {
 }
 
 async fn new_session(State(st): S) -> ApiResult {
-    Ok(Json(json!({"id": st.app.store.create_session("")?})))
+    Ok(Json(json!({"id": st.app.store.create_session("", "user")?})))
 }
 
 async fn get_session(State(st): S, Path(id): Path<String>) -> ApiResult {
@@ -416,7 +435,7 @@ impl Approver for WebApprover {
         let (tx, rx) = oneshot::channel();
         self.state.approvals.lock().unwrap().insert(id.clone(), (self.session_id.clone(), tx));
         let prompt = json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
-            "always_rule": crate::permissions::always_rule(&req.tool, &req.summary), "can_always": !req.risk.high() && !req.tainted, "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted});
+            "always_rule": req.always_rule, "can_always": req.can_always(), "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted});
         // Do not leave an invisible approval pending if the SSE receiver is
         // stalled or gone; a sensitive action must fail closed.
         if !matches!(tokio::time::timeout(Duration::from_secs(15), self.tx.send(prompt)).await, Ok(Ok(()))) {
@@ -1235,8 +1254,8 @@ async fn connect_source(State(st): S, Path(name): Path<String>, Json(b): Json<Va
             if !folder.is_dir() {
                 return Err(bad("Heron could not find that folder. Check the path and try again."));
             }
-            if crate::permissions::classify_path(&folder, &app.workspace, false) == crate::permissions::Effect::Privileged {
-                return Err(bad("That folder holds keys or passwords, so Heron will not index it."));
+            if matches!(crate::permissions::classify_path(&folder, &app.workspace, &app.cfg(), false), crate::permissions::Effect::Refused | crate::permissions::Effect::SensitiveRead) {
+                return Err(bad("That folder holds keys, passwords or Heron's own data, so Heron will not index it."));
             }
             let folder = folder.to_string_lossy().to_string();
             if !cfg.sources.folders.contains(&folder) {
@@ -1359,8 +1378,7 @@ mod stream_backpressure_tests {
         use crate::store::Store;
 
         let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dir.path().join("home");
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
         cfg.agent.auto_memory = false;
         let app = Arc::new(App::assemble(
             cfg,

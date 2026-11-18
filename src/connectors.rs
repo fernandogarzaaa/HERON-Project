@@ -346,8 +346,7 @@ mod tests {
     #[test]
     fn registry_is_atomic_private_and_never_contains_keys() {
         let temp = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = temp.path().join("heron");
+        let cfg = Config { home: temp.path().join("heron"), ..Default::default() };
         let c = sample();
         register(&cfg, c.clone()).unwrap();
         assert!(register(&cfg, c).is_err(), "duplicate must fail");
@@ -369,8 +368,7 @@ mod tests {
     #[test]
     fn damaged_registry_is_not_ignored_or_overwritten() {
         let temp = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = temp.path().to_path_buf();
+        let cfg = Config { home: temp.path().to_path_buf(), ..Default::default() };
         fs::write(registry_path(&cfg), b"{bad-json").unwrap();
         let before = fs::read(registry_path(&cfg)).unwrap();
         assert!(register(&cfg, sample()).is_err());
@@ -380,8 +378,7 @@ mod tests {
     #[test]
     fn another_process_lock_refuses_racy_mutations() {
         let temp = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = temp.path().join("heron");
+        let cfg = Config { home: temp.path().join("heron"), ..Default::default() };
         let held = lock_registry(&cfg).unwrap();
         // The OS lock protects multiple processes, and also prevents a
         // second independent handle from overwriting another transaction.
@@ -395,8 +392,7 @@ mod tests {
     fn a_lock_kept_alive_for_a_moment_by_a_spawning_child_does_not_fail_the_next_change() {
         use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
         let temp = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = temp.path().join("heron");
+        let cfg = Config { home: temp.path().join("heron"), ..Default::default() };
         let held = lock_registry(&cfg).unwrap();
         // Between fork and exec, a child started by another thread holds a copy of every open
         // file, this lock included, so closing ours does not release it until the child execs.
@@ -414,8 +410,7 @@ mod tests {
     #[test]
     fn connector_registry_never_activates_unreviewed_remote_tools() {
         let temp = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = temp.path().to_path_buf();
+        let cfg = Config { home: temp.path().to_path_buf(), ..Default::default() };
         let mut c = sample();
         c.transport = "remote_mcp".into();
         c.permission = "approval_required".into();
@@ -430,8 +425,7 @@ mod tests {
     #[test]
     fn registry_child_process() {
         let Ok(home) = std::env::var("HERON_REGISTRY_TEST_HOME") else { return };
-        let mut cfg = Config::default();
-        cfg.home = home.into();
+        let cfg = Config { home: home.into(), ..Default::default() };
         match std::env::var("HERON_REGISTRY_TEST_ACTION").unwrap().as_str() {
             "blocked" => {
                 let err = register(&cfg, sample()).unwrap_err();
@@ -460,8 +454,7 @@ mod tests {
     #[test]
     fn two_process_transactions_fail_closed_then_preserve_both_registrations() {
         let temp = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = temp.path().join("heron");
+        let cfg = Config { home: temp.path().join("heron"), ..Default::default() };
         let mut first = sample();
         first.id = "first_api".into();
         register(&cfg, first).unwrap();
@@ -480,8 +473,7 @@ mod tests {
     #[test]
     fn terminated_process_releases_registry_lock_without_stale_lock_cleanup() {
         let temp = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = temp.path().join("heron");
+        let cfg = Config { home: temp.path().join("heron"), ..Default::default() };
         cfg.ensure_home().unwrap();
         let mut owner = child(&cfg, "hold");
         let ready = cfg.home.join("child-ready");
@@ -502,8 +494,7 @@ mod tests {
     #[test]
     fn oversized_registry_and_control_characters_fail_closed() {
         let temp = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = temp.path().into();
+        let cfg = Config { home: temp.path().into(), ..Default::default() };
         let path = registry_path(&cfg);
         fs::File::create(&path).unwrap().set_len(MAX_FILE_BYTES + 1).unwrap();
         assert!(list(&cfg).is_err());

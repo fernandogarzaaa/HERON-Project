@@ -1,0 +1,16 @@
+{
+  "id": "claude-cli",
+  "login_command": "claude auth login",
+  "paths": [
+    "~/.claude",
+    "~/.claude.json",
+    "~/.claude/backups",
+    "~/.claude/backups/.claude.json.backup.1795011167438"
+  ],
+  "credential_store": "macos-keychain",
+  "login_completed": false,
+  "known_paths": [
+    "~/.claude",
+    "~/.claude.json"
+  ]
+}
