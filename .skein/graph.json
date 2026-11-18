@@ -1701,7 +1701,16 @@
     }
   },
   "U1h": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "ba9799244859488c807eb4d154cee810",
+        "ended_at": "2026-11-18T19:56:22.935087+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-18T19:39:47.081797+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1713,22 +1722,58 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "ba9799244859488c807eb4d154cee810",
-      "base_branch": "skein/U1h__integrate-base",
-      "claim_token": "0a8286702ff54ae4a73b127c4943aada",
-      "claimed_at": "2026-11-18T19:39:47.081797+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T19:39:47.081797+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2g",
       "SYNC9"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins",
+        "duration_ms": 14449,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1h_20261118T195545031920_0.log"
+      },
+      {
+        "command": "cargo test --locked --features desktop --bin heron-desktop",
+        "duration_ms": 11926,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1h_20261118T195559486592_1.log"
+      },
+      {
+        "command": "cargo clippy --locked --all-targets -- -D warnings",
+        "duration_ms": 429,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1h_20261118T195611416621_2.log"
+      },
+      {
+        "command": "HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins",
+        "duration_ms": 10866,
+        "exit_code": 101,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1h_20261118T195611849637_3.log"
+      },
+      {
+        "command": "bash eval/require-tests.sh --lib -- kernel_prefix_paths_are_refused kernel_prefix_paths_are_denied_in_the_sandbox parked_shell_call_sees_taint_set_after_it_was_parked firmlink_alias_grants_are_too_broad",
+        "duration_ms": 209,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1h_20261118T195622720553_4.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1h_20261118T195622930376_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "U1h",
     "integration_for": null,
     "intent": {
@@ -1741,12 +1786,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-18T19:57:24.980257+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "Fixes from U1g's review: kernel lookup prefixes fail closed, sandbox test, parked taint",
-    "version": 4,
+    "version": 38,
     "worktree": {
       "base_branch": "skein/U1h__integrate-base",
       "base_commit": "f41079b309c95d49ef9f50968f80c0072b885df4",
