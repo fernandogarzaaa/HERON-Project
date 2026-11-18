@@ -9,6 +9,7 @@ Status words, used strictly:
 - **Partial**: some of the item is implemented and verified; the rest is listed.
 - **Not started**: nothing in the code yet.
 - **Blocked**: cannot be done from this environment; what is needed is stated.
+- **Accepted risk**: not fixed; the owner signed it in [ACCEPTED_RISKS.md](../ACCEPTED_RISKS.md).
 
 No item is "done" on the strength of a document.
 
@@ -92,3 +93,10 @@ No item is "done" on the strength of a document.
 | G5 Signed update checking | **Not started** | |
 | G6 Branch protection | **Blocked** | Needs repository admin. Steps are in QUALIFICATION.md. |
 | G7 Developer documentation | **Partial** | This folder. No setup scripts. |
+
+## Accepted risks
+
+| Item | Status | Evidence / what is missing |
+|---|---|---|
+| C35-8 Phone turns inherit the desktop permission mode | **Accepted risk** | Signed by the owner on 2026-11-18: [register entry](../ACCEPTED_RISKS.md#c35-8-phone-turns-inherit-the-desktop-permission-mode). T12 in SECURITY_THREAT_MODEL.md. No fix and no regression test in v1. |
+| R-1 Working-folder content can be sent out after an injected read | **Accepted risk** | Signed by the owner on 2026-11-18: [register entry](../ACCEPTED_RISKS.md#r-1-working-folder-content-can-be-sent-out-after-an-injected-read). Working-folder reads stay trusted; the eval probe `p1` reports it but does not gate. The fallback, marking every working-folder read untrusted, is not built in v1. |

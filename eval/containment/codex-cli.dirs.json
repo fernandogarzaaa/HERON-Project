@@ -1,0 +1,12 @@
+{
+  "id": "codex-cli",
+  "login_command": "codex login",
+  "paths": [
+    "~/.codex",
+    "~/.codex/auth.json",
+    "~/.codex/auth.json.lock",
+    "~/.codex/auth.lock",
+    "~/.codex/log",
+    "~/.codex/log/codex-login.log"
+  ]
+}
