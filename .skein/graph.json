@@ -1524,7 +1524,7 @@
       "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit U7 (items 44-46), plus every spec section those items link to. Read the Preconditions and Work units table too.",
       "goal": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test"
     },
-    "max_retries": 1,
+    "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
     "result": null,
@@ -1533,7 +1533,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test",
-    "version": 1,
+    "version": 2,
     "worktree": {
       "base_branch": null,
       "branch": null,
