@@ -61,12 +61,12 @@ The research note rests on search summaries, not official pages. Treat every com
 
 | Area | Heron today | Others |
 |---|---|---|
-| Reaching it | Open the app window or a terminal | Raycast and Siri answer from a hotkey or a voice command in any app |
+| Reaching it | Open the app window or a terminal | Raycast, a launcher, and Siri answer from a keystroke or a voice command in any app |
 | Voice | None of its own | Siri, Raycast dictation, Muse and Grok voice chat |
 | Mac apps and data | Files; calendar through an ICS link or Google or Microsoft OAuth; mail through IMAP or OAuth. All read-only: no reminders, and nothing it can add | Siri works with mail, messages, calendar and photos on the device; Gemini automates files in folders the user picks |
 | Acting in other apps | MCP tools and a text-only browser | Siri and Gemini run multi-step tasks across apps; ChatGPT Work and Lindy run tasks in connected cloud apps |
 | Seeing what's on screen | None | Siri's on-screen awareness |
-| Knowing a run finished | The chat stream, or a scheduled job's notification | Codex, Cowork and ChatGPT list background tasks and notify |
+| Knowing a run finished | The chat stream, or a scheduled job's notification | Codex, Cowork and ChatGPT list background and scheduled tasks |
 | Always on | Only while the app or `heron daemon` runs | Cowork, Codex cloud, Muse and Dots run on a cloud machine |
 | Help with mail replies | None | Lindy, Muse and Dots draft and send |
 
