@@ -413,5 +413,57 @@
       "branch": null,
       "path": null
     }
+  },
+  "Ut": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "tests/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "Ut",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --test integration -- api_events_resume_from_sequence api_run_survives_client_disconnect api_approval_waits_on_the_bus_then_parks_on_timeout api_print_endpoint_prints_port_and_token core_exits_when_app_dies mode_survives_restart risk_notice_blocks_chat_until_accepted api_fixtures_match_the_live_core && test -s tests/fixtures/api/state.json && test -s tests/fixtures/api/events-error.jsonl",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit Ut (items 38), plus every spec section those items link to. Read the Preconditions and Work units table too.",
+      "goal": "Integration tests for U1 to U3, and the recorded API fixtures"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Integration tests for U1 to U3, and the recorded API fixtures",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
   }
 }
