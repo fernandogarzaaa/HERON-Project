@@ -1708,29 +1708,44 @@
     }
   },
   "U2f__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "89d0f06b341e44f196f1f5f400c467bc",
+        "ended_at": "2026-11-18T18:29:32.816519+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-18T18:29:32.318917+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "89d0f06b341e44f196f1f5f400c467bc",
-      "base_branch": "skein/U2f__integrate__integrate-base",
-      "claim_token": "0d6b049cbc1844a688cfc3edd222fac6",
-      "claimed_at": "2026-11-18T18:29:32.318917+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-18T18:29:32.318917+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U1f",
       "SYNC6"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 4b3d5578c7784fb99c793fd325a34e9e123cc592",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['c8c38259ee5b6edaafdb15d118124350b3b1a1bf', '4b3d5578c7784fb99c793fd325a34e9e123cc592'] into skein/U2f__integrate-base.",
     "id": "U2f__integrate",
     "integration_for": "U2f",
     "intent": {
@@ -1742,16 +1757,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "c8c38259ee5b6edaafdb15d118124350b3b1a1bf",
+      "changed_files": [],
+      "commit": "b14a4ba9bae2f27fb3304dc5d7f46d053fa99435",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of U2f",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/U2f__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "c8c38259ee5b6edaafdb15d118124350b3b1a1bf",
+      "branch": "skein/U2f__integrate-base",
       "path": null
     }
   },
