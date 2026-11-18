@@ -1322,6 +1322,59 @@
       "path": null
     }
   },
+  "U1g": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U2f",
+      "SYNC7"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U1g",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins\ncargo test --locked --features desktop --bin heron-desktop\ncargo clippy --locked --all-targets -- -D warnings\nbash eval/require-tests.sh --lib -- volume_id_paths_are_refused firmlink_alias_grants_are_too_broad exact_grant_on_walk_root_opens_no_subtree tainted_conversation_grants_do_not_reach_the_sandbox firmlink_alias_is_denied_in_the_sandbox",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md, search 'U1f's review' (classify_path bullets, too_broad, the walkers, Conversation grants, the shell's grants, and the tests list). Review evidence, file:line at U1f's result c8c38259 (lines may have moved since U2f): permissions.rs:972-995 classify_path and 797-812 canonical_existing (/.vol keeps its written form, classified LocalRead even in ReadOnly); permissions.rs:526-538 too_broad (false for /System/Volumes/Data/Users/<me>); fs.rs:724-727 path_forms and sandbox.rs:211-228 subpaths strip the alias while too_broad does not; fs.rs:749-751 with agent.rs:146 (session_grant matches read=: for any read tool, so the walker opens the subtree); sandbox.rs:395 read_grants(..., Some(session_id)) is unconditional and shell.rs:36; shell.rs:410 the alias sandbox test. Use the path-normalization helper that already exists for the firmlink alias rather than writing a second one. Your Bash runs inside a sandbox where sandbox-exec cannot run, so Seatbelt tests fail for you but run in the completion command.",
+      "goal": "Fix what an independent review of U1f found, as the spec now says: (1) classify_path fails closed: a path under /.vol, or one that exists but cannot be canonicalized, is Refused for reads and writes, and list_dir/search_files/find_files refuse such a root (test volume_id_paths_are_refused); (2) too_broad normalizes the /System/Volumes/Data firmlink prefix first, and read_rule_covers and always_rule use the same normalization on both sides (test firmlink_alias_grants_are_too_broad); (3) in the walkers, a read=: conversation grant that matches the walk root covers that root only, never entries under it; only read: grants open a folder's contents (test exact_grant_on_walk_root_opens_no_subtree); (4) while the conversation is tainted, shell.rs passes no conversation grants to the sandbox, only standing rules (test tainted_conversation_grants_do_not_reach_the_sandbox); (5) firmlink_alias_is_denied_in_the_sandbox gains a positive control: under the same profile it reads a file in the working folder and asserts the content came back. Every new test must fail on the code before your change."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fixes from U1f's security review: /.vol fail-closed, alias in too_broad, read=: walker scope, tainted shell grants",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U2": {
     "attempts": [
       {
