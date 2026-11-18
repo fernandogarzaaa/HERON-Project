@@ -901,15 +901,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "0024c8890dfc4623bf2ff8b0485a5aa9",
+      "base_branch": "skein/U2__integrate-base",
+      "claim_token": "1f94c1a7f04f4235bcabc14f4b7d14ad",
+      "claimed_at": "2026-11-18T14:54:22.225717+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-18T14:54:22.225717+00:00",
+      "node_version": 8,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U1",
@@ -932,9 +932,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Deny-default sandbox for shell and CLI child, macOS sandbox-off refusal, CLI environment and run folder, version contrac",
-    "version": 8,
+    "version": 9,
     "worktree": {
       "base_branch": "skein/U2__integrate-base",
       "base_commit": "eb3e96bef0585c9d76bc0f76d6c4c3431d87a3ef",
