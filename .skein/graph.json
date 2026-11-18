@@ -3340,6 +3340,14 @@
         "holder": "skein-auto-merge",
         "outcome": "interrupted",
         "started_at": "2026-11-18T23:08:01.037655+00:00"
+      },
+      {
+        "attempt_id": "ce7463a356b24c5b9ca9538ccaabdf7d",
+        "ended_at": "2026-11-18T23:10:59.003507+00:00",
+        "error": "",
+        "holder": "inan",
+        "outcome": "done",
+        "started_at": "2026-11-18T23:10:58.952509+00:00"
       }
     ],
     "attempts_used": 0,
@@ -3348,15 +3356,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "ce7463a356b24c5b9ca9538ccaabdf7d",
-      "base_branch": "skein/U2w__integrate__integrate-base",
-      "claim_token": "1aab5a835fd242c4a475ef7eb2f6a52f",
-      "claimed_at": "2026-11-18T23:10:58.952509+00:00",
-      "holder": "inan",
-      "last_heartbeat": "2026-11-18T23:10:58.952509+00:00",
-      "node_version": 5,
-      "ttl_seconds": 1800,
-      "worker_id": "inan"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2s",
@@ -3364,8 +3372,14 @@
       "Ut",
       "U1i"
     ],
-    "evidence": [],
-    "handoff_note": "auto-merge conflicted on: eval/containment/claude-cli.json, eval/containment/codex-cli.json, eval/containment/opencode-cli.json; resolve the conflicts in branch 'skein/U2w__integrate-base' and mark the node done",
+    "evidence": [
+      {
+        "command": "git merge fd48f6a7c4082df9a2ed474b8da9d673c1673e4f c8c9f282acd8b34b5b19fcac0d77a6444ed67ff5 d818528cc3a630024fff43f0aa2fc5fa6abb8210 (containment JSON: theirs=U2c)",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Manual merge by inan: ['03be82fa21358445e8c7b9c8d48fb9dcd1e32898', 'fd48f6a7c4082df9a2ed474b8da9d673c1673e4f', 'c8c9f282acd8b34b5b19fcac0d77a6444ed67ff5', 'd818528cc3a630024fff43f0aa2fc5fa6abb8210'] into skein/U2w__integrate-base; eval/containment/{claude,codex,opencode}-cli.json taken from U2c's re-run (fd48f6a7), since U2s carried the old U2c attempt's copies. cargo check --all-targets clean.",
     "id": "U2w__integrate",
     "integration_for": "U2w",
     "intent": {
@@ -3377,16 +3391,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "03be82fa21358445e8c7b9c8d48fb9dcd1e32898",
+      "changed_files": [],
+      "commit": "606e4d4c3d262f817f6ec53a297088ed13a1c0ef",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of U2w",
-    "version": 6,
+    "version": 7,
     "worktree": {
-      "base_branch": "skein/U2w__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "03be82fa21358445e8c7b9c8d48fb9dcd1e32898",
+      "branch": "skein/U2w__integrate-base",
       "path": null
     }
   },
