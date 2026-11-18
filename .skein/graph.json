@@ -1713,15 +1713,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "ba9799244859488c807eb4d154cee810",
+      "base_branch": "skein/U1h__integrate-base",
+      "claim_token": "0a8286702ff54ae4a73b127c4943aada",
+      "claimed_at": "2026-11-18T19:39:47.081797+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-18T19:39:47.081797+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U2g",
@@ -1744,9 +1744,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fixes from U1g's review: kernel lookup prefixes fail closed, sandbox test, parked taint",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U1h__integrate-base",
       "branch": null,
