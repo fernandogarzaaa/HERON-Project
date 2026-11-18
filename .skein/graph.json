@@ -389,6 +389,56 @@
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC7"
     }
   },
+  "SYNC8": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "SYNC8",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q broad_config_dir_override_opens_nothing_in_a_cli_sandbox docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U2g's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Sync: capture the feat/heron-v1 head for U2g",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U0": {
     "attempts": [
       {
@@ -1368,7 +1418,7 @@
       "claim_token": "213133f08a9c47a388ad4919e0158972",
       "claimed_at": "2026-11-18T18:55:17.129647+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T18:59:47.506952+00:00",
+      "last_heartbeat": "2026-11-18T19:03:17.644031+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1396,7 +1446,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U1f's security review: /.vol fail-closed, alias in too_broad, read=: walker scope, tainted shell grants",
-    "version": 13,
+    "version": 20,
     "worktree": {
       "base_branch": "skein/U1g__integrate-base",
       "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
@@ -2110,7 +2160,7 @@
       "claim_token": "db8744acc03e4a90b525377ef6457754",
       "claimed_at": "2026-11-18T18:59:50.577591+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T18:59:50.577591+00:00",
+      "last_heartbeat": "2026-11-18T19:03:20.865598+00:00",
       "node_version": 23,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -2150,9 +2200,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 25,
+    "version": 32,
     "worktree": {
       "base_branch": "skein/U2s__integrate-base",
       "base_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
