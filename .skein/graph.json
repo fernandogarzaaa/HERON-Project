@@ -3892,7 +3892,7 @@
       "claim_token": "d3a680335b744f1a8dccf7df8c6fc1a2",
       "claimed_at": "2026-11-18T23:19:36.715840+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T23:29:37.309460+00:00",
+      "last_heartbeat": "2026-11-18T23:30:07.320005+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3920,7 +3920,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3's review: cross-core revoke, run start/end, overrides, risk-notice gates",
-    "version": 24,
+    "version": 25,
     "worktree": {
       "base_branch": "skein/U3f__integrate-base",
       "base_commit": "cdbee6468ef3eab77bfbddfb791a31dbbb48012a",
@@ -4084,9 +4084,9 @@
     "retry_at": "2026-11-18T22:13:42.418311+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "blocked",
     "title": "SwiftUI app shell: screens, tokens, avatar, first run, on preview stubs",
-    "version": 14,
+    "version": 15,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "78f7f7065d0d4bab44cdd352073bb87a4f96a5fa",
