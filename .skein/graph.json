@@ -3033,9 +3033,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 7,
+    "version": 8,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3__integrate-base",
       "branch": null,
       "path": null
     }
