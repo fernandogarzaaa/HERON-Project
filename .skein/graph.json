@@ -311,6 +311,60 @@
       "path": null
     }
   },
+  "U2w": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U2s",
+      "U2c",
+      "Ut"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U2w",
+    "integration_for": null,
+    "intent": {
+      "completion": "python3 -I eval/containment/check.py && cargo test --locked && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && ! grep -rq 'HERON_CLI_TOPOLOGY' src && bash eval/require-tests.sh --lib -- tier1_candidates_have_ranges",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit U2w (items 39), plus every spec section those items link to. Read the Preconditions and Work units table too.",
+      "goal": "Apply U2s's topology and U2c's Tier 1 results; delete the losing topology code"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Apply U2s's topology and U2c's Tier 1 results; delete the losing topology code",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U3": {
     "attempts": [],
     "attempts_used": 0,
