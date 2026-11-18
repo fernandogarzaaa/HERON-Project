@@ -71,8 +71,7 @@ pub enum Profile<'a> {
     /// A shell command. `grants` are the folders and single paths the user granted for reading.
     Shell { grants: Vec<ReadGrant> },
     /// A CLI provider child. `binary_dir` is the install folder of its binary. `extra_read` holds the
-    /// interpreter's folder when the binary is a script, and in debug builds the folder of Heron's own
-    /// executable when the hybrid topology is on.
+    /// interpreter's folder when the binary is a script.
     Cli { spec: &'a CliSpec, binary_dir: PathBuf, extra_read: Vec<PathBuf> },
 }
 
