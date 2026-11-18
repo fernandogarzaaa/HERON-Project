@@ -1870,7 +1870,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Containment check on each installed candidate CLI (measurement; records results, G4 is judged in U2w)",
-    "version": 26,
+    "version": 27,
     "worktree": {
       "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
       "base_commit": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
