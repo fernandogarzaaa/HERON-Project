@@ -1641,10 +1641,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "2663de12b962acc96f9bc5967f1ec973887d420b",
+        "result_commit": "6750b378a45ea32d3b794539dedc3549769c6c5b",
+        "shipped_at": "2026-11-18T20:15:41.426242+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U1f's security review: /.vol fail-closed, alias in too_broad, read=: walker scope, tainted shell grants",
-    "version": 43,
+    "version": 44,
     "worktree": {
       "base_branch": "skein/U1g__integrate-base",
       "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
