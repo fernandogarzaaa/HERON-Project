@@ -2462,10 +2462,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "b14a4ba9bae2f27fb3304dc5d7f46d053fa99435",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "7535a31d79b301aaced0e16351156511684afea0",
+        "result_commit": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
+        "shipped_at": "2026-11-18T20:15:41.268445+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Sandbox fixes from U2's review and U2c: launch and rename escapes, TLS roots for CLIs",
-    "version": 56,
+    "version": 57,
     "worktree": {
       "base_branch": "skein/U2f__integrate-base",
       "base_commit": "b14a4ba9bae2f27fb3304dc5d7f46d053fa99435",
