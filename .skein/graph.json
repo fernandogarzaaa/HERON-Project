@@ -2079,10 +2079,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "eb3e96bef0585c9d76bc0f76d6c4c3431d87a3ef",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "8117e56554f8063d9cc650e57fad31a5866449be",
+        "result_commit": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
+        "shipped_at": "2026-11-18T20:15:40.995455+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Deny-default sandbox for shell and CLI child, macOS sandbox-off refusal, CLI environment and run folder, version contrac",
-    "version": 144,
+    "version": 145,
     "worktree": {
       "base_branch": "skein/U2__integrate-base",
       "base_commit": "eb3e96bef0585c9d76bc0f76d6c4c3431d87a3ef",
