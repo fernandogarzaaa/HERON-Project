@@ -462,11 +462,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Risk register with C35-8 and R-1, and accepted-risk sections in the threat model and matrix",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/heron-v1",
-      "branch": null,
-      "path": null
+      "base_commit": "e94449377a7fdf27b8dfcf81c9f323c4b24506bc",
+      "branch": "skein/U3a",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3a"
     }
   },
   "U4": {
