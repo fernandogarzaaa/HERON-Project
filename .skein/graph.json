@@ -925,9 +925,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Deny-default sandbox for shell and CLI child, macOS sandbox-off refusal, CLI environment and run folder, version contrac",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U2__integrate-base",
       "branch": null,
       "path": null
     }
