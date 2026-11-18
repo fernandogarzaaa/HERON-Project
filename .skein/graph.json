@@ -3587,6 +3587,59 @@
       "path": null
     }
   },
+  "U2x": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3f",
+      "SYNC12"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U2x",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins\ncargo test --locked --features desktop --bin heron-desktop\ncargo clippy --locked --all-targets -- -D warnings\nHERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins\nbash eval/require-tests.sh --lib -- turn_on_an_untested_registry_version_is_refused",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md, search 'Fixes from U2w's review', CUJ 5, items 22 and 39. Review evidence at U2w's result da013874: cli_llm.rs:2061 ensure_version in turn_in, 2333 with_version_answer, 3910 version_outside_range_needs_acceptance, 392 opencode-cli config_dirs, 3810 tier1_candidates_have_ranges; main.rs:596 doctor uses heron::llm::build(&quick) with no store. Your Bash runs inside a sandbox where sandbox-exec cannot run, so Seatbelt tests fail for you but run in the completion command.",
+      "goal": "Fix what an independent review of U2w found, as the spec's 'Fixes from U2w's review' says (the U2x bullets). (1) Test turn_on_an_untested_registry_version_is_refused: a fake claude-cli that answers --version with a version outside the registry entry's own supported range (do not override llm.spec.supported, and do not let with_version_answer inject an in-range version for this fake) makes run_turn fail with CliVersionUntested before the CLI is sent a prompt; after accepting exactly that version (kv cli_version_ok:<id>) the same turn proceeds. It must fail if the ensure_version call in turn_in is removed; check that by reading the code. (2) Keep ~/.opencode in opencode-cli's config_dirs alongside the recorded folders, so it stays Refused; update tier1_candidates_have_ranges or other tests only as needed so they still assert the recorded folders are covered. (3) heron doctor builds its model client with the store, so an accepted version is honoured."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fixes from U2w's review: untested-version turn test, ~/.opencode Refused, doctor store",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U3": {
     "attempts": [
       {
