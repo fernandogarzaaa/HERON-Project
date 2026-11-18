@@ -975,7 +975,7 @@
       "claim_token": "974b9001e21742ae985faf4b19c8fa91",
       "claimed_at": "2026-11-18T16:03:17.485048+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T16:03:17.485048+00:00",
+      "last_heartbeat": "2026-11-18T16:04:17.727883+00:00",
       "node_version": 3,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1001,9 +1001,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Fixes from U1's security review: walkers, firmlink alias, credential_store, tests",
-    "version": 5,
+    "version": 7,
     "worktree": {
       "base_branch": "skein/U1f__integrate-base",
       "base_commit": "951510e283dc6494ee4770a3aaa3ec80a1a6e8de",
@@ -1332,15 +1332,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "fa009a32fa924c5f850f9f4885a314f1",
+      "base_branch": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
+      "claim_token": "197f6dc472df432db5783c1c1db14f5c",
+      "claimed_at": "2026-11-18T16:04:18.471773+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-18T16:04:18.471773+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "U2"
@@ -1362,11 +1362,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Containment check on each installed candidate CLI (measurement; records results, G4 is judged in U2w)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
       "branch": null,
       "path": null
     }
