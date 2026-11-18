@@ -3000,15 +3000,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "72b2763faf8342269c1b3cb08715ab3c",
+      "base_branch": "skein/U3__integrate-base",
+      "claim_token": "efad798de80c434eaf5b1986945352a9",
+      "claimed_at": "2026-11-18T20:03:00.514624+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-18T20:03:00.514624+00:00",
+      "node_version": 8,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U1h",
@@ -3031,9 +3031,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 8,
+    "version": 9,
     "worktree": {
       "base_branch": "skein/U3__integrate-base",
       "branch": null,
