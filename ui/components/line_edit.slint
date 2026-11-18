@@ -1,0 +1,133 @@
+// The app's single-line text field, in place of the std-widgets
+// LineEdit, whose cupertino-dark grey fill ignored the theme. It keeps
+// the std LineEdit API the views use (text, placeholder-text,
+// input-type, enabled, read-only, has-focus, accepted, edited), so a
+// view swaps the import and keeps its call sites.
+// The editing core follows Slint 1.18.1's LineEditBase
+// (widgets/common/lineedit-base.slint): a clipped TextInput that
+// scrolls to keep the cursor in view, a placeholder, and the
+// Undo / Cut / Copy / Paste context menu. Look: a sunken Theme.paper
+// fill with a line border that turns slate while focused, the same
+// focus colour as NavItem and ChoiceChip. A password field has an eye
+// toggle; the revealed state clears when the field loses focus.
+
+import { Theme } from "theme.slint";
+
+export component LineEdit inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> placeholder-text;
+    in property <InputType> input-type: InputType.text;
+    in property <bool> enabled: true;
+    in property <bool> read-only <=> input.read-only;
+    out property <bool> has-focus: input.has-focus;
+    in-out property <bool> password-revealed: false;
+    callback accepted(text: string);
+    callback edited(text: string);
+
+    accessible-role: text-input;
+    accessible-enabled: root.enabled;
+    accessible-value <=> text;
+    accessible-placeholder-text: placeholder-text;
+    accessible-read-only: root.read-only;
+    accessible-action-set-value(v) => {
+        text = v;
+        edited(v);
+    }
+
+    changed has-focus => {
+        if !self.has-focus {
+            self.password-revealed = false;
+        }
+    }
+
+    forward-focus: input;
+    horizontal-stretch: 1;
+    vertical-stretch: 0;
+    min-width: 160px;
+    height: 34px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.slate : Theme.line;
+    background: root.enabled ? Theme.paper : Theme.surface;
+
+    property <length> pad: 10px;
+
+    HorizontalLayout {
+        padding-left: root.pad;
+        padding-right: root.pad;
+        spacing: 6px;
+
+        field := Rectangle {
+            horizontal-stretch: 1;
+            clip: true;
+
+            Text {
+                width: 100%;
+                height: 100%;
+                vertical-alignment: center;
+                text: root.text == "" && input.preedit-text == "" ? root.placeholder-text : "";
+                font-size: input.font-size;
+                color: Theme.muted;
+                accessible-role: none;
+            }
+
+            ContextMenuArea {
+                enabled: root.enabled;
+                Menu {
+                    if !root.read-only && root.enabled: MenuItem { title: @tr("Undo"); activated => { input.undo(); } }
+                    if !root.read-only && root.enabled: MenuItem { title: @tr("Redo"); activated => { input.redo(); } }
+                    if !root.read-only && root.enabled: MenuSeparator { }
+                    MenuItem { title: @tr("Cut"); enabled: !root.read-only && root.enabled; activated => { input.cut(); } }
+                    MenuItem { title: @tr("Copy"); enabled: !root.text.is-empty; activated => { input.copy(); } }
+                    MenuItem { title: @tr("Paste"); enabled: !root.read-only && root.enabled; activated => { input.paste(); } }
+                    MenuItem { title: @tr("Select All"); enabled: !root.text.is-empty; activated => { input.select-all(); } }
+                }
+
+                input := TextInput {
+                    property <length> computed-x;
+                    x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.computed-x));
+                    width: max(parent.width - self.text-cursor-width, self.preferred-width);
+                    height: 100%;
+                    vertical-alignment: center;
+                    single-line: true;
+                    font-size: 14px;
+                    enabled: root.enabled;
+                    color: root.enabled ? Theme.ink : Theme.muted;
+                    selection-background-color: Theme.slate-soft;
+                    selection-foreground-color: Theme.ink;
+                    input-type: root.password-revealed ? InputType.text : root.input-type;
+                    accessible-role: none;
+
+                    cursor-position-changed(cursor-position) => {
+                        if cursor-position.x + self.computed-x < 0px {
+                            self.computed-x = - cursor-position.x;
+                        } else if cursor-position.x + self.computed-x > parent.width - self.text-cursor-width {
+                            self.computed-x = parent.width - cursor-position.x - self.text-cursor-width;
+                        }
+                    }
+                    accepted => { root.accepted(self.text); }
+                    edited => { root.edited(self.text); }
+                }
+            }
+        }
+
+        if root.input-type == InputType.password: Rectangle {
+            width: 20px;
+            accessible-role: button;
+            accessible-label: root.password-revealed ? "Hide password" : "Show password";
+            accessible-action-default => { root.password-revealed = !root.password-revealed; }
+            Image {
+                width: 18px;
+                height: 18px;
+                source: root.password-revealed ? @image-url("../icons/eye-off.svg") : @image-url("../icons/eye.svg");
+                colorize: eye.has-hover ? Theme.ink : Theme.icon;
+            }
+            eye := TouchArea {
+                clicked => {
+                    root.password-revealed = !root.password-revealed;
+                    input.focus();
+                }
+            }
+        }
+    }
+}

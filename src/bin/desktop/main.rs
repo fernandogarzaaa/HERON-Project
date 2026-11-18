@@ -855,12 +855,129 @@ mod window_layout_tests {
                 "main window drew a uniform/blank frame at {width}x{height}"
             );
             if let Ok(directory) = std::env::var("HERON_UI_SNAPSHOTS_DIR") {
-                // CI saves an intentionally empty-session screen only.
-                // No runtime account, message, or credential data is rendered.
+                // CI saves these frames and the per-view frames below. They
+                // show the empty session and fixture rows only: no runtime
+                // account, message, or credential data is rendered.
                 std::fs::create_dir_all(&directory).expect("create screenshot artifact directory");
                 let path = std::path::Path::new(&directory)
                     .join(format!("heron-main-{width}x{height}.bmp"));
                 write_bmp(&path, width, height, &pixels);
+            }
+        }
+
+        // Every view must fit and render a non-blank frame at the supported
+        // sizes, first in the empty first-run state, then with the elements
+        // that state hides: recent sessions, the demo and paused banners,
+        // and enabled proactivity choices. Fixture text only, no user data.
+        // reduce-motion makes the view fade instant, so the frame drawn
+        // right after the switch is the settled view, not a mid-fade one.
+        ui.set_reduce_motion(true);
+        let views = [
+            "chat", "onboarding", "awareness", "memory", "tasks", "reminders", "usage", "activity", "settings",
+        ];
+        for state in ["empty", "populated"] {
+            if state == "populated" {
+                let sessions = vec![
+                    crate::SessionRow {
+                        id: "s1".into(),
+                        title: "Plan the quarterly review and draft the agenda for the team offsite".into(),
+                        updated: "today".into(),
+                        messages: 12,
+                        current: true,
+                    },
+                    crate::SessionRow {
+                        id: "s2".into(),
+                        title: "Tidy the downloads folder".into(),
+                        updated: "yesterday".into(),
+                        messages: 3,
+                        current: false,
+                    },
+                ];
+                ui.set_sidebar_sessions(slint::ModelRc::new(slint::VecModel::from(sessions)));
+                ui.set_demo(true);
+                ui.set_paused(true);
+                ui.set_awareness_watching(true);
+                ui.set_awareness_proactive("suggest".into());
+            }
+            for (width, height) in [(880, 560), (1100, 700), (1440, 900)] {
+                window.set_size(PhysicalSize::new(width, height));
+                for view in views {
+                    ui.set_current_view(view.into());
+                    window.request_redraw();
+                    let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
+                    let drew = window.draw_if_needed(|renderer| {
+                        renderer.render(&mut pixels, width as usize);
+                    });
+                    let shell_height = ui.get_debug_window_height();
+                    eprintln!("HERON_UI_GEOMETRY state={state} view={view} requested={width}x{height} window={shell_height:?}");
+                    assert!(drew, "{view} view did not render at {width}x{height} ({state})");
+                    assert!(
+                        shell_height <= height as f32 + 1.0,
+                        "{view} view: shell height {shell_height} overflows {height}px frame ({state})"
+                    );
+                    if view == "chat" {
+                        let composer_y = ui.get_debug_composer_y();
+                        assert!(
+                            composer_y >= 0.0 && composer_y + 94.0 <= height as f32,
+                            "composer at y={composer_y} is outside the {height}px frame ({state})"
+                        );
+                    }
+                    let reference = (pixels[0].red, pixels[0].green, pixels[0].blue);
+                    assert!(
+                        pixels.iter().any(|pixel| (pixel.red, pixel.green, pixel.blue) != reference),
+                        "{view} view drew a uniform/blank frame at {width}x{height} ({state})"
+                    );
+                    if let Ok(directory) = std::env::var("HERON_UI_SNAPSHOTS_DIR") {
+                        let path = std::path::Path::new(&directory)
+                            .join(format!("heron-{state}-{view}-{width}x{height}.bmp"));
+                        write_bmp(&path, width, height, &pixels);
+                    }
+                }
+
+                // Onboarding shows one step. A hidden step that stayed in
+                // the layout kept its height, so the first step alone
+                // measured the sum of all four and later steps sat below
+                // empty space.
+                ui.set_current_view("onboarding".into());
+                for step in 0..4 {
+                    ui.set_onboarding_current_step(step);
+                    window.request_redraw();
+                    let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
+                    window.draw_if_needed(|renderer| { renderer.render(&mut pixels, width as usize); });
+                    let content = ui.get_debug_onboarding_content_height();
+                    eprintln!("HERON_UI_GEOMETRY state={state} onboarding-step={step} requested={width}x{height} content={content:?}");
+                    if step == 0 {
+                        assert!(
+                            content <= height as f32,
+                            "onboarding step 0 content is {content}px, taller than the {height}px frame ({state})"
+                        );
+                    }
+                    if let (Ok(directory), true) = (std::env::var("HERON_UI_SNAPSHOTS_DIR"), step > 0) {
+                        let path = std::path::Path::new(&directory)
+                            .join(format!("heron-{state}-onboarding-step{step}-{width}x{height}.bmp"));
+                        write_bmp(&path, width, height, &pixels);
+                    }
+                }
+                ui.set_onboarding_current_step(0);
+
+                // Settings is taller than any supported window, so it has
+                // to scroll; its end (with the Save button) is drawn too.
+                ui.set_current_view("settings".into());
+                window.request_redraw();
+                window.draw_if_needed(|_| {});
+                let overflow = ui.get_debug_settings_overflow();
+                assert!(overflow > 0.0, "settings fits in {width}x{height}; expected it to scroll ({state})");
+                ui.set_debug_settings_scroll_y(-overflow);
+                window.request_redraw();
+                let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
+                let drew = window.draw_if_needed(|renderer| { renderer.render(&mut pixels, width as usize); });
+                assert!(drew, "settings did not render scrolled to its end at {width}x{height} ({state})");
+                if let Ok(directory) = std::env::var("HERON_UI_SNAPSHOTS_DIR") {
+                    let path = std::path::Path::new(&directory)
+                        .join(format!("heron-{state}-settings-end-{width}x{height}.bmp"));
+                    write_bmp(&path, width, height, &pixels);
+                }
+                ui.set_debug_settings_scroll_y(0.0);
             }
         }
     }

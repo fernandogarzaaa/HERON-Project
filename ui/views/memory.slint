@@ -2,12 +2,13 @@
 // the views only through its own forwarded properties and callbacks, so
 // each view keeps its own file and its own component.
 
-import { Button, ComboBox, LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { ComboBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { LineEdit } from "../components/line_edit.slint";
+import { Button } from "../components/button.slint";
 import { MemoryRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, KindTag, RowCard } from "common.slint";
 import { Theme } from "../components/theme.slint";
 
 export component MemoryView inherits Rectangle {
-    background: Theme.paper;
     in property <[MemoryRow]> rows;
     in-out property <string> search-text: "";
     in-out property <string> new-content: "";
@@ -27,10 +28,12 @@ export component MemoryView inherits Rectangle {
         VerticalBox {
             width: parent.width;
             padding: 28px;
+            alignment: start;
             spacing: 14px;
             SectionTitle { title: "Memory"; }
             SectionIntro { body: "What Heron knows about you. It stays in a file on this computer, and you can remove anything."; }
             HorizontalBox {
+                padding: 0px;
                 spacing: 8px;
                 LineEdit {
                     placeholder-text: "e.g. I'm vegetarian and allergic to peanuts";
@@ -44,7 +47,7 @@ export component MemoryView inherits Rectangle {
                         root.new-kind = value == "About me" ? "profile" : value == "Preference" ? "preference" : value == "How I like things done" ? "workflow" : value == "Project" ? "project" : value == "Person" ? "person" : "fact";
                     }
                 }
-                Button {
+                Button { reduce-motion: root.reduce-motion;
                     text: "Remember this";
                     primary: true;
                     clicked => { root.add-memory(root.new-content, root.new-kind); }
@@ -56,7 +59,7 @@ export component MemoryView inherits Rectangle {
                 edited(text) => { root.search-changed(text); }
             }
             if root.save-error != "": Text { text: root.save-error; color: Theme.danger; wrap: word-wrap; }
-            EmptyNote { body: root.empty-text; visible: root.empty-text != ""; }
+            if root.empty-text != "": EmptyNote { body: root.empty-text; }
             for row in root.rows: RowCard {
                 reduce-motion: root.reduce-motion;
                 VerticalBox {
@@ -64,6 +67,7 @@ export component MemoryView inherits Rectangle {
                     padding: 10px;
                     spacing: 4px;
                     HorizontalBox {
+                        padding: 0px;
                         spacing: 6px;
                         KindTag { label: row.kind-label; }
                         Text {
@@ -76,14 +80,14 @@ export component MemoryView inherits Rectangle {
                     }
                     RowMeta { body: row.meta; }
                     HorizontalBox {
+                        padding: 0px;
                         spacing: 8px;
                         alignment: end;
-                        Button {
+                        if !row.confirmed: Button { reduce-motion: root.reduce-motion;
                             text: "Confirm";
-                            visible: !row.confirmed;
                             clicked => { root.confirm-memory(row.id); }
                         }
-                        Button {
+                        Button { reduce-motion: root.reduce-motion;
                             text: "Forget";
                             clicked => { root.delete-memory(row.id); }
                         }

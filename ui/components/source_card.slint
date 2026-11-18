@@ -6,7 +6,8 @@
 // back into doc_path. The typed path from the web UI is gone on purpose.
 // Calendar and email still use typed inputs.
 
-import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button } from "button.slint";
 import { Theme } from "theme.slint";
 import { LabeledInput } from "atoms.slint";
 
@@ -35,14 +36,14 @@ export component SourceCard inherits Rectangle {
     border-radius: 10px;
     border-width: 1px;
     border-color: Theme.line;
-    background: Theme.surface;
+    background: Theme.raised;
     VerticalBox {
         padding: 14px;
         spacing: 8px;
         Text { text: item.title; font-size: 16px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
         Text { text: item.status; font-size: 14px; color: Theme.muted; wrap: word-wrap; }
-        VerticalBox {
-            visible: item.kind == "documents";
+        if item.kind == "documents": VerticalBox {
+            padding: 0px;
             spacing: 8px;
             Text {
                 text: doc_path == "" ? "No folder chosen yet." : doc_path;
@@ -50,52 +51,51 @@ export component SourceCard inherits Rectangle {
                 color: Theme.muted;
                 wrap: word-wrap;
             }
-            Button { text: "Choose folder"; clicked => { root.pick_folder(); } }
+            HorizontalBox {
+                padding: 0px;
+                alignment: start;
+                Button { text: "Choose folder"; clicked => { root.pick_folder(); } }
+            }
         }
-        LabeledInput {
-            visible: item.kind == "calendar";
+        if item.kind == "calendar": LabeledInput {
             label: "Private calendar link";
             hint: "https://… .ics";
             value <=> cal_url;
         }
-        LabeledInput {
-            visible: item.kind == "email";
+        if item.kind == "email": LabeledInput {
             label: "Mail server";
             hint: "imap.gmail.com";
             value <=> email_host;
         }
-        LabeledInput {
-            visible: item.kind == "email";
+        if item.kind == "email": LabeledInput {
             label: "Email address";
             hint: "you@example.com";
             value <=> email_user;
         }
-        LabeledInput {
-            visible: item.kind == "email";
+        if item.kind == "email": LabeledInput {
             label: "App password";
             password: true;
             value <=> email_pass;
         }
         HorizontalBox {
+            padding: 0px;
             spacing: 8px;
+            alignment: start;
             Button {
                 text: item.connected && (item.kind == "documents" || item.kind == "calendar") ? "Add another" : item.kind == "computer" ? "Look around" : "Connect";
                 clicked => { root.connect(item.kind); }
             }
-            Button {
-                visible: item.connected && item.kind != "computer";
+            if item.connected && item.kind != "computer": Button {
                 enabled: item.learn_enabled;
                 text: "Learn from it";
                 clicked => { root.learn(item.kind); }
             }
-            Button {
-                visible: item.connected;
+            if item.connected: Button {
                 text: "Disconnect and forget";
                 clicked => { root.disconnect(item.kind); }
             }
         }
-        Text {
-            visible: message != "";
+        if message != "": Text {
             text: message;
             font-size: 14px;
             color: Theme.danger;
