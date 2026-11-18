@@ -1137,6 +1137,7 @@
     "depends_on": [
       "U0",
       "U0b",
+      "U0g",
       "U3a",
       "U1",
       "U2",
@@ -1170,7 +1171,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Full gate on the final branch",
-    "version": 1,
+    "version": 2,
     "worktree": {
       "base_branch": null,
       "branch": null,
