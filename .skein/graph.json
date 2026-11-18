@@ -1258,10 +1258,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "d77fa178a89241f54e733da4485b96809f09277d",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "d139182fdbbd16e83e3473ff150bffed516e7a59",
+        "result_commit": "d1cc245beb175f158c40b42386c29824bfc9b06e",
+        "shipped_at": "2026-11-18T20:15:40.846733+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Clippy clean-up, one decision function, `Refused` and `OutsideRead`, `read:` grants, prompt-source registry, MCP taint, ",
-    "version": 81,
+    "version": 82,
     "worktree": {
       "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
       "base_commit": "d77fa178a89241f54e733da4485b96809f09277d",
@@ -3005,7 +3015,7 @@
       "claim_token": "efad798de80c434eaf5b1986945352a9",
       "claimed_at": "2026-11-18T20:03:00.514624+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T20:03:00.514624+00:00",
+      "last_heartbeat": "2026-11-18T20:15:31.234402+00:00",
       "node_version": 8,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3031,9 +3041,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 10,
+    "version": 35,
     "worktree": {
       "base_branch": "skein/U3__integrate-base",
       "base_commit": "b4462d41a2488a563eb73b2143207b7910378a28",
