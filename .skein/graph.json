@@ -666,15 +666,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "3f7c5d443fe84c4cbc9cffd495f36288",
+      "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
+      "claim_token": "759a844c04c6498f989e81327408f54a",
+      "claimed_at": "2026-11-18T14:44:51.973693+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-18T14:44:51.973693+00:00",
+      "node_version": 64,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U0b"
@@ -699,12 +699,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": "2026-11-18T14:44:51.935451+00:00",
+    "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Clippy clean-up, one decision function, `Refused` and `OutsideRead`, `read:` grants, prompt-source registry, MCP taint, ",
-    "version": 64,
+    "version": 65,
     "worktree": {
       "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
       "base_commit": "d77fa178a89241f54e733da4485b96809f09277d",
