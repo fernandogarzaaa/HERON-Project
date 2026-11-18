@@ -645,7 +645,16 @@
     }
   },
   "U1": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "95ba7e9a75bc46e5b43d29ba6c94434d",
+        "ended_at": "2026-11-18T14:43:47.573138+00:00",
+        "error": "backend timed out after 1800.0s (holder=agent-1); see evidence",
+        "holder": "agent-1",
+        "outcome": "timeout",
+        "started_at": "2026-11-18T14:13:45.909285+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -657,21 +666,27 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "95ba7e9a75bc46e5b43d29ba6c94434d",
-      "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
-      "claim_token": "ebc3c8761a1145ddb76465d7df0b22a2",
-      "claimed_at": "2026-11-18T14:13:45.909285+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T14:38:16.801657+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U0b"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 124,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1_20261118T144347570783_adapter.log"
+      }
+    ],
+    "handoff_note": "backend timed out after 1800.0s (holder=agent-1); see evidence",
     "id": "U1",
     "integration_for": null,
     "intent": {
@@ -684,12 +699,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-18T14:44:51.935451+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "unclaimed",
     "title": "Clippy clean-up, one decision function, `Refused` and `OutsideRead`, `read:` grants, prompt-source registry, MCP taint, ",
-    "version": 52,
+    "version": 64,
     "worktree": {
       "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
       "base_commit": "d77fa178a89241f54e733da4485b96809f09277d",
