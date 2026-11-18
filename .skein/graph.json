@@ -454,11 +454,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Clippy clean-up, one decision function, `Refused` and `OutsideRead`, `read:` grants, prompt-source registry, MCP taint, ",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
-      "branch": null,
-      "path": null
+      "base_commit": "d77fa178a89241f54e733da4485b96809f09277d",
+      "branch": "skein/U1",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U1"
     }
   },
   "U2": {
