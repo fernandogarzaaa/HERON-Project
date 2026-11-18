@@ -1366,7 +1366,7 @@
       "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit U4 (items 40-41), plus every spec section those items link to. Read the Preconditions and Work units table too. The owner-approved visual spec is docs/designs/heron-mac-visual.md with its tokens and mockups in docs/designs/heron-mac-visual/: follow its tokens, layouts and copy exactly; it wins over heron-v1.md section 4 on appearance.",
       "goal": "SwiftUI Mac app as a Swift package"
     },
-    "max_retries": 1,
+    "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
     "result": null,
@@ -1375,7 +1375,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "SwiftUI Mac app as a Swift package",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": null,
       "branch": null,
