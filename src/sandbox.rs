@@ -205,18 +205,34 @@ fn both_forms(p: &Path) -> Vec<PathBuf> {
     v
 }
 
+/// The `subpath` filters of one rule: each path as written and canonical, then each of those under its
+/// other macOS name (`/System/Volumes/Data/Users/x` for `/Users/x`, and back), so a rule cannot be
+/// stepped around through the firmlink alias.
 fn subpaths<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> String {
     let mut seen: Vec<PathBuf> = vec![];
-    let mut out = String::new();
     for p in paths {
         for form in both_forms(p) {
             if !seen.contains(&form) {
-                out.push_str(&format!(" (subpath {})", sbpl_quote(&form)));
                 seen.push(form);
             }
         }
     }
-    out
+    let aliases: Vec<PathBuf> = seen.iter().filter_map(|p| data_volume_alias(p)).collect();
+    for alias in aliases {
+        if !seen.contains(&alias) {
+            seen.push(alias);
+        }
+    }
+    seen.iter().map(|p| format!(" (subpath {})", sbpl_quote(p))).collect()
+}
+
+/// The other name of an absolute path on macOS: under `/System/Volumes/Data` or out from under it.
+fn data_volume_alias(p: &Path) -> Option<PathBuf> {
+    if let Some(stripped) = crate::permissions::without_data_volume(p) {
+        return Some(stripped);
+    }
+    let rest = p.strip_prefix("/").ok()?;
+    (!rest.as_os_str().is_empty()).then(|| Path::new(crate::permissions::DATA_VOLUME).join(rest))
 }
 
 fn tilde(raw: &str, home: &Path) -> PathBuf {
@@ -377,22 +393,53 @@ pub fn wrap(cfg: &Config, workdir: &Path, profile: &Profile) -> Option<(String, 
 /// `read=:` grants of this conversation. A grant made earlier in the same turn that is not saved yet is
 /// not seen, so the command fails closed.
 pub fn shell_grants(cfg: &Config, store: &crate::store::Store, session_id: &str) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = vec![];
+    for grant in read_grants(cfg, store, Some(session_id)) {
+        let path = grant.path().to_path_buf();
+        if !out.contains(&path) {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// One thing the user granted for reading.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReadGrant {
+    /// A `read:` folder rule: the folder and everything under it.
+    Folder(PathBuf),
+    /// A `read=:` grant: that one path, never anything under it.
+    Exact(PathBuf),
+}
+
+impl ReadGrant {
+    pub fn path(&self) -> &Path {
+        match self {
+            ReadGrant::Folder(p) | ReadGrant::Exact(p) => p,
+        }
+    }
+}
+
+/// What the user granted for reading: the standing `read:` rules, plus the `read:` and `read=:` grants
+/// of one conversation when `session_id` is given. Too-broad folders and relative paths are left out.
+pub fn read_grants(cfg: &Config, store: &crate::store::Store, session_id: Option<&str>) -> Vec<ReadGrant> {
     let mut rules: Vec<String> = cfg.permissions.allow.clone();
-    for key in ["allow_rules".to_string(), format!("grants:{session_id}")] {
+    let keys = std::iter::once("allow_rules".to_string()).chain(session_id.map(|s| format!("grants:{s}")));
+    for key in keys {
         if let Some(saved) = store.kv_get(&key) {
             rules.extend(serde_json::from_str::<Vec<String>>(&saved).unwrap_or_default());
         }
     }
-    let mut out: Vec<PathBuf> = vec![];
+    let mut out: Vec<ReadGrant> = vec![];
     for rule in rules {
-        let path = if let Some(file) = rule.strip_prefix("read=:") {
-            Some(PathBuf::from(file))
+        let grant = if let Some(file) = rule.strip_prefix("read=:") {
+            Some(ReadGrant::Exact(PathBuf::from(file)))
         } else {
-            crate::permissions::read_rule_folder(&rule).filter(|f| !crate::permissions::too_broad(f))
+            crate::permissions::read_rule_folder(&rule).filter(|f| !crate::permissions::too_broad(f)).map(ReadGrant::Folder)
         };
-        if let Some(path) = path.filter(|p| p.is_absolute()) {
-            if !out.contains(&path) {
-                out.push(path);
+        if let Some(grant) = grant.filter(|g| g.path().is_absolute()) {
+            if !out.contains(&grant) {
+                out.push(grant);
             }
         }
     }
@@ -469,7 +516,7 @@ mod tests {
         let cfg = Config { home: home.join(".heron-profile-test"), ..Default::default() };
         let profile = seatbelt_profile(&cfg, &home, &home.join("project-profile-test"), &Profile::Shell { grants: vec![home.join("Documents/notes-profile-test")] });
         let at = |needle: &str| profile.find(needle).unwrap_or_else(|| panic!("{needle} missing from:\n{profile}"));
-        let deny_roots = at(&format!("(deny file-read* (subpath \"{h}\") (subpath \"/Users\") (subpath \"/Volumes\") (subpath \"{h}/.heron-profile-test\"))"));
+        let deny_roots = at(&format!("(deny file-read* (subpath \"{h}\") (subpath \"/Users\") (subpath \"/Volumes\") (subpath \"{h}/.heron-profile-test\") (subpath \"/System/Volumes/Data{h}\") (subpath \"/System/Volumes/Data/Users\") (subpath \"/System/Volumes/Data/Volumes\")"));
         let metadata = at("(allow file-read-metadata)");
         let readable = at(&format!("(allow file-read* (subpath \"{h}/project-profile-test\") (subpath \"{h}/Documents/notes-profile-test\") (subpath \"{h}/.config/git\")"));
         assert!(profile[readable..].contains(&format!("(literal \"{h}/.gitconfig\")")));
@@ -480,7 +527,19 @@ mod tests {
         let keychain = at("(deny mach-lookup (global-name \"com.apple.SecurityServer\")");
         assert!(deny_roots < metadata && metadata < readable && readable < deny_write && deny_write < write && write < refused && refused < secrets && secrets < keychain, "{profile}");
         assert!(profile[refused..secrets].contains(&format!("{h}/.claude\"")) && profile[refused..secrets].contains(&format!("{h}/Library/Keychains\"")), "every Refused path is denied: {profile}");
+        // ...by its firmlink alias too (`/System/Volumes/Data/Users/<me>/.claude` is `~/.claude`).
+        for refused_alias in [format!("(subpath \"/System/Volumes/Data{h}/.claude\")"), format!("(subpath \"/System/Volumes/Data{h}/.heron-profile-test\")")] {
+            assert!(profile[refused..secrets].contains(&refused_alias), "{refused_alias} missing from the Refused block: {profile}");
+        }
         assert!(profile.starts_with("(version 1)\n(allow default)\n"));
+    }
+
+    #[test]
+    fn data_volume_alias_goes_both_ways() {
+        assert_eq!(data_volume_alias(Path::new("/Users/me/.codex")), Some(PathBuf::from("/System/Volumes/Data/Users/me/.codex")));
+        assert_eq!(data_volume_alias(Path::new("/System/Volumes/Data/Users/me/.codex")), Some(PathBuf::from("/Users/me/.codex")));
+        assert_eq!(data_volume_alias(Path::new("/")), None);
+        assert_eq!(data_volume_alias(Path::new("relative/path")), None);
     }
 
     #[test]
@@ -492,8 +551,8 @@ mod tests {
         let codex = cli_spec("codex-cli");
         let profile = seatbelt_profile(&cfg, &home, &run, &Profile::Cli { spec: &codex, binary_dir: PathBuf::from("/opt/homebrew/lib/node_modules/@openai/codex"), extra_read: vec![] });
         let at = |needle: &str| profile.find(needle).unwrap_or_else(|| panic!("{needle} missing from:\n{profile}"));
-        at("(allow file-read* (subpath \"/private/var/folders/xy/T/heron-cli-1\") (subpath \"/opt/homebrew/lib/node_modules/@openai/codex\"))");
-        let write = at("(allow file-write* (subpath \"/dev\") (subpath \"/private/var/folders/xy/T/heron-cli-1\"))");
+        at("(allow file-read* (subpath \"/private/var/folders/xy/T/heron-cli-1\") (subpath \"/opt/homebrew/lib/node_modules/@openai/codex\") (subpath \"/System/Volumes/Data/private/var/folders/xy/T/heron-cli-1\")");
+        let write = at("(allow file-write* (subpath \"/dev\") (subpath \"/private/var/folders/xy/T/heron-cli-1\") (subpath \"/System/Volumes/Data/dev\")");
         let refused = at(&format!("(deny file-read* file-write* (subpath \"{h}/.heron-profile-test\")"));
         let secrets = at("(deny file-read* (regex #\"");
         let keychain = at("(deny mach-lookup");
