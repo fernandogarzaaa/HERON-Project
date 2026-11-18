@@ -3355,7 +3355,16 @@
     }
   },
   "U2w": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "e7538a2f0ab041e199eaef2fc48324d8",
+        "ended_at": "2026-11-18T23:19:36.117200+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T23:12:10.850713+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -3367,15 +3376,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "e7538a2f0ab041e199eaef2fc48324d8",
-      "base_branch": "skein/U2w__integrate-base",
-      "claim_token": "6e44f1bfdf264d14ad03085183224a92",
-      "claimed_at": "2026-11-18T23:12:10.850713+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T23:12:10.850713+00:00",
-      "node_version": 5,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2s",
@@ -3383,8 +3392,20 @@
       "Ut",
       "U1i"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I eval/containment/check.py && cargo test --locked && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && ! grep -rq 'HERON_CLI_TOPOLOGY' src && bash eval/require-tests.sh --lib -- tier1_candidates_have_ranges",
+        "duration_ms": 25950,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2w_20261118T231910074751_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2w_20261118T231936026210_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U2w",
     "integration_for": null,
     "intent": {
@@ -3396,13 +3417,41 @@
     "max_retries": 3,
     "rejected_count": 1,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "e7538a2f0ab041e199eaef2fc48324d8",
+      "base_commit": "606e4d4c3d262f817f6ec53a297088ed13a1c0ef",
+      "changed_files": [
+        "src/cli_llm.rs",
+        "src/main.rs",
+        "src/mcp.rs",
+        "src/sandbox.rs"
+      ],
+      "commit": "da01387456da090c90015c749ef251277865e8b8",
+      "diff_stats": {
+        "src/cli_llm.rs": {
+          "added": 104,
+          "deleted": 53
+        },
+        "src/main.rs": {
+          "added": 4,
+          "deleted": 18
+        },
+        "src/mcp.rs": {
+          "added": 0,
+          "deleted": 95
+        },
+        "src/sandbox.rs": {
+          "added": 1,
+          "deleted": 2
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Apply U2s's topology and U2c's Tier 1 results; delete the losing topology code",
-    "version": 7,
+    "version": 22,
     "worktree": {
       "base_branch": "skein/U2w__integrate-base",
       "base_commit": "606e4d4c3d262f817f6ec53a297088ed13a1c0ef",
