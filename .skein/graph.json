@@ -555,6 +555,7 @@
     },
     "depends_on": [
       "U0",
+      "U0g",
       "U2",
       "U2c"
     ],
@@ -577,7 +578,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 1,
+    "version": 2,
     "worktree": {
       "base_branch": null,
       "branch": null,
