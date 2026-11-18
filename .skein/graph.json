@@ -1734,15 +1734,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "143e7e57d6284dcbbab7d533d0029d3d",
+      "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
+      "claim_token": "6e6bf10931324d38a9176211b3cda1bc",
+      "claimed_at": "2026-11-18T18:55:44.227243+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-18T18:55:44.227243+00:00",
+      "node_version": 18,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "U2f"
@@ -1844,11 +1844,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Containment check on each installed candidate CLI (measurement; records results, G4 is judged in U2w)",
-    "version": 18,
+    "version": 19,
     "worktree": {
-      "base_branch": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
+      "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
       "base_commit": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
       "branch": "skein/U2c",
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U2c"
