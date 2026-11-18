@@ -530,9 +530,9 @@ Today's warning line has three limits:
     *   `approval` sets `waiting`. `approval_resolved` or `approval_parked` sets `running` again.
     *   `done`, `error` or `cancelled` sets the final status and `ended`. The record is written before `run_end` is published.
 *   **What the record lists.**
-    *   `checkpoints` lists the checkpoints the run's file tools saved, each as `{id, path, after_hash, ts}`.
+    *   `checkpoints` lists the checkpoints the run's file tools saved, each as `{id, path, after_hash, ts, prev_hash}`. `prev_hash` is the hash of the file's earlier contents, or `absent`, computed the way `fs::confirmation` computes it.
     *   `audit_ids` lists the audit rows the run's tool calls appended.
-    *   Both reach the record on the `tool_end` event. After the agent executes a call for this run, it adds `audit_id` (the id `Store::audit_row` returns) to `tool_end`, and, for `write_file` and `edit_file`, `checkpoint`, read back with `Store::checkpoint_row(Store::last_checkpoint(session_id))`. A session has one active run, so the newest checkpoint is the one the call just saved. Clients ignore the two extra fields. A parked call that `run_parked` executes later isn't part of a run, so it emits no `tool_end` for this run and isn't counted.
+    *   Both reach the record on the `tool_end` event. After the agent executes a call for this run, it adds `audit_id` (the id `Store::audit_row` returns) to `tool_end`, and, for `write_file` and `edit_file`, `checkpoint`. The agent reads the session's newest checkpoint with `Store::checkpoint_row(Store::last_checkpoint(session_id))` both before and after the call. It attaches `checkpoint` only when the two differ, so a call that saved nothing attaches nothing (an `edit_file` whose `old_string` is missing returns before it saves a checkpoint), and an older checkpoint from an earlier call or run is never claimed. A session has one active run, so a checkpoint that appears during the call is the call's own. Clients ignore the two extra fields. A parked call that `run_parked` executes later isn't part of a run, so it emits no `tool_end` for this run and isn't counted.
     *   The core deletes records beyond the newest 500.
 *   **`GET /api/runs`** returns `{"runs": [record, …]}`, newest first, without the two lists.
 *   **The app** adds a Runs screen, and a badge on the menu bar extra with the number of runs in `waiting`.
@@ -563,7 +563,7 @@ Today's warning line has three limits:
 **What it does.** It restores the files a run edited through Heron's file tools, `write_file` and `edit_file`, which are the only tools that save checkpoints. It also lists everything else the run changed or ran.
 
 *   **Restoring one checkpoint.** F4s adds an undo for one recorded checkpoint, sharing `fs::undo`'s check. It restores the file only if all three of these hold:
-    *   the checkpoint row still exists with the recorded `path`, `after_hash` and `ts`. Checkpoint ids are reused after an undo, so the id alone proves nothing;
+    *   the checkpoint row still exists with the recorded `path`, `after_hash`, `ts` and `prev_hash`. Checkpoint ids are reused after an undo, and a rewrite of the same path to the same contents in the same second could match the other three fields, so the id alone proves nothing and `prev_hash` is compared too, as `fs::confirmation` does;
     *   the file on disk still matches `after_hash`;
     *   no newer checkpoint for the same path exists from outside the run.
 
@@ -1155,11 +1155,12 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
 
 *   **Proposed Changes:**
     *   `RunLog`, called synchronously from the bus's `publish` (`src/events.rs`, from heron-v1.md U3), writing kv.
-    *   `tool_end` gains `audit_id` and, for the two file tools, `checkpoint`. `Store::audit_row` (v1) already returns its row id. New `Store::checkpoint_row(id) -> Option<RecordedCheckpoint>`, where `pub struct RecordedCheckpoint { pub id: i64, pub path: String, pub after_hash: Option<String>, pub ts: i64 }`, read from the row, so `ts` equals the row's own value.
+    *   `tool_end` gains `audit_id` and, for the two file tools, `checkpoint`. `Store::audit_row` (v1) already returns its row id. New `Store::checkpoint_row(id) -> Option<RecordedCheckpoint>`, where `pub struct RecordedCheckpoint { pub id: i64, pub path: String, pub after_hash: Option<String>, pub ts: i64, pub prev_hash: String }`, read from the row, so `ts` equals the row's own value. `prev_hash` uses the same content hash as `fs::confirmation` (`absent` when the file didn't exist). The agent compares the newest checkpoint before and after each file-tool call, and attaches it only if it changed.
     *   `Store::kv_list_prefix` and `Store::kv_delete`, for pruning.
     *   `GET /api/runs`.
 *   **Tests:**
     *   `run_record_follows_the_bus`
+    *   `failed_edit_attaches_no_checkpoint`
     *   `waiting_returns_to_running`
     *   `run_record_is_written_before_run_end`
     *   `parked_calls_are_not_counted_as_the_run`
@@ -1183,11 +1184,12 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
 
 *   **Proposed Changes:**
     *   **`fs::undo_recorded(ctx, cp: &RecordedCheckpoint, restore_anyway: Option<&str>) -> Undo`** shares `fs::undo`'s check.
-    *   **`Store::checkpoint_matches(id, path, after_hash, ts)`** and **`Store::newer_checkpoint_for(path, after_ts, excluding: &[i64])`**.
+    *   **`Store::checkpoint_matches(cp: &RecordedCheckpoint)`**, comparing all five fields, and **`Store::newer_checkpoint_for(path, after_ts, excluding: &[i64])`**.
     *   **The route.**
 *   **Tests:**
     *   `undo_recorded_restores_files_newest_first`
     *   `undo_recorded_ignores_a_reused_id`
+    *   `undo_recorded_ignores_a_same_second_rewrite_with_other_prev`
     *   `undo_recorded_stops_at_a_later_runs_change`
     *   `undo_recorded_stops_at_an_edited_file`
     *   `restore_anyway_restores_one_and_continues`
@@ -1350,11 +1352,11 @@ Every unit starts after v1's `verify` unit (see Preconditions). B1 to B6 run on 
 | F2c | `ft2` | `eval/**` | none | `python3 -I eval/check_tasks.py --features eval/features/ask_reasons.md` | feature, refactoring: sonnet high |
 | F2a | Taint chip, `why` on the sheet, models | `macos/**` | F2t | `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q TaintChipTests` | feature, refactoring: sonnet high |
 | F2g | F2 gate | `scripts/gates/ask_reasons` (check only) | F2s, F2t, F2c, F2a | `bash scripts/verify-feature.sh ask_reasons` | feature, refactoring: sonnet high |
-| F3s | Run records, `GET /api/runs` | `src/**` | none | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- run_record_follows_the_bus waiting_returns_to_running run_record_is_written_before_run_end parked_calls_are_not_counted_as_the_run run_records_are_pruned_to_500` | feature, refactoring: sonnet high |
+| F3s | Run records, `GET /api/runs` | `src/**` | none | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- run_record_follows_the_bus failed_edit_attaches_no_checkpoint waiting_returns_to_running run_record_is_written_before_run_end parked_calls_are_not_counted_as_the_run run_records_are_pruned_to_500` | feature, refactoring: sonnet high |
 | F3t | Integration tests, `runs` fixture | `tests/**` | F3s | `cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_runs_lists_a_finished_run api_run_record_survives_a_dropped_stream && test -s tests/fixtures/api/runs.json` | feature, refactoring: sonnet high |
 | F3a | Runs screen, badge, notifications | `macos/**` | F3t | `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q 'RunsTests.*notificationHasNoApproveAction'` | feature, refactoring: sonnet high |
 | F3g | F3 gate | `scripts/gates/runs` (check only) | F3s, F3t, F3a | `bash scripts/verify-feature.sh runs` | feature, refactoring: sonnet high |
-| F4s | Recorded-checkpoint undo, route | `src/**` | none (graph cut from F3's branch) | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- undo_recorded_restores_files_newest_first undo_recorded_ignores_a_reused_id undo_recorded_stops_at_a_later_runs_change undo_recorded_stops_at_an_edited_file restore_anyway_restores_one_and_continues undo_lists_other_changes_and_what_it_cannot_undo undo_unknown_and_active_runs undo_appends_one_audit_row audit_chain_intact_after_undo` | hardest tasks: opus high |
+| F4s | Recorded-checkpoint undo, route | `src/**` | none (graph cut from F3's branch) | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- undo_recorded_restores_files_newest_first undo_recorded_ignores_a_reused_id undo_recorded_ignores_a_same_second_rewrite_with_other_prev undo_recorded_stops_at_a_later_runs_change undo_recorded_stops_at_an_edited_file restore_anyway_restores_one_and_continues undo_lists_other_changes_and_what_it_cannot_undo undo_unknown_and_active_runs undo_appends_one_audit_row audit_chain_intact_after_undo` | hardest tasks: opus high |
 | F4t | Integration tests, `undo-files` fixture | `tests/**` | F4s | `cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_undo_files_restores_a_runs_files api_undo_files_ignores_a_reused_checkpoint_id api_undo_files_lists_what_it_cannot_undo` | feature, refactoring: sonnet high |
 | F4a | Undo button and lists | `macos/**` | F4t | `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac \| grep -q UndoRunTests` | feature, refactoring: sonnet high |
 | F4g | F4 gate | `scripts/gates/undo_files` (check only) | F4s, F4t, F4a | `bash scripts/verify-feature.sh undo_files` | feature, refactoring: sonnet high |
