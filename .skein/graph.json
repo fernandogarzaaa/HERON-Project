@@ -2703,10 +2703,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "8b7fc85330722c2e9a05671d8a851ec180d9fefb",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "717f2ccfcaa1a532fde4722643803bad604f5d85",
+        "result_commit": "e16f319d9e65295f5563628e4034d62e99a3048a",
+        "shipped_at": "2026-11-18T20:15:41.713284+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Regression tests that run each reproduced U2 escape under Seatbelt",
-    "version": 60,
+    "version": 61,
     "worktree": {
       "base_branch": "skein/U2g__integrate-base",
       "base_commit": "8b7fc85330722c2e9a05671d8a851ec180d9fefb",
