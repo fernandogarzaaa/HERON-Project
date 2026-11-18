@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron mock: Schedules</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+<style>
+  .sc .row { grid-template-columns: 32px 1fr auto; align-items: start; }
+  .sc .meta { display: flex; gap: var(--s3); flex-wrap: wrap; font-size: var(--t-sub); color: var(--ink3); margin-top: 4px; }
+  .sc .acts { display: flex; gap: var(--s2); align-items: center; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="window">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div id="sb"></div>
+    <section class="main">
+      <div id="tb"></div>
+      <div class="content">
+        <div class="scroll">
+          <div style="max-width:800px;margin:0 auto">
+            <h1 class="display h-title">Schedules</h1>
+            <p class="lede">Things Heron does at a set time or when something happens, while Heron is running. Scheduled runs can read and search, and change nothing unless you allow more.</p>
+            <div class="sec-h">Active <small>3</small></div>
+            <div class="group sc">
+              <div class="row"><span class="ic" data-icon="sun.max"></span><div class="t"><b>Morning briefing</b><span>Every day at 07:30 · May only read and look things up</span><div class="meta"><span class="tag ok">Last run 07:30 · ok</span><span>Next: tomorrow 07:30</span><span class="num">3.1k tokens</span></div></div><div class="acts"><button class="btn" data-icon="play.fill">Run now</button><span class="toggle" role="switch" aria-checked="true" aria-label="Active"></span></div></div>
+              <div class="row"><span class="ic" data-icon="envelope"></span><div class="t"><b>Inbox watch: Maria</b><span>When an email arrives from Maria · Tells you only when something needs you</span><div class="meta"><span class="tag ok">Last run yesterday 18:04 · ok</span></div></div><div class="acts"><button class="btn" data-icon="play.fill">Run now</button><span class="toggle" role="switch" aria-checked="true" aria-label="Active"></span></div></div>
+              <div class="row"><span class="ic" data-icon="doc.text"></span><div class="t"><b>Friday summary</b><span>Fridays at 07:00 · May also edit files in ~/Work</span><div class="meta"><span class="tag waiting">1 step waiting for you</span><span>Next: Fri 07:00</span></div></div><div class="acts"><button class="btn">Review</button><span class="toggle" role="switch" aria-checked="true" aria-label="Active"></span></div></div>
+            </div>
+            <div class="sec-h">Held <small>Waiting on your provider settings</small></div>
+            <div class="group sc">
+              <div class="row"><span class="ic" data-icon="terminal"></span><div class="t"><b>Nightly check</b><span>Every day at 02:00 · May also run commands in ~/Work/site</span><div class="meta"><span class="tag waiting">Held: Claude Code is a subscription login, and unattended runs through a subscription are off</span></div></div><div class="acts"><button class="btn">Settings…</button><span class="toggle off" role="switch" aria-checked="false" aria-label="Active"></span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<script>
+  document.getElementById("sb").outerHTML = sidebar("schedules");
+  document.getElementById("tb").outerHTML = toolbar("Schedules", '<button class="tb boxed">' + icon("plus") + 'New schedule</button>');
+</script>
+</body>
+</html>

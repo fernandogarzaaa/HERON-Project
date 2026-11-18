@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron mock: First run</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+<style>
+  .fr { display: grid; grid-template-rows: 52px 1fr auto; height: 100%; background: var(--window); }
+  .fr-top { display: flex; align-items: center; justify-content: center; gap: var(--s6); font-size: var(--t-callout); color: var(--ink3); border-bottom: 1px solid var(--hairline); }
+  .fr-top ol { display: flex; gap: var(--s6); list-style: none; margin: 0; padding: 0; }
+  .fr-top li { display: flex; align-items: center; gap: 6px; }
+  .fr-top li b { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: var(--t-sub); background: var(--raised); color: var(--ink2); font-weight: 600; }
+  .fr-top li[aria-current] { color: var(--ink); font-weight: 600; }
+  .fr-top li[aria-current] b { background: var(--accent); color: var(--onAccent); }
+  .fr-top li.done b { background: var(--accentSoft); color: var(--accent); }
+  .fr-body { overflow: auto; padding: var(--s8) 0; }
+  .col { width: 600px; margin: 0 auto; display: grid; gap: var(--s5); }
+  .hero { display: grid; grid-template-columns: auto 1fr; gap: var(--s5); align-items: center; }
+  .status { display: grid; grid-template-columns: 32px 1fr; gap: var(--s3); padding: var(--s3) var(--s4); border-radius: var(--r-card); border: 1px solid var(--hairline); background: var(--surface); }
+  .status .ic { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--okSoft); color: var(--ok); }
+  .status .ic svg { width: 18px; height: 18px; }
+  .status b { display: block; } .status p { margin: 2px 0 0; color: var(--ink2); font-size: var(--t-callout); }
+  .status.off { border-color: color-mix(in srgb, var(--danger) 40%, var(--hairline)); background: var(--dangerSoft); }
+  .status.off .ic { background: var(--surface); color: var(--danger); }
+  .status.off b { color: var(--danger); }
+  .notice { border: 1px solid var(--hairline); border-radius: var(--r-card); background: var(--surface); height: 230px; overflow: auto; padding: var(--s4) var(--s5); }
+  .notice h2.risk-h { margin: var(--s3) 0 6px; font-size: var(--t-body); }
+  .notice .skel { animation: none; margin: 6px 0; height: 9px; }
+  .check { display: flex; gap: var(--s2); align-items: center; }
+  .cb { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--ink3); background: var(--surface); }
+  .cb.on { background: var(--accent); border-color: var(--accent); position: relative; }
+  .cb.on::after { content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid var(--onAccent); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .fr-foot { display: flex; align-items: center; gap: var(--s2); padding: var(--s3) var(--s6); border-top: 1px solid var(--hairline); background: var(--surface); }
+  .fr-foot .grow { flex: 1; }
+  .prov .row { grid-template-columns: 28px 1fr auto; }
+  .pick { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s3); }
+  .pick > div { display: grid; justify-items: center; gap: 6px; padding: var(--s3); border-radius: var(--r-card); border: 1px solid var(--hairline); background: var(--surface); font-size: var(--t-callout); }
+  .pick > div[aria-checked="true"] { border: 2px solid var(--accent); padding: calc(var(--s3) - 1px); }
+  .sw { display: flex; gap: var(--s3); align-items: center; }
+  .sw i { width: 22px; height: 22px; border-radius: 50%; display: block; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+  .sw i[aria-checked="true"] { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .theme-sw { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s3); }
+  .theme-sw > div { border-radius: var(--r-card); border: 1px solid var(--hairline); overflow: hidden; font-size: var(--t-callout); }
+  .theme-sw > div[aria-checked="true"] { border: 2px solid var(--accent); }
+  .theme-sw .pv { height: 46px; display: grid; grid-template-columns: 30% 1fr; }
+  .theme-sw span { display: block; padding: 6px var(--s2); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="window single">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="fr">
+      <div class="fr-top">
+        <ol aria-label="Setup steps">
+          <li id="s1"><b>1</b>Read the risks</li>
+          <li id="s2"><b>2</b>Connect a model</li>
+          <li id="s3"><b>3</b>Make it yours</li>
+        </ol>
+      </div>
+      <div class="fr-body">
+        <!-- Step 1: risk notice with sandbox status -->
+        <div class="col" id="step1">
+          <div class="hero"><div id="av1"></div><div><h1 class="display h-large">Before you start</h1><p class="lede">Heron is a research preview. It can read and change files in your folder, run commands, and use the accounts you connect. Read what that means for you, then accept to continue.</p></div></div>
+          <div class="status" id="sandbox-on">
+            <div class="ic" data-icon="lock.shield"></div>
+            <div><b>Sandbox is on</b><p>Commands and CLI models run inside the macOS sandbox. They can read your working folder, and nothing outside it unless you allow it.</p></div>
+          </div>
+          <div class="status off" id="sandbox-off" hidden>
+            <div class="ic" data-icon="exclamationmark.triangle"></div>
+            <div><b>Sandbox is off</b><p>The macOS sandbox didn't start, so Heron won't run shell commands or CLI models. You can still accept this notice. Settings › Permissions shows the cause.</p></div>
+          </div>
+          <div>
+            <div class="sec-h" style="margin-top:0">Known risks <small>Version 1 · from the risk register built into this copy of Heron</small></div>
+            <div class="notice" tabindex="0" aria-label="Risk notice text">
+              <h2 class="risk-h" style="margin-top:0">C35-8: Phone turns inherit the desktop permission mode</h2>
+              <div class="skel" style="width:96%"></div><div class="skel" style="width:88%"></div><div class="skel" style="width:60%"></div>
+              <h2 class="risk-h">R-1: Working-folder content can be sent out after an injected read</h2>
+              <div class="skel" style="width:94%"></div><div class="skel" style="width:91%"></div><div class="skel" style="width:72%"></div>
+              <p class="faint" style="font-size:var(--t-sub);margin-top:var(--s4)">Grey lines stand for the register text, which /api/risk-notice serves as written. The app never rewrites it.</p>
+            </div>
+          </div>
+          <div class="check"><span class="cb on" role="checkbox" aria-checked="true"></span><span>I've read these risks and accept them on this Mac</span></div>
+        </div>
+
+        <!-- Step 2: providers from /api/providers -->
+        <div class="col" id="step2" hidden>
+          <div><h1 class="display h-title">Connect a model</h1><p class="lede">Heron uses an AI app you're already signed in to on this Mac. You won't type a password here.</p></div>
+          <div class="group prov">
+            <div class="row"><span class="radio on"></span><div class="t"><b>Claude Code <span class="tag ok">Signed in</span></b><span>Version 2.1.4 · tested</span></div><span class="tag accent">Recommended</span></div>
+            <div class="row"><span class="radio dis"></span><div class="t"><b>Codex <span class="tag danger">Signed out</span></b><span>Codex is signed out. Run <code class="mono">codex login</code> in Terminal, then check again.</span></div><button class="btn">Copy command</button></div>
+            <div class="row"><span class="radio"></span><div class="t"><b>Gemini CLI <span class="tag waiting">Untested version</span></b><span>Version 0.9.2 hasn't been tested with Heron (tested: 0.6 to 0.8).</span></div><button class="btn">Use anyway…</button></div>
+            <div class="row"><span class="radio dis"></span><div class="t"><b>OpenCode</b><span>Not installed on this Mac.</span></div><button class="btn link">How to install</button></div>
+          </div>
+          <div class="btn-row"><button class="btn" data-icon="arrow.clockwise">Check again</button><span class="grow"></span><button class="btn link">Use an API key instead</button></div>
+        </div>
+
+        <!-- Step 3: personalization -->
+        <div class="col" id="step3" hidden>
+          <div class="hero"><div id="av3"></div><div><h1 class="display h-title">Make it yours</h1><p class="lede">Name your agent and choose how it looks. You can change all of this later in Settings › Appearance.</p></div></div>
+          <div><div class="sec-h" style="margin-top:0">Name</div><div class="field" style="width:260px">Heron</div></div>
+          <div><div class="sec-h" style="margin-top:0">Avatar</div><div class="pick" id="pick"></div></div>
+          <div><div class="sec-h" style="margin-top:0">Theme</div>
+            <div class="theme-sw">
+              <div aria-checked="true"><div class="pv"><i style="background:#EEE9E5"></i><i style="background:#FFFFFF"></i></div><span>Dusk</span></div>
+              <div><div class="pv"><i style="background:#E9EEF2"></i><i style="background:#FFFFFF"></i></div><span>Shore</span></div>
+              <div><div class="pv"><i style="background:#ECECEC"></i><i style="background:#FFFFFF"></i></div><span>Graphite</span></div>
+            </div>
+          </div>
+          <div><div class="sec-h" style="margin-top:0">Accent colour</div>
+            <div class="sw" role="radiogroup" aria-label="Accent colour"><i aria-checked="true" title="System" style="background:conic-gradient(#0A64D8,#9C3D62,#C98F00,#466E2E,#0A64D8)"></i><i title="Slate" style="background:#2F6690"></i><i title="Lagoon" style="background:#1D6B6B"></i><i title="Reed" style="background:#466E2E"></i><i title="Rose" style="background:#9C3D62"></i><span class="muted" style="margin-left:var(--s2)">System (follows macOS)</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="fr-foot">
+        <button class="btn" id="back">Quit Heron</button>
+        <span class="grow"></span>
+        <span class="faint" id="foot-note">Heron v1.0 · Research preview</span>
+        <button class="btn lg primary" id="next">Accept and continue</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const step = q.get("step") || "1";
+  ["1", "2", "3"].forEach((n) => {
+    document.getElementById("step" + n).hidden = n !== step;
+    const li = document.getElementById("s" + n);
+    if (n === step) li.setAttribute("aria-current", "step"); else if (n < step) li.classList.add("done");
+  });
+  if (q.get("sandbox") === "off") { document.getElementById("sandbox-on").hidden = true; document.getElementById("sandbox-off").hidden = false; }
+  document.getElementById("av1").outerHTML = avatar("ripple", "idle", 64);
+  document.getElementById("av3").outerHTML = avatar("ripple", "idle", 64);
+  document.getElementById("pick").innerHTML = [["ripple", "Ripple"], ["heron", "Heron"], ["monogram", "Letter"], ["image", "Your picture"]].map(([s, l], i) => `<div role="radio" aria-checked="${i === 0}">${avatar(s, "idle", 44)}<span>${l}</span></div>`).join("");
+  if (step === "2") { document.getElementById("back").textContent = "Back"; document.getElementById("next").textContent = "Continue"; }
+  if (step === "3") { document.getElementById("back").textContent = "Back"; document.getElementById("next").textContent = "Start using Heron"; }
+</script>
+</body>
+</html>
