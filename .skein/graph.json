@@ -704,7 +704,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Clippy clean-up, one decision function, `Refused` and `OutsideRead`, `read:` grants, prompt-source registry, MCP taint, ",
-    "version": 65,
+    "version": 66,
     "worktree": {
       "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
       "base_commit": "d77fa178a89241f54e733da4485b96809f09277d",
