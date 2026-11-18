@@ -432,15 +432,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "6536f994143a42238124e096e55a8b93",
+      "base_branch": "feat/heron-v1",
+      "claim_token": "7f380ddd4fa74717a5eaf3e0b9e3af07",
+      "claimed_at": "2026-11-18T13:39:47.954981+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-18T13:39:47.954981+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [],
@@ -460,11 +460,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Risk register with C35-8 and R-1, and accepted-risk sections in the threat model and matrix",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/heron-v1",
       "branch": null,
       "path": null
     }
