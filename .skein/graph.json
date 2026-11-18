@@ -3262,7 +3262,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 81,
+    "version": 82,
     "worktree": {
       "base_branch": "skein/U3__integrate-base",
       "base_commit": "b4462d41a2488a563eb73b2143207b7910378a28",
