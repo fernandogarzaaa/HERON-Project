@@ -6,6 +6,7 @@ use crate::util::now_ts;
 use anyhow::{anyhow, bail, Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -543,6 +544,11 @@ impl Store {
             }
         }
         Ok(Store { conn: Arc::new(Mutex::new(conn)), path: Some(path.to_path_buf()) })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn execute_batch_for_test(&self, sql: &str) {
+        self.db().execute_batch(sql).unwrap();
     }
 
     pub fn in_memory() -> Result<Store> {
@@ -1298,6 +1304,39 @@ impl Store {
         }
     }
 
+    /// Atomically replace a bounded provider snapshot. Unchanged records keep
+    /// their digested marker; changed content is eligible for learning again.
+    /// A failed transaction never removes the previously indexed snapshot.
+    pub fn replace_knowledge_snapshot(&self, source: &str, records: &[(String, String, String, i64)]) -> Result<()> {
+        let mut db = self.db();
+        let tx = db.transaction()?;
+        for (reference, title, body, ts) in records {
+            tx.execute(
+                "INSERT INTO knowledge(source,ref,title,body,ts,digested)
+                 VALUES (?1,?2,?3,?4,?5,0)
+                 ON CONFLICT(source,ref) DO UPDATE SET
+                   ts=excluded.ts,
+                   digested=CASE WHEN knowledge.title=excluded.title
+                     AND knowledge.body=excluded.body THEN knowledge.digested ELSE 0 END,
+                   title=excluded.title, body=excluded.body",
+                params![source, reference, title, body, ts],
+            )?;
+        }
+        if records.is_empty() {
+            tx.execute("DELETE FROM knowledge WHERE source=?1", [source])?;
+        } else {
+            let args: Vec<&dyn rusqlite::ToSql> = std::iter::once(&source as &dyn rusqlite::ToSql)
+                .chain(records.iter().map(|row| &row.0 as &dyn rusqlite::ToSql)).collect();
+            let marks = vec!["?"; records.len()].join(",");
+            tx.execute(
+                &format!("DELETE FROM knowledge WHERE source=? AND ref NOT IN ({marks})"),
+                rusqlite::params_from_iter(args),
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     fn knowledge_rows(&self, sql: &str, args: &[&dyn rusqlite::ToSql]) -> Result<Vec<KnowledgeItem>> {
         let db = self.db();
         let mut st = db.prepare(sql)?;
@@ -1313,6 +1352,21 @@ impl Store {
              WHERE knowledge_fts MATCH ?1 AND (?2 IS NULL OR k.source=?2) ORDER BY bm25(knowledge_fts) LIMIT ?3",
             &[&match_expr, &source, &(limit as i64)],
         )
+    }
+
+    /// As `search_knowledge`, over several sources in one ranked query, so the best matches win
+    /// across all of them rather than the newest from each.
+    pub fn search_knowledge_in(&self, match_expr: &str, sources: &[&str], limit: usize) -> Result<Vec<KnowledgeItem>> {
+        let marks = vec!["?"; sources.len()].join(",");
+        let sql = format!(
+            "SELECT k.id, k.source, k.ref, k.title, k.body, k.ts FROM knowledge_fts f JOIN knowledge k ON k.id=f.rowid
+             WHERE knowledge_fts MATCH ? AND k.source IN ({marks}) ORDER BY bm25(knowledge_fts) LIMIT ?"
+        );
+        let limit = limit as i64;
+        let mut args: Vec<&dyn rusqlite::ToSql> = vec![&match_expr];
+        args.extend(sources.iter().map(|s| s as &dyn rusqlite::ToSql));
+        args.push(&limit);
+        self.knowledge_rows(&sql, &args)
     }
 
     /// Items of a source, newest first. `undigested_only` = not yet learned from.
@@ -1346,8 +1400,40 @@ impl Store {
         Ok(self.db().execute("DELETE FROM knowledge WHERE source=?", [source])?)
     }
 
+    /// Erase everything one source taught. A fact it retired comes back, unless a fact from another
+    /// source later replaced it: then that later fact stays the current version.
     pub fn delete_memories_by_source(&self, source: &str) -> Result<usize> {
-        Ok(self.db().execute("DELETE FROM memories WHERE source=?", [source])?)
+        let mut db = self.db();
+        let tx = db.transaction()?;
+        let next: HashMap<i64, Option<i64>> = tx
+            .prepare("SELECT id, superseded_by FROM memories WHERE source=?")?
+            .query_map([source], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let survivors: Vec<(i64, i64)> = tx
+            .prepare("SELECT id, superseded_by FROM memories WHERE source<>?1 AND superseded_by IN (SELECT id FROM memories WHERE source=?1)")?
+            .query_map([source], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (id, mut successor) in survivors {
+            // Skip over the versions being erased to the first one that stays.
+            while let Some(Some(later)) = next.get(&successor) {
+                successor = *later;
+            }
+            if next.contains_key(&successor) {
+                tx.execute("UPDATE memories SET invalid_at=NULL, superseded_by=NULL WHERE id=?", [id])?;
+            } else {
+                tx.execute("UPDATE memories SET superseded_by=? WHERE id=?", params![successor, id])?;
+            }
+        }
+        let deleted = tx.execute("DELETE FROM memories WHERE source=?", [source])?;
+        tx.commit()?;
+        Ok(deleted)
+    }
+
+    /// Credit a fact to whoever stated it last with more authority, so erasing an outside source
+    /// never takes a fact the user also stated.
+    pub fn set_memory_source(&self, id: i64, source: &str) -> Result<()> {
+        self.db().execute("UPDATE memories SET source=? WHERE id=?", params![source, id])?;
+        Ok(())
     }
 
     // ---------- suggestions (proactive work) ----------
@@ -1926,5 +2012,26 @@ mod upgrade_tests {
         prune_snapshots(&db, "before-upgrade-", KEEP_UPGRADE_SNAPSHOTS);
         let left: Vec<String> = copies(&db, "heron-").iter().map(|p| p.file_name().unwrap().to_string_lossy().to_string()).collect();
         assert_eq!(left, ["heron-backup-mine.db", "heron-before-upgrade-from-v3-x.db", "heron-before-upgrade-from-v4-x.db", "heron-before-upgrade-from-v5-x.db"]);
+    }
+}
+
+#[cfg(test)]
+mod provider_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_provider_rows_retain_digest_marker_and_missing_rows_are_pruned() {
+        let db = Store::in_memory().unwrap();
+        let unchanged = vec![("m1".into(), "subject".into(), "body".into(), 100)];
+        db.replace_knowledge_snapshot("google_email", &unchanged).unwrap();
+        let items = db.knowledge_of("google_email", true, 10).unwrap();
+        assert_eq!(items.len(), 1);
+        db.mark_digested(&[items[0].id]);
+        db.replace_knowledge_snapshot("google_email", &unchanged).unwrap();
+        assert!(db.knowledge_of("google_email", true, 10).unwrap().is_empty());
+        db.replace_knowledge_snapshot("google_email", &[("m1".into(), "subject".into(), "updated".into(), 102)]).unwrap();
+        assert_eq!(db.knowledge_of("google_email", true, 10).unwrap().len(), 1);
+        db.replace_knowledge_snapshot("google_email", &[]).unwrap();
+        assert_eq!(db.knowledge_count("google_email"), 0);
     }
 }

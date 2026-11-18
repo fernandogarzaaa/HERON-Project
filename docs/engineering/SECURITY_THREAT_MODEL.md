@@ -40,6 +40,12 @@ Every tool call, from every entry point, is classified into one `Effect` and dec
 
 The full table is the test `permissions::tests::the_decision_table`.
 
+Outside content reaches the model only through tool results, which are wrapped and taint the
+conversation. It is never copied into a system prompt: calendar entries in particular (ICS, Google,
+Microsoft) are looked up with `upcoming_events` or `search_knowledge` rather than listed up front
+(O26-1). The test is
+`agent::tests::calendar_entries_stay_out_of_the_prompt_and_taint_the_turn_once_looked_up`.
+
 ## Web-fetch address and redirect boundary
 
 HERON's `web_fetch` and `web_search` use an independent HTTP client, separate from any
