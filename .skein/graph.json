@@ -42,11 +42,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Evaluation harness: 10 tasks and a probe, adapter, runner, validators, owner-use count, genesis spec",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/heron-v1",
-      "branch": null,
-      "path": null
+      "base_commit": "c324ec2b67385227ce784b56d83e0f293839cd9e",
+      "branch": "skein/U0",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U0"
     }
   },
   "U0b": {
