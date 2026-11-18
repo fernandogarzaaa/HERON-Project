@@ -1396,9 +1396,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from U1f's security review: /.vol fail-closed, alias in too_broad, read=: walker scope, tainted shell grants",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U1g__integrate-base",
       "branch": null,
       "path": null
     }
