@@ -975,7 +975,7 @@
       "claim_token": "974b9001e21742ae985faf4b19c8fa91",
       "claimed_at": "2026-11-18T16:03:17.485048+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T16:04:17.727883+00:00",
+      "last_heartbeat": "2026-11-18T16:10:17.922640+00:00",
       "node_version": 3,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1003,7 +1003,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U1's security review: walkers, firmlink alias, credential_store, tests",
-    "version": 7,
+    "version": 19,
     "worktree": {
       "base_branch": "skein/U1f__integrate-base",
       "base_commit": "951510e283dc6494ee4770a3aaa3ec80a1a6e8de",
@@ -1320,7 +1320,16 @@
     }
   },
   "U2c": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "fa009a32fa924c5f850f9f4885a314f1",
+        "ended_at": "2026-11-18T16:10:30.994222+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-18T16:04:18.471773+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1332,21 +1341,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "fa009a32fa924c5f850f9f4885a314f1",
-      "base_branch": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
-      "claim_token": "197f6dc472df432db5783c1c1db14f5c",
-      "claimed_at": "2026-11-18T16:04:18.471773+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-18T16:04:18.471773+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash eval/containment/run.sh && python3 -I eval/containment/check.py --recorded",
+        "duration_ms": 72013,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2c_20261118T160918408076_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2c_20261118T161030423295_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: on your Mac, run `bash eval/containment/run.sh && python3 -I eval/containment/check.py --recorded`, then `python3 -I eval/containment/check.py` to see whether G4 holds.",
     "id": "U2c",
     "integration_for": null,
     "intent": {
@@ -1358,13 +1379,81 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "fa009a32fa924c5f850f9f4885a314f1",
+      "base_commit": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
+      "changed_files": [
+        "eval/containment/README.md",
+        "eval/containment/__init__.py",
+        "eval/containment/antigravity-cli.json",
+        "eval/containment/check.py",
+        "eval/containment/claude-cli.json",
+        "eval/containment/cline-cli.json",
+        "eval/containment/codex-cli.json",
+        "eval/containment/gemini-cli.json",
+        "eval/containment/opencode-cli.json",
+        "eval/containment/results.py",
+        "eval/containment/run.sh",
+        "eval/containment/test_containment.py"
+      ],
+      "commit": "9748fc6cbfdf3f5ad86a579895b39fc3bcf8ca46",
+      "diff_stats": {
+        "eval/containment/README.md": {
+          "added": 40,
+          "deleted": 0
+        },
+        "eval/containment/__init__.py": {
+          "added": 0,
+          "deleted": 0
+        },
+        "eval/containment/antigravity-cli.json": {
+          "added": 4,
+          "deleted": 0
+        },
+        "eval/containment/check.py": {
+          "added": 120,
+          "deleted": 0
+        },
+        "eval/containment/claude-cli.json": {
+          "added": 50,
+          "deleted": 0
+        },
+        "eval/containment/cline-cli.json": {
+          "added": 4,
+          "deleted": 0
+        },
+        "eval/containment/codex-cli.json": {
+          "added": 50,
+          "deleted": 0
+        },
+        "eval/containment/gemini-cli.json": {
+          "added": 5,
+          "deleted": 0
+        },
+        "eval/containment/opencode-cli.json": {
+          "added": 64,
+          "deleted": 0
+        },
+        "eval/containment/results.py": {
+          "added": 256,
+          "deleted": 0
+        },
+        "eval/containment/run.sh": {
+          "added": 74,
+          "deleted": 0
+        },
+        "eval/containment/test_containment.py": {
+          "added": 394,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Containment check on each installed candidate CLI (measurement; records results, G4 is judged in U2w)",
-    "version": 3,
+    "version": 16,
     "worktree": {
       "base_branch": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
       "base_commit": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
