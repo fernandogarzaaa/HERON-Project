@@ -485,15 +485,16 @@ impl Approver for AllowAll {
 /// The "always allow" rule suggested for a request, or `None` when no standing rule may cover it.
 ///
 /// For the four file-reading tools it is one folder grant, `read:<folder>/**`: the file's folder for
-/// `read_file`, the folder itself for the others, taken from the canonical `target`. A folder that is
-/// too broad (the home folder, `/Users`, ...) cannot be granted.
+/// `read_file`, the folder itself for the others, taken from the canonical `target` without the
+/// `/System/Volumes/Data` prefix. A folder that is too broad (the home folder, `/Users`, ...) cannot
+/// be granted.
 pub fn always_rule(tool: &str, summary: &str, target: Option<&Path>) -> Option<String> {
     if tool == "shell" {
         let first = summary.split_whitespace().next().unwrap_or("");
         Some(format!("shell:{} *", globset::escape(first)))
     } else if READ_TOOLS.contains(&tool) {
-        let target = target?;
-        let folder = if tool == "read_file" { target.parent()? } else { target };
+        let target = data_volume_normalized(target?);
+        let folder = if tool == "read_file" { target.parent()? } else { target.as_path() };
         (!too_broad(folder)).then(|| format!("read:{}/**", folder.display()))
     } else {
         Some(format!("{tool}:*"))
@@ -509,29 +510,38 @@ pub(crate) fn read_rule_folder(rule: &str) -> Option<PathBuf> {
 }
 
 /// Does a `read:` folder rule cover this canonical read target? Compared by path components, so
-/// `read:/a/b/**` covers `/a/b` and `/a/b/c`, never `/a/bc`. A too-broad rule covers nothing.
+/// `read:/a/b/**` covers `/a/b` and `/a/b/c`, never `/a/bc`. A too-broad rule covers nothing. Both
+/// sides are compared without the `/System/Volumes/Data` prefix, as `too_broad` judges them.
 pub fn read_rule_covers(rule: &str, target: &Path) -> bool {
     let Some(folder) = read_rule_folder(rule) else { return false };
     if too_broad(&folder) {
         return false;
     }
-    let folder = normalize(&folder);
-    let real = dunce::canonicalize(&folder).unwrap_or_else(|_| folder.clone());
+    let folder = data_volume_normalized(&normalize(&folder));
+    let real = data_volume_normalized(&dunce::canonicalize(&folder).unwrap_or_else(|_| folder.clone()));
+    let target = data_volume_normalized(target);
     target.starts_with(&folder) || target.starts_with(&real)
 }
 
 /// A folder that may not be granted for reading as a whole: the filesystem root, `/Users`,
 /// `/Volumes`, the home folder, `~/Library`, and any parent of the home folder. A relative folder
-/// is never granted either, because it does not say where it is.
+/// is never granted either, because it does not say where it is. The folder is judged without the
+/// `/System/Volumes/Data` prefix, as `classify_path` judges it, and a parent of the home folder's
+/// alias (`/System`, `/System/Volumes`) is a parent of the home folder.
 pub fn too_broad(folder: &Path) -> bool {
     let folder = normalize(&expand_tilde(&folder.to_string_lossy()));
     if !folder.is_absolute() || folder.parent().is_none() {
         return true;
     }
     let real = dunce::canonicalize(&folder).unwrap_or_else(|_| folder.clone());
-    let homes: Vec<PathBuf> = dirs::home_dir().into_iter().flat_map(|h| [dunce::canonicalize(&h).unwrap_or_else(|_| h.clone()), h]).collect();
-    [folder, real].iter().any(|f| {
-        f == Path::new("/Users") || f == Path::new("/Volumes") || homes.iter().any(|h| h.starts_with(f) || *f == h.join("Library"))
+    let forms: Vec<PathBuf> = [folder, real].into_iter().flat_map(|f| [data_volume_normalized(&f), f]).collect();
+    let homes: Vec<PathBuf> = dirs::home_dir()
+        .into_iter()
+        .flat_map(|h| [dunce::canonicalize(&h).unwrap_or_else(|_| h.clone()), h])
+        .flat_map(|h| [Path::new(DATA_VOLUME).join(h.strip_prefix("/").unwrap_or(&h)), h])
+        .collect();
+    forms.iter().any(|f| {
+        f.parent().is_none() || f == Path::new("/Users") || f == Path::new("/Volumes") || homes.iter().any(|h| h.starts_with(f) || data_volume_normalized(h).join("Library") == *f)
     })
 }
 
@@ -927,6 +937,38 @@ pub fn without_data_volume(path: &Path) -> Option<PathBuf> {
     path.strip_prefix(DATA_VOLUME).ok().map(|rest| Path::new("/").join(rest))
 }
 
+/// A path without the [`DATA_VOLUME`] prefix, or as it is when it has none: the one form two names of
+/// the same macOS folder are compared in.
+pub fn data_volume_normalized(path: &Path) -> PathBuf {
+    without_data_volume(path).unwrap_or_else(|| path.to_path_buf())
+}
+
+/// A path whose real location can't be determined: one under `/.vol` (macOS opens a file there by
+/// volume id, and `realpath` fails on it), one whose deepest existing part (a link that can't be
+/// followed included) can't be canonicalized, or one whose canonical form is itself under `/.vol`.
+/// Classifying such a name would judge a name that says nothing about where it leads.
+pub fn unresolvable(path: &Path) -> bool {
+    let under_vol = |p: &Path| {
+        [p.to_path_buf(), data_volume_normalized(p)].iter().any(|p| {
+            let mut parts = p.components();
+            parts.next() == Some(Component::RootDir) && parts.next().is_some_and(|c| c.as_os_str().eq_ignore_ascii_case(".vol"))
+        })
+    };
+    if under_vol(path) {
+        return true;
+    }
+    // A link counts as there even when what it points at can't be reached: it is a name that leads
+    // somewhere nobody can see.
+    let mut existing = path;
+    while existing.symlink_metadata().is_err() {
+        match existing.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => existing = parent,
+            _ => return false,
+        }
+    }
+    dunce::canonicalize(existing).map_or(true, |real| under_vol(&real))
+}
+
 /// The environment variables that point a CLI at another config folder (`CLAUDE_CONFIG_DIR`, ...).
 fn config_dir_vars() -> &'static [&'static str] {
     static VARS: OnceLock<Vec<&'static str>> = OnceLock::new();
@@ -969,7 +1011,13 @@ fn with_canonical(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 ///
 /// A path under `/System/Volumes/Data` (the macOS firmlink alias) is also classified with that prefix
 /// removed, and the stricter result wins.
+///
+/// A path that can't be resolved to where it really is (see [`unresolvable`]) is `Refused`, for reads
+/// and writes: what it names can't be judged, so it fails closed.
 pub fn classify_path(path: &Path, workspace: &Path, cfg: &Config, write: bool) -> Effect {
+    if unresolvable(path) {
+        return Effect::Refused;
+    }
     let roots = ReadRoots::of(cfg);
     let workspace_alias = without_data_volume(workspace);
     let one = |p: &Path| -> Effect {
@@ -1743,6 +1791,55 @@ mod tests {
         assert!(read_rule_covers(&docs, &home.join("Documents/a/b.txt")));
         assert!(!read_rule_covers(&docs, &home.join("Documents-private/b.txt")));
         assert!(!read_rule_covers("read_file:*", &home.join("Documents/a.txt")));
+    }
+
+    /// `/System/Volumes/Data/Users/<me>` is the home folder by its firmlink alias: it is as broad as
+    /// the home folder, and a grant is matched the same way by either name.
+    #[test]
+    fn firmlink_alias_grants_are_too_broad() {
+        let home = dirs::home_dir().unwrap();
+        let alias = |p: &Path| PathBuf::from(format!("{DATA_VOLUME}{}", p.display()));
+        for folder in [
+            alias(&home),
+            PathBuf::from(DATA_VOLUME),
+            PathBuf::from(format!("{DATA_VOLUME}/")),
+            alias(Path::new("/Users")),
+            alias(Path::new("/Volumes")),
+            alias(&home.join("Library")),
+            alias(home.parent().unwrap()),
+            PathBuf::from("/System/Volumes"),
+            PathBuf::from("/System"),
+        ] {
+            assert!(too_broad(&folder), "{}", folder.display());
+        }
+        assert!(!too_broad(&alias(&home.join("Documents"))), "a folder inside the home folder is still granted by its alias");
+        // "Always" offers no standing rule on the home folder by its alias, and names a folder it may
+        // grant by its plain name.
+        assert_eq!(always_rule("list_dir", "x", Some(&alias(&home))), None);
+        assert_eq!(always_rule("read_file", "x", Some(&alias(&home.join("notes.txt")))), None);
+        assert_eq!(always_rule("search_files", "x", Some(Path::new(DATA_VOLUME))), None);
+        let docs = home.join("Documents");
+        assert_eq!(always_rule("list_dir", "x", Some(&alias(&docs))), Some(format!("read:{}/**", docs.display())));
+        assert_eq!(always_rule("read_file", "x", Some(&alias(&docs.join("a.txt")))), Some(format!("read:{}/**", docs.display())));
+        // A rule on the alias is refused as a standing rule and covers nothing, by either name.
+        let broad = format!("read:{}/**", alias(&home).display());
+        let p = Policy::new(Mode::Ask, std::slice::from_ref(&broad), &[]);
+        assert!(p.allow_rules().is_empty(), "{:?}", p.allow_rules());
+        assert!(p.rule_notices().iter().any(|(r, why)| *r == broad && why.contains("too broad")), "{:?}", p.rule_notices());
+        assert!(p.add_allow(&broad).is_err());
+        assert!(p.add_allow(&format!("read:{DATA_VOLUME}/**")).is_err());
+        for target in [docs.join("a.txt"), alias(&docs.join("a.txt"))] {
+            assert!(!read_rule_covers(&broad, &target), "{}", target.display());
+        }
+        // A folder rule covers its folder by either name, on either side, and nothing beside it.
+        for rule in [format!("read:{}/**", docs.display()), format!("read:{}/**", alias(&docs).display())] {
+            for target in [docs.join("a.txt"), alias(&docs.join("a.txt"))] {
+                assert!(read_rule_covers(&rule, &target), "{rule} on {}", target.display());
+            }
+            for beside in [home.join("Documents-private/a.txt"), alias(&home.join("Documents-private/a.txt")), home.join("notes.txt")] {
+                assert!(!read_rule_covers(&rule, &beside), "{rule} on {}", beside.display());
+            }
+        }
     }
 
     #[test]

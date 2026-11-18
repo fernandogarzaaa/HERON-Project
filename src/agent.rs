@@ -627,6 +627,7 @@ impl Agent {
             let audit_args = redact_secrets(&preview(&call.function.arguments, 600));
             let tainted = ctx.tainted.load(std::sync::atomic::Ordering::SeqCst);
             let verdict = self.policy.decide(&Call { tool: name, summary: &summary, effect: risk, read_target: target.as_deref() }, ctx);
+            let mut grant_after_call = false;
             let decision = match verdict {
                 Verdict::Allow => "allowed",
                 Verdict::Deny(reason) => {
@@ -658,9 +659,9 @@ impl Agent {
                             }
                         }
                         Approval::Session => {
-                            if may_grant_for_conversation(name, risk, tainted) {
-                                grant_for_session(ctx, name, &summary, target.as_deref());
-                            }
+                            // Recorded once this call has run: a `read=:` grant on a walk's root covers
+                            // that one path, and the walk the user was just asked about still opens it.
+                            grant_after_call = may_grant_for_conversation(name, risk, tainted);
                             "approved-for-conversation"
                         }
                         Approval::Deny(reason) => {
@@ -681,6 +682,9 @@ impl Agent {
                 Ok(r) => r,
                 Err(_) => Err(anyhow::anyhow!("tool timed out after {}s", limit.as_secs())),
             };
+            if grant_after_call {
+                grant_for_session(ctx, name, &summary, target.as_deref());
+            }
             let (ok, text) = match outcome {
                 Ok(t) => {
                     let t = truncate_middle(&t, self.cfg.agent.max_tool_output_chars);
@@ -1435,6 +1439,62 @@ mod tests {
         assert!(session_grant(&ctx, "read_file", &tool.summary(&args), Some(&target)));
         assert!(!session_grant(&ctx, "read_file", "other", Some(&target.with_file_name("other.txt"))));
         assert!(session_grants(&ctx).iter().any(|g| g.starts_with("read=:")), "{:?}", session_grants(&ctx));
+    }
+
+    /// "This conversation" on a walk of a too-broad folder stores `read=:<folder>`, and a later walk
+    /// that grant lets through opens nothing under the folder. The walk the user answered was itself
+    /// asked about, so the grant is recorded only once it has run: while it runs, no `read=:` grant
+    /// names its root, and it opens the folder as an answer of "once" would.
+    #[tokio::test]
+    async fn conversation_grant_is_recorded_after_the_walk_it_answers() {
+        type Seen = Arc<std::sync::Mutex<Vec<bool>>>;
+        struct Walk(Seen);
+        #[async_trait::async_trait]
+        impl crate::tools::Tool for Walk {
+            fn name(&self) -> &str {
+                "search_files"
+            }
+            fn description(&self) -> &str {
+                "a walk that records the grants it ran under"
+            }
+            fn parameters(&self) -> Value {
+                json!({"type": "object"})
+            }
+            fn summary(&self, _: &Value) -> String {
+                "/x/ in ~".into()
+            }
+            fn risk(&self, _: &Value, _: &crate::tools::ToolCtx) -> Effect {
+                Effect::OutsideRead
+            }
+            fn read_target(&self, _: &Value, _: &crate::tools::ToolCtx) -> Option<std::path::PathBuf> {
+                dirs::home_dir()
+            }
+            async fn call(&self, _: &Value, ctx: &crate::tools::ToolCtx) -> anyhow::Result<String> {
+                self.0.lock().unwrap().push(session_grants(ctx).iter().any(|g| g.starts_with("read=:")));
+                Ok("searched".into())
+            }
+        }
+        struct ThisConversation(std::sync::atomic::AtomicUsize);
+        #[async_trait::async_trait]
+        impl Approver for ThisConversation {
+            async fn approve(&self, _: &ApprovalRequest) -> Approval {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Approval::Session
+            }
+        }
+        let ws = tempfile::tempdir().unwrap();
+        let llm = ScriptedLlm::new(vec![ScriptedLlm::tool_call("search_files", json!({})), ScriptedLlm::tool_call("search_files", json!({})), Message::assistant("ok")]);
+        let approver = Arc::new(ThisConversation(Default::default()));
+        let (mut agent, _) = agent_with(llm, Mode::Ask, approver.clone(), ws.path());
+        let seen: Seen = Default::default();
+        let mut tools = ToolRegistry::builtin();
+        tools.register(Arc::new(Walk(seen.clone())));
+        agent.tools = Arc::new(tools);
+        let mut s = Session::create(&agent.store, "").unwrap();
+        agent.run_turn(&mut s, "search my home folder", &null_sink()).await.unwrap();
+        assert_eq!(approver.0.load(std::sync::atomic::Ordering::SeqCst), 1, "the second walk is covered by the conversation grant");
+        assert_eq!(*seen.lock().unwrap(), vec![false, true], "the answered walk ran before its single-path grant was recorded");
+        assert_eq!(session_grants(&agent.tool_ctx(&s.id)), vec![format!("read=:{}", dirs::home_dir().unwrap().display())]);
     }
 
     #[test]

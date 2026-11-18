@@ -457,11 +457,12 @@ pub fn wrap(cfg: &Config, workdir: &Path, profile: &Profile) -> Option<(String, 
 }
 
 /// What a shell command may read besides the working folder: the folders of the standing `read:`
-/// rules (in the settings file and those saved from approvals) and the `read:` folders and `read=:`
-/// single paths of this conversation. A grant made earlier in the same turn that is not saved yet is
-/// not seen, so the command fails closed.
-pub fn shell_grants(cfg: &Config, store: &crate::store::Store, session_id: &str) -> Vec<ReadGrant> {
-    read_grants(cfg, store, Some(session_id))
+/// rules (in the settings file and those saved from approvals) and, while the conversation is not
+/// tainted, the `read:` folders and `read=:` single paths of this conversation. Once outside content is
+/// present a conversation grant no longer applies, as it no longer applies to a read. A grant made
+/// earlier in the same turn that is not saved yet is not seen, so the command fails closed.
+pub fn shell_grants(cfg: &Config, store: &crate::store::Store, session_id: &str, tainted: bool) -> Vec<ReadGrant> {
+    read_grants(cfg, store, (!tainted).then_some(session_id))
 }
 
 /// One thing the user granted for reading.
@@ -727,7 +728,7 @@ mod tests {
         store.kv_set("allow_rules", &serde_json::to_string(&["read:/srv/saved/**"]).unwrap()).unwrap();
         store.kv_set("grants:s1", &serde_json::to_string(&["read:/srv/talk/**", "read=:/srv/one/file.txt", "write_file:*"]).unwrap()).unwrap();
         store.kv_set("grants:s2", &serde_json::to_string(&["read:/srv/other/**"]).unwrap()).unwrap();
-        let grants = shell_grants(&cfg, &store, "s1");
+        let grants = shell_grants(&cfg, &store, "s1", false);
         assert_eq!(
             grants,
             vec![
