@@ -3616,7 +3616,16 @@
     }
   },
   "U2x": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "ccb6ea189baf4aa284b28f2a38423e0b",
+        "ended_at": "2026-11-18T23:57:57.121592+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T23:53:45.473474+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -3628,22 +3637,58 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "ccb6ea189baf4aa284b28f2a38423e0b",
-      "base_branch": "skein/U2x__integrate-base",
-      "claim_token": "efd7b351d41c4d72b35b332b270d415a",
-      "claimed_at": "2026-11-18T23:53:45.473474+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T23:53:45.473474+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3f",
       "SYNC12"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins",
+        "duration_ms": 11567,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2x_20261118T235731431151_0.log"
+      },
+      {
+        "command": "cargo test --locked --features desktop --bin heron-desktop",
+        "duration_ms": 2342,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2x_20261118T235743008371_1.log"
+      },
+      {
+        "command": "cargo clippy --locked --all-targets -- -D warnings",
+        "duration_ms": 425,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2x_20261118T235745356272_2.log"
+      },
+      {
+        "command": "HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins",
+        "duration_ms": 10977,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2x_20261118T235745786155_3.log"
+      },
+      {
+        "command": "bash eval/require-tests.sh --lib -- turn_on_an_untested_registry_version_is_refused",
+        "duration_ms": 222,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2x_20261118T235756770609_4.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2x_20261118T235756993261_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U2x",
     "integration_for": null,
     "intent": {
@@ -3655,13 +3700,31 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "ccb6ea189baf4aa284b28f2a38423e0b",
+      "base_commit": "032f9f9eb069471239cba5e9dabc84197de7bc09",
+      "changed_files": [
+        "src/cli_llm.rs",
+        "src/main.rs"
+      ],
+      "commit": "405ae4ebe680451f517a5e47be9a27e1dca7f2ef",
+      "diff_stats": {
+        "src/cli_llm.rs": {
+          "added": 46,
+          "deleted": 4
+        },
+        "src/main.rs": {
+          "added": 4,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Fixes from U2w's review: untested-version turn test, ~/.opencode Refused, doctor store",
-    "version": 4,
+    "version": 13,
     "worktree": {
       "base_branch": "skein/U2x__integrate-base",
       "base_commit": "032f9f9eb069471239cba5e9dabc84197de7bc09",
@@ -4331,7 +4394,7 @@
       "claim_token": "e3f45039632144f3adfaed1189f8e7d6",
       "claimed_at": "2026-11-18T23:37:06.197947+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-18T23:53:37.216147+00:00",
+      "last_heartbeat": "2026-11-18T23:57:37.433741+00:00",
       "node_version": 18,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4392,7 +4455,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "SwiftUI app shell: screens, tokens, avatar, first run, on preview stubs",
-    "version": 53,
+    "version": 61,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "78f7f7065d0d4bab44cdd352073bb87a4f96a5fa",
