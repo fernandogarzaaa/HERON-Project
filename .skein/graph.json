@@ -17,7 +17,7 @@
       "claim_token": "1030eb0b73654a059adacf044dbe56a6",
       "claimed_at": "2026-11-18T13:39:45.956610+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T13:41:16.221260+00:00",
+      "last_heartbeat": "2026-11-18T13:42:16.237577+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -42,7 +42,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Evaluation harness: 10 tasks and a probe, adapter, runner, validators, owner-use count, genesis spec",
-    "version": 6,
+    "version": 8,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "c324ec2b67385227ce784b56d83e0f293839cd9e",
@@ -503,10 +503,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "e94449377a7fdf27b8dfcf81c9f323c4b24506bc",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "c6dca9df2aef20e4a35c7065dfb23ba14cf85d8c",
+        "result_commit": "7c2cb9b314d809ef332c0d4f83b985d5a8bb7676",
+        "shipped_at": "2026-11-18T13:42:37.630113+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Risk register with C35-8 and R-1, and accepted-risk sections in the threat model and matrix",
-    "version": 7,
+    "version": 8,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "e94449377a7fdf27b8dfcf81c9f323c4b24506bc",
