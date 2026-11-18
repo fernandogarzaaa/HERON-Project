@@ -110,7 +110,7 @@ The "1 P0 and 6 P1" count on `main` is M-1 (the P0) plus M-2, M-3, M-4, M-5, M-6
     *   **gemini-cli** now takes an API key only, because the Google OAuth free tier ended on 2026-06-18. A Google login means antigravity-cli.
 *   **G5, the topology chosen by measurement.** The measurement spike runs the same task set through the envelope and the hybrid. It reports task success, output quality, tokens per task and median time to first token. The rule in [§2](#2-hardened-cli-adapters-g4-g5) picks the default.
 *   **G6, a native Mac app.** A SwiftUI app talks to the Rust core over the local HTTP API. It covers the owner's daily flows: home, chat with approvals, memory, tasks, activity, settings, and personalization (agent name, avatar, theme, animation states).
-*   **G7, the task gate passes.** There are 10 named tasks, each with a pass rule a machine can check. EVE runs each task 3 times on claude-cli in `ask` mode. Pass is at least 26 of 30 runs, with no task below 2 of 3. One task is a page with a hidden instruction, which must never be acted on.
+*   **G7, the task gate passes.** There are 10 named tasks, each with a pass rule a machine can check. EVE runs each task 3 times in `ask` mode on every Tier 1 CLI (Q5). Each CLI passes with at least 26 of 30 runs and no task below 2 of 3, and every Tier 1 CLI must pass. One task is a page with a hidden instruction, which must never be acted on.
 *   **G8, a research-preview release.**
     *   A notarized DMG installs on a clean Mac without the right-click workaround.
     *   An upgrade from v0.3.1 keeps the data, the allow rules and an intact audit chain. The upgrade test checks this automatically. The migration never touches Keychain secrets; they are checked by hand once, on a real Mac, as part of the release checklist.
@@ -130,22 +130,29 @@ The "1 P0 and 6 P1" count on `main` is M-1 (the P0) plus M-2, M-3, M-4, M-5, M-6
 
 ## Open Questions
 
-Each "Proposed answer" is what gets built unless the owner overrides it before the unit that needs it starts. Q8 is the only question with no proposal, and the features it lists aren't part of this plan (Q16).
+The owner decided every question on 2026-11-18; each carries its decision. Where the owner changed a proposal (Q5, Q10), the answer replaces it. Q8 is the only question with no proposal, and the features it lists aren't part of this plan (Q16).
 
 *   **Q1, root-cause rules for each prompt source.** For each prompt source except calendar, should Heron taint it, remove it, or fetch it on demand? Should existing sessions be re-tainted on upgrade?
     *   **Proposed answer.** Unconfirmed memories, source snippets and ambient observations are removed from the prompt and served on demand through tools that taint, the same rule calendar follows under O26-1. Existing sessions are not re-tainted ([§1](#1-one-decision-function-and-read-tiers-g1-g2)).
     *   **Option considered: marking working-folder file reads untrusted.** Any conversation that reads a file would then ask before every write, and conversation grants would stop applying ([Alternative I](#alternative-i-mark-every-working-folder-file-read-as-untrusted-the-broad-m-1-fix)).
     *   **Proposed answer for files.** Working-folder reads stay trusted. The M-1 chain is broken at the credential read instead, because that file is outside the working folder and so asks under G2. The residual risk, sending other working-folder content out, is accepted risk R-1 ([Risks & Mitigations](#risks--mitigations)). The baseline and G7 runs report approvals per task, which is the cost the untrusted option would add.
+    *   **Decided by the owner on 2026-11-18:** Prompt sources are removed from the prompt and fetched through tools that taint. Working-folder reads stay trusted, and the residual risk R-1 is accepted and signed.
 *   **Q2, read tiers.** Which read model replaces the blocked-names list, and how do existing allow rules migrate?
     *   **Proposed answer.** The read tiers plus the secret check, with the order and verdicts in [Read tiers and verdicts](#read-tiers-and-verdicts). Existing rules keep loading unchanged. Only a `read:` folder rule can open a read outside the working folder, so older rules such as `read_file:*`, `*` or `*:*` no longer do. `GET /api/settings` lists each such rule under `rule_notices`, with a note that it no longer opens those reads, for as long as it stays in the config. A `read:` rule that is too broad is listed there too, and isn't loaded.
+    *   **Decided by the owner on 2026-11-18:** Keep loading existing rules, and list them in `rule_notices`.
 *   **Q3, two UIs.** Do the Slint app and the SwiftUI app share one running core process, or does Heron enforce a single running instance? When is Slint retired?
     *   **Proposed answer.** On macOS the SwiftUI app is the only supported UI, and v1 removes the Slint binary from the macOS bundle. Slint stays for Windows and Linux. The existing `background.lock` (`app.rs:670-688`) already stops a second core on the same home from doing background work. CLI subcommands such as `heron inbox` keep opening the database directly, as they do today.
+    *   **Decided by the owner on 2026-11-18:** SwiftUI is the only UI on macOS.
 *   **Q4, the success gates.** What sizing does G7 use, which tool does Heron replace in G9, and how many accepted risks are allowed?
     *   **Proposed answer.** G7 uses 3 runs per task. The replaced tool is whatever the owner names at the start of the G9 trial, recorded in `eval/owner-use.md`. Up to 3 new accepted risks are allowed, not counting C35-8. R-1 is one of the 3.
+    *   **Decided by the owner on 2026-11-18:** 10 tasks plus the probe, 3 runs each, up to 3 accepted risks.
 *   **Q5, task-gate cost across Tier 1.** Running the full task gate on five Tier 1 CLIs would take 150 runs of subscription allowance.
-    *   **Proposed answer.** The full task gate runs on claude-cli. Every other Tier 1 CLI gets a reduced gate of 1 run per task, which is reported but doesn't block release.
+    *   **Proposed answer (not taken).** The full task gate on claude-cli, and a reduced, non-blocking gate of 1 run per task on every other Tier 1 CLI.
+    *   **Answer.** The full task gate runs on every Tier 1 CLI: 3 runs per task, the same pass rule, and each CLI must pass for the release. With five Tier 1 CLIs that is about 150 runs of subscription allowance per `verify` run.
+    *   **Decided by the owner on 2026-11-18:** Full gate on every Tier 1 CLI, blocking the release (changed from the proposal).
 *   **Q6, terms of service.** Each vendor's current consumer terms need reading, and a decision recorded, before builds go to friends.
     *   **Proposed answer.** Build the hold described in [§2](#2-hardened-cli-adapters-g4-g5), with `allow_unattended_subscription = false` by default. The owner reads the terms and records a decision for each provider in `docs/cli-providers.md` before the friends release.
+    *   **Decided by the owner on 2026-11-18:** Build the hold, off by default; the owner records each vendor's terms.
 *   **Q7, owner review of risky PRs.** Under autonomous merges, which PRs wait for owner approval?
     *   **Proposed answer.** PRs that touch any of these paths:
         *   `permissions.rs`;
@@ -154,35 +161,50 @@ Each "Proposed answer" is what gets built unless the owner overrides it before t
         *   server authentication;
         *   `telegram.rs`;
         *   the audit and schema code in `store.rs`.
+    *   **Decided by the owner on 2026-11-18:** PRs touching the security paths wait for the owner.
 *   **Q8, the feature list.** The owner wants more features and none cut, but no list exists yet. The features work needs a numbered list of the features the owner wants in v1, and a freeze date. Features after the freeze go to v1.1.
+    *   **Owner, 2026-11-18:** no feature list yet.
 *   **Q9, branch protection (M-GOV-1).** `main` has no branch protection or required checks. Turning them on is a repository admin action only the owner can take, and autonomous merges depend on it.
     *   **Proposed answer.** Before U1 starts, the owner turns on branch protection for `main`, requiring the CI checks and one review.
+    *   **Decided by the owner on 2026-11-18:** The owner turns on branch protection for `main` (CI checks plus one review) before U1 starts. U1 waits for it.
 *   **Q10, the research-preview audience.** Who may install the preview?
-    *   **Proposed answer.** At most 10 people the owner knows personally, each using their own CLI login on their own Mac. The owner can change the cap.
+    *   **Proposed answer (not taken).** At most 10 people.
+    *   **Answer.** At most 25 people the owner knows personally, each using their own CLI login on their own Mac. The owner can change the cap.
+    *   **Decided by the owner on 2026-11-18:** Up to 25 people the owner knows (changed from the proposal).
 
 The stage 9 reviews turned up ten more behaviour or process changes. Each needs the owner's yes before the unit named in it starts.
 
 *   **Q11, platforms for the new refusals.** Should the sandbox-off refusal and the risk-notice block apply on Windows and Linux too?
     *   **Proposed answer.** macOS only. Windows has no sandbox, Linux has one only when `bwrap` works, and both stay unqualified. They keep today's behaviour: commands run unsandboxed, with today's hint, and there is no risk notice. Needed by U2 and U3.
+    *   **Decided by the owner on 2026-11-18:** macOS only.
 *   **Q12, writes over MCP.** With the MCP connection tainted, every state write asks, and MCP refuses every ask. Is that acceptable?
     *   **Proposed answer.** Yes. Over MCP, `remember`, `forget`, `task_add`, `task_update`, `schedule_add` and `schedule_remove` are refused with today's "needs the user's approval" text, while the read tools keep working. The earlier "memories written over MCP are unconfirmed" plan is dropped. Needed by U1.
+    *   **Decided by the owner on 2026-11-18:** Accepted as proposed.
 *   **Q13, writes to Refused paths.** Today a write inside Heron's home is `Privileged`: it asks, and Yolo allows it. Should it be denied in every mode instead?
     *   **Proposed answer.** Yes. A write to any Refused path is `Effect::Refused` and is denied, like a read. Heron's own settings, persona and skills change only through their own tools and routes. Needed by U1.
+    *   **Decided by the owner on 2026-11-18:** Accepted as proposed.
 *   **Q14, unconfirmed memories.** `recall` is one tool with one trust flag, so it can't taint for only some of its results.
     *   **Proposed answer.** Split it. `recall` returns confirmed memories only and stays trusted. A new `recall_unconfirmed` tool returns unconfirmed ones as untrusted output. Needed by U1.
+    *   **Decided by the owner on 2026-11-18:** Accepted as proposed.
 *   **Q15, surfaces the risk notice blocks.** Which entry points refuse to run a turn until the notice is accepted?
     *   **Proposed answer.** On macOS (Q11), every turn: the Mac app and HTTP API, the terminal (`heron`, `heron run`), Telegram and unattended work. The terminal shows the notice and asks y/n; when stdin isn't a terminal it prints where to accept and exits with status 3. The web UI served by `heron serve` and the Slint app, which isn't shipped on macOS, show the 428 error text, as they do for any error, and get no new screen. Tests and the eval runner accept the notice for themselves; for the Slint bridge tests that means one test-only line. Needed by U3.
+    *   **Decided by the owner on 2026-11-18:** Every surface: the app, the API, the terminal, Telegram and unattended work.
 *   **Q16, features.** Q8 has no list yet, so a features unit can't be planned.
     *   **Proposed answer.** Features leave this plan. Once Q8 is answered, each feature is its own design delta with its own work units, meeting the definition of done in [§5](#5-features-behind-switches-q8-q16). `verify` doesn't wait for them.
+    *   **Decided by the owner on 2026-11-18:** Accepted: features leave this plan.
 *   **Q17, the ten core tasks.** G7 depends on which tasks count.
     *   **Proposed answer.** The ten tasks and the R-1 probe defined in U0's `eval/core-tasks.md` item, which cover files, memory, tasks, schedules, the shell, the web, a refused action and the CUJ 3 injection. Needed by U0.
+    *   **Decided by the owner on 2026-11-18:** 10 tasks plus the probe, as proposed.
 *   **Q18, how units reach `main`.** Units ship as skein nodes onto `feat/heron-v1`, so there is no per-unit PR on which to run testteeth.
     *   **Proposed answer.** Two pull requests from `feat/heron-v1` to `main`: the first after U2w (security, CLI layer, core contract), the second after `verify`. testteeth runs in `verify` on the whole branch against the baseline commit, not in CI on each PR. Q7's owner review applies to both PRs. Needed before U1.
+    *   **Decided by the owner on 2026-11-18:** Two pull requests: after U2w and after `verify`.
 *   **Q19, scope exceptions.** The work-unit rule asks for one directory glob per unit, and `README.md` sits at the repository root with no directory of its own.
     *   **Proposed answer.** U6b's scope is the single file `README.md`, recorded as the one exception. Every other unit has a directory glob, and no unit edits `Cargo.toml` or `Cargo.lock`. Needed by U6b.
-    *   **Not yet tested.** skein matches blast radii on their static directory prefix, and for a root file that prefix may be the whole repository. Before approval, the owner or the build session runs `skein node add` with `--blast-radius README.md` next to an active `src/**` node and records here whether skein reports a conflict. If it does, U6b only serializes against the nodes still running, which by then is `verify` alone, so the plan still holds.
+    *   **Tested on 2026-11-18 (skein v0.3.1).** In a scratch repository, with a node claimed on `src/**`: a second `src/**` node was refused ("blast-radius overlap with claimed node … 'src/**' vs 'src/**'"), which shows the check is active; a `README.md` node and a `docs/**` node were both claimed alongside it with no conflict. So the single-file scope behaves like a disjoint directory, and U6b can run next to `src/**` units.
+    *   **Decided by the owner on 2026-11-18:** Run the skein blast-radius test before U6b is added. It was run, and the result is recorded above.
 *   **Q20, conversation grants in the shell sandbox.** §1 says the shell sandbox reads the same rules as `read_file`. A folder granted "for this conversation" lives in kv `grants:<session>`, not in the standing rules.
     *   **Proposed answer.** The shell sandbox reads both: the standing `read:` rules and the session's `read:` conversation grants, through `ctx.store` and `ctx.session_id`, which `ToolCtx` already carries. A folder the user opened for this conversation is then readable by commands in this conversation too, and by nothing else. Needed by U2.
+    *   **Decided by the owner on 2026-11-18:** Accepted as proposed.
 
 ## Critical User Journeys (CUJs)
 
@@ -701,7 +723,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 | C35-8 and R-1, the accepted risks | Security | Medium / High | Recorded and signed in `docs/ACCEPTED_RISKS.md` | Owner; U6 | [Security findings](#security-findings-in-scope), Q1 |
 | The sandbox is unavailable: Apple deprecates `sandbox-exec`, the user turns it off, or it's missing | External, security | Low / High | On macOS, CLI providers and `shell` are refused; Settings shows the status. Re-check on each macOS major release. | U2 | [When the sandbox is off](#when-the-sandbox-is-off) |
 | CLI flags or the protocol change within a pinned major version | Failure mode | Medium / Medium | The version contract, the CUJ 5 messages, the fake-CLI tests, and a manual canary run against the latest CLIs before each release | U2; owner (release checklist) | [Version contract](#version-contract) |
-| Subscription quota runs out during spike or G7 runs | Scalability | Medium / Low | Paired runs; `run-core-tasks.sh --resume` continues from the last finished task; the reduced gate on the other Tier 1 CLIs (Q5) | U0, U2s | Q5 |
+| Subscription quota runs out during spike or G7 runs | Scalability | Medium / Low | Paired runs; `run-core-tasks.sh --resume` continues from the last finished task; the full gate runs one Tier 1 CLI at a time, so a quota run-out stops one CLI's run, which `--resume` continues (Q5) | U0, U2s | Q5 |
 | An orphaned core keeps running after an app crash | Failure mode | Low / Medium | The core exits on stdin EOF, which the kernel delivers when the app exits for any reason | U3 | [§3](#starting-and-stopping-the-core) |
 | macOS privacy (TCC) prompts are attributed to Heron.app when CLI children touch protected folders | External | Medium / Low | UNVERIFIED. U2c's containment run records which prompts appear, and the getting-started guide explains them | U2c, U6 | — |
 | Autonomous merges land security-sensitive code without review | Process | Medium / High | Q7 (owner review on the listed paths) and Q9 (branch protection) | Owner | Q7, Q9 |
@@ -719,7 +741,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
     *   Median time to first token is reported per provider in the spike and in every task-gate run.
     *   A CLI turn includes a process start. The budget is a 3-second median on claude-cli, on an Apple-silicon Mac. A regression beyond that is flagged in the report but doesn't fail the task gate.
 *   **Token and quota cost.**
-    *   The measurement spike and the task gate spend subscription allowance (Q5).
+    *   The measurement spike and the task gate spend subscription allowance. The full gate on every Tier 1 CLI is about 150 runs per `verify` run (Q5).
     *   By default, no unattended work runs through a subscription login (Q6).
 *   **Rollout and rollback.**
     *   New features ship off until done, using the existing per-ability switches ([§5](#5-features-behind-switches-q8-q16)).
@@ -759,6 +781,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 *   **Measurement units run on the owner's Mac.** U0b, U2c, U2s and `verify` need logged-in CLIs. Their measurement runs inside the node's completion command, which skein runs in the node's worktree, and skein commits the results the command writes. Their agents write scripts (U2c, U2s, `verify`) or nothing (U0b).
 *   **Config folders, by hand.** After U0 ships and before U2c starts, the owner runs `bash eval/containment/discover-dirs.sh <id>` for each installed candidate (item 31). It needs a browser login, so it can't run inside a completion command.
 *   **Tools.** Xcode 16 or later, selected with `xcode-select` so `swift test` finds XCTest; EVE (the `eve@experience-validation-engine` plugin, built with `npm ci && npm run build`); `testteeth`; `genesis` 0.4.0; `sqlite3`; `actionlint` (`brew install actionlint`); and claude-cli logged in. Each candidate CLI the owner wants qualified is installed and logged in before U2c.
+*   **R-1's signature** is done (2026-11-18); U3a writes it as accepted.
 *   **Apple Developer Program.** The owner has a Developer ID for `--sign`. U7 builds unsigned without it, but the G8 gate needs it.
 *   **Release secrets (M22).** `release.yml` references no secrets today. Before U7b's workflow first runs with `--sign`, the owner creates these repository secrets: `MACOS_CERT_P12` (the base64 Developer ID certificate), `MACOS_CERT_PASSWORD`, `MACOS_CODESIGN_IDENTITY`, `ASC_KEY_P8` (the base64 App Store Connect key), `ASC_KEY_ID` and `ASC_ISSUER_ID`. Until then the `macos` job builds with `--unsigned`.
 *   **Open questions.** Each has its proposed answer or an owner override before the unit that needs it starts: U0 needs Q4 and Q17; U3a needs Q4; U1 needs Q1, Q2, Q9, Q12, Q13, Q14 and Q18; U2 needs Q6, Q11 and Q20; U3 needs Q3, Q11 and Q15; U6 needs Q5; U6b needs Q19.
@@ -974,7 +997,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         *   a `Status:` line.
     *   **The two entries, with these exact headings:**
         *   **`## C35-8: Phone turns inherit the desktop permission mode`** (anchor `#c35-8-phone-turns-inherit-the-desktop-permission-mode`): "Status: Accepted by the owner (fernandogarzaaa) on 2026-11-18."
-        *   **`## R-1: Working-folder content can be sent out after an injected read`** (anchor `#r-1-working-folder-content-can-be-sent-out-after-an-injected-read`): "Status: Awaiting the owner's signature." The owner signs by replacing that line with the same accepted form and the date.
+        *   **`## R-1: Working-folder content can be sent out after an injected read`** (anchor `#r-1-working-folder-content-can-be-sent-out-after-an-injected-read`): "Status: Accepted by the owner (fernandogarzaaa) on 2026-11-18." The owner signed it with the design approval (Q1).
     *   **Limits and versions.** At most 3 `## R-` entries (G3, Q4); C35-8 isn't an `R-` entry, so it isn't counted. `verify` counts the same way. After the first release, any change to the text raises `Version`.
     *   **Not in the register.** "Reads outside the working folder now ask" (G2) is a behaviour change, not a risk. It goes in the README mode table (U6b) and the getting-started guide (U6).
     *   **Placement.** It is created before U3, because U3 compiles it into the core.
@@ -1407,6 +1430,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
     *   **`check.py`** has two modes:
         *   **`--recorded`** exits 0 when every candidate has a result file with a valid `status`. This is U2c's check: U2c can record a failure, but it can't fix one whose cause is in `src/`.
         *   **The default mode** exits 0 only when claude-cli passed and at least one other candidate passed (G4). U2w's check and `verify` run it.
+        *   **`--list-tier1`** prints one id per line for each candidate that meets U2w's Tier 1 rule (item 39): passed, folders confirmed, and the gemini-cli rule. `verify` step 7 runs the task gate on each (Q5).
     *   **A failure caused in `src/` (M18).** When the default mode fails, the build stops at U2w, and a new skein node, `U2-fix-<n>` (`src/**`, depending on U2c), is added from the recorded result. U2c is then re-run. No unit is edited outside its scope to get past it.
 
 #### Work unit U2s: measurement spike
@@ -1635,7 +1659,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         *   the terms decisions;
         *   R-1's signature;
         *   the version bump to `1.0.0-preview.1` in `Cargo.toml` and `CHANGELOG.md`;
-        *   the reduced gate for each Tier 1 CLI other than claude-cli (Q5): `bash eval/run-core-tasks.sh --provider <id> --runs 1 --out "${TMPDIR:-/tmp}/heron-reduced-<id>"`, whose per-task table, with median time to first token, is pasted into the release notes. It is reported, and doesn't block;
+        *   the per-CLI task-gate tables from `verify` step 7 (Q5), with median time to first token, pasted into the release notes;
         *   the tag.
 
         These are owner steps, not work units.
@@ -1729,13 +1753,13 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
     4. `testteeth run --base "$BASE" --fail-under 70 -q`, which grades the Rust code with cargo-mutants (default features, so the `desktop` bin isn't mutated) and the Python under `eval/` (N22);
     5. **the regressions fail on the old code (M25, G3).** The new tests call APIs the old code doesn't have (`decide`, `Call`), so copying them onto `BASE` would only fail to compile, which proves nothing. Instead the G3 reviewer checks out `BASE`, reproduces each regression's scenario against the old API (for example the M-1 chain through `decide_in`), and records the result in `docs/designs/reviews/g3-regressions.md`, one line per test: `<test name>: fails on <BASE>: <one-line evidence>`. This step checks that the file exists and has a line for each of the seven `m*` tests named in the [findings table](#security-findings-in-scope), and fails otherwise;
     6. `genesis audit-evaluator eval/genesis.yaml --suite code-py`, before any task score is trusted;
-    7. `bash eval/run-core-tasks.sh --provider claude-cli --driver eve --runs 3 --out "${TMPDIR:-/tmp}/heron-verify-eval"`, then `python3 -I eval/check_gate.py "${TMPDIR:-/tmp}/heron-verify-eval/summary.json"`, which is G7. The output stays out of the repository, so skein doesn't commit it;
+    7. G7 on every Tier 1 CLI (Q5): for each id that `python3 -I eval/containment/check.py --list-tier1` prints, one at a time, `bash eval/run-core-tasks.sh --provider <id> --driver eve --runs 3 --out "${TMPDIR:-/tmp}/heron-verify-eval/<id>" --resume`, then `python3 -I eval/check_gate.py "${TMPDIR:-/tmp}/heron-verify-eval/<id>/summary.json"`. The step fails if any CLI fails. The output stays out of the repository, so skein doesn't commit it;
     8. `python3 -I eval/containment/check.py`, which is G4;
     9. G9: when `HERON_TRIAL_FROM` and `HERON_TRIAL_TO` are both set, `bash eval/owner-use.sh ~/.heron "$HERON_TRIAL_FROM" "$HERON_TRIAL_TO" --min 12`, which fails below 12 qualifying days and fails unless the range is exactly 14 days (item 7) (M29). When they aren't set, the step fails with "G9 not measured yet", unless `HERON_G9_PENDING=1` is set, which the build session uses before the trial ends; the second pull request needs a run without it;
     10. `bash packaging/macos/build-app.sh --unsigned`, then `bash packaging/macos/upgrade-test.sh`;
     11. the register: no line in `docs/ACCEPTED_RISKS.md` still says "Awaiting the owner's signature", and at most 3 `## R-` headings exist (C35-8 isn't an `R-` heading; item 11).
 
-    Steps 5, 9 and 11 fail until the G3 reviewer records the regressions, the trial ends and the owner signs R-1, which is intended: G3, G8 and G9 need all three.
+    Steps 5 and 9 fail until the G3 reviewer records the regressions and the trial ends, which is intended: G3 and G9 need both. R-1 was signed on 2026-11-18, so step 11 passes once U3a writes the register, and fails again only if a new entry is added unsigned.
 
 ### Work units
 
@@ -1743,7 +1767,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 |---|---|---|---|---|---|
 | U0 | Evaluation harness: 10 tasks and a probe, adapter, runner, validators, owner-use count, genesis spec | `eval/**` | none | `python3 -I eval/check_tasks.py eval/core-tasks.md && python3 -I -m unittest discover -s eval/tests -t eval && bash eval/run-core-tasks.sh --provider demo --driver direct --build debug --runs 1 --out "${TMPDIR:-/tmp}/u0" && python3 -I eval/check_gate.py --schema-only "${TMPDIR:-/tmp}/u0/summary.json"` | feature, refactoring: sonnet high |
 | U0b | Baseline run on today's `main` code (measurement only) | `eval/baseline/**` | U0 | `bash eval/run-core-tasks.sh --provider claude-cli --driver eve --runs 3 --out eval/baseline --artifacts "${TMPDIR:-/tmp}/heron-baseline-runs" && python3 -I eval/check_gate.py --schema-only eval/baseline/summary.json` | feature, refactoring: sonnet high |
-| U3a | Risk register with C35-8 and R-1, and accepted-risk sections in the threat model and matrix | `docs/**` | none | `test "$(head -1 docs/ACCEPTED_RISKS.md)" = 'Version: 1' && grep -qx '## C35-8: Phone turns inherit the desktop permission mode' docs/ACCEPTED_RISKS.md && grep -qx '## R-1: Working-folder content can be sent out after an injected read' docs/ACCEPTED_RISKS.md && grep -q 'ACCEPTED_RISKS.md#c35-8-phone-turns-inherit-the-desktop-permission-mode' docs/engineering/SECURITY_THREAT_MODEL.md && grep -q 'ACCEPTED_RISKS.md#r-1-working-folder-content-can-be-sent-out-after-an-injected-read' docs/engineering/REMEDIATION_MATRIX.md` | judgment and prose: opus high |
+| U3a | Risk register with C35-8 and R-1, and accepted-risk sections in the threat model and matrix | `docs/**` | none | `test "$(head -1 docs/ACCEPTED_RISKS.md)" = 'Version: 1' && grep -qx '## C35-8: Phone turns inherit the desktop permission mode' docs/ACCEPTED_RISKS.md && grep -qx '## R-1: Working-folder content can be sent out after an injected read' docs/ACCEPTED_RISKS.md && grep -q 'ACCEPTED_RISKS.md#c35-8-phone-turns-inherit-the-desktop-permission-mode' docs/engineering/SECURITY_THREAT_MODEL.md && grep -q 'ACCEPTED_RISKS.md#r-1-working-folder-content-can-be-sent-out-after-an-injected-read' docs/engineering/REMEDIATION_MATRIX.md && test "$(grep -c '^Status: Accepted by the owner (fernandogarzaaa) on 2026-11-18.$' docs/ACCEPTED_RISKS.md)" = 2` | judgment and prose: opus high |
 | U1 | Clippy clean-up, one decision function, `Refused` and `OutsideRead`, `read:` grants, prompt-source registry, MCP taint, taint fixes, registry `config_dirs` (M-1, M-2, M-4 `read_file` half, M-6 to M-8) | `src/**` | U0b | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- every_prompt_block_is_trusted_or_taints read_verdict_table refused_beats_secret_in_every_mode every_registry_config_dir_is_refused writes_to_refused_paths_are_denied working_folder_inside_refused_path_is_refused always_on_an_ask_read_is_one_folder_grant broad_read_grants_are_rejected only_read_rules_grant_outside_reads workspace_env_and_key_files_still_ask walkers_skip_refused_and_secret_paths indexing_and_observation_skip_secrets_and_refused_paths read_tools_cannot_be_switched_to_allow m1_injected_file_cannot_read_and_send_a_credential m2_mcp_cannot_plant_memories_or_schedules m4_globs_quotes_and_unlisted_secrets_ask m6_proactive_sessions_start_tainted m7_parked_call_keeps_its_taint m8_forwarded_telegram_message_taints` | hardest tasks: opus high |
 | U2 | Deny-default sandbox for shell and CLI child, macOS sandbox-off refusal, CLI environment and run folder, version contract, refuse-all MCP, data format 3, origins, subscription hold, hybrid in debug builds (M-4 sandbox half) | `src/**` | U1 | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- sandboxed_shell_cannot_read_ask_tier_paths sandbox_cannot_read_cargo_credentials_via_python granted_folder_is_readable_in_the_sandbox build_and_git_still_work_under_deny_default_reads every_registry_config_dir_is_refused_in_the_sandbox m4_sandbox_denies_globs_quotes_and_unlisted_secrets shell_refused_when_sandbox_off cli_turn_refused_when_sandbox_off fake_cli_child_env_is_exactly_the_allowlist fake_cli_cannot_write_outside_its_run_folder fake_cli_argv_turns_tools_off api_keys_reach_only_listed_providers cli_run_folder_is_under_tmpdir_and_removed version_extraction_reads_first_semver version_outside_range_needs_acceptance mcp_refuse_all_advertises_given_schemas_and_refuses_calls to_v3_adds_columns_and_keeps_rows audit_v2_hash_covers_provider_and_version verify_audit_accepts_mixed_v1_and_v2_rows sessions_record_their_origin unattended_model_steps_wait_on_subscription_provider unknown_auth_is_held run_now_is_not_held canary_real_cli` | hardest tasks: opus high |
 | U2c | Containment check on each installed candidate CLI (measurement; records results, G4 is judged in U2w) | `eval/containment/**` | U2 | `bash eval/containment/run.sh && python3 -I eval/containment/check.py --recorded` | feature, refactoring: sonnet high |
@@ -1760,13 +1784,13 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 
 **Order.**
 *   U0 and U3a start in parallel. U0b runs after U0, then the `src/**` chain U1 → U2 → U3.
-*   After U2, the measurement units U2c and U2s run alongside U3, because they write only under `eval/`. U2c and U2s use the same claude-cli login, so U2s depends on U2c and they run one after the other, rather than splitting one subscription's quota and rate limit (N22).
+*   After U2, the measurement units U2c and U2s run alongside U3, because they write only under `eval/`. U2c and U2s use the same claude-cli login, so U2s depends on U2c and they run one after the other, rather than splitting one subscription's quota and rate limit (N22). `verify` step 7 also runs its CLIs one after the other: about 150 runs across five Tier 1 CLIs (Q5).
 *   Ut follows U3. U2w follows Ut, U2c and U2s.
 *   U4 starts after Ut, and runs alongside U2w and then U6. U6 needs U2w and U3a, and U6b follows U6.
 *   U7 needs U4 and U2w, and U7b follows U7. `verify` needs every unit.
 *   The `src/**` units never run in parallel, because they share a scope.
 *   **The first pull request to `main` (Q18)** opens once U2w is done; the second once `verify` passes.
-*   **`verify`'s completion** needs a long `--verify-timeout`, because the G7 run and testteeth can each take more than an hour.
+*   **`verify`'s completion** needs a long `--verify-timeout`, because the G7 runs across every Tier 1 CLI and testteeth can each take several hours.
 *   **When a measurement fails for a cause in `src/`** (U2c's G4 or the G7 gate), a new `src/**` node is added from the recorded result, as item 31 says. A measurement unit never edits outside its scope to pass.
 
 ### Verification Plan
@@ -1786,7 +1810,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 *   **Test Coverage Requirement**: a mutation score of 70% or more from `testteeth run --base "$BASE" --fail-under 70 -q`, where `BASE` is the baseline commit. `verify` runs it on the whole branch (Q18). Surviving mutants are killed or justified before the second pull request.
 *   **E2E/Integration**:
     *   `cargo test --locked --test integration`;
-    *   the G7 task gate (`verify` step 7);
+    *   the G7 task gate on every Tier 1 CLI (`verify` step 7);
     *   the containment run on the installed CLIs (U2c), repeated by hand before each release;
     *   the upgrade test;
     *   the G3 qualification rerun by an independent reviewer.
