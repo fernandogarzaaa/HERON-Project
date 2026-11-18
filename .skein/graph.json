@@ -1,4 +1,54 @@
 {
+  "SYNC10": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "SYNC10",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q working_folder_behind_kernel_prefix_is_refused docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U1i's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Sync: capture the feat/heron-v1 head for U1i",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC2": {
     "attempts": [
       {
@@ -3085,7 +3135,7 @@
       "claim_token": "efad798de80c434eaf5b1986945352a9",
       "claimed_at": "2026-11-18T20:03:00.514624+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T20:15:31.234402+00:00",
+      "last_heartbeat": "2026-11-18T20:16:31.271838+00:00",
       "node_version": 8,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3113,7 +3163,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 35,
+    "version": 37,
     "worktree": {
       "base_branch": "skein/U3__integrate-base",
       "base_commit": "b4462d41a2488a563eb73b2143207b7910378a28",
