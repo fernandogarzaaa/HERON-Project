@@ -311,6 +311,59 @@
       "path": null
     }
   },
+  "U3": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U2",
+      "U3a"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U3",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- register_has_a_version_line risk_notice_blocks_turns_until_accepted bus_resumes_from_sequence bus_resyncs_when_since_is_too_old lagging_subscriber_gets_resync_and_is_dropped background_runs_publish_to_the_bus run_survives_dropped_chat_stream approval_waits_on_the_bus_then_parks_on_timeout cancel_reports_whether_a_run_was_stopped mode_change_is_written_to_config grants_can_be_listed_and_revoked print_endpoint_line_has_port_token_and_owner chat_returns_428_before_the_notice_is_accepted busy_session_returns_409_with_its_code untested_cli_version_arrives_as_an_sse_error_code unattended_model_calls_wait_for_the_risk_notice stream_ends_after_run_end",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit U3 (items 33-37), plus every spec section those items link to. Read the Preconditions and Work units table too.",
+      "goal": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoint`, provider and grant routes, mode in config"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U3a": {
     "attempts": [],
     "attempts_used": 0,
