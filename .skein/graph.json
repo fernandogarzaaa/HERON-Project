@@ -1859,10 +1859,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "f41079b309c95d49ef9f50968f80c0072b885df4",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "fdaee5af5167389ebd852656a5109b71610d9d0b",
+        "result_commit": "b4462d41a2488a563eb73b2143207b7910378a28",
+        "shipped_at": "2026-11-18T20:15:41.963301+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U1g's review: kernel lookup prefixes fail closed, sandbox test, parked taint",
-    "version": 53,
+    "version": 54,
     "worktree": {
       "base_branch": "skein/U1h__integrate-base",
       "base_commit": "f41079b309c95d49ef9f50968f80c0072b885df4",
