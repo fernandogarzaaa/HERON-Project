@@ -156,7 +156,16 @@
     }
   },
   "SYNC5": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "c03fbec8533449f3abf4344c0c25d9db",
+        "ended_at": "2026-11-18T15:01:33.878454+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-18T15:01:26.329137+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -168,19 +177,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "c03fbec8533449f3abf4344c0c25d9db",
-      "base_branch": "feat/heron-v1",
-      "claim_token": "d9f0e1d84da346acb022634d88963f43",
-      "claimed_at": "2026-11-18T15:01:26.329137+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T15:01:26.329137+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -q firmlink_alias_is_classified_like_its_target docs/designs/heron-v1.md",
+        "duration_ms": 207,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC5_20261118T150133622467_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC5_20261118T150133830413_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: done",
     "id": "SYNC5",
     "integration_for": null,
     "intent": {
@@ -192,13 +213,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "c03fbec8533449f3abf4344c0c25d9db",
+      "base_commit": "8ed94a67ff92f90d55a8974434015796d6d544a3",
+      "changed_files": [],
+      "commit": "8ed94a67ff92f90d55a8974434015796d6d544a3",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Sync: capture the feat/heron-v1 head for U1f",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "8ed94a67ff92f90d55a8974434015796d6d544a3",
