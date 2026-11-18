@@ -4160,15 +4160,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "393a94c4dd9a49c2aed8025ae8fbe446",
+      "base_branch": "skein/U6__integrate-base",
+      "claim_token": "da3b4afaa0ec4c6184ec10eacc23fb05",
+      "claimed_at": "2026-11-18T23:19:57.654118+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-18T23:19:57.654118+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "U2w",
@@ -4191,9 +4191,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "CLI provider guide, Mac getting-started guide, release checklist",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U6__integrate-base",
       "branch": null,
