@@ -27,7 +27,7 @@
   .status.off .ic { background: var(--surface); color: var(--danger); }
   .status.off b { color: var(--danger); }
   .notice { border: 1px solid var(--hairline); border-radius: var(--r-card); background: var(--surface); height: 230px; overflow: auto; padding: var(--s4) var(--s5); }
-  .notice h4 { margin: var(--s3) 0 6px; font-size: var(--t-body); }
+  .notice h2.risk-h { margin: var(--s3) 0 6px; font-size: var(--t-body); }
   .notice .skel { animation: none; margin: 6px 0; height: 9px; }
   .check { display: flex; gap: var(--s2); align-items: center; }
   .cb { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--ink3); background: var(--surface); }
@@ -76,9 +76,9 @@
           <div>
             <div class="sec-h" style="margin-top:0">Known risks <small>Version 1 · from the risk register built into this copy of Heron</small></div>
             <div class="notice" tabindex="0" aria-label="Risk notice text">
-              <h4 style="margin-top:0">C35-8: Phone turns inherit the desktop permission mode</h4>
+              <h2 class="risk-h" style="margin-top:0">C35-8: Phone turns inherit the desktop permission mode</h2>
               <div class="skel" style="width:96%"></div><div class="skel" style="width:88%"></div><div class="skel" style="width:60%"></div>
-              <h4>R-1: Working-folder content can be sent out after an injected read</h4>
+              <h2 class="risk-h">R-1: Working-folder content can be sent out after an injected read</h2>
               <div class="skel" style="width:94%"></div><div class="skel" style="width:91%"></div><div class="skel" style="width:72%"></div>
               <p class="faint" style="font-size:var(--t-sub);margin-top:var(--s4)">Grey lines stand for the register text, which /api/risk-notice serves as written. The app never rewrites it.</p>
             </div>

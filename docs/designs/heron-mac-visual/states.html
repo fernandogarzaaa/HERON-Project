@@ -20,7 +20,7 @@
   .err svg { width: 18px; height: 18px; }
   .err b { display: block; margin-bottom: 2px; }
   .err p { margin: 0 0 var(--s3); color: var(--ink2); font-size: var(--t-callout); }
-  .err.danger { color: var(--danger); } .err.danger p, .err.danger .btn { color: var(--ink2); }
+  .err.danger { color: var(--danger); } .err.danger p, .err.danger .btn:not(.primary) { color: var(--ink2); }
   .err.danger b { color: var(--danger); }
   .err.wait svg, .err.wait b { color: var(--waiting); }
   .starter { display: grid; gap: 6px; width: 100%; }
@@ -64,7 +64,7 @@
 
     <h2 class="display h2" style="margin:0">Approval variants</h2>
     <div class="cards">
-      <div class="st"><span class="lab">Only once offered <code>can_session=false, can_always=false</code></span><div class="box" style="padding:var(--s4)"><div class="scope"><label><span class="radio on"></span><div>Only this time</div></label><label style="opacity:.45"><span class="radio dis"></span><div>For the rest of this conversation<span>Not offered for this action</span></div></label><label style="opacity:.45"><span class="radio dis"></span><div>Always<span>Not offered for this action</span></div></label></div></div></div>
+      <div class="st"><span class="lab">Nothing can be saved <code>can_session=false, can_always=false</code></span><div class="box" style="padding:var(--s4);display:grid;gap:var(--s2)"><b style="font-size:var(--t-title3)">Delete 3 files in ~/Work/old?</b><div class="tag danger" style="justify-self:start">Can't be undone</div><p class="muted" style="margin:0;font-size:var(--t-callout)">No scope choice is shown (in a clean conversation this happens for high-risk actions). The sheet just asks, and the answer covers this action only. "Don't allow" is the default button.</p><div class="btn-row" style="justify-content:flex-end"><button class="btn">Delete</button><button class="btn primary">Don't allow</button></div></div></div>
       <div class="st"><span class="lab">High risk <code>risk=high</code></span><div class="box" style="padding:var(--s4);display:grid;gap:var(--s3)"><b style="font-size:var(--t-title3)">Send an email to priya@northwind.example?</b><div class="tag danger" style="justify-self:start">Can't be undone</div><p class="muted" style="margin:0;font-size:var(--t-callout)">The primary button names the action (“Send”), never just “Allow”. Return doesn't trigger it; the default button is “Don't allow”.</p></div></div>
       <div class="st"><span class="lab">Answered elsewhere <code>approval_resolved</code></span><div class="box"><div class="err"><span data-icon="checkmark.circle"></span><div><b>Answered from your phone</b><p>The sheet closes by itself with this note for 3 seconds, so you know why it vanished.</p></div></div></div></div>
     </div>

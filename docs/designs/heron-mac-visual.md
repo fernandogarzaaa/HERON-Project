@@ -353,7 +353,7 @@ Rules for the variants. The core decides what can be saved (`src/server.rs:419`,
 
 *   **Tainted, nothing can be saved:** the scope group is replaced by "Because this conversation has read outside content, Heron asks every time. This permission can't be saved." The violet impact line names the outside content.
 *   **Clean, everything offered:** all three scope rows, as in the screenshot below.
-*   **`can_session` and `can_always` both false for another reason:** the scope group is hidden and the sheet just asks. The states mock shows the unavailable rows as "Not offered for this action" for reference only.
+*   **`can_session` and `can_always` both false for another reason:** the scope group is hidden and the sheet just asks. The states mock shows this case.
 *   **`risk` high** (sends, deletes, spends, can't be undone): a red "Can't be undone" tag next to the title. The primary button names the action ("Send", "Delete"), never just "Allow". "Don't allow" is the default button, so Return doesn't approve.
 *   **Normal risk:** "Allow" is the default button.
 *   **Answered elsewhere** (`approval_resolved` from the phone or another window): the sheet closes by itself and the thread shows "Answered from your phone" for 3 seconds.
