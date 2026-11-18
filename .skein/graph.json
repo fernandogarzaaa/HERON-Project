@@ -975,7 +975,7 @@
       "claim_token": "974b9001e21742ae985faf4b19c8fa91",
       "claimed_at": "2026-11-18T16:03:17.485048+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T16:13:48.034269+00:00",
+      "last_heartbeat": "2026-11-18T16:14:18.046130+00:00",
       "node_version": 3,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1003,7 +1003,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U1's security review: walkers, firmlink alias, credential_store, tests",
-    "version": 26,
+    "version": 27,
     "worktree": {
       "base_branch": "skein/U1f__integrate-base",
       "base_commit": "951510e283dc6494ee4770a3aaa3ec80a1a6e8de",
@@ -1483,15 +1483,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "232ef3ca89c94f9a9899aee5a6630a5f",
+      "base_branch": "skein/U2s__integrate-base",
+      "claim_token": "a7b5e748ccc04c57a27fe8b3f17bfaed",
+      "claimed_at": "2026-11-18T16:14:43.150927+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-18T16:14:43.150927+00:00",
+      "node_version": 12,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "U0",
@@ -1525,12 +1525,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": "2026-11-18T16:14:43.127037+00:00",
+    "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 12,
+    "version": 13,
     "worktree": {
       "base_branch": "skein/U2s__integrate-base",
       "base_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
