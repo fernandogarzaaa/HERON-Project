@@ -402,15 +402,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "4ad8da776e74460ea7e1192746358dfc",
+      "base_branch": "feat/heron-v1",
+      "claim_token": "dad1e33cea874c2b99ef8c66ee1a16bb",
+      "claimed_at": "2026-11-18T19:03:49.194417+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-18T19:03:49.194417+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [],
@@ -430,11 +430,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Sync: capture the feat/heron-v1 head for U2g",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/heron-v1",
       "branch": null,
       "path": null
     }
@@ -1418,7 +1418,7 @@
       "claim_token": "213133f08a9c47a388ad4919e0158972",
       "claimed_at": "2026-11-18T18:55:17.129647+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T19:03:17.644031+00:00",
+      "last_heartbeat": "2026-11-18T19:03:47.659170+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1446,7 +1446,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U1f's security review: /.vol fail-closed, alias in too_broad, read=: walker scope, tainted shell grants",
-    "version": 20,
+    "version": 21,
     "worktree": {
       "base_branch": "skein/U1g__integrate-base",
       "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
