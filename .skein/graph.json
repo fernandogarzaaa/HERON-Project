@@ -12,15 +12,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "6bbb4b07df2946e68a732107be38b3d9",
+      "base_branch": "feat/heron-v1",
+      "claim_token": "1030eb0b73654a059adacf044dbe56a6",
+      "claimed_at": "2026-11-18T13:39:45.956610+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-18T13:39:45.956610+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [],
     "evidence": [],
@@ -40,11 +40,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Evaluation harness: 10 tasks and a probe, adapter, runner, validators, owner-use count, genesis spec",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/heron-v1",
       "branch": null,
       "path": null
     }
