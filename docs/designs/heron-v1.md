@@ -964,7 +964,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 ##### 8b. `eval/containment/discover-dirs.sh` (Create)
 
 *   **Type / Scope**: Owner-run helper for U2c (M19).
-*   **Proposed Changes**: `discover-dirs.sh <id>` makes a fresh temporary `HOME`, runs the registry entry's `login_command` there in the foreground for the owner to complete, lists every file and folder the login created under that `HOME`, and writes them, rewritten as `~/…` paths, to `eval/containment/<id>.dirs.json`. It exits 2 for an unknown id and 1 when the login exits non-zero.
+*   **Proposed Changes**: `discover-dirs.sh <id>` makes a fresh temporary `HOME`, runs the registry entry's `login_command` there in the foreground for the owner to complete, lists every file and folder the login created under that `HOME`, and writes them, rewritten as `~/…` paths, to `eval/containment/<id>.dirs.json`. It exits 2 for an unknown id and 1 when the login exits non-zero. **Keychain logins** (added 2026-11-18): claude-cli saves its login in the macOS Keychain, and a temporary `HOME` has none, so that save fails there. When a login fails with a Keychain error, the script still records what it wrote under the temporary `HOME`, adds the registry's known paths for that CLI (item 22), marks the record `credential_store: "macos-keychain"` and `login_completed: false`, and exits 0. It never links or copies the real Keychain, which would overwrite the owner's live login. `~/Library/Keychains` is Refused anyway. The login runs under `script`, so it keeps a real terminal while its output is recorded.
 
 ##### 8c. `eval/genesis/` (Create, work unit U0g)
 
