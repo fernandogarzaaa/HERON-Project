@@ -1011,29 +1011,44 @@
     }
   },
   "U1f__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "b29e899794034450a4b6d01b7098986a",
+        "ended_at": "2026-11-18T16:03:17.435764+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-18T16:03:17.160195+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "b29e899794034450a4b6d01b7098986a",
-      "base_branch": "skein/U1f__integrate__integrate-base",
-      "claim_token": "410634abb5c94c428d98bfa0e0f7d529",
-      "claimed_at": "2026-11-18T16:03:17.160195+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-18T16:03:17.160195+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2",
       "SYNC5"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 8ed94a67ff92f90d55a8974434015796d6d544a3",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d', '8ed94a67ff92f90d55a8974434015796d6d544a3'] into skein/U1f__integrate-base.",
     "id": "U1f__integrate",
     "integration_for": "U1f",
     "intent": {
@@ -1045,16 +1060,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
+      "changed_files": [],
+      "commit": "951510e283dc6494ee4770a3aaa3ec80a1a6e8de",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of U1f",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/U1f__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
+      "branch": "skein/U1f__integrate-base",
       "path": null
     }
   },
