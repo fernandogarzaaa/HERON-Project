@@ -246,15 +246,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "c454200e91d94b5481faea7db5a5c80b",
+      "base_branch": "feat/heron-v1",
+      "claim_token": "2ea1fc7ab45640a5bc55cf92e961e03a",
+      "claimed_at": "2026-11-18T16:18:24.071974+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-18T16:18:24.071974+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [],
     "evidence": [],
@@ -274,11 +274,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Sync: capture the feat/heron-v1 head for U2f",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/heron-v1",
       "branch": null,
       "path": null
     }
