@@ -1003,11 +1003,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from U1's security review: walkers, firmlink alias, credential_store, tests",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "skein/U1f__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "951510e283dc6494ee4770a3aaa3ec80a1a6e8de",
+      "branch": "skein/U1f",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U1f"
     }
   },
   "U1f__integrate": {
