@@ -1447,7 +1447,7 @@
       "worker_id": null
     },
     "depends_on": [
-      "U2"
+      "U2f"
     ],
     "evidence": [
       {
@@ -1548,7 +1548,7 @@
     "shipped": {},
     "status": "done",
     "title": "Containment check on each installed candidate CLI (measurement; records results, G4 is judged in U2w)",
-    "version": 16,
+    "version": 17,
     "worktree": {
       "base_branch": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
       "base_commit": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
