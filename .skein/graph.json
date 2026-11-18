@@ -153,6 +153,58 @@
       "path": null
     }
   },
+  "U2": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U1"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U2",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- sandboxed_shell_cannot_read_ask_tier_paths sandbox_cannot_read_cargo_credentials_via_python granted_folder_is_readable_in_the_sandbox build_and_git_still_work_under_deny_default_reads every_registry_config_dir_is_refused_in_the_sandbox m4_sandbox_denies_globs_quotes_and_unlisted_secrets shell_refused_when_sandbox_off cli_turn_refused_when_sandbox_off fake_cli_child_env_is_exactly_the_allowlist fake_cli_cannot_write_outside_its_run_folder fake_cli_argv_turns_tools_off api_keys_reach_only_listed_providers cli_run_folder_is_under_tmpdir_and_removed version_extraction_reads_first_semver version_outside_range_needs_acceptance mcp_refuse_all_advertises_given_schemas_and_refuses_calls to_v3_adds_columns_and_keeps_rows audit_v2_hash_covers_provider_and_version verify_audit_accepts_mixed_v1_and_v2_rows sessions_record_their_origin unattended_model_steps_wait_on_subscription_provider unknown_auth_is_held run_now_is_not_held canary_real_cli",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit U2 (items 24-30), plus every spec section those items link to. Read the Preconditions and Work units table too.",
+      "goal": "Deny-default sandbox for shell and CLI child, macOS sandbox-off refusal, CLI environment and run folder, version contract, refuse-all MCP, data format 3, origins, subscription hold, hybrid in debug builds (M-4 sandbox half)"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Deny-default sandbox for shell and CLI child, macOS sandbox-off refusal, CLI environment and run folder, version contrac",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U3a": {
     "attempts": [],
     "attempts_used": 0,
