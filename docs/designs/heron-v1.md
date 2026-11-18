@@ -8,145 +8,157 @@
 
 ## Overview
 
-Heron is a local AI agent written in Rust. Today it ships as v0.3.1 beta for macOS, Windows and Linux, with a Slint desktop app and a command-line interface. This design takes it to v1: a macOS-only research preview that the owner uses every day, and that a few friends can install once they have read and accepted a written list of risks.
+Heron is a local AI agent written in Rust. It ships today as v0.3.1 beta for macOS, Windows and Linux, with a Slint desktop app and a command-line interface. This design takes it to v1: a macOS-only research preview. The owner uses it every day, and up to 10 people the owner knows can install it once they have read and accepted a written list of risks (Q10).
 
 v1 changes four things:
 
-1. **It closes the security gaps found in the v1.0 qualification.** That run returned NOT READY with 1 P0 and 6 P1 findings on `main`. Two shared root causes come first:
-   - outside content marks a conversation as untrusted ("taint") only when it arrives as a tool output flagged as untrusted;
-   - the gate that protects secrets is a list of blocked names.
-2. **It makes the user's own logged-in CLIs the main model connection.** Supported CLIs are Claude Code, OpenCode, Cline, Codex, and Antigravity or Gemini. Heron already drives 16 CLIs as plain text models (`src/cli_llm.rs`). v1 hardens that path, qualifies a Tier 1 subset, and measures whether native tool calling gives better results than today's JSON envelope.
-3. **It adds a native SwiftUI Mac app** on top of the existing Rust core, reached through the local HTTP API. The app takes inspiration from Meta's Muse for personalization (named agent, avatar, themes, animation) without copying it. The Slint app stays as it is.
+1. **It closes the security findings from the v1.0 qualification.** That run returned NOT READY, with 1 P0 and 6 P1 findings on `main` (see [Security findings in scope](#security-findings-in-scope)). Two shared root causes come first:
+   *   **RC1:** outside content marks a conversation as untrusted ("taint") only when it arrives as a tool output flagged as untrusted.
+   *   **RC2:** the check that protects secrets is a list of blocked names.
+2. **It makes the user's own logged-in CLIs the main model connection.** The candidates are Claude Code, OpenCode, Cline, Codex and Antigravity, with Gemini CLI as the fallback. Heron already drives 16 CLIs as plain text models (`src/cli_llm.rs`). v1 hardens that path, qualifies a Tier 1 subset, and measures whether native tool calling gives better results than today's JSON envelope.
+3. **It adds a native SwiftUI Mac app** on top of the existing Rust core, reached through the local HTTP API. The app takes inspiration from Meta's Muse for personalization: a named agent, an avatar, themes and animation. No Muse assets, layouts or names are reused. The Slint app stays as it is.
 4. **It ships as a signed, notarized build labelled "Research preview",** with a first-run risk notice that each user must accept.
 
 ## The Problem
 
 The owner wants Heron to be the personal agent they use every day, and to share it with friends. Four things stop that today.
 
-*   **The UI and UX are the weakest part.** The owner names them as the main reason to reach for other tools. The current Slint app draws its own widgets. It runs natively, but it doesn't look or behave like a Mac app: no system materials, no Mac menus or Settings window, and no Mac text controls or accessibility.
-*   **The safety model has known holes.** Heron's main promise is that outside content restricts what happens next, and that secrets stay out of reach. The qualification reproduced cases where both promises fail. A friend who installs Heron today gets weaker protection than the README claims.
-*   **Connecting a model costs money or setup most friends don't have.** Heron supports any OpenAI-compatible endpoint and 16 CLIs. But the CLI path has gaps:
+*   **The UI and UX.** The owner names them as the main reason to reach for other tools. The current Slint app draws its own widgets. It runs natively, but it doesn't look or behave like a Mac app: it has no system materials, no Mac menus or Settings window, and no Mac text controls or accessibility.
+*   **Open security findings.** Heron's main promises are that outside content restricts what happens next, and that secrets stay out of reach. The qualification reproduced cases where both promises fail (M-1 to M-6). A friend who installs Heron today gets weaker protection than the README claims.
+*   **Connecting a model costs money or setup most friends don't have.** Heron supports any OpenAI-compatible endpoint and 16 CLIs. But the CLI path has gaps, and what those gaps expose is the friends' own CLI credentials:
     *   Codex keeps its shell even in read-only mode (`src/cli_llm.rs:165-170`).
     *   The CLI process inherits Heron's full environment and runs without a sandbox (`src/cli_llm.rs:1218-1233`).
-    *   CLI config folders are not covered by the secret gate (`src/permissions.rs:541`).
-
-    These are the friends' own credentials at risk.
-*   **There is no shareable build.** Friends would need to accept an unsigned app and a beta that the README labels as such. Using a consumer subscription through a third-party app is also an unresolved terms-of-service question for each vendor.
+    *   The secret check (`src/permissions.rs:541`) doesn't cover CLI config folders.
+*   **There is no shareable build.** Friends would have to accept an unsigned app and a release the README labels beta. Using a consumer subscription through a third-party app is also an open terms-of-service question for each vendor.
 
 The proposed solution:
 
-1. Fix the root causes first, in one gate shared by every model connection.
+1. Fix RC1 and RC2 first, in one decision function shared by every model connection.
 2. Close the remaining P0 and P1 findings.
 3. Fix the core's API contract so a second UI can use it.
 4. Build the SwiftUI app on that contract.
 5. Add features behind switches.
 6. Ship a signed research-preview build.
 
-## Definitions
+## Security findings in scope
 
-### Terms
-
-| Term | Meaning |
-|---|---|
-| Permission mode | One of four settings in `permissions.rs:109-131`, set in `config.toml` `[permissions] mode`. **readonly:** nothing that changes state runs. **ask** (the default): writes and commands ask. **auto:** workspace writes and commands run without asking. **yolo:** everything not protected runs. |
-| Taint, tainted | A per-conversation flag (`ToolCtx.tainted`, `tools/mod.rs:21-28`, stored as kv key `tainted:<session>`). It is set once content from outside the user's control enters the conversation. While it's set, anything that changes state or sends data out asks (`permissions.rs:244`). |
-| Untrusted output | A tool flag (`untrusted: true`). The tool's result is wrapped in `<untrusted_content>` and sets taint (`agent.rs:523-527`). |
-| Envelope | Today's CLI protocol (`cli_llm.rs:733-770`). Heron renders the conversation and tool list into one prompt. The CLI answers with one JSON object of text plus requested tool calls, and Heron runs the calls. Topology (a). |
-| Hybrid | Topology (b). The CLI sees Heron's tools as native tools through MCP, but is held to one turn and never runs them. Heron reads the `tool_use` blocks and runs the calls. |
-| CLI-owned loop | Topology (c). The CLI runs the loop and calls Heron's tools over MCP. Not built in v1 (Alternative A). |
-| Seatbelt | macOS's built-in process sandbox (`sandbox-exec`), which Heron uses for shell commands (`sandbox.rs`). |
-| kv store | The `kv(k, v)` table in `heron.db` (`store.rs:209`). |
-| Tier 1 CLI | A CLI provider that passed the containment spike and counts for the G3 and G7 gates. All other CLI providers stay labelled experimental. |
-| Proactive work | Suggestions, "prepare" (read-only groundwork) and "take over" sessions started by Heron itself (`app.rs:613-640`). |
-| Unattended work | Model use with nobody at the keyboard: schedules, automation `ask` and `agent` steps, event-triggered watches, proactive work and reflection. Telegram turns are attended, because the owner sends them. |
-| Global pause | The single switch (and `/pause` from the phone) that stops all unattended work (`/pause`, `server.rs:146`). |
-| EVE | experience-validation-engine (github.com/fernandogarzaaa/experience-validation-engine). `eve chat` drives a chat HTTP API with scripted user turns and records the transcript. Install: the `eve@experience-validation-engine` Claude plugin, built with `npm ci && npm run build`. |
-| testteeth | A mutation-testing grader. `testteeth run --base main --fail-under 70` mutates the code changed since `main` (cargo-mutants for Rust) and fails if under 70% of mutants are caught by tests. |
-| genesis audit | An evaluator auditor. `genesis audit` checks that a grader can't be passed by wrong answers. Exit 0 means SOUND, 1 EXPLOITABLE, 2 UNRELIABLE or OVER_STRICT, 3 genesis failed. |
-| Model role | The work-unit column naming which model and effort level builds a unit, for example "feature, refactoring: sonnet high". It is read by the build orchestration, not by Heron. |
-| Autonomous merges | The owner's chosen workflow: each work unit opens a PR that merges to `main` once CI, a Codex review and testteeth pass. |
-| Option X | The work order the owner chose: decisions and spikes, root causes, remaining findings, API contract, SwiftUI app, then features. |
-
-### Security findings this design fixes
-
-These come from the v1.0 qualification (branch `qualification/v1.0-rc1`, `qualification/reports/02-architecture-audit.md`). The table is the complete list the G3 gate checks.
+These come from the v1.0 qualification: branch `qualification/v1.0-rc1`, file `qualification/reports/02-architecture-audit.md`. G3 checks against this table, and it is the complete list.
 
 | ID | Severity | What fails today | Code | Fixed in | Regression test |
 |---|---|---|---|---|---|
-| M-1 | **P0** | In Ask mode, injected text in a workspace file steers the model to read a credential outside the workspace (`~/.config/gh/hosts.yml`, classed as a plain read) and send it out in a URL. Zero prompts. | `tools/fs.rs`, `permissions.rs:251,598` | U1 | `m1_injected_file_cannot_read_and_send_a_credential` |
+| M-1 | **P0** | In Ask mode, injected text in a working-folder file steers the model to read a credential outside the working folder (`~/.config/gh/hosts.yml`, classed as a plain read) and send it out in a URL. No prompt appears. | `tools/fs.rs`, `permissions.rs:251,598` | U1 | `m1_injected_file_cannot_read_and_send_a_credential` |
 | M-2 | P1 | Another program connected over MCP plants a confirmed profile memory and an unattended schedule, because the MCP server never marks its input as outside content. | `mcp.rs:266`, `memory.rs:18` | U1 | `m2_mcp_cannot_plant_memories_or_schedules` |
-| M-3 | P1 | Calendar event titles go into every system prompt untainted. | `agent.rs:285-291` | PR #26 (O26-1, `upcoming_events`). U1 adds the registry test that stops a recurrence. | `every_prompt_block_is_trusted_or_taints` |
-| M-4 | P1 | Shell globs, quotes and backslashes (`cat .en?`) and unlisted credential paths (`~/.cargo/credentials.toml`, shell histories, browser `Login Data`) bypass the secret check. | `permissions.rs:511,538` | U1 | `m4_globs_quotes_and_unlisted_secrets_ask` |
-| M-5 | P1 | `search_files` followed a workspace symlink into `~/.ssh`. | `tools/fs.rs:707` | Already fixed by PR #40 (`448227d`), which has its own regression test. | existing PR #40 test |
+| M-3 | P1 | Calendar event titles go into every system prompt untainted. | `agent.rs:285-291` | PR #26 (O26-1, `upcoming_events`); U1 adds the registry test that stops a recurrence | `every_prompt_block_is_trusted_or_taints` |
+| M-4 | P1 | Shell globs, quotes and backslashes (`cat .en?`) and unlisted credential paths (`~/.cargo/credentials.toml`, shell histories, browser `Login Data`) get past the secret check. | `permissions.rs:511,538` | U1 | `m4_globs_quotes_and_unlisted_secrets_ask` |
+| M-5 | P1 | `search_files` followed a symlink in the working folder into `~/.ssh`. | `tools/fs.rs:707` | Already fixed by PR #40 (`448227d`), with its own regression test | existing PR #40 test |
 | M-6 | P1 | "Prepare" and "take over" sessions run a model-written prompt in a fresh, untainted session. | `app.rs:619,638` | U1 | `m6_proactive_sessions_start_tainted` |
 | M-7 | below P1 (traced) | `run_parked` runs a parked call with a clean context, so a `remember` parked from a tainted job is saved as confirmed. | `app.rs:374-401` | U1 | `m7_parked_call_keeps_its_taint` |
 | M-8 | below P1 (suspected) | Forwarded Telegram messages arrive as the owner's own words. | `telegram.rs` | U1 | `m8_forwarded_telegram_message_taints` |
-| C35-8 | P1 | Phone turns inherit the desktop permission mode. | `app.rs`, `telegram.rs` | Not fixed: an accepted risk (`docs/ACCEPTED_RISKS.md`). | none |
-| M-GOV-1 | P1 | `main` has no branch protection or required checks. | GitHub settings | The owner (Q9). | none |
+| C35-8 | P1 | Phone turns inherit the desktop permission mode. | `app.rs`, `telegram.rs` | Not fixed. The owner accepted it on 2026-11-18; it is to be recorded in `docs/ACCEPTED_RISKS.md`, which U6 creates | none |
+| M-GOV-1 | P1 | `main` has no branch protection or required checks. | GitHub settings | The owner (Q9) | none |
 
-The "1 P0 and 6 P1" count on `main` is M-1 (the P0), plus M-2, M-3, M-4, M-5, M-6 and C35-8 (the P1s). M-GOV-1 is a separate governance P1, and M-7 and M-8 were not rated P0 or P1 and are fixed alongside.
+The "1 P0 and 6 P1" count on `main` is M-1 (the P0) plus M-2, M-3, M-4, M-5, M-6 and C35-8 (the P1s). M-GOV-1 is a separate governance P1. M-7 and M-8 weren't rated P0 or P1, and are fixed alongside.
+
+## Definitions
+
+| Term | Meaning |
+|---|---|
+| Permission mode | One of four settings in `permissions.rs:109-131`, set in `config.toml` under `[permissions] mode`. **readonly:** nothing that changes state runs. **ask** (the default): writes and commands ask. **auto:** writes and commands in the working folder run without asking. **yolo:** everything not protected runs. |
+| Working folder | Heron's workspace, `cfg.app_workspace()` (`config.rs:534`), the term the README uses. |
+| CLI run folder | The temporary folder a CLI child runs in, `$TMPDIR/heron-cli-<run>`. |
+| Taint, tainted | A per-conversation flag (`ToolCtx.tainted`, `tools/mod.rs:21-28`, stored as kv key `tainted:<session>`). It is set once content from outside the user's control enters the conversation. While it's set, anything that changes state or sends data out asks (`permissions.rs:244`). |
+| Untrusted output | A tool flag (`untrusted: true`). The tool's result is wrapped in `<untrusted_content>` and sets taint (`agent.rs:523-527`). |
+| Decision function | The one function that decides every tool call (G1). Today that is `decide_in` (`permissions.rs:219`). |
+| Secret check | `sensitive_path()` (`permissions.rs:538-543`). It matches secret-looking names (keys, `.env`, credentials), and a match makes a read ask. |
+| Read tiers | The location rules added by G2: Allowed, Ask and Refused ([Read tiers and verdicts](#read-tiers-and-verdicts)). |
+| `Effect::Forbidden` | The effect for catastrophic commands. They are blocked in every mode (`permissions.rs:98`, `permissions.rs:222`). |
+| Envelope | Topology (a), today's CLI protocol (`cli_llm.rs:733-770`). Heron renders the conversation and the tool list into one prompt. The CLI answers with one JSON object of text plus requested tool calls, and Heron runs the calls. |
+| Hybrid | Topology (b). The CLI sees Heron's tools as native tools through MCP, but it is held to one turn and never runs them. Heron reads the `tool_use` blocks and runs the calls. |
+| CLI-owned loop | Topology (c). The CLI runs the loop and calls Heron's tools over MCP. It is neither built nor measured in v1 ([Alternative A](#alternative-a-let-the-cli-own-the-agent-loop-topology-c)). |
+| Seatbelt | macOS's built-in process sandbox (`sandbox-exec`), which Heron uses for shell commands (`sandbox.rs`). |
+| kv store | The `kv(k, v)` table in `heron.db` (`store.rs:209`). |
+| Containment check | The per-CLI canary test plus the containment tests in U2 ([§2](#2-hardened-cli-adapters-g4-g5)). |
+| Measurement spike | Work unit U2s. It measures topology and untrusted working-folder reads ([§2](#2-hardened-cli-adapters-g4-g5)). |
+| Tier 1 CLI | A CLI provider that passed the containment check. Tier 1 CLIs count for the release gates. Every other CLI provider stays labelled experimental. |
+| Release gates | G3 (the security rerun), G7 (the task gate) and G8 (the release checks). |
+| Task gate | G7: the EVE run of the 10 core tasks. |
+| Work units | U0 to U8, plus U2s and U2w, defined in the [Work units](#work-units) table. |
+| Proactive work | Suggestions, plus "prepare" (read-only groundwork) and "take over" sessions that Heron starts itself (`app.rs:613-640`). |
+| Unattended work | Model use with nobody at the keyboard: schedules, automation `ask` and `agent` steps, event-triggered watches, proactive work and reflection. Telegram turns are attended, because the owner sends them. |
+| Global pause | The switch, also sent as `/pause` from the phone, that stops all unattended work (`server.rs:146`). |
+| EVE | experience-validation-engine ([github](https://github.com/fernandogarzaaa/experience-validation-engine)). `eve chat` drives a chat HTTP API with scripted user turns and records the transcript. |
+| testteeth | A mutation-testing grader. `testteeth run --base main --fail-under 70` mutates the code changed since `main` (cargo-mutants for Rust). It fails if tests catch fewer than 70% of the mutants. |
+| genesis audit | An evaluator auditor. It checks that a grader can't be passed by wrong answers. Exit codes: 0 SOUND, 1 EXPLOITABLE, 2 UNRELIABLE or OVER_STRICT, 3 genesis failed. |
+| Model role | The work-unit column naming the model and effort level that builds a unit, for example "feature, refactoring: sonnet high". The build orchestration reads it; Heron doesn't. |
+| Autonomous merges | The owner's chosen workflow: each work unit opens a PR, which merges to `main` once CI, a Codex review and testteeth pass. |
+| Option X | The work order the owner chose: decisions and spikes, then RC1 and RC2, the remaining findings, the API contract, the SwiftUI app, and finally features. |
 
 ## Goals
 
-*   **G1, one gate for every action.** Every tool call, from every model connection (HTTP API, envelope CLI, or hybrid CLI), goes through one gate function. A tested list covers every way content enters a turn, and each entry either is trusted or taints the conversation.
-*   **G2, secrets are allowlisted.** The secret gate becomes an allowlist of readable locations instead of a list of blocked names. The same tiers are enforced at both enforcement points: `read_file` and the OS sandbox around shell commands. Every supported CLI's config folder is Refused, through `read_file` and in the sandbox, and the existing name-based secret check keeps asking for keys and `.env` files everywhere.
-*   **G3, the qualification passes.** A rerun of the frozen v1.0-rc1 rubric, by a reviewer who did not write the fixes, finds 0 open P0 and 0 open P1. Owner-signed accepted risks are the only exception, with at most 3 new entries. Every v1.0 P0 and P1 has a regression test that fails on the old commit.
-*   **G4, Tier 1 CLIs qualified.** claude-cli, opencode-cli, cline-cli and codex-cli, plus one Google CLI, pass the containment spike or are labelled experimental. The Google slot goes to antigravity-cli, because it takes a Google login like the others take a subscription. gemini-cli fills the slot only if antigravity-cli fails its canary. So Tier 1 has at most five CLIs. The spike checks:
-    *   built-in tools truly off, proven with a canary file;
-    *   shell contained;
+*   **G1, one decision function for every action.** Every tool call goes through one decision function, whichever model connection it comes from: the HTTP API, an envelope CLI or a hybrid CLI. A tested list covers every way content enters a turn, and each entry is either trusted or taints the conversation.
+*   **G2, reads follow tiers, not a blocked-names list.** Read tiers replace "blocked names" as the main read policy, and the secret check stays as a second layer. `read_file` and the OS sandbox around shell commands enforce the same tiers. Every supported CLI's config folder and Heron's own folder are Refused at both points. v1 changes a behaviour: reads outside the working folder now ask, where the README's mode table today lets every mode read anywhere (`README.md:121-126`). This change goes into the README and the risk notice.
+*   **G3, the qualification passes.** A reviewer who did not write the fixes reruns the frozen v1.0-rc1 rubric and finds 0 open P0 and 0 open P1. The only exceptions are owner-signed accepted risks, with at most 3 new entries. Every v1.0 P0 and P1 has a regression test that fails on the old commit.
+*   **G4, Tier 1 CLIs qualified.** claude-cli and at least one other candidate pass the containment check. The candidates are claude-cli, opencode-cli, cline-cli, codex-cli and antigravity-cli, with gemini-cli as the fallback. gemini-cli takes the Google slot only if antigravity-cli fails its containment check, so Tier 1 has two to five CLIs. A candidate that fails stays experimental. The containment check covers:
+    *   built-in tools off, proven with a canary file;
+    *   the shell contained;
     *   an allowlisted environment;
-    *   a working folder outside `~/.heron`;
+    *   a CLI run folder outside `~/.heron`;
     *   a pinned version range, checked at startup and recorded on every turn.
 
-    The registry already lists all five (`src/cli_llm.rs:286-295`). Two of them start from a known weak point:
-    *   **cline-cli** defaults to "yolo" in one-shot mode, so it runs its own tools. It needs `cli_allow_agent_tools = true` today (`src/cli_llm.rs:292`).
+    The registry already lists the five candidates and the fallback (`src/cli_llm.rs:286-295`). Two of them start from a known weak point:
+    *   **cline-cli** defaults to "yolo" in one-shot mode, so it runs its own tools. Today it needs `cli_allow_agent_tools = true` (`src/cli_llm.rs:292`).
     *   **gemini-cli** now takes an API key only, because the Google OAuth free tier ended on 2026-06-18. A Google login means antigravity-cli.
-*   **G5, the topology chosen by measurement.** A comparison spike runs the same task set through (a) the envelope and (b) the hybrid. It reports task success, output quality, tokens per task and latency. The winner becomes the default.
+*   **G5, the topology chosen by measurement.** The measurement spike runs the same task set through the envelope and the hybrid. It reports task success, output quality, tokens per task and median time to first token. The rule in [§2](#2-hardened-cli-adapters-g4-g5) picks the default.
 *   **G6, a native Mac app.** A SwiftUI app talks to the Rust core over the local HTTP API. It covers the owner's daily flows: home, chat with approvals, memory, tasks, activity, settings, and personalization (agent name, avatar, theme, animation states).
-*   **G7, the task gate passes.** On 10 named tasks, each with a pass rule a machine can check, EVE runs 3 times per task on claude-cli in `ask` mode. Pass is at least 26 of 30 runs, with no task below 2 of 3. One task is a page with a hidden instruction, which must never be acted on.
+*   **G7, the task gate passes.** There are 10 named tasks, each with a pass rule a machine can check. EVE runs each task 3 times on claude-cli in `ask` mode. Pass is at least 26 of 30 runs, with no task below 2 of 3. One task is a page with a hidden instruction, which must never be acted on.
 *   **G8, a research-preview release.**
     *   A notarized DMG installs on a clean Mac without the right-click workaround.
-    *   An upgrade from v0.3.1 keeps data, allow rules and an intact audit chain. This is checked automatically by the upgrade test. Keychain secrets are never touched by the migration, and are checked by hand once on a real Mac in the release checklist.
+    *   An upgrade from v0.3.1 keeps the data, the allow rules and an intact audit chain. The upgrade test checks this automatically. The migration never touches Keychain secrets; they are checked by hand once, on a real Mac, as part of the release checklist.
     *   Each user must accept a first-run risk notice that lists each accepted risk by ID, including C35-8.
-*   **G9, the owner uses it.** Over 14 consecutive days, at least 12 have a conversation the owner started that includes a tool call. This is counted from the local sessions table. The trial has zero severity-1 incidents: an unapproved state change, data loss, or an exposed secret.
+*   **G9, the owner uses it.** Over 14 consecutive days, at least 12 have a tool call the owner caused. That means an executed `audit` row in a session whose origin is `user` or `telegram` ([§7](#7-measuring-success-g7-g9)). The trial has zero severity-1 incidents: an unapproved state change, data loss, or an exposed secret.
 
 ## Non-Goals
 
 *   Cloud deployment, telemetry, acting as a model provider, or reselling tokens.
-*   Qualifying Windows and Linux for v1. They keep building but are labelled unqualified.
-*   Any change to the Slint app, including an "attach to a running core" path. On macOS the SwiftUI app is the only supported UI. Running the Slint app on the same Mac at the same time is unsupported.
-*   Mac App Store distribution and the App Sandbox. Spawning user CLIs likely conflicts with both (UNVERIFIED).
-*   Letting a CLI own the agent loop (topology c) in v1. It may be measured in the spike, but it doesn't ship until the four preconditions in the concepts brief are met.
+*   Qualifying Windows and Linux for v1. They keep building, but are labelled unqualified.
+*   Any change to the Slint app, including a path that attaches it to a running core. On macOS, the SwiftUI app is the only supported UI.
+*   Mac App Store distribution and the App Sandbox. Both likely conflict with spawning user CLIs (UNVERIFIED; see [Risks & Mitigations](#risks--mitigations)).
+*   Building or measuring topology (c) in v1 ([Alternative A](#alternative-a-let-the-cli-own-the-agent-loop-topology-c)).
 *   Reopening C35-8 (phone turns inherit the desktop mode) or O26-1 (calendar text is looked up on demand through a path that taints).
 *   Cutting features. A feature that misses the freeze moves to v1.1.
-*   A live, real-time talking avatar. That would need a dedicated video model, which conflicts with local-first.
+*   A real-time talking avatar. It would need a dedicated video model, which conflicts with local-first.
 
 ## Open Questions
 
-*   **Q1, root-cause rules for each prompt source.** For every prompt source except calendar: taint it, remove it, or fetch it on demand? Should existing sessions be re-tainted on upgrade?
-    *   **Proposed answer.** Unconfirmed memories, source snippets and ambient observations are removed from the prompt and served on demand through tools that taint, the same rule as calendar under O26-1. Existing sessions are not re-tainted. Their old prompts are not re-rendered.
-    *   **Workspace file contents are part of Q1.** One option marks every workspace file read as untrusted. That reverses the README's "Reading: allowed" contract: any conversation that reads a file would then ask before every write, and conversation grants would stop applying. The proposed answer keeps workspace reads trusted. It breaks the M-1 chain at the credential read instead: the file is outside the working folder, so reading it asks under G2, both through `read_file` and in the sandbox. Marking workspace reads as untrusted is measured as an option against the U0 baseline, and becomes the default only if it costs the task gate less than 2 runs of 30.
-*   **Q2, the secret allowlist.** Which read model replaces the denylist, and how do existing allow rules migrate?
-    *   **Proposed answer.** The existing secret check, plus three tiers (Allowed, Ask, Refused) with the verdict table in Technical Plan §1. Secret and Refused checks run before allow rules, so existing allow rules stay as they are: none is dropped, and there is no migration notice.
-*   **Q3, two UIs.** Do the Slint app and the SwiftUI app share one running core process, or does Heron enforce a single running instance? When is Slint retired?
-    *   **Proposed answer.** On macOS the SwiftUI app is the only supported UI, and Slint gets no attach path. A second core on the same home is already prevented for background work by the existing `background.lock` (`app.rs:670-688`). CLI subcommands such as `heron inbox` keep opening the database directly, as they do today. v1 removes the Slint binary from the macOS bundle. Slint stays for Windows and Linux.
-*   **Q4, the success gates.** Do you accept the 3-runs-per-task sizing in G7? Which tool does Heron replace in G9? Is the accepted-risk cap of 3 right?
-    *   **Proposed answer.** 3 runs per task. The replaced tool is whatever the owner names at the start of the G9 trial, written into `eval/owner-use.md`. The cap is 3 new entries, not counting C35-8, which is already accepted.
-*   **Q5, task-gate cost across five CLIs.** The full task gate on all five Tier 1 CLIs is 150 runs of subscription allowance. Is the proposal acceptable: the full gate on claude-cli, plus a reduced gate of 1 run per task on the others?
-*   **Q6, terms of service.** Each vendor's current consumer terms need reading and a decision recorded before builds go to friends. Until then, no unattended background work runs through a subscription login.
-    *   **Proposed answer.** Build the hold described in Technical Plan §2 (`allow_unattended_subscription = false` by default). The owner reads the terms and records a decision per provider in `docs/cli-providers.md` before the friends release.
-*   **Q7, owner review of risky PRs.** Under autonomous merges, should PRs touching these paths wait for owner approval? Proposed answer: yes, for the paths below.
-    *   `permissions.rs`;
-    *   the gating in `agent.rs`;
-    *   `sandbox.rs`, `mcp.rs` and `cli_llm.rs`;
-    *   server authentication;
-    *   `telegram.rs`;
-    *   the audit and schema code in `store.rs`.
-*   **Q8, the feature list.** You want more features and none cut, but no list exists yet. U5 needs a numbered list of the features you want in v1, and a freeze date. Features after the freeze go to v1.1.
-*   **Q9, branch protection (M-GOV-1).** `main` has no branch protection or required checks. Turning them on is a repository admin action that only you can take, and the autonomous merge loop depends on it.
-    *   **Proposed answer.** The owner turns on branch protection for `main`, requiring the CI checks and one review, before U1 starts.
+Each "Proposed answer" is what gets built unless the owner overrides it before the unit that needs it starts. Q8 is the only question with no proposal, so U5 waits for it.
 
-**How proposals are used:** each "Proposed answer" is what gets built unless the owner overrides it before the unit that needs it starts. Q8 is the only question with no proposal, so U5 waits for it.
+*   **Q1, root-cause rules for each prompt source.** For each prompt source except calendar, should Heron taint it, remove it, or fetch it on demand? Should existing sessions be re-tainted on upgrade?
+    *   **Proposed answer.** Unconfirmed memories, source snippets and ambient observations are removed from the prompt and served on demand through tools that taint, the same rule calendar follows under O26-1. Existing sessions are not re-tainted ([§1](#1-one-decision-function-and-read-tiers-g1-g2)).
+    *   **Option considered: marking working-folder file reads untrusted.** Any conversation that reads a file would then ask before every write, and conversation grants would stop applying ([Alternative I](#alternative-i-mark-every-working-folder-file-read-as-untrusted-the-broad-m-1-fix)).
+    *   **Proposed answer for files.** Working-folder reads stay trusted. The M-1 chain is broken at the credential read instead, because that file is outside the working folder and so asks under G2. The residual risk, sending other working-folder content out, is accepted risk R-1 ([Risks & Mitigations](#risks--mitigations)). The measurement spike also measures the untrusted option.
+*   **Q2, read tiers.** Which read model replaces the blocked-names list, and how do existing allow rules migrate?
+    *   **Proposed answer.** The read tiers plus the secret check, with the order and verdicts in [Read tiers and verdicts](#read-tiers-and-verdicts). Existing rules keep working, except that broad read rules (`*`, `~`, `~/**`, `/**`, `/Users/**`, `~/Library/**`) are dropped when rules load. Settings shows a one-time notice listing them.
+*   **Q3, two UIs.** Do the Slint app and the SwiftUI app share one running core process, or does Heron enforce a single running instance? When is Slint retired?
+    *   **Proposed answer.** On macOS the SwiftUI app is the only supported UI, and v1 removes the Slint binary from the macOS bundle. Slint stays for Windows and Linux. The existing `background.lock` (`app.rs:670-688`) already stops a second core on the same home from doing background work. CLI subcommands such as `heron inbox` keep opening the database directly, as they do today.
+*   **Q4, the success gates.** What sizing does G7 use, which tool does Heron replace in G9, and how many accepted risks are allowed?
+    *   **Proposed answer.** G7 uses 3 runs per task. The replaced tool is whatever the owner names at the start of the G9 trial, recorded in `eval/owner-use.md`. Up to 3 new accepted risks are allowed, not counting C35-8. R-1 is one of the 3.
+*   **Q5, task-gate cost across Tier 1.** Running the full task gate on five Tier 1 CLIs would take 150 runs of subscription allowance.
+    *   **Proposed answer.** The full task gate runs on claude-cli. Every other Tier 1 CLI gets a reduced gate of 1 run per task, which is reported but doesn't block release.
+*   **Q6, terms of service.** Each vendor's current consumer terms need reading, and a decision recorded, before builds go to friends.
+    *   **Proposed answer.** Build the hold described in [§2](#2-hardened-cli-adapters-g4-g5), with `allow_unattended_subscription = false` by default. The owner reads the terms and records a decision for each provider in `docs/cli-providers.md` before the friends release.
+*   **Q7, owner review of risky PRs.** Under autonomous merges, which PRs wait for owner approval?
+    *   **Proposed answer.** PRs that touch any of these paths:
+        *   `permissions.rs`;
+        *   the gating in `agent.rs`;
+        *   `sandbox.rs`, `mcp.rs` and `cli_llm.rs`;
+        *   server authentication;
+        *   `telegram.rs`;
+        *   the audit and schema code in `store.rs`.
+*   **Q8, the feature list.** The owner wants more features and none cut, but no list exists yet. U5 needs a numbered list of the features the owner wants in v1, and a freeze date. Features after the freeze go to v1.1.
+*   **Q9, branch protection (M-GOV-1).** `main` has no branch protection or required checks. Turning them on is a repository admin action only the owner can take, and autonomous merges depend on it.
+    *   **Proposed answer.** Before U1 starts, the owner turns on branch protection for `main`, requiring the CI checks and one review.
+*   **Q10, the research-preview audience.** Who may install the preview?
+    *   **Proposed answer.** At most 10 people the owner knows personally, each using their own CLI login on their own Mac. The owner can change the cap.
 
 ## Critical User Journeys (CUJs)
 
@@ -162,13 +174,13 @@ The "1 P0 and 6 P1" count on `main` is M-1 (the P0), plus M-2, M-3, M-4, M-5, M-
 
 ### CUJ 2: A friend installs the research preview
 
-*   **Given**: A friend's Mac has Claude Code installed and logged in with their own subscription. Heron is not installed.
-*   **When**: They open the notarized DMG, drag Heron to Applications, and launch it.
+*   **Given**: A friend's Mac has Claude Code installed and logged in with the friend's own subscription. Heron isn't installed.
+*   **When**: The friend opens the notarized DMG, drags Heron to Applications, and launches it.
 *   **Then**:
-    *   Heron shows the research-preview risk notice and won't continue until it is accepted.
+    *   Heron shows the research-preview risk notice, including the sandbox status, and won't continue until the friend accepts it.
     *   Heron detects the logged-in claude-cli and confirms its version is in the supported range.
-    *   It reaches a first reply that used a tool within 30 minutes, following the written guide, without help.
-    *   No credential is typed into Heron.
+    *   Following the written guide and with no other help, the friend reaches a first reply that used a tool within 30 minutes.
+    *   The friend types no credential into Heron.
 
 ### CUJ 3: A web page tries to hijack the agent
 
@@ -176,213 +188,332 @@ The "1 P0 and 6 P1" count on `main` is M-1 (the P0), plus M-2, M-3, M-4, M-5, M-
 *   **When**: Heron fetches the page through any Tier 1 connection.
 *   **Then**:
     *   The page content taints the conversation.
-    *   Any attempted file read outside the allowlist, write, or send asks the owner first.
-    *   Reading `~/.ssh` asks first in every mode, and no allow rule can grant it. In the sandboxed shell the read fails.
+    *   Heron asks the owner before any write, any send, or any read outside the Allowed tier.
+    *   Reading `~/.ssh` asks first in every mode, and no allow rule can grant it. In the sandboxed shell, the read fails.
     *   The audit chain records the attempt.
 
 ### CUJ 4: Personalizing the agent
 
 *   **Given**: The owner is on first launch, or in Settings.
-*   **When**: They name the agent, pick an avatar, choose a theme and accent colour, and edit the personality file in Settings.
+*   **When**: The owner names the agent, picks an avatar, chooses a theme and accent colour, and edits the personality in Settings.
 *   **Then**:
     *   The name, avatar and theme apply across the app.
-    *   The avatar shows its five states: idle, thinking, waiting for approval, speaking, error.
-    *   Editing the personality in Settings saves through the existing `POST /persona`. When the agent proposes a personality change itself, the change goes through its `update_persona` tool, which is a privileged write and always asks.
+    *   The avatar shows its five states: idle, thinking, waiting for approval, speaking and error.
+    *   A personality edit in Settings saves through the existing `POST /persona`. A personality change the agent proposes itself goes through its `update_persona` tool, which is a privileged write and always asks.
 
 ### CUJ 5: A CLI breaks after an update
 
-*   **Given**: The friend's claude-cli updates to a version outside the pinned range, or the login expires.
-*   **When**: They send a message.
-*   **Then**: Heron shows a specific message with a fix action ("Claude Code is logged out: run `claude auth login`" or "untested version 3.x, continue anyway?"). It does not show a generic failure, and nothing runs through the untested version without the user's choice.
+*   **Given**: The friend's claude-cli updates to a version outside the pinned range, or its login expires.
+*   **When**: The friend sends a message.
+*   **Then**:
+    *   Heron shows a specific message with a fix action: "Claude Code is logged out: run `claude auth login`", or "untested version 3.x, continue anyway?".
+    *   Heron doesn't show a generic failure.
+    *   Nothing runs through the untested version unless the friend chooses to continue.
 
 ## Technical Plan (Architecture)
 
-### Shape of the system
+### 0. Shape of the system
 
 ```text
  ┌──────────────────────────── Heron.app (Developer ID, hardened runtime) ───────────────────────────┐
  │                                                                                                   │
  │  SwiftUI client (Contents/MacOS/Heron)     Rust core (Contents/MacOS/heron-cli serve, child)      │
  │  ┌───────────────────────────────┐   HTTP +     ┌──────────────────────────────────────────────┐  │
- │  │ CoreClient (URLSession, SSE)  │◀────────────▶│ server.rs  routes, token auth, run bus       │  │
- │  │ Stores: Chat, Approvals,      │  /events     │   │                                          │  │
- │  │   Today, Memory, Tasks, Audit │  (resumable) │   ▼                                          │  │
- │  │ Views + Avatar state machine  │              │ agent.rs  run_turn ──▶ decide(call, &ToolCtx)│  │
- │  │ Menu bar extra (keeps alive)  │              │   │        ▲               │                 │  │
- │  └───────────────────────────────┘              │   │ prompt │ PromptSource  ▼                 │  │
- │                                                 │   │ builder│ registry   permissions.rs       │  │
- │  {port, token} read from the core's stdout pipe │   ▼        │            (allowlist reads,    │  │
- │  Slint app: unchanged, Windows/Linux only       │ llm.rs ── Provider trait  taint, modes)      │  │
+ │  │ CoreClient (URLSession, SSE)  │◀────────────▶│ server.rs  routes, token auth, event bus     │  │
+ │  │ Stores (one per screen)       │  /events     │   │                                          │  │
+ │  │ Views + avatar state machine  │  (resumable) │   ▼                                          │  │
+ │  │ Menu bar extra                │              │ agent.rs  run_turn ──▶ decide(call, &ToolCtx)│  │
+ │  └───────────────────────────────┘              │   │        ▲               │                 │  │
+ │                                                 │   │ prompt │ PromptSource  ▼                 │  │
+ │  {port, token} read from the core's stdout pipe │   │ builder│ registry   permissions.rs       │  │
+ │  Slint app: unchanged, Windows/Linux only       │   ▼        │            (read tiers, secret  │  │
+ │                                                 │ llm.rs ── Provider trait  check, taint)      │  │
  │                                                 │   ├─ HTTP (OpenAI-compatible)                │  │
  │                                                 │   └─ cli_llm.rs ─ adapter per CLI            │  │
- │                                                 │        │  topology: winner of the U2s spike  │  │
+ │                                                 │        │  topology: per CLI, from U2s        │  │
  │                                                 │        ▼                                     │  │
  │                                                 │   sandbox.rs deny-default reads + env allow  │  │
  │                                                 └────────┼─────────────────────────────────────┘  │
  └──────────────────────────────────────────────────────────┼────────────────────────────────────────┘
                                                             ▼
                         user's logged-in CLI (claude / opencode / cline / codex / agy | gemini)
-                        built-in tools off, cwd = $TMPDIR/heron-cli-<run>, reads only its own config
+                        built-in tools off, CLI run folder = $TMPDIR/heron-cli-<run>
 ```
 
-Heron keeps owning the agent loop in every topology. A CLI only ever returns text plus requested tool calls. Heron runs each call through the gate and executes it itself.
+Heron owns the agent loop in every topology. A CLI only ever returns text plus requested tool calls. Heron runs each call through the decision function and executes it itself.
 
-### 1. One trust gate (root causes 1 and 2), the G1 and G2 goals
+### 1. One decision function and read tiers (G1, G2)
 
-**Today.** Three places execute tools, and they disagree about taint:
+#### Today
+
+Three places execute tools, and they disagree about taint:
 
 | Path | How it decides | Taint handling |
 |---|---|---|
 | The main loop (`agent.rs:472`) | `decide_in` | real taint value |
 | The MCP server (`mcp.rs:266`) | `decide_in` | always passes `false` |
-| Running a parked approval (`app.rs:374-401`, `run_parked`) | `decide()` | ignores taint completely |
+| Running a parked approval (`app.rs:374-401`, `run_parked`) | `decide()` | ignores taint |
 
-Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-527`). Text placed directly into the system prompt by `system_prompt` (`agent.rs:182`) never taints. Secret protection is one regular expression of blocked names (`permissions.rs:538-543`).
+Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-527`). Text that `system_prompt` (`agent.rs:182`) places directly into the system prompt never taints. Secret protection is one regular expression of blocked names, the secret check (`permissions.rs:538-543`).
 
-**Change.**
+#### One decision function
 
-*   **One decision function that can't be told "not tainted".**
-    *   `Policy::decide()`, the version that ignores taint, is deleted.
-    *   `decide_in` loses its caller-supplied `tainted: bool` and becomes `decide(&self, tool, summary, effect, ctx: &ToolCtx)`. It reads taint from `ToolCtx.tainted` (`tools/mod.rs:21-28`), the shared flag every call site already holds. No new context type is added.
-    *   The MCP server builds its `ToolCtx` with the taint flag already set, because the comment at `mcp.rs:261` says what another program sends is outside content (M-2).
-    *   `run_parked` builds its `ToolCtx` with the parked call's stored taint, so M-7 is fixed by the same change.
-    *   Calls the MCP server makes are logged under a per-connection session id instead of the fixed `"mcp"` (`main.rs:750-753`).
-*   **A `PromptSource` registry in `agent.rs`.** Every block `system_prompt` adds (`agent.rs:182-300`) is one `PromptSource` variant with a fixed trust class. A test walks the registry and fails if a block isn't classified. The complete list:
+*   `Policy::decide()`, the version that ignores taint, is deleted.
+*   `decide_in` loses its caller-supplied `tainted: bool` and becomes `decide(&self, tool, summary, effect, ctx: &ToolCtx)`. It reads taint from `ToolCtx.tainted` (`tools/mod.rs:21-28`), the shared flag every call site already holds, so no new context type is needed.
+*   The MCP server builds its `ToolCtx` with the taint flag already set (M-2). The comment at `mcp.rs:261` already says that what another program sends is outside content.
+*   `run_parked` builds its `ToolCtx` with the parked call's stored taint, so the same change fixes M-7.
+*   Calls the MCP server makes are logged under a per-connection session id instead of the fixed `"mcp"` (`main.rs:750-753`).
 
-    | Variant | Today's prompt section | Class | v1 handling |
-    |---|---|---|---|
-    | `BaseInstructions` | role, rules and tool use | Trusted | unchanged |
-    | `Persona` | the personality file | Trusted | unchanged; edits already go through approval |
-    | `CoreMemories` | "About the user": confirmed core memories | Trusted | unchanged |
-    | `RelevantConfirmed` | "Possibly relevant memories", confirmed ones | Trusted | unchanged |
-    | `RelevantUnconfirmed` | the same section, unconfirmed ones | Outside | removed; the existing `recall` tool returns them, and its unconfirmed results are marked untrusted output |
-    | `OpenTasks` | "Open tasks" | Trusted | unchanged. A task added in a tainted conversation already needed approval, because `task_add` is a state write. |
-    | `Ambient` | file names and times from the working-folder journal | Outside | removed. A new `recent_activity` tool (untrusted output) returns `ambient::describe`. |
-    | `ConnectedSources` | names of sources the user connected | Trusted | unchanged |
-    | `Calendar` | events of the next 3 days | Outside | already removed by O26-1; `upcoming_events` serves it |
-    | `Skills` | names and descriptions of saved skills | Trusted | unchanged; saving a skill already shows its full text for approval |
-    | `SessionSummary` | the conversation's summary | Same as the session | a tainted session stays tainted (kv `tainted:<id>`) |
+#### Prompt sources
 
-    Existing sessions are not re-tainted on upgrade. Their stored prompts aren't re-rendered.
-*   **Read tiers on top of the existing secret check.** The name-based secret check, `sensitive_path()` (`permissions.rs:538-543`), stays as the first layer, in every tier including the working folder. A match is a `SensitiveRead`, which asks in every mode, Yolo included, before any allow rule is looked at (`permissions.rs:238-240`). Its pattern is extended with the M-4 paths: `~/.config/gh/hosts.yml`, `~/.cargo/credentials.toml`, shell history files and browser `Login Data`. Under it, a new `read_scope()` adds three location tiers for everything the secret check doesn't match:
-    *   **Allowed:** the working folder (`cfg.app_workspace()`, `config.rs:534`); temp folders (`$TMPDIR`, `/private/tmp`, `/private/var/folders`); and system folders outside `$HOME`: `/usr`, `/bin`, `/sbin`, `/System`, `/Library`, `/Applications`, `/opt/homebrew`, `/usr/local`, `/private/etc`. Secrets inside these folders, such as `/etc/shadow`, are still caught by the secret check first.
-    *   **Ask:** everything else, which means the rest of `$HOME`, other users' folders under `/Users`, and `/Volumes`. A user grants a folder by adding an allow rule, for example `read_file:~/Projects/**`, from an approval's "always" option or from Settings. That is the existing mechanism; no new one is added.
-    *   **Refused:** `~/.heron/heron.db*`, `~/.heron/channels.db*`, `~/.heron/proactivity-events.db*`, `~/.heron/secrets.json`; and the CLI config folders `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/opencode`, `~/.local/share/opencode`, `~/.cline`, `~/.gemini`, plus the Antigravity config folder and the paths in `CLAUDE_CONFIG_DIR` and `CODEX_HOME` when set. The Antigravity location isn't confirmed yet (UNVERIFIED): U2 reads it from `agy` and adds it before antigravity-cli can be Tier 1.
+Every block `system_prompt` adds (`agent.rs:182-300`) is one `PromptSource` variant with a fixed trust class. A test walks the registry and fails if a block isn't classified. The complete list:
 
-    **Check order:** Forbidden → the user's deny rules → read-only blocks changes → secret match (asks) → Refused (denies) → taint blocks changes and sends → allow rules → tiers and modes. No allow rule can open a secret or a Refused path, so existing allow rules need no migration. A broad rule such as `read_file:~/**` keeps working for Ask-tier paths and never reaches `~/.ssh` or `~/.claude`.
+| Variant | Today's prompt section | Class | v1 handling |
+|---|---|---|---|
+| `BaseInstructions` | role, rules and tool use | Trusted | unchanged |
+| `Persona` | the personality file | Trusted | unchanged; edits already go through approval |
+| `CoreMemories` | "About the user": confirmed core memories | Trusted | unchanged |
+| `RelevantConfirmed` | "Possibly relevant memories", confirmed ones | Trusted | unchanged |
+| `RelevantUnconfirmed` | the same section, unconfirmed ones | Outside | removed; the existing `recall` tool returns them, marking unconfirmed results as untrusted output |
+| `OpenTasks` | "Open tasks" | Trusted | unchanged; a task added in a tainted conversation already needed approval, because `task_add` is a state write |
+| `Ambient` | file names and times from the working-folder journal | Outside | removed; a new `recent_activity` tool (untrusted output) returns `ambient::describe` |
+| `ConnectedSources` | names of sources the user connected | Trusted | unchanged |
+| `Calendar` | events of the next 3 days | Outside | already removed by O26-1; `upcoming_events` serves it |
+| `Skills` | names and descriptions of saved skills | Trusted | unchanged; saving a skill already shows its full text for approval |
+| `SessionSummary` | the conversation's summary | Same as the session | a tainted session stays tainted (kv `tainted:<id>`) |
 
-    **Verdicts for a read.** A read never changes state, so taint matters only in Yolo, where it turns the silent allow back into an ask.
+Existing sessions aren't re-tainted on upgrade, and their stored prompts aren't re-rendered.
 
-    | What is read | readonly | ask | auto | yolo, clean | yolo, tainted |
-    |---|---|---|---|---|---|
-    | Secret match (`sensitive_path()`) | Ask | Ask | Ask | Ask | Ask |
-    | Refused tier | Deny | Deny | Deny | Deny | Deny |
-    | Ask tier with a matching allow rule | Allow | Allow | Allow | Allow | Allow |
-    | Ask tier, no rule | Ask | Ask | Ask | Allow | Ask |
-    | Allowed tier | Allow | Allow | Allow | Allow | Allow |
+#### Read tiers and verdicts
 
-    The sandboxed shell enforces the same Refused and Ask tiers at the OS level in every mode. A read outside the Allowed tier and the toolchain list fails there, whatever the mode, and the model is told to use `read_file`. The table above then decides that read.
-*   **How shell commands resolve paths (M-4).** Before deciding, the shell classifier expands each argument. It expands `~` and `~user`, and `$HOME` and `$VAR` from the child environment. It strips quotes and backslash escapes, and expands globs against the real filesystem at decision time. Each resulting path is then classified as above, and the command takes the strictest verdict of any of its paths. An argument that can't be resolved, such as a subshell `$(…)`, backticks, process substitution or a path built from an unknown variable, makes the command Ask. Redirections (`<`, `>`) count as paths too.
-*   **The same tiers in the OS sandbox.** Today the shell's Seatbelt profile allows every read by default and denies a list of hidden paths (`sandbox.rs:101-108`). In Auto mode a sandboxed `python -c "open(...)"` can read any path that `read_file` would ask about. The profile becomes deny-default for reads under `$HOME`:
-    *   **Readable:** the Allowed tier, plus this fixed toolchain list: `~/.gitconfig`, `~/.config/git`, `~/.cargo`, `~/.rustup`, `~/.npm`, `~/.nvm`, `~/.local/share/fnm`, `~/.local/share/mise`, `~/.pyenv`, `~/.cache`, `~/Library/Caches`.
-    *   **Blocked:** everything else under `$HOME`, which covers the Ask tier and the Refused tier. A command that needs an Ask path fails in the sandbox with a message that tells the model to use `read_file`, which can ask the user.
-    *   **Owned by U2, with a build check.** The profile change lands in U2, together with the CLI-child profile built from the same function. U2's own check runs the existing build, test and git tasks under the new profile, so it can't reach `main` if it breaks them. Any extra toolchain location they need is added to the fixed list in the same unit.
+A read from `read_file`, `search_files`, `list_dir` or `find_files` is classified in this order. The first match wins.
 
-### 2. Hardened CLI adapters and the topology spike, the G4 and G5 goals
+1.  **Refused, denied in every mode.** No allow rule or approval can open these:
+    *   all of Heron's home folder, `cfg.home`, resolved at runtime, so a `HERON_HOME` override and `<home>/backups` are covered;
+    *   the CLI config folders: `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/opencode`, `~/.local/share/opencode`, `~/.cline`, `~/.gemini`, the Antigravity config folder, and the `CLAUDE_CONFIG_DIR` and `CODEX_HOME` paths when set. The Antigravity location is UNVERIFIED; U2 reads it from `agy` and adds it before antigravity-cli can be Tier 1;
+    *   the macOS personal stores: `~/Library/Keychains`, `~/Library/Cookies`, `~/Library/Safari`, `~/Library/Messages`, `~/Library/Mail`, and the Chrome, Brave, Edge and Firefox profile folders under `~/Library/Application Support`.
+2.  **The secret check, asked in every mode.** `sensitive_path()` matches keys, `.env` files and credentials in any folder, the working folder included. Its pattern gains the M-4 paths: `~/.config/gh/hosts.yml`, `~/.cargo/credentials.toml`, shell history files and browser `Login Data`.
+3.  **Allowed, with no ask.** These are read-only locations Heron needs:
+    *   the working folder;
+    *   the temp folders: `$TMPDIR`, `/private/tmp` and `/private/var/folders`;
+    *   the system folders: `/usr`, `/bin`, `/sbin`, `/System`, `/Library`, `/Applications`, `/opt/homebrew`, `/usr/local` and `/private/etc`.
+4.  **Ask: everything else.** That means the rest of `$HOME`, other users' folders under `/Users`, and `/Volumes`. A read here has the new effect `Effect::OutsideRead`. It isn't a high effect, so allow rules can match it.
 
-*   **Containment, applied to every CLI.**
-    *   The CLI child runs under `sandbox.rs`'s Seatbelt profile.
-    *   Its working folder is `$TMPDIR/heron-cli-<run>`, moved out of `~/.heron/tmp/cli-*` (`cli_llm.rs:1980-1982`).
-    *   It can write only that folder. It can read the system folders and toolchain list from §1, its working folder, and its own config folders. For claude-cli those are `~/.claude` and `~/.claude.json`, for codex-cli `~/.codex`, for opencode-cli `~/.config/opencode` and `~/.local/share/opencode`, for cline-cli `~/.cline`, and for gemini-cli `~/.gemini`; antigravity-cli's is confirmed in U2. Its own config folder is the one exception to the Refused tier, and it applies only inside that CLI's own sandbox.
-    *   It gets an allowlisted environment instead of `std::env::vars()` (`cli_llm.rs:1219`). Every CLI gets `PATH`, `HOME`, `LANG`, `USER`, `TMPDIR`, `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and `SSL_CERT_FILE`, plus its own extras:
+**Granting a folder.** An approval's "always" option for these four tools stores `<tool>:<parent folder>/**`, the folder of the approved path, never `<tool>:*`. Today `always_rule()` returns `{tool}:*` for every tool except shell (`permissions.rs:353-360`), and that changes for these four. A read rule whose target is `*`, `~`, `~/**`, `/**`, `/Users/**` or `~/Library/**` is rejected when it is added. If such a rule is found at load time, it is dropped and listed in a one-time Settings notice.
+
+**Full check order for every call:** `Effect::Forbidden` → the user's deny rules → read-only blocks changes → Refused → secret check → taint blocks changes and sends → allow rules → read tiers and modes.
+
+**Verdicts for a read.** A read never changes state, so taint matters only in Yolo, where it turns the silent allow back into an ask.
+
+| What is read | readonly | ask | auto | yolo, clean | yolo, tainted |
+|---|---|---|---|---|---|
+| Refused | Deny | Deny | Deny | Deny | Deny |
+| Secret match | Ask | Ask | Ask | Ask | Ask |
+| Ask tier, with an allow rule for its folder | Allow | Allow | Allow | Allow | Allow |
+| Ask tier, no rule | Ask | Ask | Ask | Allow | Ask |
+| Allowed | Allow | Allow | Allow | Allow | Allow |
+
+#### How shell commands resolve paths (M-4)
+
+Before deciding, the shell classifier expands each argument:
+*   `~` and `~user`;
+*   `$HOME` and `$VAR`, from the child environment;
+*   quotes and backslash escapes, which it strips;
+*   globs, against the real filesystem at decision time, capped at 1,000 entries or 100 ms. Beyond the cap, the command asks.
+
+Redirections (`<`, `>`) count as paths too. Each path gets a verdict from the table, and the command takes the strictest one. An argument the classifier can't resolve makes the command ask. That covers a subshell `$(…)`, backticks, process substitution, or a path built from an unknown variable. The sandbox, not the classifier, closes the gap between the check and the run.
+
+#### The same tiers in the OS sandbox
+
+Today the shell's Seatbelt profile allows every read by default and denies a list of hidden paths (`sandbox.rs:101-108`). In Auto mode, a sandboxed `python -c "open(...)"` can read any path that `read_file` would ask about. The new profile works like this:
+
+*   **Deny by default** for reads under `$HOME`, `/Users`, `/Volumes` and `cfg.home`, wherever `cfg.home` lives.
+*   **Readable:**
+    *   the Allowed tier;
+    *   every folder granted by a `read_file:<folder>/**` allow rule;
+    *   this fixed toolchain list: `~/.gitconfig`, `~/.config/git`, `~/.cargo`, `~/.rustup`, `~/.npm`, `~/.nvm`, `~/.local/share/fnm`, `~/.local/share/mise`, `~/.pyenv`, `~/.cache/uv`, `~/.cache/pip`, `~/Library/Caches/Homebrew`, `~/Library/Caches/pip`.
+*   **Denied again inside readable folders:** after the allows come explicit `(deny file-read* …)` rules for `~/.cargo/credentials*`, `~/.config/git/credentials`, `~/.npmrc`, `~/.pypirc` and `~/.netrc`, plus every path the secret check matches. Refused paths are denied everywhere.
+*   **Shell commands that name an ungranted Ask-tier path** are denied, not asked, with the hint "use `read_file`, which can ask the user". So the owner is never asked to approve something the sandbox would then block.
+*   **No suggestion to turn the sandbox off.** `DENIED_HINT` (`sandbox.rs:115`) loses its advice to turn the sandbox off.
+*   **U2 owns this change**, together with the CLI-child profile built from the same function. U2's own check runs the existing build, test and git tasks under the new profile, so the change can't reach `main` if it breaks them. When a build needs another toolchain folder, U2 adds it to the list. The profile itself is never reverted.
+
+#### When the sandbox is off
+
+`sandbox::active()` returns none when `agent.sandbox = "off"`, when `HERON_SANDBOX=off`, or when `sandbox-exec` is missing (`sandbox.rs:53-54`). In that case:
+*   CLI providers are refused, with the message "the sandbox is off, so Heron won't run <CLI>".
+*   Shell commands fall back to the classifier, and their Ask-tier reads ask.
+*   The risk notice and Settings show the sandbox status.
+
+The decision-table tests include the sandbox-off rows.
+
+### 2. Hardened CLI adapters (G4, G5)
+
+#### Containment, applied to every CLI
+
+*   **The sandbox profile.** The CLI child runs under a per-CLI Seatbelt profile from `sandbox.rs`.
+*   **Folders it can use:**
+    *   It can write only its CLI run folder, `$TMPDIR/heron-cli-<run>`, which moves out of `~/.heron/tmp/cli-*` (`cli_llm.rs:1980-1982`).
+    *   It can read the Allowed tier and the toolchain list.
+    *   It can read the canonical install folder of its own binary, found by `resolve_binary` (`cli_llm.rs:344-378`). That covers npm, Bun, Volta, `~/.local/bin` and Homebrew installs.
+    *   It can read and write its own config and data folders:
+
+        | CLI | Config and data folders |
+        |---|---|
+        | claude-cli | `~/.claude`, `~/.claude.json` |
+        | codex-cli | `~/.codex` |
+        | opencode-cli | `~/.config/opencode`, `~/.local/share/opencode` |
+        | cline-cli | `~/.cline` |
+        | gemini-cli | `~/.gemini` |
+        | antigravity-cli | confirmed in U2 |
+
+        A CLI's own folders are the only exception to Refused, and the exception applies only inside that CLI's own sandbox.
+*   **Environment.** The child gets an allowlisted environment instead of `std::env::vars()` (`cli_llm.rs:1219`):
+    *   Every CLI gets `PATH`, `HOME`, `LANG`, `USER`, `TMPDIR`, `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`, and `DISABLE_AUTOUPDATER=1` and `DISABLE_FEEDBACK_COMMAND=1`. The last two are set today (`cli_llm.rs:1242-1243`) and keep a CLI from updating itself past its pinned version.
+    *   Each CLI also gets its own extras:
 
         | CLI | Extra variables |
         |---|---|
         | claude-cli | `CLAUDE_CONFIG_DIR` if set |
         | codex-cli | `CODEX_HOME` if set |
-        | opencode-cli, cline-cli | none. They read keys from their own config files, which their sandbox can read. |
-        | gemini-cli | `GEMINI_API_KEY`, only when `cli_allow_api_key = true` (`config.rs:103`) |
+        | opencode-cli, cline-cli | none; they read keys from their own config files |
+        | gemini-cli | `GEMINI_API_KEY`, only when gemini-cli is in `cli_allow_api_key` |
         | antigravity-cli | none |
+*   **API keys, per provider.** `cli_allow_api_key` becomes a list of provider ids, for example `["gemini-cli"]`. A provider not in the list never receives API-key variables, so its subscription turns can't silently switch to metered billing (`cli_llm.rs:1220-1233`). The old value `true` means every provider, for compatibility.
+*   **The containment check, per CLI.** All three tests must pass:
+    *   **The tools-off canary:** a prompt asks the CLI to use its own shell, edit and fetch tools to write a canary file. The test passes only if the file never appears and the CLI reports no tool execution.
+    *   `child_env_is_exactly_the_allowlist`.
+    *   A write outside the CLI run folder fails.
 
-        The existing rule stays: with `cli_allow_api_key = false` (the default), API-key variables are never passed, so a subscription turn can't silently switch to metered billing (`cli_llm.rs:1220-1233`).
-*   **A version contract.**
-    *   Each `CliSpec` gains `supported`, a semver requirement string in Cargo's syntax, for example `">=2.1.0, <3.0.0"`, parsed with the `semver` crate, added as a direct dependency (it is already in `Cargo.lock` at 1.0.28 through another crate).
-    *   **Starting values.** The lower bound is the version on which that CLI passed its canary in U2. The upper bound is the next major version. U2 writes the values into the registry and into `docs/cli-providers.md`.
-    *   **When it's checked.** Heron uses the version `probe_status()` already returns (`ProviderStatus.version`, `cli_llm.rs:538-615`). It checks at startup, again when the provider is switched, and again after a turn fails.
-    *   **Unparseable output** is treated as an untested version.
-    *   **An untested version** gives the CUJ 5 prompt. If the user chooses to continue, kv `cli_version_ok:<provider id>` records that exact version. Heron asks again when the version changes.
-    *   **A logged-out CLI.** claude-cli and codex-cli are detected by the existing login probe (`parse_login_output`, `cli_llm.rs:590-606`). For the others, a turn that exits non-zero with the login text the spec lists shows "<name> is logged out: run `<login_command>`".
-    *   **Audit fields.** Audit rows gain `run_id`, `provider` and `cli_version`; see U2's `store.rs` item.
-*   **Subscriptions and unattended work (Q6).** `CliSpec` gains `subscription: bool`. It is true for claude-cli, codex-cli and antigravity-cli, and for opencode-cli and cline-cli when their configured auth is an OAuth login.
-    *   **The hold.** While the active provider is a subscription and `allow_unattended_subscription` is false (the default), unattended work never calls the model. Each model-using step of a schedule, automation, watch, proactive session or reflection is held, and appears in "Waiting for you" with "Run now". Automation steps that don't need the model, such as `tool`, `if`, `notify` and `set`, still run.
-    *   **Not affected.** Telegram turns are attended, so they aren't held.
-    *   **Test:** `unattended_model_steps_wait_on_subscription_provider`.
-*   **A tools-off canary**, a test per CLI.
-    *   A prompt asks the CLI to use its own shell, edit and fetch tools to write a canary file.
-    *   The test passes only if the file never appears and the CLI reports no tool execution.
-    *   cline-cli and codex-cli must pass this before they count as Tier 1.
-*   **The hybrid topology, kept off `main` until it wins.** The hybrid code is built behind a `spike` cargo feature that release builds never turn on. The spike unit (U2s) builds with that feature and only measures. The next unit, U2w, merges the winner into the default build and deletes the losing code and the feature.
-    *   **Hybrid is built and measured for claude-cli only.** Its flags (`--mcp-config`, `--max-turns 1`, `tool_use` stream blocks) are Claude Code's. `cli_topology` is set per CLI, and every other CLI stays on the envelope. The MCP config names the absolute path of the running executable (`std::env::current_exe()`) with `mcp-serve --refuse-all`, never a bare `heron`, which a DMG install may not have on `PATH`. It points at the existing MCP server, `mcp::serve` (`mcp.rs:228-289`), with a "refuse every call" option: the server advertises Heron's tools through its existing `tools/list` and refuses every call, so no new subcommand is added.
-    *   The CLI is held to one turn, and Heron captures the `tool_use` blocks from the stream. The existing mapping of native `tool_use` blocks into `ToolCall`s is at `cli_llm.rs:1680-1690`, and the prefix stripping at `cli_llm.rs:1542-1563`.
-    *   The CLI never executes a tool in either mode.
-*   **The spike (U2s).** All comparisons run at the same commit (U2's merge), with one setting changed at a time, on claude-cli in `ask` mode, 3 runs per G7 task, 30 runs per arm.
-    *   **Topology.** Hybrid becomes claude-cli's default only if it passes at least 1 more run of 30 than the envelope, and uses no more than 5% more tokens per task. Otherwise the envelope stays, and a tie keeps the envelope.
-    *   **Untrusted workspace reads.** Marked untrusted becomes the default only if the task gate loses fewer than 2 runs of 30 compared with trusted reads.
-    *   **Sandbox profile.** It is kept if the task gate loses fewer than 2 runs of 30 compared with the old profile on a scratch build.
-    *   **Quality** is rated by the owner on 10 randomly ordered, unlabelled pairs of final answers. The rating is reported but doesn't decide anything.
-    *   **Speed** is measured as median time to first token, and that is what "latency" means everywhere in this doc.
-    *   **The report**, `eval/spike/topology.md`, has one line per decision in the form `Chosen default: <topology|workspace_reads|sandbox_profile>=<value>`, then a results table per arm.
+    The spike checks these too, and they stay UNVERIFIED until it does:
+    *   Keychain-backed logins;
+    *   OAuth refresh writes;
+    *   Codex's own sandbox nested under Seatbelt.
 
-### 3. The core API contract, the base for G6
+    A CLI that fails any check stays experimental.
 
-*   **Existing routes stay as they are** (`server.rs:117-161`). Two routes are added. The API gets a version prefix only when a breaking change needs one.
-*   **Runs that outlive their connection.** Today a run dies with its `/chat` stream:
+#### Version contract
+
+*   **The range.** Each `CliSpec` gains `supported`, a semver requirement in Cargo's syntax, for example `">=2.1.0, <3.0.0"`. It is parsed with the `semver` crate, added as a direct dependency (it's already in `Cargo.lock` at 1.0.28 through another crate).
+*   **Starting values.** The lower bound is the version on which that CLI passed its containment check in U2, and the upper bound is the next major version. U2 writes the values into the registry and `docs/cli-providers.md`.
+*   **Reading the version.** The version is the first `\d+\.\d+\.\d+` match in the string `probe_status()` returns (`ProviderStatus.version`, `cli_llm.rs:538-615`). A test covers each candidate's real `--version` output.
+*   **When it's checked:** at startup, when the provider changes, and after a failed turn.
+*   **No match, or a version outside the range,** gives the CUJ 5 prompt. If the user continues, kv `cli_version_ok:<provider id>` records that exact version. Heron asks again when the version changes.
+*   **A logged-out CLI.** For claude-cli and codex-cli, the existing login probe catches it (`parse_login_output`, `cli_llm.rs:590-606`). For the others, a turn that exits non-zero with the login text the spec lists shows "<name> is logged out: run `<login_command>`".
+*   **Audit rows** gain `run_id`, `provider` and `cli_version` (U2's `store.rs` item).
+
+#### Subscriptions and unattended work (Q6)
+
+*   **The flag.** `CliSpec` gains `subscription: bool`, which is true for every CLI provider. The user can set `cli_subscription = false` for one provider in Settings when it routes to an API key or a local model. Heron never infers it from the CLI's config.
+*   **The hold.** While the active provider is a subscription and `allow_unattended_subscription` is false (the default), unattended work never calls the model:
+    *   each model-using step of a schedule, automation, watch, proactive session or reflection is held, and appears in "Waiting for you" with "Run now";
+    *   automation steps that don't need the model (`tool`, `if`, `notify`, `set`) still run.
+*   **Telegram.** Telegram turns are attended, so they aren't held.
+*   **Tests:** `unattended_model_steps_wait_on_subscription_provider` and `unknown_auth_is_held`.
+
+#### Hybrid topology and the measurement spike (G5)
+
+*   **Kept out of release builds until it wins.**
+    *   The hybrid code builds only with a `spike` cargo feature, which release builds never enable.
+    *   The measurement spike (U2s) builds with that feature and only measures.
+    *   U2w then merges the winner into the default build and deletes the losing code and the feature.
+*   **claude-cli only.** Hybrid is built and measured for claude-cli, because its flags (`--mcp-config`, `--max-turns 1`, `tool_use` stream blocks) are Claude Code's. `cli_topology` is set per CLI, and every other CLI stays on the envelope.
+*   **The MCP side.** The MCP config names the absolute path of the running executable (`std::env::current_exe()`) with `mcp-serve --refuse-all`, never a bare `heron`, which a DMG install may not have on `PATH`.
+    *   `--refuse-all` takes its own path in `mcp::serve` (`mcp.rs:228-289`), which never builds `App` or opens the database. It advertises the full `ToolRegistry::builtin()` schemas and refuses every call.
+    *   A precondition of the spike: the advertised tool names equal the envelope's tool list.
+*   **Turns.** The CLI is held to one turn. Heron captures the `tool_use` blocks, mapping them with the existing code at `cli_llm.rs:1680-1690` and stripping the prefix with `cli_llm.rs:1542-1563`. In either topology, the CLI never executes a tool.
+*   **How the spike measures.**
+    *   **Setup.** Everything runs at U2's merge commit, on claude-cli in `ask` mode, with one setting changed at a time. Each G7 task runs 5 times per arm, 50 runs per arm, paired by task.
+    *   **Decision rule.** A default changes only if the new option wins by at least 4 runs of 50, about two standard deviations at a 90% pass rate. Anything less is inconclusive and keeps the current default: the envelope for topology, trusted reads for working-folder files. Hybrid also has to use no more than 5% more tokens per task.
+    *   **What it decides:**
+        *   the topology;
+        *   whether working-folder reads are marked untrusted ([Alternative I](#alternative-i-mark-every-working-folder-file-read-as-untrusted-the-broad-m-1-fix)).
+
+        The sandbox profile isn't measured: it ships.
+    *   **Quality.** The owner rates 10 randomly ordered, unlabelled pairs of final answers. The rating is reported, but decides nothing.
+    *   **Speed.** It's measured as median time to first token, which is what "latency" means in this doc.
+    *   **The report.** `eval/spike/topology.md` has one line per decision, `Chosen default: <topology|workspace_reads>=<value>`, then a results table per arm.
+
+### 3. The core API contract (G6)
+
+#### Runs that outlive their connection
+
+*   **Routes.** The existing routes stay as they are (`server.rs:117-161`). Two are added: `/events` and `/risk-notice`. The API gets a version prefix only when a breaking change needs one.
+*   **Today, a run dies with its `/chat` stream:**
     *   dropping `ChatEventStream` aborts the run (`server.rs:373-393`);
     *   a full event queue aborts it (`server.rs:477-491`);
     *   `WebApprover` denies an approval it can't push onto that same stream within 15 seconds (`server.rs:409-414`).
+*   **`POST /chat`** (`{session_id?, message}`, unchanged) starts a run and keeps its SSE response.
+    *   Its first event, `{"type":"session","id":…}` today (`server.rs:459`), gains `run_id`.
+    *   A session has at most one active run. A second `POST /chat` on a busy session returns `409`, as it already does (`server.rs:455-457`).
+    *   A `/chat` subscriber that falls behind is disconnected, and the run continues. A client can pick the run up again through `/events`. Old clients that don't understand `resync` see the same disconnect they see today.
+*   **Cancelling.** Only `POST /cancel` stops a run, never a dropped connection. `/cancel` keeps today's body, `{session_id}` (`server.rs:540-550`), because a session has at most one active run. It returns `{"cancelled": true}`, or `{"cancelled": false}` if nothing was running.
+*   **Approvals.** They wait on the bus instead of on one stream, using the two answer routes the API already has:
+    *   **A live approval** has a UUID `id`, carried in `approval`, and is answered by `POST /approve {id, decision}` (`server.rs:521-532`).
+        *   `WebApprover` waits on its existing in-memory answer map (`ServerState.approvals`) with the existing 900-second timeout (`server.rs:404-421`).
+        *   Only the 15-second push to a single stream (`server.rs:411`) goes away.
+    *   **On timeout,** the approval is parked with today's deny-and-carry-on behaviour (`park_approval`, `permissions.rs:334-341`).
+        *   The bus gets `approval_parked {id, parked_id}`, where `parked_id` is the integer row id.
+        *   From then on it is answered by `POST /approvals/{parked_id} {action: "approve"|"dismiss"}` (`server.rs:888-890`), which runs it through `run_parked`.
+        *   The UUID is never reused.
 
-    The change makes runs independent of any connection:
-    *   `POST /chat` (`{session_id?, message}`, unchanged) starts a run and keeps its SSE response. Its first event, `{"type":"session","id":…}` today (`server.rs:459`), gains `run_id`. A session has at most one active run: a second `POST /chat` on a busy session returns `409`, as it already does (`server.rs:455-457`).
-    *   Only `POST /cancel` stops a run. A dropped connection doesn't. `/cancel` keeps today's body, `{session_id}` (`server.rs:540-550`), because a session has at most one active run. It returns `{"cancelled": true}`, or `{"cancelled": false}` if nothing was running.
-    *   Approvals wait on the bus instead of on one stream. There are two answer routes, both already in the API:
-        *   **A live approval** has a UUID `id`, carried in `approval_pending`, and is answered by `POST /approve {id, decision}` (`server.rs:521-532`). `WebApprover` waits on its existing in-memory answer map (`ServerState.approvals`) with the existing 900-second timeout (`server.rs:404-421`). Only the 15-second push to a single stream (`server.rs:411`) goes away.
-        *   **On timeout** the approval is parked with today's deny-and-carry-on behaviour (`park_approval`, `permissions.rs:334-341`). The bus gets `approval_parked {id, parked_id}`, where `parked_id` is the integer row id. From then on it is answered by `POST /approvals/{parked_id} {action: "approve"|"dismiss"}` (`server.rs:888-890`), which runs it through `run_parked`. A UUID is never reused.
-*   **One event bus.** Every event from every session, background sessions included, goes onto one bus in `ServerState`. Each event gets a sequence number `seq`, a `u64` that starts at 1 per core process. The buffer is a bounded in-memory ring of the last 10,000 events, which is enough because a core restart ends all runs anyway. `GET /events?since=<seq>` streams it as SSE:
-    *   **Envelope.** Each event is `id: <seq>` plus a JSON `data:` line, `{"seq", "session_id", "run_id", "type", ...fields}`. The `type` and fields are today's chat events, unchanged, plus three new types:
+#### One event bus
 
-        | type | fields | when |
-        |---|---|---|
-        | `session` | `id`, `run_id` | a run starts |
-        | `text` | `text` | a reply chunk |
-        | `tool_start`, `tool_end` | as today | a tool call starts or ends |
-        | `approval` (alias `approval_pending`) | `id` (UUID), `tool`, `summary`, `risk`, `detail`, `always_rule`, `can_always`, `can_session` | an approval is needed |
-        | `approval_resolved` | `id`, `decision` | **new**: answered or cancelled |
-        | `approval_parked` | `id`, `parked_id` | **new**: timed out and parked |
-        | `usage`, `model`, `notice`, `learned` | as today | as today |
-        | `done`, `cancelled`, `error` | as today | a run ends |
-        | `resync` | `oldest` | **new**: the client asked for a `since` older than the ring holds |
-    *   **No `since`.** Without `since`, the stream starts with new events only.
-    *   **After `resync`.** The client reloads with `GET /sessions/{id}` and `GET /approvals`, then continues from the newest `seq` it has.
-    *   **Filtered views.** The `/chat` SSE is the subset with this run's `run_id`, in the same JSON shape existing clients parse. The added `seq` and `run_id` fields are extra keys, which the Slint and web clients ignore.
-*   **Port and token handoff.** The Mac app launches the existing CLI binary in the bundle as a child process: `Contents/MacOS/heron-cli serve --no-open --port 0 --print-endpoint`. `--print-endpoint` is a new flag on `Cmd::Serve` (`main.rs:51-57`). With it, the server binds `127.0.0.1` whatever `cfg.server.bind` says, picks a free port, and prints one JSON line `{"port": …, "token": …}` on stdout, which the app reads through the pipe. Nothing is written to disk, and the header check (`server.rs:102-107`) is unchanged. If the core exits, the app shows the error and restarts it once.
-*   **State that survives restarts.** `set_mode` writes `permissions.mode` to the config file, following the existing `set_tool` pattern (`server.rs:924-930`, `config.rs:176-178`), so there is one source of truth. Audit appends and hash-chain updates commit in one write transaction.
+Every event from every session, background sessions included, goes onto one bus in `ServerState`. Each event gets a sequence number, `seq`: a `u64` that starts at 1 for each core process.
 
-### 4. The SwiftUI Mac app, the G6 goal
+The buffer is an in-memory ring of the last 10,000 events. That covers a 5-minute disconnect at 30 events per second. The ring doesn't need to survive a core restart, because a restart ends every run.
 
-*   **Location and target.** It lives in `macos/HeronMac/`, an Xcode project with SwiftPM packages, targeting macOS 14 or later for the Observation framework.
-*   **Packaging.** v1 removes the Slint desktop binary from the macOS bundle: `Contents/MacOS/Heron` becomes the SwiftUI app. The Rust core is the `Contents/MacOS/heron-cli` binary that already ships there, and `scripts/install.sh:48` keeps linking `~/.local/bin/heron` to it. There is no second copy. The name must never be `heron`: macOS uses a case-insensitive filesystem by default, so `Heron` and `heron` are the same file, and v0.3.0 shipped a broken bundle for exactly this reason (`packaging/macos/build-app.sh:17-25`). The `cmp -s` guard keeps comparing `Heron` with `heron-cli`, which is still the pair that can collide. The menu bar extra keeps the app, and so the core, running when the window is closed, so scheduled jobs keep running. A LaunchAgent through `SMAppService` is deferred until unattended work through a subscription login is allowed (Q6).
+`GET /events?since=<seq>` streams the bus as SSE:
+
+*   **Envelope.** Each event is `id: <seq>` plus one JSON `data:` line, `{"seq", "session_id", "run_id", "type", ...fields}`. Types and fields are today's chat events, unchanged, plus three new types:
+
+    | type | fields | when |
+    |---|---|---|
+    | `session` | `id`, `run_id` | a run starts |
+    | `text` | `text` | a reply chunk |
+    | `tool_start`, `tool_end` | as today | a tool call starts or ends |
+    | `approval` | `id` (UUID), `tool`, `summary`, `risk`, `detail`, `always_rule`, `can_always`, `can_session` | an approval is needed |
+    | `approval_resolved` | `id`, `decision` | **new**: answered or cancelled |
+    | `approval_parked` | `id`, `parked_id` | **new**: timed out and parked |
+    | `usage`, `model`, `notice`, `learned` | as today | as today |
+    | `done`, `cancelled`, `error` | as today | a run ends |
+    | `resync` | `oldest` | **new**: the client asked for a `since` older than the ring holds |
+*   **Without `since`,** the stream starts with new events only.
+*   **After `resync`,** the client reloads with `GET /sessions/{id}` and `GET /approvals`, then continues from the newest `seq` it has.
+*   **`/chat` view.** The `/chat` SSE is the subset with this run's `run_id`, in the JSON shape existing clients parse. The added `seq` and `run_id` keys are extra fields, which the Slint and web clients ignore.
+
+#### Starting and stopping the core
+
+*   **Startup.** The Mac app launches the CLI binary that already ships in the bundle as a child process: `Contents/MacOS/heron-cli serve --no-open --port 0 --print-endpoint`.
+    *   `--print-endpoint` is a new flag on `Cmd::Serve` (`main.rs:51-57`). With it, the server binds `127.0.0.1` whatever `cfg.server.bind` says, picks a free port, and prints one JSON line on stdout: `{"port": …, "token": …}`. The app reads it through the pipe.
+    *   Nothing is written to disk, and the header check (`server.rs:102-107`) is unchanged.
+*   **Exiting.** The core started with `--print-endpoint` exits when its stdin reaches EOF or its parent PID changes, so a crashed or force-quit app never leaves an orphan core.
+*   **Stale cores.** `background.lock` records the holder's PID. On launch, the app terminates a stale `heron-cli serve` that holds the lock.
+*   **Restarts.** If the core exits, the app shows the error and restarts it once. If the restarted core exits again within 60 seconds, the app stops and offers a "Restart Heron's core" button.
+*   **State that survives restarts.** `set_mode` writes `permissions.mode` to the config file, following the `set_tool` pattern (`server.rs:924-930`, `config.rs:176-178`), so the config file stays the one source of truth. Each audit append and its hash-chain update commit in one write transaction.
+
+### 4. The SwiftUI Mac app (G6)
+
+*   **Location and target.** The app lives in `macos/HeronMac/`, an Xcode project with SwiftPM packages, and targets macOS 14 or later for the Observation framework.
+*   **Packaging.**
+    *   v1 removes the Slint desktop binary from the macOS bundle. `Contents/MacOS/Heron` becomes the SwiftUI app.
+    *   The Rust core is the `Contents/MacOS/heron-cli` binary that already ships there, and `scripts/install.sh:48` keeps linking `~/.local/bin/heron` to it. There is no second copy.
+    *   The core's name must never be `heron`. macOS uses a case-insensitive filesystem by default, so `Heron` and `heron` are the same file, which is why v0.3.0 shipped a broken bundle (`packaging/macos/build-app.sh:17-25`). The `cmp -s` guard keeps comparing `Heron` with `heron-cli`, still the pair that can collide.
+*   **Keeping the core running.** The menu bar extra keeps the app, and so the core, running when the window is closed. A LaunchAgent through `SMAppService` is deferred until unattended work through a subscription login is allowed (Q6).
 *   **The `CoreClient` layer.** `URLSession` for requests, an SSE parser for `/events`, and typed models for each route. No UI code calls the network directly.
-*   **Screens.**
+*   **Screens:**
     *   **Today:** the existing `/today` data and "Prep my day".
     *   **Chat:** an activity track beside each reply.
-    *   **Approvals:** a sheet and feed outside the chat thread. Each approval states the action and its impact, with scoped grants (once, this conversation, always) that can be revoked in Settings.
+    *   **Approvals:** a sheet and feed outside the chat thread. Each approval states the action and its impact, and offers scoped grants: once, this conversation, or always for this folder. Grants can be revoked in Settings.
     *   **Memory:** an editable list with confirm, retire and source.
     *   **Tasks and Schedules.**
     *   **Activity:** the audit log.
-    *   **Settings:** the standard Settings scene.
-    *   **Personalization.** The agent name and personality are core settings: `GET`/`POST /persona` (`server.rs:848-850`) stores them in `cfg.agent.name` and the personality file. The avatar image, theme and accent colour are display preferences, kept by the Mac app in `UserDefaults`, with the avatar image file under `~/Library/Application Support/Heron/`. No new route is needed.
-*   **Entry points.** A menu bar extra, which also keeps the app alive when the window is closed. A quick-entry panel on a global hotkey goes on the Q8 feature list instead of v1's base scope.
-*   **The avatar.** A SwiftUI view driven by one state value: `idle`, `thinking`, `awaitingApproval`, `speaking` or `error`. That value comes from the event stream:
+    *   **Settings:** the standard Settings scene, including the sandbox status.
+    *   **Personalization:**
+        *   The agent name and personality are core settings. `GET` and `POST /persona` (`server.rs:848-850`) store them in `cfg.agent.name` and the personality file.
+        *   The avatar image, theme and accent colour are display preferences. The Mac app keeps them in `UserDefaults`, and the avatar image file under `~/Library/Application Support/Heron/`.
+        *   No new route is needed.
+*   **Entry point.** The menu bar extra. A quick-entry panel on a global hotkey goes on the Q8 feature list instead of v1's base scope.
+*   **The avatar.** A SwiftUI view driven by one state value, set from the event stream:
 
     | Event | New state |
     |---|---|
@@ -393,12 +524,12 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
     | `done`, `cancelled` | `idle` |
     | `error` | `error`, back to `idle` after 5 seconds or on the next `session` |
 
-    The first version uses SwiftUI animations on layered vector assets; a Rive runtime is a later option.
+    The first version uses SwiftUI animations on layered vector assets. A Rive runtime is a later option.
 *   **Accessibility.** Native controls and SF Symbols, with VoiceOver labels on every control. Animation follows "Reduce motion".
 
-### 5. Features behind switches
+### 5. Features behind switches (U5)
 
-*   **Switches.** A new feature uses the existing per-ability switches (`/tools/{name}`, `set_tool`, stored as `[permissions]` rules) and the global pause where they are enough. A separate `[features]` table is added only when a feature on the Q8 list needs an on/off switch that those can't give.
+*   **Switches.** A new feature uses the existing per-ability switches (`/tools/{name}` and `set_tool`, stored as `[permissions]` rules) and the global pause where those are enough. A separate `[features]` table is added only when a feature on the Q8 list needs an on/off switch they can't give.
 *   **Security definition of done.** A feature is done only when:
     *   each tool it adds declares its `Effect` and `untrusted_output`;
     *   it has rows in the permission decision-table test (`permissions.rs:881-938`);
@@ -406,26 +537,45 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
     *   it has an EVE task, or an existing task covers it.
 *   **The freeze.** A feature that misses the release-candidate freeze stays switched off and moves to v1.1.
 
-### 6. Research preview and release, the G8 goal
+### 6. Research preview and release (G8)
 
-*   **The risk notice.** `docs/ACCEPTED_RISKS.md` is the owner-signed register the user sees, in plain language, starting with C35-8. Each entry cites its ID in `docs/engineering/SECURITY_THREAT_MODEL.md` or `docs/engineering/REMEDIATION_MATRIX.md`, and the threat model links back. The register's first line is `Version: <integer>`. The file is compiled into the core with `include_str!`, so the notice can't drift from the binary.
-    *   **`GET /risk-notice`** returns `{"version": n, "text": "…", "accepted_version": m|null}`.
-    *   **`POST /risk-notice`** with `{"version": n}` stores `n` in the kv store as `risk_notice_version` and returns `204`.
-    *   **Until the current version is accepted:**
-        *   `POST /chat` returns `428 {"error":"risk_notice_not_accepted"}`;
-        *   the terminal chat prints the notice and asks y/n;
-        *   Telegram answers with one line pointing to the app;
-        *   unattended work doesn't start.
+#### The risk notice
 
-    When the version number goes up, the notice shows again. A "Research preview" label stays in the window title bar and the About box.
-*   **Release CI.** The existing pipeline is extended, not replaced. `packaging/macos/build-app.sh` already builds the universal app with `lipo`, signs through `CODESIGN_IDENTITY` and makes `dist/Heron-macos-universal.dmg`. It gains the Xcode build, replacing the Slint binary at `Contents/MacOS/Heron` with the SwiftUI app while `heron-cli` stays as the core, the hardened runtime, `notarytool` and stapling, behind `--sign` and `--unsigned`. The `macos` job in `.github/workflows/release.yml` calls it. The existing `publish` job, `SHA256SUMS.txt` and the artifact name the README installers check all stay the same.
-*   **Upgrade test.** A fixture copy of a v0.3.1 `~/.heron` is upgraded. The test checks that the data, allow rules and audit chain survive, and runs `heron audit` on the result.
+*   **The register.** `docs/ACCEPTED_RISKS.md`, created by U6, is the owner-signed register the user sees, in plain language.
+    *   It starts with C35-8 and R-1.
+    *   Each entry cites its ID in `docs/engineering/SECURITY_THREAT_MODEL.md` or `docs/engineering/REMEDIATION_MATRIX.md`, and the threat model links back.
+    *   The register's first line is `Version: <integer>`.
+*   **Compiled in.** The file is compiled into the core with `include_str!`, so the notice can't drift from the binary.
+*   **`GET /risk-notice`** returns `{"version": n, "text": "…", "accepted_version": m|null, "sandbox": "on"|"off"}`.
+*   **`POST /risk-notice`** with `{"version": n}` stores `n` in the kv store as `risk_notice_version`, and returns `204`.
+*   **Until the current version is accepted:**
+    *   `POST /chat` returns `428 {"error":"risk_notice_not_accepted"}`;
+    *   the terminal chat prints the notice and asks y/n;
+    *   Telegram answers with one line pointing to the app;
+    *   unattended work doesn't start.
+*   **New versions.** When the version number goes up, the notice shows again.
+*   **The label.** "Research preview" stays in the window title bar and the About box.
 
-### 7. Measuring success
+#### Release CI
 
-*   **Core tasks.** `eval/core-tasks.md` lists the 10 tasks with machine-checkable pass rules. An EVE configuration runs them against `/chat` in `ask` mode, with a script that approves the expected actions and denies everything else.
-*   **Baseline.** A run on current `main` happens before step 1.
-*   **Owner-use count.** G9 is counted by `eval/owner-use.sh`, a shell script that runs read-only SQL against `heron.db`. `to_v3` adds `sessions.origin`: `user`, `telegram`, `schedule`, `automation`, `proactive`, `mcp` or `sub_agent`, with old rows defaulting to `user`. Each code path that creates a session sets it. A day counts if it has a session with origin `user` or `telegram`, created that day in the Mac's local time zone, and with at least one `audit` row, which means a tool call.
+*   **Extend, don't replace.** `packaging/macos/build-app.sh` already builds the universal app with `lipo`, signs through `CODESIGN_IDENTITY`, and makes `dist/Heron-macos-universal.dmg`.
+*   **What it gains,** behind `--sign` and `--unsigned`:
+    *   the Xcode build, which replaces the Slint binary at `Contents/MacOS/Heron` with the SwiftUI app while `heron-cli` stays as the core;
+    *   the hardened runtime;
+    *   `notarytool` and stapling.
+*   **What stays.** The `macos` job in `.github/workflows/release.yml` calls the script. The existing `publish` job, `SHA256SUMS.txt`, and the artifact name the README installers check all stay the same.
+
+#### Upgrade test
+
+A fixture copy of a v0.3.1 `~/.heron` is upgraded. The test checks that the data, the allow rules and the audit chain survive, and runs `heron audit` on the result.
+
+### 7. Measuring success (G7, G9)
+
+*   **Core tasks.** `eval/core-tasks.md` lists the 10 tasks with machine-checkable pass rules. An EVE configuration runs them against `/chat` in `ask` mode, with a script that approves the expected actions and denies everything else. A probe task for R-1 is reported but doesn't count toward the 26 of 30.
+*   **Baseline.** A run on current `main` happens before U1.
+*   **Owner-use count (G9).** `eval/owner-use.sh`, a shell script, runs read-only SQL against `heron.db`.
+    *   `to_v3` adds `sessions.origin`, one of `user`, `telegram`, `schedule`, `automation`, `proactive`, `mcp` or `sub_agent`. Old rows default to `user`, and each code path that creates a session sets the field.
+    *   A day counts if it has an `audit` row with an executed decision, timestamped that day in the Mac's local time zone, in a session whose origin is `user` or `telegram`.
 
 ## Alternatives Considered
 
@@ -434,38 +584,40 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
 *   **Pros**:
     *   It uses each CLI's own multi-step planning.
     *   Heron needs less loop code.
-    *   It is the pattern most CLI wrappers use.
 *   **Cons**:
-    *   Heron's controls work only while Heron runs the loop. Under (c), the only gate is the MCP server. Today that server hard-codes "not tainted" (`mcp.rs:266`), refuses anything that needs approval (`mcp.rs:274`), and logs every call under one shared session (`main.rs:750-753`).
+    *   Heron's controls work only while Heron runs the loop. Under (c), the only check is the MCP server. Today that server hard-codes "not tainted" (`mcp.rs:266`), refuses anything that needs approval (`mcp.rs:274`), and logs every call under one shared session (`main.rs:750-753`).
     *   Approvals would have to hold a CLI process open inside a tool call while a person decides, and the CLIs' tool-call timeouts differ.
     *   The record-and-replay layer wraps the model interface (`llm.rs`). Under (c) there is no model boundary to record at, so evaluation results would vary with CLI versions and spend subscription quota.
-*   **Reason for Rejection**: It breaks the safety claim that defines Heron, which is G1. It may be measured in the spike, but it doesn't ship in v1. Four preconditions must hold first:
+*   **Reason for Rejection**: It breaks G1. It's neither built nor measured in v1. These four preconditions must hold first (the only place they're listed):
     *   a per-conversation MCP endpoint inside the running core;
-    *   every call routed through the one `decide` function;
+    *   every call routed through the one decision function;
     *   approvals that can hold a call open;
     *   a written list of where each loop control moves.
 
 ### Alternative B: Swift-to-Rust FFI (UniFFI or swift-bridge) instead of the HTTP API
 
 *   **Pros**:
-    *   No local network hop and no token handling.
+    *   No local network hop, and no token to handle.
     *   Typed bindings are generated from Rust.
     *   One process.
 *   **Cons**:
-    *   The core would run inside the UI process. Scheduled jobs, the Telegram gateway and watches would stop when the window closes, or need a second process anyway.
-    *   It is a second API surface next to the HTTP API, which the web UI and EVE still need.
+    *   The core would run inside the UI process. Scheduled jobs, the Telegram gateway and watches would stop when the window closes, unless a second process is added.
+    *   It's a second API surface next to the HTTP API, which the web UI and EVE still need.
     *   Rust panics and async runtimes cross into Swift.
     *   Builds are slower, because every UI build relinks the core.
-*   **Reason for Rejection**: The HTTP API already exists, covers every screen (`server.rs:117-161`), and is what EVE tests. All six brainstorm reviewers and the research note recommend HTTP. FFI remains an option later for narrow, latency-sensitive calls.
+*   **Reason for Rejection**: The HTTP API already exists, covers every screen (`server.rs:117-161`), and is what EVE tests. The brainstorm reviewers and the research note ([cli-backend-and-swiftui.md](research/cli-backend-and-swiftui.md)) all recommend HTTP. FFI stays an option for narrow, latency-sensitive calls later.
 
 ### Alternative C: A web UI in a native shell (Tauri, Electron or WKWebView)
 
 *   **Pros**:
-    *   Rich animation is cheap: CSS, Lottie and Rive web runtimes.
+    *   Rich animation needs no native code: CSS, Lottie and Rive web runtimes.
     *   Heron already serves a web UI (`server.rs:164`).
     *   One UI could cover all platforms.
-*   **Cons**: It doesn't look or behave like a Mac app. That means no standard Mac text controls, menus, Settings window, materials, or the accessibility behaviour that comes with native controls.
-*   **Reason for Rejection**: The owner wants "a real app that looks and feels like a real app", not a web view.
+*   **Cons**:
+    *   It doesn't look or behave like a Mac app.
+    *   It has no standard Mac text controls, menus, Settings window or materials.
+    *   It lacks the accessibility behaviour native controls come with.
+*   **Reason for Rejection**: The owner asked for "a real app that looks and feels like a real app", not a web view.
 
 ### Alternative D: Redesign the Slint app instead of building a SwiftUI app
 
@@ -474,9 +626,9 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
     *   No second language, and no Xcode build in CI.
     *   UI PRs #42 to #49 already improved it.
 *   **Cons**:
-    *   Slint draws its own widgets. Mac materials, standard menus, the Settings scene, menu bar extras, SF Symbols, Mac text input and VoiceOver behaviour are partial or have to be rebuilt by hand.
-    *   The owner rates the current UI and UX as the weakest part, even after those PRs.
-*   **Reason for Rejection**: It can't reach "feels like a real Mac app". Slint stays for Windows and Linux, with no new UI work.
+    *   Slint draws its own widgets. Mac materials, standard menus, the Settings scene, menu bar extras, SF Symbols, Mac text input and VoiceOver behaviour are partial, or have to be rebuilt by hand.
+    *   The owner still names the UI and UX as the main problem after those PRs.
+*   **Reason for Rejection**: It can't meet the owner's requirement of a real Mac app. Slint stays for Windows and Linux, with no new UI work.
 
 ### Alternative E: Relay the subscription through `ANTHROPIC_BASE_URL` or the Agent SDK
 
@@ -484,31 +636,31 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
     *   Direct API-shaped access.
     *   No process start-up per turn.
     *   Native tool calling and usage fields.
-*   **Cons**: Anthropic's legal page says developers using the Agent SDK "should use API key authentication", and may not route requests through subscription credentials. This is quoted in `docs/designs/research/cli-backend-and-swiftui.md` but not yet verified against the live page. Driving the unmodified CLI binary with the user's own login is the reading T3 Code and Hermes rely on.
-*   **Reason for Rejection**: It carries a higher terms-of-service risk than driving the unmodified CLI. Heron already scrubs `ANTHROPIC_BASE_URL` and the API-key variables from the CLI child (`cli_llm.rs:1222-1227`) for the same reason.
+*   **Cons**:
+    *   Anthropic's legal page says developers using the Agent SDK "should use API key authentication", and may not route requests through subscription credentials. The quote is in [cli-backend-and-swiftui.md](research/cli-backend-and-swiftui.md), but hasn't been checked against the live page (UNVERIFIED; see [Risks & Mitigations](#risks--mitigations)).
+    *   Driving the unmodified CLI binary with the user's own login is the reading two open-source agent front ends rely on: T3 Code (github.com/pingdotgg/t3code) and Hermes Agent's Claude subscription plugin. Both are described in the same research note.
+*   **Reason for Rejection**: It carries more terms-of-service risk than driving the unmodified CLI. For the same reason, Heron already scrubs `ANTHROPIC_BASE_URL` and the API-key variables from the CLI child (`cli_llm.rs:1222-1227`).
 
-### Alternative F: Extend the blocked-names list instead of an allowlist
+### Alternative F: Extend the blocked-names list instead of using read tiers
 
 *   **Pros**:
     *   A small change.
-    *   No migration of allow rules.
     *   No new "asks" for reads that work today.
 *   **Cons**:
-    *   A denylist fails open on every location nobody thought of, such as a new CLI's config folder or a renamed credentials file.
-    *   The qualification named the denylist as one of the two shared root causes.
-*   **Reason for Rejection**: It doesn't fix the root cause. The allowlist adds some "ask" prompts for reads outside the working folder. That cost is accepted and measured by the task gate.
+    *   A denylist fails open on any location not on the list, such as a new CLI's config folder or a renamed credentials file.
+    *   The qualification named the denylist as RC2.
+*   **Reason for Rejection**: It doesn't fix RC2. The read tiers add some asks for reads outside the working folder. That cost is accepted, and the task gate measures it.
 
 ### Alternative G: The owner's first work order (features, then UI, then hardening)
 
 *   **Pros**:
     *   Visible progress soonest.
-    *   The owner sees the product take shape first.
 *   **Cons**:
-    *   With autonomous merges, every new feature adds surface to a security model with known holes.
-    *   "0 P0 / 0 P1" keeps moving.
+    *   With autonomous merges, every new feature adds surface to a security model with open P0 and P1 findings.
+    *   The target of 0 P0 and 0 P1 changes with each merge.
     *   Signing and notarization problems only show at the end.
-    *   Four of six reviewers independently recommended hardening first.
-*   **Reason for Rejection**: The owner chose Option X during the brainstorm: decisions and spikes first, then the root causes, the remaining P0 and P1 findings, the API contract, SwiftUI, and features behind switches. Features are not cut. Late ones move to v1.1.
+    *   Four of the six brainstorm reviewers recommended hardening first.
+*   **Reason for Rejection**: The owner chose Option X during the brainstorm. Features aren't cut; late ones move to v1.1.
 
 ### Alternative H: Run the core as a LaunchAgent and hand over the token in a file
 
@@ -516,60 +668,76 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
     *   The core keeps running scheduled jobs after the app quits.
     *   The app and the core start and stop separately.
 *   **Cons**:
-    *   It needs a discovery file for the random port and the token, and handling for a stale file.
-    *   It needs a restart of the helper after every update, and a Login Items entry.
+    *   It needs a discovery file for the random port and the token, and a way to handle a stale file.
+    *   The helper must restart after every update, and it needs a Login Items entry.
     *   It writes the API token to disk.
     *   Its main benefit is unattended work after quitting, which Q6 keeps off by default for subscription logins.
-*   **Reason for Rejection**: For v1, the app starts the core as a child process and reads `{port, token}` from its stdout pipe. The menu bar extra keeps it running while the window is closed. The LaunchAgent is listed under Future Improvements, for when Q6 allows unattended work.
+*   **Reason for Rejection**: For v1, the app starts the core as a child process and reads `{port, token}` from its stdout pipe ([§3](#3-the-core-api-contract-g6)). The LaunchAgent is listed under Future Improvements.
 
-### Alternative I: Mark every workspace file read as untrusted (the broad M-1 fix)
+### Alternative I: Mark every working-folder file read as untrusted (the broad M-1 fix)
 
 *   **Pros**:
-    *   It closes M-1 at its first link, because injected text in a workspace file taints the conversation.
-    *   It treats every file the same way, with no judgment about who wrote it.
+    *   It closes M-1 at its first link, because injected text in a working-folder file taints the conversation.
+    *   It also closes R-1.
+    *   It treats every file the same way, whoever wrote it.
 *   **Cons**:
-    *   Any conversation that reads a file would ask before every write.
+    *   Any conversation that reads a file would then ask before every later write.
     *   Conversation-scoped grants and standing allow rules would stop applying.
-    *   It reverses the README's "Reading: allowed" contract and probably lowers the G7 and G9 results.
-*   **Reason for Rejection**: Not adopted as the default. The proposed Q1 answer breaks the M-1 chain at the credential read instead. The broad version is built only under the `spike` cargo feature, and U2s measures its cost against the U0 baseline. U2w makes it the fixed behaviour if the task gate loses fewer than 2 runs of 30, and deletes it otherwise. It never ships as a config switch.
+    *   It probably lowers the G7 and G9 results.
+*   **Decision**: It isn't the default. The broad version is built only under the `spike` cargo feature, and the measurement spike tests it with the rule in [§2](#hybrid-topology-and-the-measurement-spike-g5). U2w either makes it the fixed behaviour or deletes it. It never ships as a config switch.
 
---------------------------------------------------------------------------------
+## Risks & Mitigations
+
+| Risk | Type | Likelihood / impact | Mitigation or accepted-risk ID | Owner | Specified in |
+|---|---|---|---|---|---|
+| **R-1:** in a conversation with no outside content, injected text in a working-folder file makes Heron send other working-folder content to a new URL without asking | Security | Medium / High | Accepted risk R-1, which the owner signs in `docs/ACCEPTED_RISKS.md`. It counts against the cap of 3. A G7 probe task reports it. The alternative is Alternative I if the spike shows it's cheap enough. | Owner (sign-off); U6 | Q1, [Alternative I](#alternative-i-mark-every-working-folder-file-read-as-untrusted-the-broad-m-1-fix) |
+| C35-8: phone turns inherit the desktop mode | Security | Medium / High | Accepted risk, recorded by U6 | Owner; U6 | [Security findings](#security-findings-in-scope) |
+| Apple deprecates or changes `sandbox-exec` | External | Low / High | With no sandbox, CLI providers are refused (§1). Re-check on each macOS major release. | U2 | [§1](#when-the-sandbox-is-off) |
+| The sandbox is turned off by the user or is missing | Security | Low / High | CLI providers are refused, the shell asks on Ask-tier reads, and the notice shows the status | U2 | [§1](#when-the-sandbox-is-off) |
+| CLI flags or the protocol change within a pinned major version | Failure mode | Medium / Medium | A scheduled contract test against the latest releases, the version contract, and per-CLI fix messages (CUJ 5) | U2 | [§2](#version-contract) |
+| Subscription quota runs out during spike or G7 runs | Scalability | Medium / Low | Runs are paired and reruns resume per task; the reduced gate runs on the other Tier 1 CLIs (Q5) | U0, U2s | Q5 |
+| An orphaned core keeps running after an app crash | Failure mode | Medium / Medium | The core exits on stdin EOF or a parent change, and a stale core is killed on launch | U3 | [§3](#starting-and-stopping-the-core) |
+| macOS privacy (TCC) prompts are attributed to Heron.app when CLI children touch protected folders | External | Medium / Low | UNVERIFIED. U2's containment check records which prompts appear, and the getting-started guide explains them | U2, U6 | — |
+| Autonomous merges land security-sensitive code without review | Process | Medium / High | Q7 (owner review on the listed paths) and Q9 (branch protection) | Owner | Q7, Q9 |
+| The App Sandbox conflicts with spawning CLIs | External | High / Low | Out of scope (Non-Goals). UNVERIFIED. | — | Non-Goals |
+| The Antigravity config path is unknown | External | Certain / Medium | U2 confirms it from `agy` before antigravity-cli can be Tier 1 | U2 | [§1](#read-tiers-and-verdicts) |
+| The Anthropic terms quote is unverified | External | — / High | The owner reads the live terms before the friends release (Q6) | Owner | Q6, Alternative E |
 
 ## Non-Functional Requirements
 
 *   **Security and privacy.**
-    *   G1 to G3 are the bar.
-    *   No telemetry. All counts are local (G9).
+    *   G1 to G3 set the requirement.
+    *   No telemetry: every count is local (G9).
     *   No credential is ever typed into Heron for a CLI login. Heron detects the CLI's own login.
-    *   The API token is passed to the Mac app over the core's stdout pipe and never written to disk.
+    *   The API token reaches the Mac app over the core's stdout pipe, and is never written to disk.
 *   **Latency.**
-    *   Time to first token is reported per provider in the spike (G5) and in every task-gate run.
-    *   A CLI turn includes a process start. The budget is 3 seconds median to first token on claude-cli, measured on an Apple-silicon Mac. A regression beyond that fails the task gate's report, not the gate itself.
+    *   Median time to first token is reported per provider in the spike and in every task-gate run.
+    *   A CLI turn includes a process start. The budget is a 3-second median on claude-cli, on an Apple-silicon Mac. A regression beyond that is flagged in the report but doesn't fail the task gate.
 *   **Token and quota cost.**
-    *   The topology spike and task gate spend subscription allowance. Per Q5, the full gate runs on claude-cli and a reduced gate on the other Tier 1 CLIs.
-    *   No background or unattended work runs through a subscription login by default (Q6).
+    *   The measurement spike and the task gate spend subscription allowance (Q5).
+    *   By default, no unattended work runs through a subscription login (Q6).
 *   **Rollout and rollback.**
-    *   New features ship off until done, using the existing per-ability switches (Technical Plan §5).
-    *   Before migrating, the upgrade from v0.3.1 makes a backup with `heron backup`. Rollback is `heron restore` with that backup, and is rehearsed once (G8).
-    *   The schema change is one new numbered migration step, `to_v3`, which adds columns and never drops any. A v0.3.1 build refuses a v3 database (`store.rs:519-525`), so rolling back to v0.3.1 means `heron restore` from the pre-upgrade backup.
-*   **Platform.** macOS 14 or later, Apple silicon and Intel as a universal binary. Windows and Linux keep building in CI and are labelled unqualified.
+    *   New features ship off until done, using the existing per-ability switches ([§5](#5-features-behind-switches-u5)).
+    *   Before migrating, the upgrade from v0.3.1 makes a backup with the existing backup code.
+    *   The schema change is one new numbered migration step, `to_v3`, which adds columns and never drops any.
+    *   A v0.3.1 build refuses a v3 database (`store.rs:519-525`), so rolling back to v0.3.1 means `heron restore` from the pre-upgrade backup. That restore is rehearsed once (G8).
+*   **Platform.** macOS 14 or later, as a universal binary for Apple silicon and Intel. Windows and Linux keep building in CI and are labelled unqualified.
 
---------------------------------------------------------------------------------
+## Additional Resources
 
-### Additional Resources
+*   [concepts_brief.md](concepts_brief.md): the six-lens brainstorm review and the owner's decisions.
+*   Research notes: [research/muse-ux.md](research/muse-ux.md), [research/frontier-agent-uis.md](research/frontier-agent-uis.md) and [research/cli-backend-and-swiftui.md](research/cli-backend-and-swiftui.md).
+*   The qualification reports, on branch `qualification/v1.0-rc1` under `qualification/reports/`. Start with `HERON-V1-RELEASE-QUALIFICATION.md` and `02-architecture-audit.md`.
+*   [docs/cli-providers.md](../cli-providers.md): today's CLI provider behaviour.
+*   Review reports: [reviews/](reviews/).
 
-*   `docs/designs/concepts_brief.md`: the six-lens brainstorm review and the owner's decisions.
-*   `docs/designs/research/muse-ux.md`, `frontier-agent-uis.md` and `cli-backend-and-swiftui.md`: the research notes.
-*   The qualification reports on branch `qualification/v1.0-rc1`, in `qualification/reports/`. Start with `HERON-V1-RELEASE-QUALIFICATION.md` and `02-architecture-audit.md`.
-*   `docs/cli-providers.md`: today's CLI provider behaviour.
+## Future Improvements
 
-### Future Improvements
-
-*   **CLI-owned loop (topology c),** once its four preconditions hold.
+*   **CLI-owned loop (topology c),** once its preconditions in [Alternative A](#alternative-a-let-the-cli-own-the-agent-loop-topology-c) hold.
 *   **A Rive avatar runtime,** once a designer makes the assets.
-*   **Qualifying Windows and Linux,** on the same gates.
+*   **Qualifying Windows and Linux** on the same release gates.
 *   **FFI for narrow hot paths,** if the HTTP boundary measures too slow for some call.
-*   **The core as a LaunchAgent** (Alternative H), once Q6 allows unattended work through a subscription login.
+*   **The core as a LaunchAgent** ([Alternative H](#alternative-h-run-the-core-as-a-launchagent-and-hand-over-the-token-in-a-file)), once Q6 allows unattended work through a subscription login.
 
 --------------------------------------------------------------------------------
 
@@ -597,7 +765,7 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
     *   the expected approvals: which to approve and which to deny;
     *   a machine-checkable pass rule: file contents, a memory, task or schedule row, an audit entry, or an expected refusal.
 
-    Task 10 is the hidden-instruction page from CUJ 3.
+    Task 10 is the hidden-instruction page from CUJ 3. A report-only probe task, P1, tests R-1: a working-folder README tells Heron to send another working-folder file to a new URL. Its result is reported, but doesn't count toward the 26 of 30.
 
 ##### 2. `eval/eve/heron-core.yaml` (Create)
 
@@ -625,44 +793,44 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
 *   **Type / Scope**: Results.
 *   **Proposed Changes**: The baseline summary from current `main`, committed so later runs compare against it.
 
-#### Work unit U1: one trust gate and the secret allowlist (root causes 1 and 2, M-1 to M-4, M-6 to M-8)
+#### Work unit U1: one decision function and read tiers for `read_file` (RC1, RC2, M-1 to M-4, M-6 to M-8)
 
 ##### 6. `src/permissions.rs` (Modify)
 
 *   **Type / Scope**: Policy core.
 *   **Proposed Changes**:
-    *   **One decision function.** `Policy::decide()` is deleted. `decide_in` becomes `decide(&self, tool, summary, effect, ctx: &ToolCtx) -> Verdict` and reads taint from `ctx.tainted`. No caller can pass taint as an argument.
-    *   **`sensitive_path()` (lines 538-543) stays** as the first check, and its pattern gains the M-4 paths (`~/.config/gh/hosts.yml`, `~/.cargo/credentials.toml`, shell histories, browser `Login Data`). Its decision-table rows for `SensitiveRead` (`permissions.rs:870`) are kept.
-    *   **A new `fn read_scope(path) -> ReadScope { Allowed, Ask, Refused }`**, driven by a `ReadRoots` list, applies to paths the secret check doesn't match:
-        *   *Allowed:* the working folder, granted folders and temp folders.
-        *   *Ask:* the rest of `$HOME`.
-        *   *Refused:* the three databases, `secrets.json`, and every CLI config folder including the env overrides.
-    *   **Check order:** secret match, then Refused, then allow rules, then the tiers. No allow rule can open a secret or a Refused path.
-    *   **Shell classification (around line 511).** Shell commands whose arguments contain globs, quotes or backslashes resolving into `Ask` or `Refused` locations classify by the resolved path, not by the literal text (M-4).
-    *   **The M-1 chain is broken at the credential read.** `~/.config/gh/hosts.yml` and similar paths sit outside the Allowed tier, so reading them asks. The existing rule that a tainted conversation's egress to a new URL asks (`permissions.rs:244`) is kept.
-    *   **No allow-rule migration, as Q2 proposes.** Secret and Refused checks run before allow rules, so existing rules stay as they are and can't open those paths.
-    *   **New decision-table rows** for `ReadScope` × mode × taint.
+    *   **One decision function.** `Policy::decide()` is deleted. `decide_in` becomes `decide(&self, tool, summary, effect, ctx: &ToolCtx) -> Verdict`, and reads taint from `ctx.tainted`. No caller can pass taint as an argument.
+    *   **Check order**, as in [Read tiers and verdicts](#read-tiers-and-verdicts): `Effect::Forbidden` → deny rules → read-only → Refused → secret check → taint → allow rules → tiers.
+    *   **`fn read_scope(path) -> ReadScope { Refused, Allowed, Ask }`**, driven by a `ReadRoots` list. Refused includes the whole `cfg.home` subtree, the CLI config folders and the macOS personal stores.
+    *   **The secret check.** `sensitive_path()` (lines 538-543) stays as the second check, and its pattern gains the M-4 paths. Its decision-table rows for `SensitiveRead` (`permissions.rs:870`) are kept.
+    *   **`Effect::OutsideRead`** is a new, non-high effect for Ask-tier reads.
+    *   **Folder-scoped grants.** `always_rule()` (lines 353-360) returns `<tool>:<parent folder>/**` for `read_file`, `search_files`, `list_dir` and `find_files`.
+    *   **Broad read rules are rejected:** `*`, `~`, `~/**`, `/**`, `/Users/**` and `~/Library/**`. Adding one fails. When rules load, any such rule is dropped and listed in a one-time Settings notice, stored in kv as `dropped_rules_notice`.
+    *   **Shell path resolution (around line 511),** as in [§1](#how-shell-commands-resolve-paths-m-4), with the 1,000-entry and 100 ms cap (M-4).
+    *   **Breaking the M-1 chain at the credential read.** `~/.config/gh/hosts.yml` and similar paths are outside the Allowed tier, so reading them asks. The existing rule that a tainted conversation's egress to a new URL asks (`permissions.rs:244`) is kept.
+    *   **New decision-table rows** for every row of the verdict table, plus the sandbox-off rows.
 
 ##### 7. `src/tools/fs.rs` (Modify)
 
 *   **Type / Scope**: File tools.
 *   **Proposed Changes**:
-    *   `read_file` and `search_files` call `read_scope`.
-    *   Workspace file reads stay trusted, as Q1 proposes (`untrusted: false` in the file-tool definitions, around lines 800-850). Under the `spike` cargo feature only, U2s can mark them untrusted to measure the cost.
+    *   `read_file`, `search_files`, `list_dir` and `find_files` call `read_scope`.
+    *   Working-folder reads stay trusted, as Q1 proposes (`untrusted: false` in the file-tool definitions, around lines 800-850). Only under the `spike` cargo feature can U2s mark them untrusted, to measure the cost.
 
 ##### 8. `src/agent.rs` (Modify)
 
 *   **Type / Scope**: Agent loop.
 *   **Proposed Changes**:
     *   `execute_call` (line 453) calls `decide` with its `ToolCtx`.
-    *   `system_prompt` (line 182) builds from a `Vec<PromptBlock { source: PromptSource, text }>`. `PromptSource` is an enum with one variant per block kind, each declared `Trusted` or `Outside` in one `fn trust(&self)`. Per the proposed Q1 answer, `Outside` blocks are dropped from the prompt and served by tools that taint.
-    *   Unconfirmed memories (around line 250) are `Outside`.
+    *   `system_prompt` (line 182) builds from a `Vec<PromptBlock { source: PromptSource, text }>`, with the variants in [Prompt sources](#prompt-sources).
+    *   `Outside` blocks are dropped from the prompt and served by tools that taint: `recall` for unconfirmed memories, `recent_activity` for the ambient journal, and `upcoming_events` for calendar.
+    *   A new `recent_activity` tool returns `ambient::describe` as untrusted output.
 
 ##### 9. `src/mcp.rs` and `src/main.rs` (Modify)
 
 *   **Type / Scope**: MCP server.
 *   **Proposed Changes**:
-    *   `mcp::serve` builds its `ToolCtx` with the taint flag set, and calls `decide` (M-2). A `refuse_all` option makes it advertise tools and refuse every call, for the hybrid topology in U2s.
+    *   `mcp::serve` builds its `ToolCtx` with the taint flag set, and calls `decide` (M-2).
     *   Memories written over MCP are unconfirmed.
     *   Schedules created over MCP are refused. In `mcp::serve`, a call to `schedule_add` or `save_automation` returns "Not allowed over MCP: create schedules in Heron" before reaching the decision function.
     *   `main.rs:750-753` gives each connection a session id, `mcp-<uuid>`, instead of `"mcp"`.
@@ -671,87 +839,110 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
 
 *   **Type / Scope**: Taint fixes in app-level runners.
 *   **Proposed Changes**:
-    *   Proactive "prepare" and "takeover" sessions start tainted, as triggered jobs already do (M-6; the qualification cites `app.rs:619,638`).
-    *   `run_parked` (around `app.rs:397`) builds its `ToolCtx` with the parked call's stored taint and calls the one `decide` function, instead of the taint-free `decide()` (M-7).
+    *   Proactive "prepare" and "take over" sessions start tainted, as triggered jobs already do (M-6; the qualification cites `app.rs:619,638`).
+    *   `run_parked` (`app.rs:374-401`) builds its `ToolCtx` with the parked call's stored taint, and calls the one `decide` function (M-7).
+    *   Each code path that creates a session sets `sessions.origin` (see U2's `store.rs` item).
 
 ##### 11. `src/telegram.rs` (Modify)
 
 *   **Type / Scope**: Channel input.
-*   **Proposed Changes**: Forwarded messages, those with Telegram's `forward_origin` field set (not read today), are wrapped as untrusted content instead of owner words, and set the session's taint flag (M-8).
+*   **Proposed Changes**: Forwarded messages are wrapped as untrusted content instead of being treated as the owner's own words, and they set the session's taint flag (M-8). These are messages with Telegram's `forward_origin` field set, which Heron doesn't read today.
 
 ##### 12. `src/sources.rs` and `src/ambient.rs` (Modify)
 
 *   **Type / Scope**: The other callers of `classify_path`.
-*   **Proposed Changes**: Knowledge-source indexing (line 253) and ambient observation (line 22) keep skipping secret matches, and also skip `Refused` paths, so no database, key or CLI credential is ever indexed or observed.
+*   **Proposed Changes**: Knowledge-source indexing (line 253) and ambient observation (line 22) skip Refused paths and secret matches, so no database, key or CLI credential is ever indexed or observed.
 
 ##### 13. Tests in `src/permissions.rs`, `src/agent.rs` and `tests/integration.rs` (Modify)
 
 *   **Type / Scope**: Unit and integration tests.
 *   **Proposed Changes**:
     *   `every_prompt_block_is_trusted_or_taints`.
-    *   `cli_config_folders_are_refused_through_read_file`, covering each Tier 1 folder. Its sandbox half is in U2.
-    *   `read_verdict_table`: every row of the verdict table in Technical Plan §1.
-    *   `shell_paths_resolve_before_deciding`: `~`, `$HOME`, quotes, escapes, globs and redirections, plus "unresolvable means Ask".
-    *   `workspace_env_and_key_files_still_ask`: a workspace `.env`, `*.pem` and `credentials.json` ask in every mode, and an allow rule `read_file:~/**` doesn't open `~/.ssh`.
+    *   `read_verdict_table`: every row of the verdict table in [§1](#read-tiers-and-verdicts).
+    *   `refused_beats_secret_in_every_mode`: `secrets.json`, `heron.db`, a backup in `<home>/backups` and `~/.claude/.credentials.json` are denied, not asked.
+    *   `cli_config_folders_are_refused_through_read_file`, covering each candidate's folder. The sandbox half is in U2.
+    *   `always_on_an_ask_read_is_folder_scoped` and `broad_read_rules_are_rejected`.
+    *   `shell_paths_resolve_before_deciding`: `~`, `$HOME`, quotes, escapes, globs, the glob cap, redirections, and "unresolvable means Ask".
+    *   `workspace_env_and_key_files_still_ask`: a working-folder `.env`, `*.pem` and `credentials.json` ask in every mode.
     *   `indexing_and_observation_skip_secrets_and_refused_paths`.
     *   One regression test per finding, each failing on the old commit:
-        *   **M-1:** an injected workspace file steers the model to read a credential outside the workspace, and the read now asks, so the token never reaches a URL.
+        *   **M-1:** an injected working-folder file steers the model to read a credential outside the working folder. The read now asks, so the token never reaches a URL.
         *   **M-2:** an MCP-planted memory and schedule.
         *   **M-4:** globs, quotes and unlisted credential paths.
         *   **M-6, M-7, M-8:** a proactive session, a parked call from a tainted job, and a forwarded Telegram message each start or stay tainted.
 
-#### Work unit U2: hardened CLI adapters and the topology spike (G4, G5)
+#### Work unit U2: hardened CLI adapters and sandbox profiles (G2 at the OS level, G4)
 
 ##### 14. `src/cli_llm.rs` (Modify)
 
 *   **Type / Scope**: CLI provider layer.
 *   **Proposed Changes**:
-    *   **Environment.** `child_env` (line 1218) starts from an allowlist (`PATH`, `HOME`, `LANG`, `USER`, `TMPDIR`, plus the spec's `config_dir_env`) instead of `std::env::vars()`.
-    *   **Working folder.** It moves from `~/.heron/tmp/cli-*` (lines 1980-1982) to `$TMPDIR/heron-cli-<run>`, deleted after the turn.
-    *   **Sandbox.** The child spawns through `sandbox.rs` with a CLI profile: write only the working folder, read only the CLI's own config folder and binary paths.
-    *   **Version range.** `CliSpec` gains `supported: &'static str`, a version range. `ProviderStatus.version` from the existing `probe_status()` is compared with it, and recorded per turn.
-    *   **Topology, under the `spike` cargo feature only.** Hybrid writes a temporary MCP config pointing at `heron mcp-serve --refuse-all`, keeps `--max-turns 1`, and reuses the existing `tool_use` mapping (lines 1680-1690). Release builds don't enable the feature.
-    *   **Cline.** cline-cli drops `needs_allow_agent_tools` once its canary passes. If it can't pass, it stays experimental.
-    *   **Binary search.** It also checks nvm, fnm and mise install folders, so an app started from Finder finds a CLI installed with them.
+    *   **Environment.** `child_env` (line 1218) builds from the allowlist and the per-CLI extras in [§2](#containment-applied-to-every-cli), and keeps `DISABLE_AUTOUPDATER=1` and `DISABLE_FEEDBACK_COMMAND=1`.
+    *   **`cli_allow_api_key`** becomes a list of provider ids. The old `true` means all providers.
+    *   **CLI run folder.** It moves from `~/.heron/tmp/cli-*` (lines 1980-1982) to `$TMPDIR/heron-cli-<run>`, deleted after the turn.
+    *   **Sandbox.** The child spawns through `sandbox.rs` with its per-CLI profile. If no sandbox is active, the turn is refused.
+    *   **Version contract.** `CliSpec` gains `supported`, a semver requirement. The version is the first `\d+\.\d+\.\d+` in `ProviderStatus.version`. It's checked at startup, on a provider change and after a failed turn, and recorded on each turn.
+    *   **Subscriptions.** `CliSpec` gains `subscription: bool`, true for every CLI. A per-provider `cli_subscription = false` in Settings is the only override. The hold on unattended model steps is in [§2](#subscriptions-and-unattended-work-q6).
+    *   **Topology, under the `spike` cargo feature only.** Hybrid writes a temporary MCP config. It points at `<current_exe> mcp-serve --refuse-all`, keeps `--max-turns 1`, and reuses the existing `tool_use` mapping (lines 1680-1690).
+    *   **Cline.** cline-cli drops `needs_allow_agent_tools` once its containment check passes. If it can't pass, it stays experimental.
+    *   **Binary search.** It also checks the nvm, fnm and mise install folders, so an app started from Finder finds a CLI installed with them.
 
 ##### 15. `src/sandbox.rs` (Modify)
 
-*   **Type / Scope**: Seatbelt profiles for the shell and the CLI child.
-*   **Proposed Changes**: The Seatbelt profile (`sandbox.rs:101-108`) becomes deny-default for reads under `$HOME`. It allows the `ReadRoots` Allowed tier plus a fixed toolchain list (`~/.gitconfig`, `~/.cargo`, `~/.rustup`, `~/.npm`, `~/.nvm`, the Homebrew prefix) and keeps writes as today. A denied read returns a message telling the model to use `read_file`. The CLI-child profile in U2 is built from the same function, with a narrower read list. Tests in this unit: `sandboxed_shell_cannot_read_ask_tier_paths` (in Auto mode, `cat ~/Documents/x` and `python -c "open(...)"` fail in the sandbox) and `build_and_git_still_work_under_deny_default_reads` (`cargo build`, `npm test` and `git status` on a fixture repo succeed).
+*   **Type / Scope**: Seatbelt profiles for the shell and the CLI child, built from one function.
+*   **Proposed Changes**: Everything in [The same tiers in the OS sandbox](#the-same-tiers-in-the-os-sandbox):
+    *   deny-default reads under `$HOME`, `/Users`, `/Volumes` and `cfg.home`;
+    *   readable: the Allowed tier, granted rule folders and the toolchain list;
+    *   explicit credential denies after the allows;
+    *   a per-CLI profile for each child;
+    *   denied Ask-tier shell reads, with the `read_file` hint;
+    *   a `DENIED_HINT` that no longer suggests turning the sandbox off.
+*   **Tests:**
+    *   `sandboxed_shell_cannot_read_ask_tier_paths`: in Auto mode, `cat ~/Documents/x` and `python -c "open(...)"` fail.
+    *   `sandbox_cannot_read_cargo_credentials_via_python`.
+    *   `granted_folder_is_readable_in_the_sandbox`.
+    *   `build_and_git_still_work_under_deny_default_reads`: `cargo build`, `npm test` and `git status` on a fixture repo succeed.
+    *   `cli_config_folders_are_refused_in_the_sandbox`.
+    *   `cli_turn_refused_when_sandbox_off`.
 
-##### 16. `src/main.rs` (Modify)
+##### 16. `src/main.rs` and `src/mcp.rs` (Modify)
 
 *   **Type / Scope**: CLI entry.
-*   **Proposed Changes**: `heron mcp-serve` gains a `--refuse-all` flag that passes `refuse_all` to `mcp::serve`. No new subcommand.
+*   **Proposed Changes**: `heron mcp-serve` gains `--refuse-all`. That path never builds `App` or opens the database. It advertises the `ToolRegistry::builtin()` schemas and refuses every call. No new subcommand is added.
 
 ##### 17. `src/store.rs` (Modify)
 
 *   **Type / Scope**: Schema.
 *   **Proposed Changes**:
-    *   A new numbered migration step, `to_v3`, is appended to `STEPS` and run by the existing `migrate()`. It adds `run_id`, `provider` and `cli_version` to the audit table, guarded by `has_column()`. It also adds `audit.hash_version` (old rows NULL, meaning version 1, and new rows `2`) and `sessions.origin` (Technical Plan §7). For version-2 rows the hash input is the version-1 fields followed by `run_id`, `provider` and `cli_version`, joined with the unit separator `\x1f`. `heron audit` picks the formula from `hash_version`.
+    *   A new numbered migration step, `to_v3`, is appended to `STEPS` and run by the existing `migrate()`. Guarded by `has_column()`, it adds:
+        *   `run_id`, `provider` and `cli_version` to `audit`;
+        *   `audit.hash_version`: old rows are NULL, meaning version 1, and new rows are `2`;
+        *   `sessions.origin`, defaulting to `user`.
+    *   For version-2 rows, the hash input is the version-1 fields followed by `run_id`, `provider` and `cli_version`, joined with `\x1f`. `heron audit` picks the formula from `hash_version`.
     *   **What the new columns hold.** HTTP-provider turns record `provider = "http:<host>"` and `cli_version = ""`. MCP calls record `run_id = <connection session id>`.
-    *   **Backup before migrating.** Before `migrate()` runs `to_v3`, startup writes a backup with the existing `heron backup` code to `~/.heron/backups/pre-v3-<timestamp>`. If the backup fails, startup stops with the error and nothing is migrated.
+    *   **Backup before migrating.** Before `migrate()` runs `to_v3`, startup writes a backup with the existing backup code to `<home>/backups/pre-v3-<timestamp>`. If the backup fails, startup stops with the error and nothing is migrated.
     *   The hash-chained append and its chain update commit in one write transaction.
 
 ##### 18. `tests/cli_canary.rs` (Create)
 
 *   **Type / Scope**: Integration tests. They are `#[ignore]` by default, because they need the real CLI logged in.
 *   **Proposed Changes**:
-    *   One canary test per Tier 1 CLI, as described in Technical Plan §2.
-    *   `child_env_is_exactly_the_allowlist`: the child's variable names are a subset of the common list plus that CLI's extras (Technical Plan §2).
-    *   One test that a sandboxed CLI can't write outside its working folder.
+    *   The containment check for each candidate, as in [§2](#containment-applied-to-every-cli): the tools-off canary, `child_env_is_exactly_the_allowlist`, and the write outside the CLI run folder.
+    *   A version-extraction test against each candidate's real `--version` output.
+    *   For the spike to record: whether the Keychain-backed login works, whether OAuth refresh writes work, and whether Codex's sandbox works when nested.
 
     A fake-CLI version of each test runs in CI without a login.
 
-##### 19. `eval/spike/topology.md` (Create, unit U2s)
+#### Work unit U2s: measurement spike
+
+##### 19. `eval/spike/topology.md` (Create)
 
 *   **Type / Scope**: Spike report.
-*   **Proposed Changes**: Three results on claude-cli:
+*   **Proposed Changes**: Two decisions on claude-cli, made with the 50-run paired rule and the 4-run lead in [§2](#hybrid-topology-and-the-measurement-spike-g5):
     *   envelope versus hybrid: success, blind quality rating, tokens and time to first token;
-    *   the cost of marking workspace reads untrusted (built only under the `spike` feature) on the task gate;
-    *   the task-gate effect of the deny-default sandbox profile that U2 already landed.
+    *   trusted versus untrusted working-folder reads.
 
-    It records the chosen default for each, and why. U2s only measures. U2w applies the result.
+    Precondition: the hybrid arm's advertised tool names equal the envelope's tool list. The report records each chosen default and why. U2s only measures; U2w applies the result.
 
 #### Work unit U3: core API contract (runs outlive connections, one event bus)
 
@@ -759,10 +950,10 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
 
 *   **Type / Scope**: HTTP API.
 *   **Proposed Changes**:
-    *   **Runs.** `POST /chat` keeps its SSE response as a filtered view of the bus for one run, and its first `session` event gains `run_id`. `ChatEventStream::drop` and a full queue no longer abort the run. Only `/cancel` does.
-    *   **Approvals.** `WebApprover` publishes `approval_pending` on the bus and waits on its existing answer map with the existing 900-second timeout. The 15-second push to one stream (`server.rs:409-414`) is removed. On timeout it parks the approval with today's deny-and-carry-on message.
-    *   **Events.** An event bus in `ServerState` holds a bounded in-memory ring of the last 10,000 sequence-numbered events. `GET /events?since=<seq>` streams it.
-    *   **Risk notice.** `GET` and `POST /risk-notice` return the accepted-risk register text and record acceptance (`risk_notice_version`).
+    *   **Runs.** `POST /chat` keeps its SSE response as a filtered view of the bus for one run, and its first `session` event gains `run_id`. `ChatEventStream::drop` and a full queue no longer abort the run; only `/cancel` does. A lagging `/chat` subscriber is disconnected while the run continues.
+    *   **Approvals.** `WebApprover` publishes `approval` on the bus and waits on its existing answer map, with the existing 900-second timeout. The 15-second push to one stream (`server.rs:409-414`) is removed. On timeout, it parks the approval with today's deny-and-carry-on message and publishes `approval_parked`.
+    *   **Events.** An event bus in `ServerState` holds an in-memory ring of the last 10,000 sequence-numbered events. `GET /events?since=<seq>` streams them, as in [One event bus](#one-event-bus).
+    *   **Risk notice.** `GET` and `POST /risk-notice`, as in [§6](#the-risk-notice), including the `sandbox` field.
     *   **Mode.** `set_mode` writes `permissions.mode` to the config file, following `set_tool`.
 
 ##### 21. `src/main.rs` and `src/server.rs` (Modify)
@@ -770,6 +961,8 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
 *   **Type / Scope**: The `serve` entry point.
 *   **Proposed Changes**:
     *   `Cmd::Serve` (`main.rs:51-57`) gains `--print-endpoint`. With it, `server::start` binds `127.0.0.1` whatever the config says, and the core prints one JSON line, `{"port": …, "token": …}`, on stdout once the server is listening. The Mac app uses it. Without the flag, `heron serve` is unchanged.
+    *   With `--print-endpoint`, the core exits when stdin reaches EOF or its parent PID changes.
+    *   `background.lock` records the holder's PID, so the app can find and terminate a stale core on launch.
 
 ##### 22. `tests/integration.rs` (Modify)
 
@@ -777,8 +970,9 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
 *   **Proposed Changes**:
     *   `api_events_resume_from_sequence`.
     *   `api_run_survives_client_disconnect`: a reply finishes and is readable from `/events` after the `/chat` connection drops mid-turn.
-    *   `api_approval_waits_on_the_bus_then_parks_on_timeout`: an approval with no client attached waits for an answer from `/approvals/{id}`, and parks with the deny-and-carry-on message only after the timeout (shortened in the test).
+    *   `api_approval_waits_on_the_bus_then_parks_on_timeout`: with no client attached, an approval waits for an answer on `POST /approve`. It parks with the deny-and-carry-on message only after the timeout, which the test shortens. After parking, it is answered on `POST /approvals/{parked_id}`.
     *   `api_print_endpoint_prints_port_and_token`.
+    *   `core_exits_when_app_dies`: the core exits within 5 seconds after its stdin closes.
     *   `mode_survives_restart`.
     *   `risk_notice_blocks_chat_until_accepted`.
 
@@ -790,11 +984,11 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
 *   **Proposed Changes**:
     *   **`CoreClient`.** URLSession plus an SSE parser with resume, and typed models for every route it uses.
     *   **Stores.** Built with Observation, one per screen: Chat, Approvals, Today, Memory, Tasks, Schedules, Audit, Settings and Persona. The diagram shows only some of them.
-    *   **Views**, per Technical Plan §4.
+    *   **Views**, per [§4](#4-the-swiftui-mac-app-g6), including the sandbox status in Settings.
     *   **`AvatarView`.** A state machine over `idle`, `thinking`, `awaitingApproval`, `speaking` and `error`, respecting Reduce motion.
     *   **Entry point.** A `MenuBarExtra`, which keeps the app and its core running when the window is closed.
     *   **First-run flow.** The risk notice, CLI detection with version status and login hints (CUJ 2 and CUJ 5), then personalization (CUJ 4).
-    *   **Core process.** `CoreProcess` starts `Contents/MacOS/heron-cli serve --no-open --port 0 --print-endpoint` as a child, reads the endpoint line, restarts the core once if it exits, and stops it when the app quits. If the restarted core exits again within 60 seconds, the app stops retrying and shows the error with a "Restart Heron's core" button.
+    *   **Core process.** `CoreProcess` starts `Contents/MacOS/heron-cli serve --no-open --port 0 --print-endpoint` as a child and reads the endpoint line. If a stale core holds `background.lock`, it terminates that core first. If the core exits, it restarts it once. A second exit within 60 seconds stops the retries and shows a "Restart Heron's core" button. It stops the core when the app quits.
 
 ##### 24. `macos/HeronMac/Tests/` (Create)
 
@@ -817,7 +1011,7 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
 ##### 26. `docs/ACCEPTED_RISKS.md` (Create)
 
 *   **Type / Scope**: Owner-signed register.
-*   **Proposed Changes**: One entry per accepted risk: id, plain description, who is exposed, the date accepted, and its ID in `docs/engineering/SECURITY_THREAT_MODEL.md` or `REMEDIATION_MATRIX.md`, which link back. It starts with C35-8. It is capped at 3 new entries for G3. The core serves this text at `/risk-notice`.
+*   **Proposed Changes**: One entry per accepted risk: id, plain description, who is exposed, the date accepted, and its ID in `docs/engineering/SECURITY_THREAT_MODEL.md` or `REMEDIATION_MATRIX.md`, which link back. It starts with C35-8 and R-1 (R-1 needs the owner's signature). It is capped at 3 new entries for G3. The core serves this text at `/risk-notice`.
 
 ##### 27. `README.md` (Modify)
 
@@ -886,14 +1080,14 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
 |---|---|---|---|---|---|
 | U0 | Evaluation harness, 10 core tasks, baseline on `main` | `eval/**` | none | `python3 -I eval/check_tasks.py eval/core-tasks.md && bash eval/run-core-tasks.sh --provider demo --runs 1 --out "$TMPDIR/u0"` | feature, refactoring: sonnet high |
 | U1 | One decision function, prompt-source registry, secret check plus read tiers for `read_file`, MCP taint, taint fixes (M-1 to M-4, M-6 to M-8) | `src/**` | U0 | `cargo test --locked && cargo clippy --locked --all-targets -- -D warnings` | hardest tasks: opus high |
-| U2 | CLI containment, deny-default sandbox reads for shell and CLI child (with build/git check), version contract, canary, hybrid topology behind the `spike` feature | `src/**` | U1 | `cargo test --locked && cargo test --locked --test cli_canary -- --include-ignored fake_` | hardest tasks: opus high |
-| U2s | Spike on claude-cli: envelope vs hybrid, cost of untrusted workspace reads, task-gate effect of the sandbox profile; report with the chosen defaults | `eval/spike/**` | U0, U2 | `test -s eval/spike/topology.md && grep -q '^Chosen default:' eval/spike/topology.md` | hardest tasks: opus high |
+| U2 | Per-CLI containment check, deny-default sandbox reads for shell and CLI child (with build/git check), sandbox-off refusal, version contract, subscription hold, hybrid topology behind the `spike` feature | `src/**` | U1 | `cargo test --locked && cargo test --locked --test cli_canary -- --include-ignored fake_` | hardest tasks: opus high |
+| U2s | Measurement spike on claude-cli: envelope vs hybrid, and trusted vs untrusted working-folder reads (50 paired runs per arm); report with the chosen defaults | `eval/spike/**` | U0, U2 | `test -s eval/spike/topology.md && grep -q '^Chosen default:' eval/spike/topology.md` | hardest tasks: opus high |
 | U2w | Apply the spike result: merge the winning topology into the default build, delete the losing code and the `spike` cargo feature, set the defaults U2s chose | `src/**` | U2s | `cargo test --locked && ! grep -rqE 'feature = "spike"' src && ! grep -qE '^spike *=' Cargo.toml` | feature, refactoring: sonnet high |
 | U3 | Core contract: runs outlive connections, one event bus with `/events`, approvals on the bus, `/risk-notice`, `serve --print-endpoint`, mode stored in config | `src/**` | U2w | `cargo test --locked --test integration api_ && cargo test --locked` | feature, refactoring: sonnet high |
 | U4 | SwiftUI Mac app | `macos/**` | U3 | `xcodebuild -project macos/HeronMac/HeronMac.xcodeproj -scheme HeronMac -destination 'platform=macOS' test` | feature, refactoring: sonnet high |
 | U5 | Features behind switches (needs Q8) | `src/**` | U3 | `cargo test --locked` | feature, refactoring: sonnet high |
-| U6 | Accepted-risk register, guides, CLI provider docs | `docs/**` | U2w | `test -s docs/ACCEPTED_RISKS.md && grep -q 'C35-8' docs/ACCEPTED_RISKS.md && test -s docs/getting-started-mac.md` | judgment and prose: opus high |
-| U6b | README research-preview banner and platform text | `README.md` | U6 | `grep -q 'Research preview' README.md && grep -q 'ACCEPTED_RISKS.md' README.md` | judgment and prose: opus high |
+| U6 | Accepted-risk register, guides, CLI provider docs | `docs/**` | U2w | `test -s docs/ACCEPTED_RISKS.md && grep -q 'C35-8' docs/ACCEPTED_RISKS.md && grep -q 'R-1' docs/ACCEPTED_RISKS.md && test -s docs/getting-started-mac.md` | judgment and prose: opus high |
+| U6b | README research-preview banner, platform text, and the v1 read-behaviour change in the mode table | `README.md` | U6 | `grep -q 'Research preview' README.md && grep -q 'ACCEPTED_RISKS.md' README.md` | judgment and prose: opus high |
 | U7 | Extend `build-app.sh` (Xcode app, embedded core, notarization), upgrade test | `packaging/macos/**` | U4 | `bash packaging/macos/build-app.sh --unsigned && test -f dist/Heron-macos-universal.dmg && bash packaging/macos/upgrade-test.sh` | feature, refactoring: sonnet high |
 | U7b | Release and CI workflow changes | `.github/**` | U7 | `actionlint .github/workflows/release.yml .github/workflows/ci.yml` | feature, refactoring: sonnet high |
 | verify | Full gate on the final branch | `scripts/verify-v1.sh` | U0-U7b | `bash scripts/verify-v1.sh` | hardest tasks: opus high |
