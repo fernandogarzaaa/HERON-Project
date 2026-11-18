@@ -23,9 +23,10 @@ fn sse(chunks: &[Value]) -> ([(&'static str, &'static str); 1], String) {
     ([("content-type", "text/event-stream")], body)
 }
 
+type SentCheck = Box<dyn Fn(&[(i64, String)]) -> bool + Send>;
+
 fn cfg_for(base: &str, home: &std::path::Path) -> Config {
-    let mut cfg = Config::default();
-    cfg.home = home.to_path_buf();
+    let mut cfg = Config { home: home.to_path_buf(), ..Default::default() };
     cfg.llm.base_url = format!("{base}/v1");
     cfg.llm.api_key_env = "HERON_TEST_NO_SUCH_KEY".into();
     cfg.llm.max_retries = 2;
@@ -188,8 +189,7 @@ async fn collect_events(client: &reqwest::Client, base: &str, token: &str, body:
 #[tokio::test]
 async fn http_api_chat_approval_and_settings() {
     let dir = tempfile::tempdir().unwrap();
-    let mut cfg = Config::default();
-    cfg.home = dir.path().join("home");
+    let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
     cfg.llm.api_key_env = "HERON_TEST_NO_SUCH_KEY".into();
     cfg.agent.auto_memory = false;
     let llm = Arc::new(ScriptedLlm::new(vec![
@@ -345,8 +345,7 @@ async fn mcp_client_talks_to_a_real_server_and_detects_changed_tools() {
     assert_eq!(attached.tools, heron::mcp::SERVED_TOOLS.len());
     assert!(!attached.changed);
     let store = Store::in_memory().unwrap();
-    let mut cfg = Config::default();
-    cfg.home = dir.path().join("client-home");
+    let cfg = Config { home: dir.path().join("client-home"), ..Default::default() };
     let ctx = ToolCtx { workspace: dir.path().to_path_buf(), memory: heron::memory::Memory::new(store.clone(), None), store, session_id: "t".into(), cfg: Arc::new(cfg), tainted: Default::default(), seen_urls: Default::default() };
     let remember = registry.get("mcp__other-heron__remember").unwrap();
     assert_eq!(remember.risk(&json!({}), &ctx), heron::permissions::Effect::ExternalWrite, "an unknown app's tool is assumed able to change things elsewhere");
@@ -378,8 +377,7 @@ async fn a_rejected_bot_token_leaves_the_working_pairing_alone() {
         })
         .with_state(checked.clone());
     let dir = tempfile::tempdir().unwrap();
-    let mut cfg = Config::default();
-    cfg.home = dir.path().join("home");
+    let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
     cfg.llm.api_key_env = "HERON_TEST_NO_SUCH_KEY".into();
     cfg.telegram.api_base = spawn(telegram).await;
     let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::open(&dir.path().join("home/heron.db")).unwrap(), Arc::new(ScriptedLlm::new(vec![]))).await.unwrap());
@@ -425,8 +423,7 @@ async fn telegram_gateway_pairs_one_chat_ignores_strangers_and_asks_before_actin
     let base = spawn(router).await;
 
     let dir = tempfile::tempdir().unwrap();
-    let mut cfg = Config::default();
-    cfg.home = dir.path().join("home");
+    let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
     cfg.agent.auto_memory = false;
     cfg.agent.ambient_context = false;
     let llm = Arc::new(ScriptedLlm::new(vec![ScriptedLlm::tool_call("write_file", json!({"path": "phone.txt", "content": "from my phone"})), Message::assistant("Saved it."), ScriptedLlm::tool_call("write_file", json!({"path": "second.txt", "content": "never written"})), Message::assistant("This reply must never be sent.")]));
@@ -438,7 +435,7 @@ async fn telegram_gateway_pairs_one_chat_ignores_strangers_and_asks_before_actin
         let id = mock.next.fetch_add(1, Ordering::SeqCst) as i64 + 1;
         mock.updates.lock().unwrap().push_back(json!({"update_id": id, "message": {"chat": {"id": chat, "type": kind}, "from": {"id": chat}, "text": text}}));
     };
-    let wait_for = |what: &'static str, cond: Box<dyn Fn(&[(i64, String)]) -> bool + Send>| {
+    let wait_for = |what: &'static str, cond: SentCheck| {
         let mock = mock.clone();
         async move {
             for _ in 0..200 {
@@ -547,8 +544,7 @@ async fn browser_reads_pages_follows_links_and_fills_in_forms() {
     let base = spawn(router).await;
 
     let dir = tempfile::tempdir().unwrap();
-    let mut cfg = Config::default();
-    cfg.home = dir.path().join("home");
+    let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
     cfg.agent.auto_memory = false;
     cfg.agent.ambient_context = false;
     cfg.permissions.mode = "ask".into();
@@ -620,8 +616,7 @@ async fn browser_reads_pages_follows_links_and_fills_in_forms() {
 #[tokio::test]
 async fn usage_is_recorded_and_shapes_model_choice_and_effort() {
     let dir = tempfile::tempdir().unwrap();
-    let mut cfg = Config::default();
-    cfg.home = dir.path().join("home");
+    let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
     cfg.llm.model = "big".into();
     cfg.llm.fast_model = "small".into();
     cfg.agent.auto_memory = false;
@@ -680,14 +675,15 @@ async fn usage_is_recorded_and_shapes_model_choice_and_effort() {
     app.llm.swap(llm.clone());
     let agent = app.agent(Arc::new(heron::permissions::DenyAll));
     agent.run_turn(&mut session, "Research the best way to learn Go and write a plan", &sink).await.unwrap();
-    let requests = llm.requests.lock().unwrap();
-    let last = requests.last().unwrap();
-    assert_eq!(last.model.as_deref(), Some("small"), "even real work goes to the cheaper model now");
-    assert_eq!(last.max_tokens, Some(2048));
-    assert!(last.messages[0].text().contains("token allowance for this period is used up"), "the model is told to be brief");
+    let calls_so_far = {
+        let requests = llm.requests.lock().unwrap();
+        let last = requests.last().unwrap();
+        assert_eq!(last.model.as_deref(), Some("small"), "even real work goes to the cheaper model now");
+        assert_eq!(last.max_tokens, Some(2048));
+        assert!(last.messages[0].text().contains("token allowance for this period is used up"), "the model is told to be brief");
+        requests.len()
+    };
     assert!(events.lock().unwrap().iter().any(|l| l.contains("Your token allowance is used up")));
-    let calls_so_far = requests.len();
-    drop(requests);
     // Learning is switched on here, so it is the allowance (not the setting) that stops it.
     let mut learning = (*app.cfg()).clone();
     learning.agent.auto_memory = true;

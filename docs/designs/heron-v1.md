@@ -47,8 +47,8 @@ These come from the v1.0 qualification: branch `qualification/v1.0-rc1`, file `q
 | ID | Severity | What fails today | Code | Fixed in | Regression test |
 |---|---|---|---|---|---|
 | M-1 | **P0** | In Ask mode, injected text in a working-folder file steers the model to read a credential outside the working folder (`~/.config/gh/hosts.yml`, classed as a plain read) and send it out in a URL. No prompt appears. | `tools/fs.rs`, `permissions.rs:251,598` | U1 | `m1_injected_file_cannot_read_and_send_a_credential` |
-| M-2 | P1 | Another program connected over MCP plants a confirmed profile memory and an unattended schedule, because the MCP server never marks its input as outside content. | `mcp.rs:266`, `memory.rs:18` | U1 | `m2_mcp_cannot_plant_memories_or_schedules` |
-| M-3 | P1 | Calendar event titles go into every system prompt untainted. | `agent.rs:285-291` | PR #26 (O26-1, `upcoming_events`); U1 adds the registry test that stops a recurrence | `every_prompt_block_is_trusted_or_taints` |
+| M-2 | P1 | Another program connected over MCP plants a confirmed profile memory and an unattended schedule, because the MCP server never marks its input as outside content. | `mcp.rs:266`, `memory.rs:18-23` | U1 | `m2_mcp_cannot_plant_memories_or_schedules` |
+| M-3 | P1 | Calendar event titles go into every system prompt untainted. | `agent.rs:285-291` at `ad2ef31`; removed by #26, so `agent.rs:285-290` is now only the `upcoming_events` hint | Fixed by PR #26 (O26-1, `upcoming_events`), merged as `bf7f7f0`; U1 adds the registry test that stops a recurrence | `every_prompt_block_is_trusted_or_taints` |
 | M-4 | P1 | Shell globs, quotes and backslashes (`cat .en?`) and unlisted credential paths (`~/.cargo/credentials.toml`, shell histories, browser `Login Data`) get past the secret check. | `permissions.rs:511,538` | U1 (`read_file`), U2 (sandbox) | `m4_globs_quotes_and_unlisted_secrets_ask` (U1) and `m4_sandbox_denies_globs_quotes_and_unlisted_secrets` (U2) |
 | M-5 | P1 | `search_files` followed a symlink in the working folder into `~/.ssh`. | `tools/fs.rs:707` | Already fixed by PR #40 (`448227d`), with its own regression test | existing PR #40 test |
 | M-6 | P1 | "Prepare" and "take over" sessions run a model-written prompt in a fresh, untainted session. | `app.rs:619,638` | U1 | `m6_proactive_sessions_start_tainted` |
@@ -67,7 +67,7 @@ The "1 P0 and 6 P1" count on `main` is M-1 (the P0) plus M-2, M-3, M-4, M-5, M-6
 | Working folder | Heron's workspace, `cfg.app_workspace()` (`config.rs:534`), the term the README uses. |
 | CLI run folder | The temporary folder a CLI child runs in, `$TMPDIR/heron-cli-<run>`. |
 | Taint, tainted | A per-conversation flag (`ToolCtx.tainted`, `tools/mod.rs:21-28`, stored as kv key `tainted:<session>`). It is set once content from outside the user's control enters the conversation. While it's set, anything that changes state or sends data out asks (`permissions.rs:244`). |
-| Untrusted output | A tool flag (`untrusted: true`). The tool's result is wrapped in `<untrusted_content>` and sets taint (`agent.rs:523-527`). |
+| Untrusted output | A tool flag (`untrusted: true`). The tool's result is wrapped in `<untrusted_content>` and sets taint (`agent.rs:522-526`). |
 | Decision function | The one function that decides every tool call (G1). Today that is `decide_in` (`permissions.rs:219`). |
 | Secret check | `sensitive_path()` (`permissions.rs:538-543`). It matches secret-looking names (keys, `.env`, credentials), and a match makes a read ask. |
 | Read tiers | The location rules added by G2: Allowed, Ask and Refused ([Read tiers and verdicts](#read-tiers-and-verdicts)). |
@@ -76,7 +76,7 @@ The "1 P0 and 6 P1" count on `main` is M-1 (the P0) plus M-2, M-3, M-4, M-5, M-6
 | Hybrid | Topology (b). The CLI sees Heron's tools as native tools through MCP, but it is held to one turn and never runs them. Heron reads the `tool_use` blocks and runs the calls. |
 | CLI-owned loop | Topology (c). The CLI runs the loop and calls Heron's tools over MCP. It is neither built nor measured in v1 ([Alternative A](#alternative-a-let-the-cli-own-the-agent-loop-topology-c)). |
 | Seatbelt | macOS's built-in process sandbox (`sandbox-exec`), which Heron uses for shell commands (`sandbox.rs`). |
-| kv store | The `kv(k, v)` table in `heron.db` (`store.rs:209`). |
+| kv store | The `kv(k, v)` table in `heron.db` (`store.rs:210`). |
 | Containment check | The containment tests, run against fake CLIs in U2 and against each installed real CLI in U2c ([§2](#2-hardened-cli-adapters-g4-g5)). |
 | Measurement spike | Work unit U2s. It measures claude-cli's topology ([§2](#hybrid-topology-and-the-measurement-spike-g5)). |
 | Tier 1 CLI | A CLI provider that passed the containment check. Tier 1 CLIs count for the release gates. Every other CLI provider stays labelled experimental. |
@@ -85,7 +85,7 @@ The "1 P0 and 6 P1" count on `main` is M-1 (the P0) plus M-2, M-3, M-4, M-5, M-6
 | Work units | U0, U0b, U1, U2, U2c, U2s, U3a, U3, Ut, U2w, U4, U6, U6b, U7, U7b and `verify`, defined in the [Work units](#work-units) table. |
 | Proactive work | Suggestions, plus "prepare" (read-only groundwork) and "take over" sessions that Heron starts itself (`app.rs:613-640`). |
 | Unattended work | Model use with nobody at the keyboard: schedules, automation `ask` and `agent` steps, event-triggered watches, proactive work and reflection. Telegram turns are attended, because the owner sends them. |
-| Global pause | The switch, also sent as `/pause` from the phone, that stops all unattended work (`server.rs:146`). |
+| Global pause | The switch, also sent as `/pause` from the phone, that stops all unattended work (`server.rs:150`). |
 | EVE | experience-validation-engine ([github](https://github.com/fernandogarzaaa/experience-validation-engine)). `eve chat` drives a chat HTTP API with scripted user turns and records the transcript. Its HTTP backend posts one JSON request and reads the reply by path, so it reaches Heron through a small adapter, `eval/eve_adapter.py` (U0). |
 | testteeth | A mutation-testing grader. `testteeth run --base <ref> --fail-under 70 -q` mutates the code changed since `<ref>` (cargo-mutants for Rust). It fails if tests catch fewer than 70% of the mutants. In this plan `<ref>` is the baseline commit: the commit U0b ran on, recorded as `heron_commit` in `eval/baseline/summary.json`. It is the start of `feat/heron-v1`, which is `main` plus U0's `eval/` files and no `src/` change. |
 | genesis audit | An evaluator auditor, run as `genesis audit-evaluator <spec.yaml> --suite <suite>`. It checks that a grader can't be passed by wrong answers. Exit codes: 0 TRUSTED, 1 UNTRUSTED, 2 INCONCLUSIVE, 3 internal error. |
@@ -296,11 +296,11 @@ Three places execute tools, and they disagree about taint:
 
 | Path | How it decides | Taint handling |
 |---|---|---|
-| The main loop (`agent.rs:472`) | `decide_in` | real taint value |
+| The main loop (`agent.rs:471`) | `decide_in` | real taint value |
 | The MCP server (`mcp.rs:266`) | `decide_in` | always passes `false` |
 | Running a parked approval (`app.rs:374-401`, `run_parked`) | `decide()` | ignores taint |
 
-Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-527`). Text that `system_prompt` (`agent.rs:182`) places directly into the system prompt never taints. Secret protection is one regular expression of blocked names, the secret check (`permissions.rs:538-543`).
+Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:522-526`). Text that `system_prompt` (`agent.rs:182`) places directly into the system prompt never taints. Secret protection is one regular expression of blocked names, the secret check (`permissions.rs:538-543`).
 
 #### One decision function
 
@@ -312,7 +312,7 @@ Taint is set only when a tool flagged `untrusted_output` returns (`agent.rs:523-
 
 #### Prompt sources
 
-Every block `system_prompt` adds (`agent.rs:182-300`) is one `PromptSource` variant with a fixed trust class. A test walks the registry and fails if a block isn't classified. The complete list:
+Every block `system_prompt` adds (`agent.rs:182-299`) is one `PromptSource` variant with a fixed trust class. A test walks the registry and fails if a block isn't classified. The complete list:
 
 | Variant | Today's prompt section | Class | v1 handling |
 |---|---|---|---|
@@ -332,7 +332,7 @@ Existing sessions aren't re-tainted on upgrade, and their stored prompts aren't 
 
 #### Read tiers and verdicts
 
-A read from `read_file`, `search_files`, `list_dir` or `find_files` is classified by the existing `classify_path` (`permissions.rs:595-606`), which is extended rather than joined by a second classifier. It becomes `classify_path(path, workspace, cfg, write)` and returns `Effect::Refused`, `SensitiveRead`, `OutsideRead` or `LocalRead` for a read. The file tools' own Heron-home check (`read_effect`, `fs.rs:16-28`) is removed, because Refused now covers it. Knowledge-source indexing (`sources.rs:253`) and ambient observation (`ambient.rs:22`) already call `classify_path`, so they get the same answer. The order below is fixed, and the first match wins:
+A read from `read_file`, `search_files`, `list_dir` or `find_files` is classified by the existing `classify_path` (`permissions.rs:595-606`), which is extended rather than joined by a second classifier. It becomes `classify_path(path, workspace, cfg, write)` and returns `Effect::Refused`, `SensitiveRead`, `OutsideRead` or `LocalRead` for a read. The file tools' own Heron-home check (`read_effect`, `fs.rs:16-28`) is removed, because Refused now covers it. Knowledge-source indexing (`sources.rs:262`) and ambient observation (`ambient.rs:22`) already call `classify_path`, so they get the same answer. The order below is fixed, and the first match wins:
 
 1.  **Refused, denied in every mode.** No allow rule or approval can open these, and a write to one is denied too (Q13). The list is built from the config the first time it's needed (`ReadRoots::of(cfg)`), so it can't fall behind the registry:
     *   all of Heron's home folder, `cfg.home`, resolved at runtime, so a `HERON_HOME` override and `<home>/backups` are covered;
@@ -346,7 +346,7 @@ A read from `read_file`, `search_files`, `list_dir` or `find_files` is classifie
 
 **Granting a folder.** When the user picks "always" on an approval for any of the four read tools, Heron stores one folder grant, `read:<folder>/**`, where `<folder>` is the canonical, absolute folder: the file's parent for `read_file`, and the folder itself for `list_dir`, `search_files` and `find_files`.
 *   **Matching.** A `read:` rule is never matched as a glob against `"{tool}:{summary}"` (`permissions.rs:272-280`), because a read tool's summary is the raw `path` argument, and for `search_files` and `find_files` not a path at all (`fs.rs:837, 847`). Instead it covers a call when the call's canonical read target equals `<folder>` or lies under it, compared by path components. The same test applies to "allow for this conversation" grants. The shell sandbox reads the same rules: the standing `read:` rules and the conversation's `read:` grants (Q20).
-*   **Only `read:` rules grant `OutsideRead`.** Tool-wide rules such as `read_file:*`, which today's `always_rule()` writes for every tool except shell (`permissions.rs:353-360`) and the Settings "allow" switch writes (`server.rs:926-930`), and bare `*` or `*:*`, never allow an Ask-tier read. They still cover the other effects they cover today. For the four read tools, the Settings switch offers only "ask" and "never".
+*   **Only `read:` rules grant `OutsideRead`.** Tool-wide rules such as `read_file:*`, which today's `always_rule()` writes for every tool except shell (`permissions.rs:353-360`) and the Settings "allow" switch writes (`server.rs:937-941`), and bare `*` or `*:*`, never allow an Ask-tier read. They still cover the other effects they cover today. For the four read tools, the Settings switch offers only "ask" and "never".
 *   **Too broad.** A folder that is `/`, `/Users`, `/Volumes`, `$HOME`, `$HOME/Library`, or any parent of `$HOME` can't be granted. `~` is expanded before the comparison. For such a read the approval offers only "once" and "this conversation" (`can_always` is false). A rule like that found in the config isn't loaded, and is listed under `rule_notices` (Q2).
 
 **Full check order for every call:** `Effect::Forbidden` → the user's deny rules → read-only blocks changes → Refused → secret check → taint blocks changes and sends → allow rules → read tiers and modes.
@@ -398,7 +398,7 @@ Today the shell's Seatbelt profile allows every read by default and denies a lis
 
 *   **CLI providers are refused,** with the message "the sandbox is off, so Heron won't run <CLI>".
 *   **The `shell` tool is refused the same way:** "the sandbox is off, so Heron won't run shell commands". The classifier can't see what a command reads at run time, so it can't stand in for the sandbox. The `read_file`-family tools keep working under the verdict table.
-*   **Settings shows the sandbox status,** from the existing `sandbox` field in `GET /api/state` (`server.rs:204`).
+*   **Settings shows the sandbox status,** from the existing `sandbox` field in `GET /api/state` (`server.rs:215`).
 
 The refusal is checked where the command is spawned, through `sandbox::required()` (true on macOS), not in the decision function, which can't see the sandbox. So the decision table has no sandbox-off rows. Tests: `shell_refused_when_sandbox_off` and `cli_turn_refused_when_sandbox_off`. On Windows and Linux, commands keep running unsandboxed, as today.
 
@@ -467,23 +467,23 @@ The refusal is checked where the command is spawned, through `sandbox::required(
 
 #### Runs that outlive their connection
 
-*   **Routes.** Every route is nested under `/api` (`server.rs:165`), and this doc writes them with that prefix. The existing routes stay as they are (`server.rs:117-161`). These are added: `GET /api/events`, `GET` and `POST /api/risk-notice`, `GET /api/providers`, `POST /api/providers/{id}/accept-version`, and `GET` and `DELETE /api/grants`. The API gets a version prefix only when a breaking change needs one.
+*   **Routes.** Every route is nested under `/api` (`server.rs:176`), and this doc writes them with that prefix. The existing routes stay as they are (`server.rs:121-169`). These are added: `GET /api/events`, `GET` and `POST /api/risk-notice`, `GET /api/providers`, `POST /api/providers/{id}/accept-version`, and `GET` and `DELETE /api/grants`. The API gets a version prefix only when a breaking change needs one.
 *   **Today, a run dies with its `/api/chat` stream:**
-    *   dropping `ChatEventStream` aborts the run (`server.rs:373-393`);
-    *   a full event queue aborts it (`server.rs:477-491`);
-    *   `WebApprover` denies an approval it can't push onto that same stream within 15 seconds (`server.rs:409-414`).
+    *   dropping `ChatEventStream` aborts the run (`server.rs:384-404`);
+    *   a full event queue aborts it (`server.rs:488-502`);
+    *   `WebApprover` denies an approval it can't push onto that same stream within 15 seconds (`server.rs:420-425`).
 *   **`POST /api/chat`** (`{session_id?, message}`, unchanged) starts a run and keeps its SSE response.
-    *   Its first event, `{"type":"session","id":…}` today (`server.rs:459`), gains `run_id`, a UUID string. Today's per-process counter (`server.rs:453`) is replaced, so a `run_id` stays unique across core restarts.
-    *   A session has at most one active run. A second `POST /api/chat` on a busy session returns `409`, as it already does (`server.rs:455-457`), with the body `{"error":"session_busy","message":…}`. Errors that happen once a run has started, such as an untested CLI version, arrive as an `error` event with a `code` field, because the SSE response's status is already sent.
+    *   Its first event, `{"type":"session","id":…}` today (`server.rs:470`), gains `run_id`, a UUID string. Today's per-process counter (`server.rs:464`) is replaced, so a `run_id` stays unique across core restarts.
+    *   A session has at most one active run. A second `POST /api/chat` on a busy session returns `409`, as it already does (`server.rs:466-468`), with the body `{"error":"session_busy","message":…}`. Errors that happen once a run has started, such as an untested CLI version, arrive as an `error` event with a `code` field, because the SSE response's status is already sent.
     *   A `/api/chat` subscriber that falls behind is disconnected, and the run continues. A client can pick the run up again through `/api/events`. Old clients that don't understand `resync` see the same disconnect they see today.
-*   **Cancelling.** Only `POST /api/cancel` stops a run, never a dropped connection. It keeps today's body, `{session_id}` (`server.rs:540-550`), because a session has at most one active run. It returns `{"ok": true, "cancelled": true}`, or `{"ok": true, "cancelled": false}` if nothing was running. `ok` stays for clients that read today's `{"ok": true}` (`server.rs:560`).
+*   **Cancelling.** Only `POST /api/cancel` stops a run, never a dropped connection. It keeps today's body, `{session_id}` (`server.rs:551-561`), because a session has at most one active run. It returns `{"ok": true, "cancelled": true}`, or `{"ok": true, "cancelled": false}` if nothing was running. `ok` stays for clients that read today's `{"ok": true}` (`server.rs:571`).
 *   **Approvals.** They wait on the bus instead of on one stream, using the two answer routes the API already has:
-    *   **A live approval** has a UUID `id`, carried in `approval`, and is answered by `POST /api/approve {id, decision}`, where `decision` is `once`, `always`, `session` or `deny` (`server.rs:521-536`).
-        *   `WebApprover` waits on its existing in-memory answer map (`ServerState.approvals`) with the existing 900-second timeout (`server.rs:404-421`).
-        *   Only the 15-second push to a single stream (`server.rs:411`) goes away.
-    *   **On timeout,** the approval is parked with today's deny-and-carry-on behaviour (`park_approval`, `permissions.rs:334-341`), with the session's `origin` as the park origin (`store.rs:910`).
+    *   **A live approval** has a UUID `id`, carried in `approval`, and is answered by `POST /api/approve {id, decision}`, where `decision` is `once`, `always`, `session` or `deny` (`server.rs:532-547`).
+        *   `WebApprover` waits on its existing in-memory answer map (`ServerState.approvals`) with the existing 900-second timeout (`server.rs:415-432`).
+        *   Only the 15-second push to a single stream (`server.rs:422`) goes away.
+    *   **On timeout,** the approval is parked with today's deny-and-carry-on behaviour (`park_approval`, `permissions.rs:334-341`), with the session's `origin` as the park origin (`store.rs:916`).
         *   The bus gets `approval_parked {id, parked_id}`, where `parked_id` is the integer row id.
-        *   From then on it is answered by `POST /api/approvals/{parked_id} {action: "approve"|"dismiss"}` (`server.rs:888-890`), which runs it through `run_parked`.
+        *   From then on it is answered by `POST /api/approvals/{parked_id} {action: "approve"|"dismiss"}` (`server.rs:899-901`), which runs it through `run_parked`.
         *   The UUID is never reused.
 
 #### One event bus
@@ -517,12 +517,12 @@ The buffer is an in-memory ring of the last 10,000 events. That covers a 5-minut
 
 *   **Startup.** The Mac app launches the CLI binary that already ships in the bundle as a child process: `Contents/MacOS/heron-cli serve --no-open --port 0 --print-endpoint`.
     *   `--print-endpoint` is a new flag on `Cmd::Serve` (`main.rs:51-57`). With it, the server binds `127.0.0.1` whatever `cfg.server.bind` says, picks a free port, skips the banner (`main.rs:679`), and prints one JSON line on stdout: `{"port": …, "token": …, "background_owner": true|false, "version": "…"}`. The app reads it through the pipe.
-    *   Loopback-only checking follows the address actually bound, not `cfg.server.bind` (`server.rs:113-114`).
-    *   Nothing is written to disk, and the header check (`server.rs:102-107`) is unchanged.
+    *   Loopback-only checking follows the address actually bound, not `cfg.server.bind` (`server.rs:117-118`).
+    *   Nothing is written to disk, and the header check (`server.rs:106-111`) is unchanged.
 *   **Exiting.** The core started with `--print-endpoint` exits when its stdin reaches EOF. The kernel closes that pipe when the app exits for any reason, including a crash or force-quit, so no orphan core is left.
 *   **Another core already running.** If `background.lock` is already held, for example by a `heron serve` the owner started by hand, the endpoint line says `"background_owner": false`. The app still uses its own core for everything you see, and shows "Another Heron is running your schedules and phone connection". It never kills that process.
 *   **Restarts.** If the core exits, the app shows the error and restarts it once. If the restarted core exits again within 60 seconds, the app stops and offers a "Restart Heron's core" button.
-*   **State that survives restarts.** `set_mode` writes `permissions.mode` to the config file, following the `set_tool` pattern (`server.rs:924-930`, `config.rs:176-178`), so the config file stays the one source of truth. Each audit append and its hash-chain update commit in one write transaction.
+*   **State that survives restarts.** `set_mode` writes `permissions.mode` to the config file, following the `set_tool` pattern (`server.rs:935-941`, `config.rs:176-178`), so the config file stays the one source of truth. Each audit append and its hash-chain update commit in one write transaction.
 
 ### 4. The SwiftUI Mac app (G6)
 
@@ -542,7 +542,7 @@ The buffer is an in-memory ring of the last 10,000 events. That covers a 5-minut
     *   **Activity:** the audit log.
     *   **Settings:** the standard Settings scene, including the sandbox status.
     *   **Personalization:**
-        *   The agent name and personality are core settings. `GET` and `POST /api/persona` (`server.rs:848-850`) store them in `cfg.agent.name` and the personality file.
+        *   The agent name and personality are core settings. `GET` and `POST /api/persona` (`server.rs:859-861`) store them in `cfg.agent.name` and the personality file.
         *   The avatar image, theme and accent colour are display preferences. The Mac app keeps them in `UserDefaults`, and the avatar image file under `~/Library/Application Support/Heron/`.
         *   No new route is needed.
 *   **Entry point.** The menu bar extra. A quick-entry panel on a global hotkey goes on the Q8 feature list instead of v1's base scope.
@@ -635,13 +635,13 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
     *   It's a second API surface next to the HTTP API, which the web UI and EVE still need.
     *   Rust panics and async runtimes cross into Swift.
     *   Builds are slower, because every UI build relinks the core.
-*   **Reason for Rejection**: The HTTP API already exists, covers every screen (`server.rs:117-161`), and is what EVE tests. The brainstorm reviewers and the research note ([cli-backend-and-swiftui.md](research/cli-backend-and-swiftui.md)) all recommend HTTP. FFI stays an option for narrow, latency-sensitive calls later.
+*   **Reason for Rejection**: The HTTP API already exists, covers every screen (`server.rs:121-169`), and is what EVE tests. The brainstorm reviewers and the research note ([cli-backend-and-swiftui.md](research/cli-backend-and-swiftui.md)) all recommend HTTP. FFI stays an option for narrow, latency-sensitive calls later.
 
 ### Alternative C: A web UI in a native shell (Tauri, Electron or WKWebView)
 
 *   **Pros**:
     *   Rich animation needs no native code: CSS, Lottie and Rive web runtimes.
-    *   Heron already serves a web UI (`server.rs:164`).
+    *   Heron already serves a web UI (`server.rs:172`).
     *   One UI could cover all platforms.
 *   **Cons**:
     *   It doesn't look or behave like a Mac app.
@@ -745,9 +745,9 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
     *   By default, no unattended work runs through a subscription login (Q6).
 *   **Rollout and rollback.**
     *   New features ship off until done, using the existing per-ability switches ([§5](#5-features-behind-switches-q8-q16)).
-    *   Before migrating, the upgrade from v0.3.1 relies on the existing pre-upgrade snapshot (`store.rs:527-540`), `backups/heron-before-upgrade-from-v2-<time>.db`, which stops the upgrade if it can't be written.
+    *   Before migrating, the upgrade from v0.3.1 relies on the existing pre-upgrade snapshot (`store.rs:528-541`), `backups/heron-before-upgrade-from-v2-<time>.db`, which stops the upgrade if it can't be written.
     *   The schema change is one new numbered migration step, `to_v3`, which adds columns and never drops any.
-    *   A v0.3.1 build refuses a v3 database (`store.rs:519-525`), so rolling back to v0.3.1 means `heron restore` from the pre-upgrade backup. That restore is rehearsed once (G8).
+    *   A v0.3.1 build refuses a v3 database (`store.rs:520-526`), so rolling back to v0.3.1 means `heron restore` from the pre-upgrade backup. That restore is rehearsed once (G8).
 *   **Platform.** macOS 14 or later, as a universal binary for Apple silicon and Intel. Windows and Linux keep building in CI and are labelled unqualified.
 
 ## Additional Resources
@@ -838,7 +838,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 
 *   **Type / Scope**: The bridge between EVE and Heron's API (B6).
 *   **Proposed Changes**:
-    *   **Why an adapter.** EVE's HTTP backend posts one JSON request and reads the reply at a path. Heron's `/api/chat` answers with an SSE stream, and a live approval's id travels only inside that stream (`server.rs:407-411`).
+    *   **Why an adapter.** EVE's HTTP backend posts one JSON request and reads the reply at a path. Heron's `/api/chat` answers with an SSE stream, and a live approval's id travels only inside that stream (`server.rs:418-422`).
     *   **`eve_adapter.py`**, standard library only. Its function `turn(base, token, message, policy, session_id=None)`:
         1. posts `/api/chat` with the `x-heron-token` header;
         2. reads the SSE events;
@@ -847,7 +847,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 
         It returns `{reply, session_id, events, ttft_ms, tokens}`, where:
         *   `ttft_ms` runs from the POST to the first `text` event;
-        *   `tokens` is `prompt + completion` from the run's **last** `usage` event (`server.rs:431`). Each `usage` event carries the running total (`agent.rs:376-381`), and each run starts a fresh core, so the last one is the run's total. Summing them would count tokens many times over.
+        *   `tokens` is `prompt + completion` from the run's **last** `usage` event (`server.rs:442`). Each `usage` event carries the running total (`agent.rs:375-380`), and each run starts a fresh core, so the last one is the run's total. Summing them would count tokens many times over.
 
         The runner counts `asks` itself, from `audit` rows (item 4), the same source the spec uses.
 
@@ -1015,7 +1015,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 ##### 13. The existing clippy errors (Modify)
 
 *   **Type / Scope**: Precondition for U1's check (M19).
-*   **Proposed Changes**: `cargo clippy --locked --all-targets -- -D warnings` fails on today's `main` with 57 errors, all in `src/`. Running it with `--keep-going` also reports none under `tests/`, checked on 2026-11-18, so no `tests/**` fix is needed before U1. Most are `field_reassign_with_default`, in `connectors.rs`, `config.rs`, `app.rs` and `cli_llm.rs`. U1's first commit fixes them without changing behaviour, so its check can enforce `-D warnings`.
+*   **Proposed Changes**: Re-checked on `feat/heron-v1` after #26 and #35 merged (2026-11-18, clippy 0.1.99, the pinned toolchain). With the lints run as warnings, so every target compiles: 21 in the lib, 43 more in the lib's tests, and 3 in the `heron` bin, all under `src/` (most are `field_reassign_with_default`, in `app.rs`, `connectors.rs`, `config.rs`, `cli_llm.rs` and `telegram.rs`). Under `-D warnings` a failing lib stops cargo from linting the crates that depend on it, so `--keep-going` alone couldn't see the 9 in `tests/integration.rs`. Those 9 were fixed on `feat/heron-v1` before `skein run`, with no behaviour change, so U1 can pass its check without editing `tests/`. U1's first commit fixes the `src/` ones without changing behaviour, so its check can enforce `-D warnings`. The `desktop`-feature targets have more, but no check lints them. Most are `field_reassign_with_default`, in `connectors.rs`, `config.rs`, `app.rs` and `cli_llm.rs`. U1's first commit fixes them without changing behaviour, so its check can enforce `-D warnings`.
 
 ##### 14. `src/permissions.rs` (Modify)
 
@@ -1028,7 +1028,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         | `OutsideRead` | `"outside"` | false | false | false | false |
         | `Refused` | `"refused"` | false | false | true | false |
 
-        `reads_only` is false for `OutsideRead`, so these reads never run in parallel (`agent.rs:393`). Two of them could otherwise collide in Telegram's single pending-question slot (`telegram.rs:179`).
+        `reads_only` is false for `OutsideRead`, so these reads never run in parallel (`agent.rs:392`). Two of them could otherwise collide in Telegram's single pending-question slot (`telegram.rs:392-415`, typed at `telegram.rs:210`). Since #35 the slot holds a challenge code, a reply must be the answer word plus that code, and any other message while a question is pending is rejected, so a second question can't take the slot.
     *   **One decision function (M1, B4).**
         *   `pub struct Call<'a> { pub tool: &'a str, pub summary: &'a str, pub effect: Effect, pub read_target: Option<&'a Path> }`.
         *   `Policy::decide()` is deleted. `decide_in` becomes `pub fn decide(&self, call: &Call, ctx: &ToolCtx) -> Verdict`, and reads taint from `ctx.tainted`.
@@ -1074,14 +1074,14 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
             *   every other tool returns `{tool}:*` as today.
         *   `read_rule_covers(rule, target)` strips `read:` and `/**`, and compares by path components.
         *   `too_broad(folder)` is true for `/`, `/Users`, `/Volumes`, `$HOME`, `$HOME/Library`, and any parent of `$HOME`. `~` is expanded first.
-        *   `add_allow(&self, rule) -> Result<()>` returns an error for a too-broad `read:` rule or a bad glob. Its callers handle the `Result`, so clippy's unused-`Result` warning doesn't fire (N3): `agent.rs:492` logs the error and treats the answer as "once"; `app.rs:109` and `app.rs:1214` skip the rule, which then shows in `rule_notices`; the tests at `permissions.rs:996-997` unwrap.
+        *   `add_allow(&self, rule) -> Result<()>` returns an error for a too-broad `read:` rule or a bad glob. Its callers handle the `Result`, so clippy's unused-`Result` warning doesn't fire (N3): `agent.rs:491` logs the error and treats the answer as "once"; `app.rs:109` and `app.rs:1250` skip the rule, which then shows in `rule_notices`; the tests at `permissions.rs:996-997` unwrap.
         *   `Policy::new` keeps too-broad `read:` rules out of the matcher, and lists them in `rule_notices() -> Vec<(String, &'static str)>`.
         *   The tool-wide rules that no longer open Ask-tier reads (`read_file:*`, `list_dir:*`, `search_files:*`, `find_files:*`, `*`, `*:*`) stay in the matcher, where they still cover every other effect they cover today. They are listed in `rule_notices()` too, with a note that they no longer open reads outside the working folder.
         *   Nothing is written back to the config or the kv store.
-        *   **`ApprovalRequest` gains `always_rule: Option<String>` (M10).** `execute_call` computes it once with `always_rule(tool, summary, target)`. Every approver uses it instead of computing its own: the web approver (`server.rs:408`), the terminal approver (`main.rs:168-178`) and Telegram. `can_always` is `always_rule.is_some() && !risk.high() && !tainted`.
+        *   **`ApprovalRequest` gains `always_rule: Option<String>` (M10).** `execute_call` computes it once with `always_rule(tool, summary, target)`. Every approver uses it instead of computing its own: the web approver (`server.rs:419`), the terminal approver (`main.rs:168-178`) and Telegram. `can_always` is `always_rule.is_some() && !risk.high() && !tainted`.
         *   **An `Always` answer when `always_rule` is `None`** is treated as "once".
         *   **"This conversation" on a too-broad folder** stores `read=:<canonical target>` in kv `grants:<session>`. A `read=:` entry covers only that exact target, never a path under it, and exists only as a conversation grant: `add_allow` rejects it as a standing rule.
-        *   **Every caller of `always_rule`** moves to the new signature: `agent.rs:106, 119, 492`, `server.rs:408` and the tests at `permissions.rs:1107-1108`.
+        *   **Every caller of `always_rule`** moves to the new signature: `agent.rs:106, 119, 492`, `server.rs:419` and the tests at `permissions.rs:1107-1108`.
         *   `set_tool_setting(tool, "allow")` returns an error for the four read tools: "reads outside the working folder are granted per folder".
     *   **M-1.** `~/.config/gh/hosts.yml` now matches the secret check and lies under a user root, so reading it asks. The existing rule that egress to a new URL in a tainted conversation asks (`permissions.rs:244`) stays.
 
@@ -1101,7 +1101,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 
 *   **Type / Scope**: Memory and activity tools (M6, Q14).
 *   **Proposed Changes**:
-    *   **`recall`** returns confirmed memories only, and stays `untrusted: false` (`personal.rs:259-267`).
+    *   **`recall`** returns confirmed memories only, and stays `untrusted: false` (`personal.rs:269-277`).
     *   **`recall_unconfirmed`** is new: the same search over unconfirmed memories, with `untrusted: true` and effect `LocalRead`.
     *   **`recent_activity`** is new, with no arguments, `untrusted: true` and effect `LocalRead`. It returns the text the `Ambient` prompt block renders today (`ambient::describe`, `ambient.rs:182`), or "Ambient observation is off." when it's off.
     *   Both new tools are added to the registry, and neither is in `mcp::SERVED_TOOLS`.
@@ -1110,10 +1110,10 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 
 *   **Type / Scope**: Agent loop.
 *   **Proposed Changes**:
-    *   **`execute_call`** (`agent.rs:453-540`) builds a `Call`, with `read_target` from `tool.read_target`, and calls `decide`.
+    *   **`execute_call`** (`agent.rs:452-539`) builds a `Call`, with `read_target` from `tool.read_target`, and calls `decide`.
     *   **The approval sheet.** "always" is offered only when `always_rule(…)` returns `Some`, the effect isn't high, and the conversation isn't tainted.
     *   **Conversation grants.** `session_grant` uses `read_rule_covers` for `read:` entries and an exact canonical match for `read=:` entries (`agent.rs:102-107`).
-    *   **The prompt.** `system_prompt` (`agent.rs:182-300`) builds from a `Vec<PromptBlock { source: PromptSource, text }>`, with the variants in [Prompt sources](#prompt-sources). The `RelevantUnconfirmed` and `Ambient` blocks are no longer rendered.
+    *   **The prompt.** `system_prompt` (`agent.rs:182-299`) builds from a `Vec<PromptBlock { source: PromptSource, text }>`, with the variants in [Prompt sources](#prompt-sources). The `RelevantUnconfirmed` and `Ambient` blocks are no longer rendered.
     *   **Tests.** The test call at `agent.rs:791` moves to `decide`.
 
 ##### 18. `src/mcp.rs` and `src/main.rs` (Modify)
@@ -1129,13 +1129,13 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 *   **Proposed Changes**:
     *   **M-6.** `act_on_suggestion` (`app.rs:613-640`) sets the new session's taint flag and kv `tainted:<id>` before the "prepare" or "take over" turn runs.
     *   **M-7.** `run_parked` (`app.rs:374-401`) builds its `ToolCtx` with the parked row's `tainted` value, and calls `decide`.
-    *   **Tests.** The test call at `app.rs:986` moves to `decide`.
+    *   **Tests.** The test call at `app.rs:1000` moves to `decide`.
 
 ##### 20. `src/telegram.rs` (Modify)
 
 *   **Type / Scope**: Channel input (M-8, M28).
 *   **Proposed Changes**:
-    *   The update parser reads `message.forward_origin` (Bot API 7.0), or the older `forward_from`, `forward_from_chat`, `forward_sender_name` and `forward_date` fields, into `forwarded: bool`. `handle_message` (`telegram.rs:163`) gains that parameter.
+    *   The update parser reads `message.forward_origin` (Bot API 7.0), or the older `forward_from`, `forward_from_chat`, `forward_sender_name` and `forward_date` fields, into `forwarded: bool`. `handle_message` (`telegram.rs:373`) gains that parameter.
     *   A forwarded message is wrapped with `util::wrap_untrusted("forwarded message", &text)`, and the session's taint flag and kv `tainted:<id>` are set before the turn runs.
     *   Telegram is reached through raw Bot API JSON, with no Telegram crate, so this is a field read. It is re-checked against `telegram.rs` after #35 merges.
 
@@ -1144,10 +1144,10 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 *   **Type / Scope**: The other callers of `classify_path`.
 *   **Proposed Changes**:
     *   **Indexing and observation (M12).** Both run inside `spawn_blocking`, so a borrowed `&app.cfg()` can't reach them. The new signatures:
-        *   `ambient::observe(store, workspace, cfg: Arc<Config>)` and `ambient::recent_changes(workspace, cfg: &Config, window, limit)`. The callers at `app.rs:419-420` and `agent.rs:272-276` clone the `Arc<Config>` and move it into the closure. The tests at `app.rs:950-1128` pass `Arc::new(cfg)` from their own set-up.
-        *   `sources::scan_folder(store, folder, cfg: &Config)`; its `spawn_blocking` caller (`sources.rs:274-285`) moves an `Arc<Config>` in.
+        *   `ambient::observe(store, workspace, cfg: Arc<Config>)` and `ambient::recent_changes(workspace, cfg: &Config, window, limit)`. The callers at `app.rs:419-420` and `agent.rs:272-276` clone the `Arc<Config>` and move it into the closure. The tests at `app.rs:964-1164` pass `Arc::new(cfg)` from their own set-up.
+        *   `sources::scan_folder(store, folder, cfg: &Config)`; its `spawn_blocking` caller (`sources.rs:283-294`) moves an `Arc<Config>` in.
         *   Both skip `Refused` and `SensitiveRead` entries, so Refused paths and secret-pattern matches are not indexed or observed.
-    *   **The source-folder check** at `server.rs:1070` becomes `matches!(effect, Effect::Refused | Effect::SensitiveRead)`. A read classification never returns `Privileged`, so today's comparison never fires (N2).
+    *   **The source-folder check** at `server.rs:1238` becomes `matches!(effect, Effect::Refused | Effect::SensitiveRead)`. A read classification never returns `Privileged`, so today's comparison never fires (N2).
 
 ##### 22. `src/cli_llm.rs` (Modify)
 
@@ -1206,8 +1206,8 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
     *   `always_rules` (`permissions.rs:1106`), `policy_modes` and `outside_content_restricts_what_happens_next`.
     *   The roughly 40 `decide` and `decide_in` calls in `permissions.rs` tests (lines 837-1018) go through one helper, `decide_for(policy, tool, summary, effect, tainted)`.
     *   The Heron-home assertions at `fs.rs:1235-1238` now expect `Refused`. The symlink-to-`.ssh` test at `fs.rs:1224` stays `SensitiveRead`.
-    *   `proactive_levels_suggest_then_take_over_within_bounds` (`app.rs:992-1047`): the "take over" session now starts tainted (M-6), so its write asks, and with nobody attending it is parked. The test asserts a parked call instead of the applied write.
-    *   `the_agent_cannot_rewrite_its_own_settings_unasked` (`agent.rs:957-969`): a write into `cfg.home` is now `Refused` and denied (Q13), so the test expects a deny, not `Privileged`.
+    *   `proactive_levels_suggest_then_take_over_within_bounds` (`app.rs:1025-1083`): the "take over" session now starts tainted (M-6), so its write asks, and with nobody attending it is parked. The test asserts a parked call instead of the applied write.
+    *   `the_agent_cannot_rewrite_its_own_settings_unasked` (`agent.rs:1012-1024`): a write into `cfg.home` is now `Refused` and denied (Q13), so the test expects a deny, not `Privileged`.
     *   `every_built_in_tool_declares_what_it_changes` (`agent.rs:794-795`) gains rows for `recall_unconfirmed` and `recent_activity`.
     *   `server_speaks_mcp` (`mcp.rs:299`): `remember` is refused and `recall` finds nothing.
 *   **Not fixed here.** Two integration tests in `tests/integration.rs` break and are fixed in Ut: `mcp_client_talks_to_a_real_server_and_detects_changed_tools` (line 334) and the chat tests.
@@ -1218,10 +1218,10 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 
 *   **Type / Scope**: Settings (M10).
 *   **Proposed Changes**: Three changes, all in the `[llm]` table where `cli_allow_api_key` lives today (`config.rs:103, 242`):
-    *   **`cli_allow_api_key: ApiKeyAllow`**, a `#[serde(untagged)]` enum with variants `Bool(bool)` and `List(Vec<String>)`, defaulting to `Bool(false)`. `ApiKeyAllow::allows(id)` is true for `Bool(true)` or a list that contains `id`. Old configs that say `true` or `false` keep loading, and `GET /api/settings` (`server.rs:227`) serializes the value as it was written.
+    *   **`cli_allow_api_key: ApiKeyAllow`**, a `#[serde(untagged)]` enum with variants `Bool(bool)` and `List(Vec<String>)`, defaulting to `Bool(false)`. `ApiKeyAllow::allows(id)` is true for `Bool(true)` or a list that contains `id`. Old configs that say `true` or `false` keep loading, and `GET /api/settings` (`server.rs:238`) serializes the value as it was written.
     *   **`cli_subscription: BTreeMap<String, bool>`**, default empty. A provider that is missing counts as a subscription.
     *   **`allow_unattended_subscription: bool`**, default `false`.
-    *   **`POST /api/settings` (`server.rs:281-282`)** accepts `cli_allow_api_key` as `true`, `false` or an array of provider ids, and `cli_subscription` as an object of `{"<id>": bool}` and `allow_unattended_subscription` as a bool. Today's `as_bool()` assignment is replaced, so the bool form still works. The Mac app's Settings writes the list form through one switch per provider ("Let <name> use an API key") and the two subscription settings through a per-provider "This is a subscription login" switch and one "Let scheduled work use subscription logins" switch.
+    *   **`POST /api/settings` (`server.rs:292-293`)** accepts `cli_allow_api_key` as `true`, `false` or an array of provider ids, and `cli_subscription` as an object of `{"<id>": bool}` and `allow_unattended_subscription` as a bool. Today's `as_bool()` assignment is replaced, so the bool form still works. The Mac app's Settings writes the list form through one switch per provider ("Let <name> use an API key") and the two subscription settings through a per-provider "This is a subscription login" switch and one "Let scheduled work use subscription logins" switch.
 
 ##### 25. `src/cli_llm.rs` and `src/llm.rs` (Modify)
 
@@ -1328,7 +1328,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 
 *   **Type / Scope**: Data format 3 (M7, M8, M9).
 *   **Proposed Changes**:
-    *   **`to_v3`**, appended to `STEPS` (`store.rs:161`) and run by the existing `migrate()`. Each statement is guarded by `has_column()`:
+    *   **`to_v3`**, appended to `STEPS` (`store.rs:162`) and run by the existing `migrate()`. Each statement is guarded by `has_column()`:
 
         ```sql
         ALTER TABLE audit ADD COLUMN provider TEXT NOT NULL DEFAULT '';
@@ -1336,16 +1336,16 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         ALTER TABLE audit ADD COLUMN hash_version INTEGER;
         ALTER TABLE sessions ADD COLUMN origin TEXT NOT NULL DEFAULT 'user';
         ```
-    *   **The audit hash.** Rows with `hash_version` NULL use today's formula (`audit_hash`, `store.rs:12-21`). New rows have `hash_version = 2`, whose input is the same length-prefixed fields followed by `provider` and `cli_version`, each length-prefixed the same way. `verify_audit` picks the formula per row.
+    *   **The audit hash.** Rows with `hash_version` NULL use today's formula (`audit_hash`, `store.rs:13-22`). New rows have `hash_version = 2`, whose input is the same length-prefixed fields followed by `provider` and `cli_version`, each length-prefixed the same way. `verify_audit` picks the formula per row.
     *   **Writing audit rows.**
         *   `Store::audit(session, tool, args, decision, result)` keeps its signature and writes `provider = ""` and `cli_version = ""`.
-        *   The new `Store::audit_row(&AuditRow)` takes all seven values. `execute_call` uses it with the agent's `audit_identity()` (`agent.rs:476, 504, 534`), and MCP uses `("mcp", "")` (`mcp.rs:267`).
+        *   The new `Store::audit_row(&AuditRow)` takes all seven values. `execute_call` uses it with the agent's `audit_identity()` (`agent.rs:475, 503, 533`), and MCP uses `("mcp", "")` (`mcp.rs:267`).
         *   `run_parked` (`app.rs:407`) keeps `audit()`.
-        *   Each append and its chain read happen under the existing connection lock (`store.rs:1157-1166`).
-    *   **Reading audit rows (M9).** `AuditEntry` (`store.rs:144-151`) gains `provider: String` and `cli_version: String`, `audit_log()` selects them, and the activity-log route returns them, so CUJ 1 can show which model acted. Ut's `api_fixtures_match_the_live_core` records the new keys, and U4's Activity screen shows them.
-    *   **Sessions.** `create_session(title, origin: &str)` replaces `create_session(title)` (`store.rs:653`).
-    *   **Backups.** No new backup step. The existing pre-upgrade snapshot (`store.rs:527-540`) already writes `backups/heron-before-upgrade-from-v2-<time>.db` before `to_v3` runs, and stops if it can't.
-    *   **The schema fingerprint test** (`store.rs:1687-1695`) is updated for format 3.
+        *   Each append and its chain read happen under the existing connection lock (`store.rs:1163-1172`).
+    *   **Reading audit rows (M9).** `AuditEntry` (`store.rs:145-152`) gains `provider: String` and `cli_version: String`, `audit_log()` selects them, and the activity-log route returns them, so CUJ 1 can show which model acted. Ut's `api_fixtures_match_the_live_core` records the new keys, and U4's Activity screen shows them.
+    *   **Sessions.** `create_session(title, origin: &str)` replaces `create_session(title)` (`store.rs:659`).
+    *   **Backups.** No new backup step. The existing pre-upgrade snapshot (`store.rs:528-541`) already writes `backups/heron-before-upgrade-from-v2-<time>.db` before `to_v3` runs, and stops if it can't.
+    *   **The schema fingerprint test** (`store.rs:1773-1781`) is updated for format 3.
 
 ##### 29. `src/agent.rs`, `src/app.rs`, `src/server.rs`, `src/telegram.rs` and `src/main.rs` (Modify)
 
@@ -1356,13 +1356,13 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         | call site | origin |
         |---|---|
         | `main.rs:304, 651, 653, 671` (terminal chat and `heron run`) | `user` |
-        | `server.rs:331` (`POST /api/sessions`), `server.rs:449` (`POST /api/chat` without a session) | `user` |
-        | `telegram.rs:158` | `telegram` |
+        | `server.rs:342` (`POST /api/sessions`), `server.rs:460` (`POST /api/chat` without a session) | `user` |
+        | `telegram.rs:368` | `telegram` |
         | `app.rs:214` (`run_job`: schedules and watches) | `schedule` |
         | `app.rs:259` (`run_automation`) | `automation` |
         | `app.rs:638` (`act_on_suggestion`) | `proactive` |
 
-        Sub-agents (`agent.rs:66, 554`) and MCP calls don't create session rows.
+        Sub-agents (`agent.rs:66, 553`) and MCP calls don't create session rows.
     *   **The hold (M13).**
         *   `App::model_held(&self, attended: bool) -> bool` is true only when all four hold:
             *   the turn isn't attended;
@@ -1372,7 +1372,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         *   **Status.** `run_job` (`app.rs:198`) returns `RunStatus { Ok, Failed, HeldSubscription, RiskNoticeNotAccepted }` instead of `bool`, with `as_str()` giving `ok`, `failed`, `held-subscription` and `risk-notice-not-accepted`. Its callers record that string where they record "ok" or "failed" today (`app.rs:187-188, 311`).
         *   **The call paths.** `run_job` gains `attended: bool`:
             *   `run_due_schedules` (`app.rs:176-187`, reached from the scheduler loop) and `run_triggers` (`app.rs:323-366`) pass `false`;
-            *   `run_now(id)` (`app.rs:315-319`), which `POST /api/schedules/{id}/run` calls (`server.rs:708-716`), passes `true`, so "Run now" is never held.
+            *   `run_now(id)` (`app.rs:315-319`), which `POST /api/schedules/{id}/run` calls (`server.rs:719-727`), passes `true`, so "Run now" is never held.
         *   **Where the hold is checked.** In `run_job` before its own turn (`app.rs:227`), and in `JobHost::ask` and `JobHost::agent` (`app.rs:735-748`), which carry the `attended` flag of the run that made them. Automation `ask` and `agent` steps reach the model only through those two, so `workflow.rs` doesn't change.
         *   **A held step.** `JobHost::ask` or `JobHost::agent` returns a `Held` error. The workflow stops at that step, as it stops at any failed step, earlier steps' effects stay, and the run is recorded as `held-subscription` with an inbox item, "Waiting for you: <name> needs the model". "Run now" runs the whole automation again.
         *   `proactive_tick` (`app.rs:512`) and `reflect_if_due` (`app.rs:433`) return early while `model_held(false)` is true.
@@ -1470,8 +1470,8 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         *   `since` is older than the ring's oldest event;
         *   `since` is newer than the last `seq` issued, which happens after a core restart, because `seq` starts again at 1 (M16);
         *   the receiver lags.
-    *   **`App.events: EventBus`** is new. `App::sink_for(session_id, run_id) -> EventSink` turns each `Event` into JSON with `event_json`, which moves from `server.rs:425-434` to `events.rs` as `pub fn event_json`, and publishes it. The background runs that use `null_sink()` today use it, with a new UUID `run_id`: `run_job` (`app.rs:227`), `act_on_suggestion` (`app.rs:640`) and `JobHost::agent` (`app.rs:747`).
-    *   **Who publishes the end of a run.** Whoever spawned the run publishes its last events after `run_turn` returns, as `chat` sends them today (`server.rs:493-515`): `done {text, title}` or `error {message, code}`, then `learned {items}` when learning found anything, and finally `run_end {}`. `cancel` publishes `cancelled {}` and then `run_end {}`. `run_job`, `act_on_suggestion` and Telegram publish `done` or `error`, then `run_end`.
+    *   **`App.events: EventBus`** is new. `App::sink_for(session_id, run_id) -> EventSink` turns each `Event` into JSON with `event_json`, which moves from `server.rs:436-445` to `events.rs` as `pub fn event_json`, and publishes it. The background runs that use `null_sink()` today use it, with a new UUID `run_id`: `run_job` (`app.rs:227`), `act_on_suggestion` (`app.rs:640`) and `JobHost::agent` (`app.rs:747`).
+    *   **Who publishes the end of a run.** Whoever spawned the run publishes its last events after `run_turn` returns, as `chat` sends them today (`server.rs:504-526`): `done {text, title}` or `error {message, code}`, then `learned {items}` when learning found anything, and finally `run_end {}`. `cancel` publishes `cancelled {}` and then `run_end {}`. `run_job`, `act_on_suggestion` and Telegram publish `done` or `error`, then `run_end`.
     *   **Unattended runs** that get `RiskNoticeNotAccepted` record status `risk-notice-not-accepted` and stop.
     *   **Config.** `config.rs` gains `[server] approval_timeout_secs: u64 = 900`, so tests can shorten the wait.
 
@@ -1482,10 +1482,10 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
     *   **Runs.**
         *   **Checks before anything starts (B3).** `chat` validates the message, then:
             1. when `risk_notice::required()` and not `accepted(&store)`, it returns `428 {"error":"risk_notice_not_accepted"}`, before it loads or creates a session;
-            2. when the session is busy, it returns `409 {"error":"session_busy","message":"Heron is still replying in this conversation. Stop it first, or wait."}`. The body gains the `error` code; the status is today's (`server.rs:455-457`).
+            2. when the session is busy, it returns `409 {"error":"session_busy","message":"Heron is still replying in this conversation. Stop it first, or wait."}`. The body gains the `error` code; the status is today's (`server.rs:466-468`).
         *   Then `chat` makes a UUID `run_id`, spawns the turn as its own task with `App::sink_for`, and records `(run_id, AbortHandle)` in `ServerState.running` by session.
         *   It returns an SSE stream of the bus filtered by `run_id`, starting with today's `session {id}` event. The stream ends after the run's `run_end` event (item 34). Dropping it, or the stream lagging, ends only the stream.
-        *   The counter at `server.rs:453` is removed.
+        *   The counter at `server.rs:464` is removed.
         *   **Errors after the stream starts.** The response headers are sent before the turn runs, so a turn error can't change the HTTP status. It arrives as an SSE `error` event with a `code` field: `cli_version_untested` (with `provider` and `version`), `risk_notice_not_accepted` (the rare case where the notice is revoked mid-run), `workspace_refused`, or `null` for any other error. The Mac app shows the CUJ 5 prompt for `cli_version_untested`.
     *   **`cancel`** aborts the session's run and returns `{"ok": true, "cancelled": <bool>}`.
     *   **`WebApprover`:**
@@ -1494,14 +1494,14 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         *   it publishes `approval_resolved {id, decision}` when answered or cancelled, where `decision` is the value posted to `/api/approve` (`once`, `always`, `session` or `deny`), or `cancelled`;
         *   on timeout it parks the call with the session's origin, publishes `approval_parked {id, parked_id}`, and returns today's deny-and-carry-on result.
 
-        The 15-second push (`server.rs:409-414`) is removed. `always_rule` and `can_always` come from the request (item 14).
+        The 15-second push (`server.rs:420-425`) is removed. `always_rule` and `can_always` come from the request (item 14).
     *   **New routes:**
         *   `GET /api/events?since=`;
         *   `GET` and `POST /api/risk-notice`;
         *   `GET /api/providers`, which returns per registry entry `{id, display_name, installed, version, supported, in_range, logged_in, experimental, version_accepted}` from `probe_status`;
         *   `POST /api/providers/{id}/accept-version {"version"}`, which writes kv `cli_version_ok:<id>`;
         *   `GET /api/grants`, which returns `[{"rule": "read:/Users/me/Notes/**", "kind": "read"}, {"rule": "shell:git *", "kind": "tool"}]`: every standing allow rule, with `kind` `read` for `read:` rules and `tool` for the rest;
-        *   `DELETE /api/grants {"rule"}`, which removes the rule from the policy, kv `allow_rules` and `[permissions] allow`, using the same config save as `set_tool` (`server.rs:918-935`).
+        *   `DELETE /api/grants {"rule"}`, which removes the rule from the policy, kv `allow_rules` and `[permissions] allow`, using the same config save as `set_tool` (`server.rs:929-946`).
     *   **Changed routes:**
         *   `GET /api/state` gains `risk_notice_accepted`;
         *   `GET /api/settings` gains `rule_notices: [{rule, notice}]`;
@@ -1528,7 +1528,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         *   on a terminal, it prints `TEXT` and asks "Accept these risks? [y/N]", and accepts on `y`;
         *   otherwise it prints "Accept Heron's risk notice in the Mac app or by running `heron` in a terminal" and exits with status 3.
     *   **`Agent::run_turn`** returns `WorkspaceRefused` (item 14) first, then `RiskNoticeNotAccepted` when `required()` and not accepted.
-    *   **Telegram** replies "Heron needs you to accept its risk notice in the Mac app first." to that error, and its turns publish to the bus (`telegram.rs:211`).
+    *   **Telegram** replies "Heron needs you to accept its risk notice in the Mac app first." to that error, and its turns publish to the bus (`telegram.rs:444`).
 
 ##### 37. Tests (Create and Modify, inline in `src/`)
 
@@ -1552,9 +1552,9 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
     *   `print_endpoint_line_has_port_token_and_owner` (`server.rs`, on `endpoint_line`);
     *   `stream_ends_after_run_end`.
 *   **Existing tests rewritten or replaced (M15):**
-    *   `dropped_chat_stream_aborts_only_its_original_run_and_clears_approvals` (`server.rs:1169-1245`) asserts the behaviour U3 removes, and builds `ServerState` with `next_run`. It is deleted; `run_survives_dropped_chat_stream` and `cancel_reports_whether_a_run_was_stopped` replace it.
+    *   `dropped_chat_stream_aborts_only_its_original_run_and_clears_approvals` (`server.rs:1351-1429`) asserts the behaviour U3 removes, and builds `ServerState` with `next_run`. It is deleted; `run_survives_dropped_chat_stream` and `cancel_reports_whether_a_run_was_stopped` replace it.
     *   `stalled_chat_reader_cannot_accumulate_unlimited_events` depends on `CHAT_EVENT_CAPACITY`, which goes away. It is rewritten against the bus: a stalled reader lags, gets `resync` and is dropped, while the run finishes (the same behaviour `lagging_subscriber_gets_resync_and_is_dropped` pins at the bus level).
-*   **Existing set-up.** Every test in `src/` that builds an `Agent` or `App` and runs a turn calls `risk_notice::accept_current(&store)`, whether through a helper or inline. The inline `App::assemble` sites are in `app.rs`, `sources.rs:555`, `telegram.rs:339` and `server.rs:1183` (N6). That includes the Slint bridge tests' `DemoServer::start` (`src/bin/desktop/bridge.rs:565-570`), which gains that one line and nothing else (Q15).
+*   **Existing set-up.** Every test in `src/` that builds an `Agent` or `App` and runs a turn calls `risk_notice::accept_current(&store)`, whether through a helper or inline. The inline `App::assemble` sites are in `app.rs`, `sources.rs:643`, `telegram.rs:934` and `server.rs:1365` (N6). That includes the Slint bridge tests' `DemoServer::start` (`src/bin/desktop/bridge.rs:565-570`), which gains that one line and nothing else (Q15).
 *   **Platform.** A test whose behaviour depends on Q11 asserts the macOS behaviour on macOS and today's behaviour elsewhere, so every named test exists on every platform.
 
 #### Work unit Ut: integration tests
@@ -1663,7 +1663,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         *   the tag.
 
         These are owner steps, not work units.
-    *   **The threat model (M15).** `docs/engineering/SECURITY_THREAT_MODEL.md:68` describes today's per-stream queue that stops a reply when the client can't keep up. U6 rewrites that paragraph for the bus: a lagging reader gets `resync` and is dropped, and the run carries on.
+    *   **The threat model (M15).** `docs/engineering/SECURITY_THREAT_MODEL.md:75` describes today's per-stream queue that stops a reply when the client can't keep up. U6 rewrites that paragraph for the bus: a lagging reader gets `resync` and is dropped, and the run carries on.
 
 #### Work unit U6b: README
 
@@ -1804,7 +1804,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
     *   `swift test --package-path macos/HeronMac`;
     *   `python3 -I -m unittest discover -s eval/tests -t eval`.
 *   **Static Analysis & Linting**:
-    *   `cargo clippy --locked --all-targets -- -D warnings`, after U1 fixes the 57 errors on today's `main`;
+    *   `cargo clippy --locked --all-targets -- -D warnings`, after U1 fixes the 67 in `src/` (item 13);
     *   `actionlint .github/workflows/release.yml .github/workflows/ci.yml`.
     *   `cargo fmt --check` isn't a gate: `main` isn't formatted today, and formatting it is outside this design.
 *   **Test Coverage Requirement**: a mutation score of 70% or more from `testteeth run --base "$BASE" --fail-under 70 -q`, where `BASE` is the baseline commit. `verify` runs it on the whole branch (Q18). Surviving mutants are killed or justified before the second pull request.

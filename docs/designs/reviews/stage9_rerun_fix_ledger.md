@@ -12,12 +12,12 @@ Code facts checked for this pass (2026-11-18):
 - The model trait is `Llm`, wrapped by `SwappableLlm` (which holds a `Store`) and `Cassette` (`llm.rs`).
 - `ApprovalRequest` has no rule field (`permissions.rs:288-299`); `ToolCtx` carries `session_id` and `store`.
 - `sandbox::available()` and `sandbox::active(cfg)` both exist (`sandbox.rs:46, 52`).
-- `cargo clippy --locked --all-targets --keep-going -- -D warnings` reports errors only under `src/`.
+- `cargo clippy --locked --all-targets --keep-going -- -D warnings` reports errors only under `src/`, but that doesn't prove `tests/` is clean (see B2).
 
 | ID | Fix, or reason for dismissal | Lands in |
 |---|---|---|
 | B1 | `upgrade-test.sh` runs the bundled `dist/Heron.app/Contents/MacOS/heron-cli` (overridable with `HERON_NEW_BIN`), and exits 2 when it's missing. `make-upgrade-fixture.sh` copies the 0.3.1 binary to `$OLD_BIN` outside the worktree before removing it. A `--binary-only` mode rebuilds just that binary, and `upgrade-test.sh` calls it when the binary is missing. CI uses `fetch-depth: 0`. U7's check also tests that `heron-cli` exists. | Items 45, 46, 47; table U7 |
-| B2 | **Dismissed.** `cargo clippy --keep-going` reports no errors under `tests/`, so U1 to U3 can pass their clippy gate. The evidence is recorded in item 13. | Item 13 |
+| B2 | **Confirmed, then fixed (corrected after the merges).** The first dismissal was wrong: under `-D warnings` a failing lib stops cargo from linting the crates that depend on it, so `--keep-going` couldn't see `tests/`. Run as warnings, `tests/integration.rs` has 9. They were fixed on `feat/heron-v1` before `skein run`, with no behaviour change, and the 10 integration tests still pass. | Item 13 |
 | B3 | `chat` checks the risk notice before it creates a session, and returns `428`. The busy `409` keeps its status and gains `{"error":"session_busy"}`. Errors after the stream starts, `CliVersionUntested` included, become SSE `error` events with a `code`. New U3 tests: `chat_returns_428_before_the_notice_is_accepted`, `busy_session_returns_409_with_its_code`, `untested_cli_version_arrives_as_an_sse_error_code`. The spec's API contract and risk-notice text match. | Items 35, 37, 38; spec §3, §6; table U3 |
 | M1 | Each entry script inserts its own folder into `sys.path`. `test_runner.py` checks the import under `-I`. | Items 4, 9 |
 | M2 | The adapter gains `--record <file>`. Step 9 spells out the `eve` driver: start the adapter, set `HERON_ADAPTER_PORT` and `HERON_TASK_PROMPT`, run `eve chat` with the config, stop the adapter, and read the record. The `eve chat` argv stays UNVERIFIED until U0 reads its help. | Items 3, 4 |
