@@ -4006,7 +4006,16 @@
     }
   },
   "U3f": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "cac499cc58f7455d8460ff2abb38ecdd",
+        "ended_at": "2026-11-18T23:53:44.867547+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-18T23:19:36.715840+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -4018,22 +4027,58 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "cac499cc58f7455d8460ff2abb38ecdd",
-      "base_branch": "skein/U3f__integrate-base",
-      "claim_token": "d3a680335b744f1a8dccf7df8c6fc1a2",
-      "claimed_at": "2026-11-18T23:19:36.715840+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T23:36:37.597251+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2w",
       "SYNC11"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins",
+        "duration_ms": 12228,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3f_20261118T235317868015_0.log"
+      },
+      {
+        "command": "cargo test --locked --features desktop --bin heron-desktop",
+        "duration_ms": 2540,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3f_20261118T235330104708_1.log"
+      },
+      {
+        "command": "cargo clippy --locked --all-targets -- -D warnings",
+        "duration_ms": 429,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3f_20261118T235332648011_2.log"
+      },
+      {
+        "command": "HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins",
+        "duration_ms": 11166,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3f_20261118T235333082393_3.log"
+      },
+      {
+        "command": "bash eval/require-tests.sh --lib -- revoked_grant_stays_revoked_with_a_second_core revoked_config_grant_closes_for_a_run_in_progress telegram_stop_ends_the_run_on_the_bus background_runs_publish_start_and_end no_event_follows_run_end_after_cancel cli_overrides_are_not_written_to_config parked_approval_waits_for_the_risk_notice refused_job_is_not_consumed",
+        "duration_ms": 434,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3f_20261118T235344256861_4.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3f_20261118T235344692039_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U3f",
     "integration_for": null,
     "intent": {
@@ -4045,13 +4090,76 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "cac499cc58f7455d8460ff2abb38ecdd",
+      "base_commit": "cdbee6468ef3eab77bfbddfb791a31dbbb48012a",
+      "changed_files": [
+        "src/app.rs",
+        "src/config.rs",
+        "src/llm.rs",
+        "src/main.rs",
+        "src/sandbox.rs",
+        "src/server.rs",
+        "src/store.rs",
+        "src/telegram.rs",
+        "src/tools/fs.rs",
+        "src/tools/mod.rs",
+        "src/tools/shell.rs"
+      ],
+      "commit": "30358466c8fb96bbaf120b930cbd7f7805d99028",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 237,
+          "deleted": 22
+        },
+        "src/config.rs": {
+          "added": 86,
+          "deleted": 19
+        },
+        "src/llm.rs": {
+          "added": 4,
+          "deleted": 0
+        },
+        "src/main.rs": {
+          "added": 3,
+          "deleted": 8
+        },
+        "src/sandbox.rs": {
+          "added": 16,
+          "deleted": 5
+        },
+        "src/server.rs": {
+          "added": 216,
+          "deleted": 12
+        },
+        "src/store.rs": {
+          "added": 29,
+          "deleted": 2
+        },
+        "src/telegram.rs": {
+          "added": 159,
+          "deleted": 54
+        },
+        "src/tools/fs.rs": {
+          "added": 2,
+          "deleted": 2
+        },
+        "src/tools/mod.rs": {
+          "added": 21,
+          "deleted": 0
+        },
+        "src/tools/shell.rs": {
+          "added": 3,
+          "deleted": 2
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Fixes from U3's review: cross-core revoke, run start/end, overrides, risk-notice gates",
-    "version": 38,
+    "version": 73,
     "worktree": {
       "base_branch": "skein/U3f__integrate-base",
       "base_commit": "cdbee6468ef3eab77bfbddfb791a31dbbb48012a",
@@ -4154,7 +4262,7 @@
       "claim_token": "e3f45039632144f3adfaed1189f8e7d6",
       "claimed_at": "2026-11-18T23:37:06.197947+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-18T23:37:06.197947+00:00",
+      "last_heartbeat": "2026-11-18T23:53:37.216147+00:00",
       "node_version": 18,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4213,9 +4321,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "SwiftUI app shell: screens, tokens, avatar, first run, on preview stubs",
-    "version": 20,
+    "version": 53,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "78f7f7065d0d4bab44cdd352073bb87a4f96a5fa",
