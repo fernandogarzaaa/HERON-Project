@@ -251,7 +251,7 @@
       "claim_token": "2ea1fc7ab45640a5bc55cf92e961e03a",
       "claimed_at": "2026-11-18T16:18:24.071974+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T16:18:24.071974+00:00",
+      "last_heartbeat": "2026-11-18T16:20:24.521308+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -274,9 +274,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Sync: capture the feat/heron-v1 head for U2f",
-    "version": 3,
+    "version": 7,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "4b3d5578c7784fb99c793fd325a34e9e123cc592",
@@ -1017,9 +1017,17 @@
         "holder": "agent-1",
         "outcome": "failed",
         "started_at": "2026-11-18T16:03:17.485048+00:00"
+      },
+      {
+        "attempt_id": "de05c8736eca414892d0da598ca4a2c9",
+        "ended_at": "2026-11-18T16:20:31.745743+00:00",
+        "error": "completion command failed (adapter exit=1); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-18T16:17:12.659128+00:00"
       }
     ],
-    "attempts_used": 0,
+    "attempts_used": 1,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -1030,15 +1038,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "de05c8736eca414892d0da598ca4a2c9",
-      "base_branch": "skein/U1f__integrate-base",
-      "claim_token": "7aef94bd6dfb4d77b933308b812f35cb",
-      "claimed_at": "2026-11-18T16:17:12.659128+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T16:18:12.850306+00:00",
-      "node_version": 31,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2",
@@ -1047,38 +1055,38 @@
     "evidence": [
       {
         "command": "cargo test --locked --lib --bins",
-        "duration_ms": 11466,
+        "duration_ms": 12513,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T161416534638_0.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T162014906542_0.log"
       },
       {
         "command": "cargo test --locked --features desktop --bin heron-desktop",
-        "duration_ms": 95145,
+        "duration_ms": 3282,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T161428004163_1.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T162027421870_1.log"
       },
       {
         "command": "cargo clippy --locked --all-targets -- -D warnings",
-        "duration_ms": 14019,
+        "duration_ms": 413,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T161603151601_2.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T162030705483_2.log"
       },
       {
         "command": "bash eval/require-tests.sh --lib -- firmlink_alias_is_classified_like_its_target walkers_never_read_uncovered_ask_tier_entries firmlink_alias_is_denied_in_the_sandbox m8_forwarded_telegram_message_taints working_folder_inside_refused_path_is_refused m4_globs_quotes_and_unlisted_secrets_ask walkers_skip_refused_and_secret_paths",
-        "duration_ms": 615,
+        "duration_ms": 412,
         "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T161617171965_3.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T162031119710_3.log"
       },
       {
         "command": "grep -q 'enum CredentialStore' src/cli_llm.rs",
-        "duration_ms": 214,
+        "duration_ms": 209,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T161617789831_4.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T162031533006_4.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T161618004824_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U1f_20261118T162031742597_adapter.log"
       }
     ],
     "handoff_note": "completion command failed (adapter exit=1); see evidence",
@@ -1094,12 +1102,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-18T16:22:13.692441+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "unclaimed",
     "title": "Fixes from U1's security review: walkers, firmlink alias, credential_store, tests",
-    "version": 35,
+    "version": 40,
     "worktree": {
       "base_branch": "skein/U1f__integrate-base",
       "base_commit": "951510e283dc6494ee4770a3aaa3ec80a1a6e8de",
