@@ -4023,7 +4023,7 @@
       "claim_token": "d3a680335b744f1a8dccf7df8c6fc1a2",
       "claimed_at": "2026-11-18T23:19:36.715840+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T23:36:07.578890+00:00",
+      "last_heartbeat": "2026-11-18T23:36:37.597251+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4051,7 +4051,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3's review: cross-core revoke, run start/end, overrides, risk-notice gates",
-    "version": 37,
+    "version": 38,
     "worktree": {
       "base_branch": "skein/U3f__integrate-base",
       "base_commit": "cdbee6468ef3eab77bfbddfb791a31dbbb48012a",
@@ -4139,7 +4139,7 @@
       }
     ],
     "attempts_used": 0,
-    "backend": "claude_build_rust",
+    "backend": "claude_build_swift",
     "backend_config": {
       "effort": "high",
       "model": "sonnet"
@@ -4204,7 +4204,7 @@
       "completion": "swift build --package-path macos/HeronMac\nswift test --package-path macos/HeronMac\ngrep -qx '.build/' macos/HeronMac/.gitignore\ntest -s macos/HeronMac/DESIGN-CHOICES.md\nswift test --package-path macos/HeronMac list > \"${TMPDIR:-/tmp}/u4a-tests.txt\" && grep -q 'ScreenStoreTests' \"${TMPDIR:-/tmp}/u4a-tests.txt\" && grep -q 'AvatarStateMachineTests' \"${TMPDIR:-/tmp}/u4a-tests.txt\" && grep -q 'SnapshotTests' \"${TMPDIR:-/tmp}/u4a-tests.txt\"",
       "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
       "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit U4 (items 40-41, including 'Split into U4a and U4b'), plus every spec section those items link to, notably section 4 (the SwiftUI Mac app) for behaviour and the API. The owner-approved visual spec is docs/designs/heron-mac-visual.md with its tokens (docs/designs/heron-mac-visual/tokens.json, tokens.css) and mockups in docs/designs/heron-mac-visual/: follow its tokens, layouts and copy exactly; it wins over heron-v1.md section 4 on appearance. You may run swift build and swift test yourself.",
-      "goal": "Build U4a, the SwiftUI app shell, as the spec's 'Split into U4a and U4b' says: macos/HeronMac/ Swift package per item 40 (Package.swift with HeronCore, HeronUI, the Heron executable, HeronCoreTests and HeronUITests; no resource bundles; no package dependencies); the window and navigation; every screen (Chat, Approvals, Today, Memory, Tasks, Schedules, Activity, Settings, Persona) with Observation stores; design tokens and layouts from heron-mac-visual.md; AvatarView state machine with Reduce motion; MenuBarExtra; the first-run flow (risk notice with sandbox status, CLI detection, personalization); display preferences in UserDefaults; the 'another Heron' banner; .gitignore with .build/; DESIGN-CHOICES.md with one line of reason per choice the visual doc leaves open. Stores talk to a CoreClientProtocol in HeronCore, implemented by PreviewCoreClient stubs; do NOT build the live URLSession client, SSE parsing, EventStream, CoreProcess or fixture decoding (that is U4b). Shape the protocol after the API in spec section 4 so U4b can implement it without changing views. Tests: ScreenStoreTests (each store against the stub), AvatarStateMachineTests (the section 4 transitions and Reduce motion, driven directly), and SnapshotTests for the approval sheet and risk notice per item 41 (record the reference PNGs yourself by running swift test, and review them)."
+      "goal": "Build U4a, the SwiftUI app shell, as the spec's 'Split into U4a and U4b' says: macos/HeronMac/ Swift package per item 40 (Package.swift with HeronCore, HeronUI, the Heron executable, HeronCoreTests and HeronUITests; no resource bundles; no package dependencies); the window and navigation; every screen (Chat, Approvals, Today, Memory, Tasks, Schedules, Activity, Settings, Persona) with Observation stores; design tokens and layouts from heron-mac-visual.md; AvatarView state machine with Reduce motion; MenuBarExtra; the first-run flow (risk notice with sandbox status, CLI detection, personalization); display preferences in UserDefaults; the 'another Heron' banner; .gitignore with .build/; DESIGN-CHOICES.md with one line of reason per choice the visual doc leaves open. Stores talk to a CoreClientProtocol in HeronCore, implemented by PreviewCoreClient stubs; do NOT build the live URLSession client, SSE parsing, EventStream, CoreProcess or fixture decoding (that is U4b). Shape the protocol after the API in spec section 4 so U4b can implement it without changing views. Tests: ScreenStoreTests (each store against the stub), AvatarStateMachineTests (the section 4 transitions and Reduce motion, driven directly), and SnapshotTests for the approval sheet and risk notice per item 41 (record the reference PNGs yourself by running swift test, and review them). PREVIOUS ATTEMPT wrote no code because swift build could not run inside the agent sandbox. That is fixed: this node now runs on the claude_build_swift backend, where `swift build` and `swift test` run outside the agent sandbox (nothing else does). Build and test as you go with `swift build --package-path macos/HeronMac` and `swift test --package-path macos/HeronMac`."
     },
     "max_retries": 3,
     "rejected_count": 0,
@@ -4215,7 +4215,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "SwiftUI app shell: screens, tokens, avatar, first run, on preview stubs",
-    "version": 16,
+    "version": 17,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "78f7f7065d0d4bab44cdd352073bb87a4f96a5fa",
