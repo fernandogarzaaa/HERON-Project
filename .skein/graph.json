@@ -4030,7 +4030,16 @@
     }
   },
   "Ut": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "5b4b14bdb7504abaac1c2f5d66816122",
+        "ended_at": "2026-11-18T23:08:00.824846+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-18T22:53:52.298943+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -4042,21 +4051,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "5b4b14bdb7504abaac1c2f5d66816122",
-      "base_branch": "8047772e846dae955c305212a242eb77b2c99f6b",
-      "claim_token": "be7ac83b9de74b3886f0c48edcbd6395",
-      "claimed_at": "2026-11-18T22:53:52.298943+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T22:57:52.723218+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --test integration -- api_events_resume_from_sequence api_run_survives_client_disconnect api_approval_waits_on_the_bus_then_parks_on_timeout api_print_endpoint_prints_port_and_token core_exits_when_app_dies mode_survives_restart risk_notice_blocks_chat_until_accepted api_fixtures_match_the_live_core && test -s tests/fixtures/api/state.json && test -s tests/fixtures/api/events-error.jsonl",
+        "duration_ms": 14449,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/Ut_20261118T230746294142_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/Ut_20261118T230800744914_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "Ut",
     "integration_for": null,
     "intent": {
@@ -4068,13 +4089,91 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "5b4b14bdb7504abaac1c2f5d66816122",
+      "base_commit": "8047772e846dae955c305212a242eb77b2c99f6b",
+      "changed_files": [
+        "tests/integration.rs",
+        "tests/fixtures/api/approvals.json",
+        "tests/fixtures/api/audit.json",
+        "tests/fixtures/api/events-approval.jsonl",
+        "tests/fixtures/api/events-error.jsonl",
+        "tests/fixtures/api/grants.json",
+        "tests/fixtures/api/persona.json",
+        "tests/fixtures/api/providers.json",
+        "tests/fixtures/api/risk-notice.json",
+        "tests/fixtures/api/session.json",
+        "tests/fixtures/api/sessions.json",
+        "tests/fixtures/api/settings.json",
+        "tests/fixtures/api/state.json",
+        "tests/fixtures/api/today.json"
+      ],
+      "commit": "c8c9f282acd8b34b5b19fcac0d77a6444ed67ff5",
+      "diff_stats": {
+        "tests/fixtures/api/approvals.json": {
+          "added": 16,
+          "deleted": 0
+        },
+        "tests/fixtures/api/audit.json": {
+          "added": 16,
+          "deleted": 0
+        },
+        "tests/fixtures/api/events-approval.jsonl": {
+          "added": 18,
+          "deleted": 0
+        },
+        "tests/fixtures/api/events-error.jsonl": {
+          "added": 3,
+          "deleted": 0
+        },
+        "tests/fixtures/api/grants.json": {
+          "added": 6,
+          "deleted": 0
+        },
+        "tests/fixtures/api/persona.json": {
+          "added": 6,
+          "deleted": 0
+        },
+        "tests/fixtures/api/providers.json": {
+          "added": 178,
+          "deleted": 0
+        },
+        "tests/fixtures/api/risk-notice.json": {
+          "added": 6,
+          "deleted": 0
+        },
+        "tests/fixtures/api/session.json": {
+          "added": 34,
+          "deleted": 0
+        },
+        "tests/fixtures/api/sessions.json": {
+          "added": 9,
+          "deleted": 0
+        },
+        "tests/fixtures/api/settings.json": {
+          "added": 162,
+          "deleted": 0
+        },
+        "tests/fixtures/api/state.json": {
+          "added": 25,
+          "deleted": 0
+        },
+        "tests/fixtures/api/today.json": {
+          "added": 11,
+          "deleted": 0
+        },
+        "tests/integration.rs": {
+          "added": 798,
+          "deleted": 5
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Integration tests for U1 to U3, and the recorded API fixtures",
-    "version": 12,
+    "version": 33,
     "worktree": {
       "base_branch": "8047772e846dae955c305212a242eb77b2c99f6b",
       "base_commit": "8047772e846dae955c305212a242eb77b2c99f6b",
