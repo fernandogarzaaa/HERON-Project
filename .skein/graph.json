@@ -3661,9 +3661,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from U2w's review: untested-version turn test, ~/.opencode Refused, doctor store",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U2x__integrate-base",
       "branch": null,
       "path": null
     }
