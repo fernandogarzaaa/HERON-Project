@@ -1628,7 +1628,7 @@
       "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit Ut (items 38), plus every spec section those items link to. Read the Preconditions and Work units table too.",
       "goal": "Integration tests for U1 to U3, and the recorded API fixtures"
     },
-    "max_retries": 1,
+    "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
     "result": null,
@@ -1637,7 +1637,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Integration tests for U1 to U3, and the recorded API fixtures",
-    "version": 1,
+    "version": 2,
     "worktree": {
       "base_branch": null,
       "branch": null,
