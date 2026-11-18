@@ -1,0 +1,5 @@
+{
+  "id": "gemini-cli",
+  "status": "unavailable",
+  "reason": "Subscription login unavailable: Google login was refused with \"This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products\"."
+}
