@@ -1368,7 +1368,7 @@
       "claim_token": "213133f08a9c47a388ad4919e0158972",
       "claimed_at": "2026-11-18T18:55:17.129647+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T18:55:17.129647+00:00",
+      "last_heartbeat": "2026-11-18T18:55:47.348227+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1394,9 +1394,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Fixes from U1f's security review: /.vol fail-closed, alias in too_broad, read=: walker scope, tainted shell grants",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "skein/U1g__integrate-base",
       "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
@@ -1742,15 +1742,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "a1e75a4c61b141a088721772f446db0b",
+      "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
+      "claim_token": "01b47cb3f9434728bdd6068c95bf2884",
+      "claimed_at": "2026-11-18T18:56:09.221525+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-18T18:56:09.221525+00:00",
+      "node_version": 20,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "U2f"
@@ -1852,9 +1852,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Containment check on each installed candidate CLI (measurement; records results, G4 is judged in U2w)",
-    "version": 20,
+    "version": 21,
     "worktree": {
       "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
       "base_commit": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
