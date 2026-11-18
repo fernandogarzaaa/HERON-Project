@@ -1429,7 +1429,10 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 *   **Proposed Changes**:
     *   **`run.sh`.** For each candidate (claude-cli, opencode-cli, cline-cli, codex-cli, antigravity-cli, gemini-cli):
         *   if the binary isn't found, it writes `{"id": "<id>", "status": "not-installed"}`;
+        *   if `eval/containment/<id>.dirs.json` has an `unavailable_reason`, it writes `{"id": "<id>", "status": "unavailable", "reason": <that text>}` and runs nothing;
         *   otherwise it runs `HERON_CANARY_PROVIDER=<id> HERON_CANARY_OUT=eval/containment/<id>.json cargo test --locked --lib canary_real_cli -- --ignored`.
+    *   **Reading `<id>.dirs.json`.** A file without `credential_store` or `login_completed` (written before the Keychain change) counts as `home-folder` and `true`. A record with `credential_store: "macos-keychain"` counts its `paths` and `known_paths` together as the CLI's folders, and they count as confirmed: the credential lives in the Keychain, which is Refused.
+    *   **gemini-cli (recorded 2026-11-18).** The owner's Google login was refused by Gemini CLI v0.68.0: "This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products". `eval/containment/gemini-cli.dirs.json` records it as unavailable for subscription login, so gemini-cli doesn't count toward Tier 1. Heron's own hint for gemini-cli already points at an API key (`cli_llm.rs:295`), not that login. Under G4, antigravity-cli is the Google candidate, and it isn't installed on the owner's Mac, so the Google slot stays empty unless the owner installs `agy` before U2c.
     *   **Each JSON result** records:
         *   `status`: `passed` or `failed`;
         *   `version` and the raw `version_output`;
@@ -1600,7 +1603,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
     *   **Tier 1 (M19).** From `eval/containment/*.json`. A candidate becomes Tier 1 only when all of these hold:
         *   it passed the containment check;
         *   its config folders are confirmed, recorded by U2c's fresh-`HOME` login;
-        *   for gemini-cli, antigravity-cli failed or isn't installed (G4).
+        *   for gemini-cli, antigravity-cli failed or isn't installed (G4), and gemini-cli's record isn't `unavailable`.
 
         A Tier 1 candidate gets `supported = Some(VersionRange { min: <its version>, below: <next major> })` and `experimental = false`. **Every other registry entry gets `experimental = true`** and `supported = None`, including the entries that aren't candidates (cursor-cli, copilot-cli, qwen-cli and the rest, which are `false` today, `cli_llm.rs:286-301`). The `config_dirs` table (item 22) is corrected from the recorded folders.
 *   **Tests:** `tier1_candidates_have_ranges`, which also asserts that every entry without a range is `experimental`, plus updates to the fake-CLI tests for the chosen topology.
@@ -1658,6 +1661,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 *   **Proposed Changes**:
     *   **CLI providers:**
         *   the Tier 1 list and version ranges from `eval/containment/`;
+        *   for gemini-cli, that a personal Google login no longer works (the exact error in item 31), so only an API key does, and that a Google login means antigravity-cli;
         *   the topology from `eval/spike/topology.md`;
         *   containment and the toolchain folders;
         *   the subscription-cost notes;
