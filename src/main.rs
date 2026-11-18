@@ -539,8 +539,11 @@ async fn doctor(cfg: &Config) -> Result<()> {
     println!("{} home        {}", ok(cfg.ensure_home().is_ok()), cfg.home.display());
     let config_path = cfg.home.join("config.toml");
     println!("{} config      {}", ok(true), if config_path.exists() { config_path.display().to_string() } else { "defaults (run `heron init` to create a config file)".into() });
+    // Kept for the model call below, so a CLI version the user accepted is honoured here too.
+    let mut doctor_store = None;
     match heron::store::Store::open(&cfg.db_path()) {
         Ok(store) => {
+            doctor_store = Some(store.clone());
             let format = store.schema_version().unwrap_or(-1);
             match store.integrity() {
                 Ok(problems) if problems.is_empty() => println!("{} database    {} (data format {format}, checked: sound)", ok(true), cfg.db_path().display()),
@@ -595,7 +598,7 @@ async fn doctor(cfg: &Config) -> Result<()> {
     let mut quick = cfg.clone();
     quick.llm.max_retries = 0;
     quick.llm.request_timeout_secs = 30;
-    let llm = heron::llm::build(&quick)?;
+    let llm = heron::llm::build_with_store(&quick, doctor_store.as_ref())?;
     match llm.chat(ChatRequest { messages: vec![Message::user("Reply with the single word: ok")], tools: vec![], model: None, max_tokens: Some(16) }, &|_| {}).await {
         Ok(r) => println!("{} model call  replied \"{}\"", ok(true), heron::util::preview(r.message.text(), 40)),
         Err(e) => println!("{} model call  {}", ok(false), heron::util::preview(&format!("{e:#}"), 300)),
