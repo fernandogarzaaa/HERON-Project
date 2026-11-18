@@ -615,7 +615,8 @@
       "worker_id": null
     },
     "depends_on": [
-      "U1"
+      "U1",
+      "SYNC2"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -636,7 +637,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Deny-default sandbox for shell and CLI child, macOS sandbox-off refusal, CLI environment and run folder, version contrac",
-    "version": 1,
+    "version": 2,
     "worktree": {
       "base_branch": null,
       "branch": null,
