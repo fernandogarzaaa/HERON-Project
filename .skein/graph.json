@@ -4226,7 +4226,7 @@
   "U4b": {
     "attempts": [],
     "attempts_used": 0,
-    "backend": "claude_build_rust",
+    "backend": "claude_build_swift",
     "backend_config": {
       "effort": "high",
       "model": "sonnet"
@@ -4269,7 +4269,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Core API client against the recorded fixtures",
-    "version": 1,
+    "version": 2,
     "worktree": {
       "base_branch": null,
       "branch": null,
