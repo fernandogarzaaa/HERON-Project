@@ -4011,11 +4011,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Integration tests for U1 to U3, and the recorded API fixtures",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "8047772e846dae955c305212a242eb77b2c99f6b",
-      "branch": null,
-      "path": null
+      "base_commit": "8047772e846dae955c305212a242eb77b2c99f6b",
+      "branch": "skein/Ut",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/Ut"
     }
   },
   "verify": {
