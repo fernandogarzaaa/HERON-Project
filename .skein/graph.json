@@ -345,10 +345,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "3b3efb852f054c17df6ed6efdb5fa638788b299d",
+        "result_commit": "d77fa178a89241f54e733da4485b96809f09277d",
+        "shipped_at": "2026-11-18T14:15:23.095139+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Baseline run on today's `main` code (measurement only)",
-    "version": 19,
+    "version": 20,
     "worktree": {
       "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
       "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
@@ -374,7 +384,7 @@
       "claim_token": "a7dbb0d0185e4c9883a9f47e745d1120",
       "claimed_at": "2026-11-18T14:09:47.182777+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-18T14:13:17.448842+00:00",
+      "last_heartbeat": "2026-11-18T14:15:17.487128+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -401,7 +411,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "genesis json audit of the pass-rule grammar (item 8c)",
-    "version": 10,
+    "version": 14,
     "worktree": {
       "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
       "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
@@ -427,7 +437,7 @@
       "claim_token": "ebc3c8761a1145ddb76465d7df0b22a2",
       "claimed_at": "2026-11-18T14:13:45.909285+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T14:13:45.909285+00:00",
+      "last_heartbeat": "2026-11-18T14:15:16.240276+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -452,9 +462,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Clippy clean-up, one decision function, `Refused` and `OutsideRead`, `read:` grants, prompt-source registry, MCP taint, ",
-    "version": 3,
+    "version": 6,
     "worktree": {
       "base_branch": "d77fa178a89241f54e733da4485b96809f09277d",
       "base_commit": "d77fa178a89241f54e733da4485b96809f09277d",
