@@ -1411,15 +1411,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "3ddf74bfe18048188263ae3717b7ca1c",
+      "base_branch": "skein/U1g__integrate__integrate-base",
+      "claim_token": "58dfde4e77674a53aa6be0567331619c",
+      "claimed_at": "2026-11-18T18:55:16.810943+00:00",
+      "holder": "skein-auto-merge",
+      "last_heartbeat": "2026-11-18T18:55:16.810943+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "skein-auto-merge"
     },
     "depends_on": [
       "U2f",
@@ -1442,11 +1442,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Integrate parents of U1g",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U1g__integrate__integrate-base",
       "branch": null,
       "path": null
     }
