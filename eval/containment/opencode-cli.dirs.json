@@ -1,0 +1,29 @@
+{
+  "id": "opencode-cli",
+  "login_command": "opencode auth login",
+  "paths": [
+    "~/.cache",
+    "~/.cache/opencode",
+    "~/.cache/opencode/bin",
+    "~/.config",
+    "~/.config/opencode",
+    "~/.config/opencode/service.json",
+    "~/.local",
+    "~/.local/share",
+    "~/.local/share/opencode",
+    "~/.local/share/opencode/log",
+    "~/.local/share/opencode/log/opencode.log",
+    "~/.local/share/opencode/opencode.db",
+    "~/.local/share/opencode/opencode.db-shm",
+    "~/.local/share/opencode/opencode.db-wal",
+    "~/.local/share/opencode/repos",
+    "~/.local/share/opencode/shell",
+    "~/.local/share/opencode/shell/157243fb7f9ab82d5f7faa0bfc54b720c08e42c7",
+    "~/.local/state",
+    "~/.local/state/opencode",
+    "~/.local/state/opencode/service.json"
+  ],
+  "credential_store": "home-folder",
+  "login_completed": true,
+  "known_paths": []
+}
