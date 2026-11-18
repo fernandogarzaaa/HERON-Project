@@ -1,0 +1,40 @@
+<title>Heron for Mac</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* Index of the Heron Mac mockups. Colours come from tokens.css (Shore theme, slate accent). */
+  :root { --font-ui: system-ui, -apple-system, "Helvetica Neue", sans-serif; --font-display: ui-serif, "New York", Georgia, serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--window); color: var(--ink); font-family: var(--font-ui); font-size: 15px; line-height: 1.5; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding-block: 40px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(30px, 5vw, 42px); line-height: 1.1; margin: 0 0 8px; text-wrap: balance; }
+  .lede { color: var(--ink2); max-width: 64ch; margin: 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin-top: 32px; }
+  a.card { display: grid; gap: 8px; text-decoration: none; color: inherit; border: 1px solid var(--hairline); border-radius: 10px; background: var(--surface); overflow: hidden; }
+  a.card:hover { border-color: var(--accent); }
+  a.card:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  a.card img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; object-position: top left; display: block; border-bottom: 1px solid var(--hairline); background: var(--raised); }
+  a.card div { padding: 4px 16px 14px; min-width: 0; }
+  a.card b { font-size: 15px; display: block; }
+  a.card span { color: var(--ink2); font-size: 13px; }
+  .note { margin-top: 32px; color: var(--ink3); font-size: 13px; max-width: 70ch; }
+</style>
+
+<div class="wrap">
+  <h1>Heron for Mac</h1>
+  <p class="lede">Visual direction for the SwiftUI app in work unit U4. Each screen is a static mock with sample data. Use the bar at the top of a screen to switch light or dark, theme and accent colour.</p>
+  <div class="grid">
+    <a class="card" href="first-run.html"><img src="shots/first-run-light.png" alt="First run: risk notice with sandbox status"><div><b>First run</b><span>Risk notice with sandbox status, then model and personalization. Add ?step=2, ?step=3 or ?sandbox=off.</span></div></a>
+    <a class="card" href="today.html"><img src="shots/today-light.png" alt="Today screen"><div><b>Today</b><span>Greeting, Prep my day, calendar, waiting and due items.</span></div></a>
+    <a class="card" href="chat.html"><img src="shots/chat-light.png" alt="Chat with an approval sheet"><div><b>Chat with a live approval</b><span>Activity track beside the reply, approval as a window sheet. ?tainted=0 shows the scope choices, ?sheet=0 hides the sheet.</span></div></a>
+    <a class="card" href="inbox.html"><img src="shots/inbox-light.png" alt="Inbox"><div><b>Inbox</b><span>Parked approvals, suggestions and delivered results.</span></div></a>
+    <a class="card" href="memory.html"><img src="shots/memory-light.png" alt="Memory"><div><b>Memory</b><span>Memories to check, then confirmed ones, with source.</span></div></a>
+    <a class="card" href="tasks.html"><img src="shots/tasks-light.png" alt="Tasks"><div><b>Tasks</b><span>Yours, Heron's, and done this week.</span></div></a>
+    <a class="card" href="schedules.html"><img src="shots/schedules-light.png" alt="Schedules"><div><b>Schedules</b><span>Active and held schedules with their permissions.</span></div></a>
+    <a class="card" href="settings.html"><img src="shots/settings-model-light.png" alt="Settings, Model tab"><div><b>Settings</b><span>Model providers, permissions and grants, appearance. Tabs are links.</span></div></a>
+    <a class="card" href="menubar.html"><img src="shots/menubar-light.png" alt="Menu bar extra"><div><b>Menu bar extra</b><span>Status, waiting items, next event and quick actions.</span></div></a>
+    <a class="card" href="avatar.html"><img src="shots/avatar-light.png" alt="Avatar styles and themes"><div><b>Avatar, themes and accents</b><span>Four styles across five states, three themes, five accents.</span></div></a>
+    <a class="card" href="states.html"><img src="shots/states-light.png" alt="Empty, loading and error states"><div><b>States</b><span>Empty, loading, errors and approval variants, with copy.</span></div></a>
+  </div>
+  <p class="note">Mockups are HTML stand-ins for SwiftUI. Icons stand in for the SF Symbols named in the design doc, and the serif is New York (Georgia where a browser can't load it). Sample people and data are fictional.</p>
+</div>

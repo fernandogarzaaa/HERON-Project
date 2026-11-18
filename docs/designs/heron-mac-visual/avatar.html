@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron mock: Avatar and themes</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+<style>
+  .board { width: 1180px; background: var(--surface); border-radius: 12px; box-shadow: var(--shadow-window); padding: var(--s8); display: grid; gap: var(--s8); flex: none; }
+  .grid5 { display: grid; grid-template-columns: 140px repeat(5, 1fr); gap: var(--s3) var(--s4); align-items: center; }
+  .grid5 .hd { font-size: var(--t-callout); color: var(--ink2); font-weight: 600; text-align: center; }
+  .grid5 .st { font-size: var(--t-body); font-weight: 500; }
+  .grid5 .cell { display: grid; justify-items: center; }
+  .themes { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s5); }
+  .tcard { border: 1px solid var(--hairline); border-radius: var(--r-card); overflow: hidden; }
+  .tcard .two { display: grid; grid-template-columns: 1fr 1fr; }
+  .mini { padding: var(--s3); display: grid; grid-template-columns: 34% 1fr; gap: var(--s2); height: 120px; }
+  .mini .sb { border-radius: 6px; padding: 6px; display: grid; gap: 5px; align-content: start; }
+  .mini .sb i { height: 6px; border-radius: 3px; display: block; }
+  .mini .ct { border-radius: 6px; padding: 8px; display: grid; gap: 6px; align-content: start; }
+  .mini .ct i { height: 6px; border-radius: 3px; display: block; }
+  .tcard figcaption { padding: var(--s2) var(--s3); font-size: var(--t-callout); border-top: 1px solid var(--hairline); }
+  .accents { display: flex; gap: var(--s5); flex-wrap: wrap; }
+  .acc { display: grid; justify-items: center; gap: 6px; font-size: var(--t-callout); }
+  .acc .pair { display: flex; }
+  .acc .pair i { width: 34px; height: 34px; display: block; }
+  .acc .pair i:first-child { border-radius: 17px 0 0 17px; } .acc .pair i:last-child { border-radius: 0 17px 17px 0; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="board">
+    <section>
+      <h1 class="display h-title">The avatar</h1>
+      <p class="lede">One state value drives it, set from the event stream. Each state differs in colour and badge as well as motion, so it still reads with Reduce Motion on. Animations play here unless Reduce Motion is on.</p>
+      <div class="grid5" style="margin-top:var(--s5)" id="avgrid"></div>
+    </section>
+    <section>
+      <h2 class="display h2">Themes</h2>
+      <p class="lede">A theme tints the window, sidebar and surfaces. Each has a light and a dark set, and all text passes WCAG AA on every surface.</p>
+      <div class="themes" style="margin-top:var(--s4)" id="themes"></div>
+    </section>
+    <section>
+      <h2 class="display h2">Accent colours</h2>
+      <p class="lede">Light and dark value of each. The accent marks selection, primary buttons and the avatar. Gold is kept for “waiting for you” and violet for outside content, so no accent uses them.</p>
+      <div class="accents" style="margin-top:var(--s4)" id="accents"></div>
+    </section>
+  </div>
+</div>
+<script>
+  const states = [["idle", "Idle"], ["thinking", "Thinking"], ["speaking", "Replying"], ["awaitingApproval", "Waiting for you"], ["error", "Error"]];
+  const styles = [["ripple", "Ripple (default)"], ["heron", "Heron"], ["monogram", "Letter"], ["image", "Your picture"]];
+  let h = "<span></span>" + states.map(([, l]) => `<span class="hd">${l}</span>`).join("");
+  styles.forEach(([s, l]) => { h += `<span class="st">${l}</span>` + states.map(([st]) => `<span class="cell">${avatar(s, st, 48)}</span>`).join(""); });
+  document.getElementById("avgrid").innerHTML = h;
+  const T = { shore: { l: ["#F3F6F8", "#E9EEF2", "#FFFFFF", "#15202A"], d: ["#0F161C", "#131C23", "#151E25", "#E5EBF0"] }, dusk: { l: ["#F6F3F1", "#EEE9E5", "#FFFFFF", "#221C19"], d: ["#171311", "#1C1714", "#1E1916", "#EEE8E3"] }, graphite: { l: ["#F5F5F5", "#ECECEC", "#FFFFFF", "#1D1D1F"], d: ["#161617", "#1C1C1E", "#1E1E20", "#ECECEE"] } };
+  const mini = ([win, sb, sf, ink]) => `<div class="mini" style="background:${win}"><div class="sb" style="background:${sb}"><i style="background:${ink};opacity:.5;width:70%"></i><i style="background:${ink};opacity:.25"></i><i style="background:${ink};opacity:.25;width:80%"></i></div><div class="ct" style="background:${sf}"><i style="background:${ink};opacity:.8;width:55%;height:9px"></i><i style="background:${ink};opacity:.3"></i><i style="background:${ink};opacity:.3;width:85%"></i><i style="background:#2F6690;width:30%;height:12px;border-radius:4px;margin-top:6px"></i></div></div>`;
+  const desc = { shore: "Shore (default): cool, slate-tinted greys from Heron's own palette.", dusk: "Dusk: warm greys for evening light.", graphite: "Graphite: untinted greys, closest to plain macOS." };
+  document.getElementById("themes").innerHTML = Object.entries(T).map(([k, v]) => `<figure class="tcard" style="margin:0"><div class="two">${mini(v.l)}${mini(v.d)}</div><figcaption>${desc[k]}</figcaption></figure>`).join("");
+  const A = [["slate", "Slate (default)", "#2F6690", "#7DB3D8"], ["system", "System", "#0A64D8", "#4FA3FF"], ["lagoon", "Lagoon", "#1D6B6B", "#6CC3BE"], ["reed", "Reed", "#466E2E", "#9CCB7A"], ["rose", "Rose", "#9C3D62", "#E79AB8"]];
+  document.getElementById("accents").innerHTML = A.map(([k, l, a, b]) => `<div class="acc"><div class="pair"><i style="background:${a}"></i><i style="background:${b}"></i></div><span>${l}</span><span class="faint mono" style="font-size:var(--t-sub)">${a} / ${b}</span></div>`).join("");
+</script>
+</body>
+</html>

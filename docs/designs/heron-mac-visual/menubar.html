@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron mock: Menu bar</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+<style>
+  .desk { width: 1180px; height: 640px; border-radius: 8px; background: var(--desk); position: relative; box-shadow: var(--shadow-window); flex: none; }
+  .desk .popover { position: absolute; top: 34px; right: 120px; }
+  .mb-ic { width: 16px; height: 16px; position: relative; display: inline-block; color: var(--ink); }
+  .mb-ic svg { width: 16px; height: 16px; }
+  .mb-ic::after { content: ""; position: absolute; right: -2px; top: -1px; width: 6px; height: 6px; border-radius: 50%; background: var(--waitingMark); }
+  .ph-head { display: grid; grid-template-columns: 40px 1fr; gap: var(--s3); align-items: center; padding: 2px var(--s1) var(--s1); }
+  .ph-head b { display: block; font-size: var(--t-title3); }
+  .ph-head span { font-size: var(--t-callout); color: var(--ink2); }
+  .wait-row { display: grid; grid-template-columns: 8px 1fr auto; gap: var(--s2); align-items: center; padding: 4px var(--s2); font-size: var(--t-callout); }
+  .wait-row .unread { margin: 0; }
+  .lbl { font-size: var(--t-sub); font-weight: 600; color: var(--ink3); padding: 2px var(--s2); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div>
+    <div class="menubar"><span class="hi"><span class="mb-ic" role="img" aria-label="Heron, 2 waiting"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="3"><circle cx="20" cy="20" r="16"/><circle cx="20" cy="20" r="9"/><circle cx="20" cy="20" r="4" fill="currentColor"/></svg></span></span><span>􀊫</span><span>Tue 18 Nov 08:41</span></div>
+    <div class="desk">
+      <div class="popover" role="dialog" aria-label="Heron">
+        <div class="ph-head"><div id="av"></div><div><b>Heron</b><span>Working on “Collect October receipts”</span></div></div>
+        <hr>
+        <div class="lbl">Waiting for you</div>
+        <div class="wait-row"><span class="unread wait"></span><span>Send the weekly summary to Priya?</span><button class="btn">Review</button></div>
+        <div class="wait-row"><span class="unread wait"></span><span>Run <span class="mono">npm test</span> in ~/Work/site?</span><button class="btn">Review</button></div>
+        <hr>
+        <div class="lbl">Next</div>
+        <div class="mi"><span data-icon="calendar"></span><span class="grow">Design review with Northwind</span><kbd>09:30</kbd></div>
+        <hr>
+        <div class="mi hl"><span data-icon="sun.max"></span><span class="grow">Prep my day</span></div>
+        <div class="mi"><span data-icon="square.and.pencil"></span><span class="grow">New conversation</span><kbd>⌘N</kbd></div>
+        <div class="mi"><span data-icon="arrow.up.right.square"></span><span class="grow">Open Heron</span></div>
+        <hr>
+        <div class="mi"><span data-icon="pause.circle"></span><span class="grow">Pause Heron</span></div>
+        <div class="mi"><span data-icon="gearshape"></span><span class="grow">Settings…</span><kbd>⌘,</kbd></div>
+        <div class="mi"><span data-icon="power"></span><span class="grow">Quit Heron</span><kbd>⌘Q</kbd></div>
+        <p class="faint" style="margin:0 var(--s2);font-size:var(--t-sub)">Quitting stops schedules and the phone connection.</p>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  document.getElementById("av").outerHTML = avatar("ripple", "thinking", 40);
+  document.querySelector(".menubar span:nth-child(2)").textContent = "";
+</script>
+</body>
+</html>

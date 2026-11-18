@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron mock: States</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mock.css">
+<script src="mock.js"></script>
+<style>
+  .board { width: 1180px; background: var(--window); border-radius: 12px; box-shadow: var(--shadow-window); padding: var(--s8); display: grid; gap: var(--s6); flex: none; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s4); align-items: start; }
+  .st { display: grid; gap: var(--s2); }
+  .st > .lab { font-size: var(--t-callout); color: var(--ink2); font-weight: 600; }
+  .st > .lab code { font-family: var(--font-mono); font-weight: 400; color: var(--ink3); font-size: var(--t-sub); }
+  .box { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-card); overflow: hidden; min-height: 150px; }
+  .box .empty { padding: var(--s6) var(--s4); }
+  .box .empty .glyph-lg svg { width: 32px; height: 32px; }
+  .err { display: grid; grid-template-columns: 20px 1fr; gap: var(--s3); padding: var(--s4); }
+  .err svg { width: 18px; height: 18px; }
+  .err b { display: block; margin-bottom: 2px; }
+  .err p { margin: 0 0 var(--s3); color: var(--ink2); font-size: var(--t-callout); }
+  .err.danger { color: var(--danger); } .err.danger p, .err.danger .btn { color: var(--ink2); }
+  .err.danger b { color: var(--danger); }
+  .err.wait svg, .err.wait b { color: var(--waiting); }
+  .starter { display: grid; gap: 6px; width: 100%; }
+  .starter span { border: 1px solid var(--hairline); border-radius: var(--r-control); padding: 6px var(--s3); font-size: var(--t-callout); text-align: left; }
+  .sk-row { display: grid; grid-template-columns: 28px 1fr; gap: var(--s3); padding: var(--s3) var(--s4); border-top: 1px solid var(--hairline); align-items: center; }
+  .sk-row:first-child { border-top: 0; }
+  .sk-row .c { width: 28px; height: 28px; border-radius: 7px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="board">
+    <div><h1 class="display h-title">Empty, loading and error states</h1><p class="lede">Every state says what belongs here or what went wrong, and offers one action. Error text comes from the event's <span class="mono">code</span>, never a generic “Something went wrong”.</p></div>
+
+    <h2 class="display h2" style="margin:0">Empty</h2>
+    <div class="cards">
+      <div class="st"><span class="lab">Chat, first conversation</span><div class="box"><div class="empty"><div id="e-av"></div><h3 class="display h2">What should we get done?</h3><p>Heron works in ~/Work. It can read and write files there, run commands, search the web and remember what matters to you.</p><div class="starter"><span>Prep my day</span><span>Tidy my Downloads folder</span><span>Draft a reply to my latest email</span></div></div></div></div>
+      <div class="st"><span class="lab">Inbox, nothing waiting</span><div class="box"><div class="empty"><span class="glyph-lg" data-icon="tray"></span><h3 class="display h2">Nothing waiting for you</h3><p>Approvals Heron couldn't ask about, suggestions and schedule results land here.</p><button class="btn primary">New schedule</button></div></div></div>
+      <div class="st"><span class="lab">Memory, first use</span><div class="box"><div class="empty"><span class="glyph-lg" data-icon="brain"></span><h3 class="display h2">Heron doesn't know you yet</h3><p>Tell it a few things about you, your work and the people you mention, so it needs less explaining.</p><button class="btn primary">Tell Heron about you</button></div></div></div>
+      <div class="st"><span class="lab">Memory, no search results</span><div class="box"><div class="empty"><span class="glyph-lg" data-icon="magnifyingglass"></span><h3 class="display h2">No memories match “dentist”</h3><p>Try a shorter word, or clear the search.</p><button class="btn">Clear search</button></div></div></div>
+      <div class="st"><span class="lab">Tasks</span><div class="box"><div class="empty"><span class="glyph-lg" data-icon="checklist"></span><h3 class="display h2">No open tasks</h3><p>Add one here, or ask Heron in a conversation to keep track of something.</p><button class="btn primary">Add a task</button></div></div></div>
+      <div class="st"><span class="lab">Schedules</span><div class="box"><div class="empty"><span class="glyph-lg" data-icon="clock"></span><h3 class="display h2">No schedules yet</h3><p>Have Heron brief you every morning or watch for an email, without being asked each time.</p><button class="btn primary">New schedule</button></div></div></div>
+    </div>
+
+    <h2 class="display h2" style="margin:0">Loading</h2>
+    <div class="cards">
+      <div class="st"><span class="lab">Starting the core (first 2 s show nothing)</span><div class="box"><div class="empty"><div id="l-av"></div><h3 class="display h2">Starting Heron…</h3><p>This usually takes a second or two.</p></div></div></div>
+      <div class="st"><span class="lab">A list loading (after 300 ms)</span><div class="box"><div class="sk-row"><span class="skel c"></span><div style="display:grid;gap:6px"><span class="skel" style="width:70%"></span><span class="skel" style="width:40%;height:9px"></span></div></div><div class="sk-row"><span class="skel c"></span><div style="display:grid;gap:6px"><span class="skel" style="width:55%"></span><span class="skel" style="width:35%;height:9px"></span></div></div><div class="sk-row"><span class="skel c"></span><div style="display:grid;gap:6px"><span class="skel" style="width:62%"></span><span class="skel" style="width:30%;height:9px"></span></div></div></div></div>
+      <div class="st"><span class="lab">Reply on its way <code>session → first text</code></span><div class="box" style="padding:var(--s4)"><div class="reply"><div id="t-av"></div><div class="body"><div class="track"><div class="step run" data-icon="calendar"><span>Reading your calendar…</span><code>upcoming_events</code></div></div><p class="faint" style="font-size:var(--t-callout)">Thinking. Esc stops Heron.</p></div></div></div></div>
+    </div>
+
+    <h2 class="display h2" style="margin:0">Errors and blocked states</h2>
+    <div class="cards">
+      <div class="st"><span class="lab">CLI signed out <code>error</code></span><div class="box"><div class="err danger"><span data-icon="xmark.circle"></span><div><b>Claude Code is logged out</b><p>Run <span class="mono">claude auth login</span> in Terminal, then send your message again.</p><div class="btn-row"><button class="btn">Copy command</button><button class="btn">Try again</button></div></div></div></div></div>
+      <div class="st"><span class="lab">Untested CLI version <code>cli_version_untested</code></span><div class="box"><div class="err wait"><span data-icon="exclamationmark.triangle"></span><div><b>Untested version 3.0.1 of Claude Code</b><p>Heron is tested with 2.0 to 2.1. Nothing ran. Continue with 3.0.1, or go back to a tested version.</p><div class="btn-row"><button class="btn">Continue with 3.0.1</button><button class="btn link">Model settings</button></div></div></div></div></div>
+      <div class="st"><span class="lab">Core stopped twice <code>restart failed</code></span><div class="box"><div class="err danger"><span data-icon="power"></span><div><b>Heron's core stopped</b><p>It stopped again within a minute of restarting, so Heron isn't trying again on its own. Your conversations and settings are safe.</p><div class="btn-row"><button class="btn primary">Restart Heron's core</button><button class="btn link">Copy details</button></div></div></div></div></div>
+      <div class="st"><span class="lab">Conversation busy <code>session_busy</code></span><div class="box"><div class="err"><span data-icon="clock"></span><div><b>Heron is still working on this conversation</b><p>Your message is kept in the box. Send it when Heron finishes, or stop the current reply.</p><div class="btn-row"><button class="btn">Stop the current reply</button></div></div></div></div></div>
+      <div class="st"><span class="lab">Protected folder <code>workspace_refused</code></span><div class="box"><div class="err danger"><span data-icon="folder"></span><div><b>Heron can't work in ~/Library/Keychains</b><p>That folder holds secrets, so Heron refuses it in every mode. Choose another working folder.</p><div class="btn-row"><button class="btn">Choose folder…</button></div></div></div></div></div>
+      <div class="st"><span class="lab">Sandbox off (Q11, macOS)</span><div class="box"><div class="err danger"><span data-icon="lock.shield"></span><div><b>Commands are off: the sandbox isn't running</b><p>Heron won't run shell commands or CLI models without the macOS sandbox. Chat with an API-key model still works.</p><div class="btn-row"><button class="btn">Show the cause</button></div></div></div></div></div>
+    </div>
+
+    <h2 class="display h2" style="margin:0">Approval variants</h2>
+    <div class="cards">
+      <div class="st"><span class="lab">Only once offered <code>can_session=false, can_always=false</code></span><div class="box" style="padding:var(--s4)"><div class="scope"><label><span class="radio on"></span><div>Only this time</div></label><label style="opacity:.45"><span class="radio dis"></span><div>For the rest of this conversation<span>Not offered for this action</span></div></label><label style="opacity:.45"><span class="radio dis"></span><div>Always<span>Not offered for this action</span></div></label></div></div></div>
+      <div class="st"><span class="lab">High risk <code>risk=high</code></span><div class="box" style="padding:var(--s4);display:grid;gap:var(--s3)"><b style="font-size:var(--t-title3)">Send an email to priya@northwind.example?</b><div class="tag danger" style="justify-self:start">Can't be undone</div><p class="muted" style="margin:0;font-size:var(--t-callout)">The primary button names the action (“Send”), never just “Allow”. Return doesn't trigger it; the default button is “Don't allow”.</p></div></div>
+      <div class="st"><span class="lab">Answered elsewhere <code>approval_resolved</code></span><div class="box"><div class="err"><span data-icon="checkmark.circle"></span><div><b>Answered from your phone</b><p>The sheet closes by itself with this note for 3 seconds, so you know why it vanished.</p></div></div></div></div>
+    </div>
+  </div>
+</div>
+<script>
+  document.getElementById("e-av").outerHTML = avatar("ripple", "idle", 48);
+  document.getElementById("l-av").outerHTML = avatar("ripple", "thinking", 48);
+  document.getElementById("t-av").outerHTML = avatar("ripple", "thinking", 28);
+</script>
+</body>
+</html>
