@@ -3661,11 +3661,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from U2w's review: untested-version turn test, ~/.opencode Refused, doctor store",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U2x__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "032f9f9eb069471239cba5e9dabc84197de7bc09",
+      "branch": "skein/U2x",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U2x"
     }
   },
   "U2x__integrate": {
