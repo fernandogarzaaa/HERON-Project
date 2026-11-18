@@ -674,11 +674,11 @@ fn says_logged_out(spec_id: &str, out: &str) -> bool {
         || ["not logged in", "not authenticated", "no active account", "logged out"].iter().any(|p| lower.contains(p))
 }
 
-pub async fn probe_status(
-    spec: &CliSpec,
-    command_override: &str,
-    config_dir: &str,
-) -> ProviderStatus {
+/// Probe one provider: installed, version, and for claude-cli and codex-cli the login. The command
+/// override and the account folder (`llm.cli_command`, `llm.cli_config_dir`) apply only when `spec`
+/// is the configured provider. Every probe runs the way a turn does (see [`run_capture`]).
+pub async fn probe_status(cfg: &Config, spec: &CliSpec) -> ProviderStatus {
+    let command_override = override_for_provider(spec.id, cfg.llm.provider.trim(), &cfg.llm.cli_command);
     let hint = if spec.experimental {
         format!(
             "Experimental: verify the flags with `{}` --help before relying on it. {}",
@@ -709,42 +709,32 @@ pub async fn probe_status(
             hint,
         };
     };
-    // The same account-directory override the request path applies in
-    // child_env: without it the probe inspects the default account
-    // while requests use the configured one. Normalized first, so a
-    // relative path means the same directory here as in a request.
-    let config_dir = normalize_config_dir(config_dir);
-    let config_env: Option<(String, String)> = if !config_dir.is_empty() {
-        spec.config_dir_env
-            .map(|var| (var.to_string(), config_dir.to_string()))
-    } else {
-        None
-    };
-    let version = run_capture(&path, &["--version"], 10, config_env.as_ref())
+    let llm = CliLlm::for_probe(cfg, spec);
+    if crate::sandbox::required() && crate::sandbox::active(cfg) == crate::sandbox::Kind::None {
+        return ProviderStatus {
+            id: spec.id.to_string(),
+            display_name: spec.display_name.to_string(),
+            installed: true,
+            version: None,
+            logged_in: None,
+            plan: None,
+            hint: format!("the sandbox is off, so Heron won't run {}", spec.display_name),
+        };
+    }
+    let version = run_capture(&llm, &path, &["--version"], 10)
         .await
         .ok()
         .map(|o| o.trim().to_string())
         .filter(|s| !s.is_empty());
     let (logged_in, plan) = match spec.id {
-        "claude-cli" => {
-            match run_capture(
-                &path,
-                &["auth", "status", "--text"],
-                20,
-                config_env.as_ref(),
-            )
-            .await
-            {
-                Ok(out) => parse_login_output("claude-cli", &out),
-                Err(_) => (None, None),
-            }
-        }
-        "codex-cli" => {
-            match run_capture(&path, &["login", "status"], 20, config_env.as_ref()).await {
-                Ok(out) => parse_login_output("codex-cli", &out),
-                Err(_) => (None, None),
-            }
-        }
+        "claude-cli" => match run_capture(&llm, &path, &["auth", "status", "--text"], 20).await {
+            Ok(out) => parse_login_output("claude-cli", &out),
+            Err(_) => (None, None),
+        },
+        "codex-cli" => match run_capture(&llm, &path, &["login", "status"], 20).await {
+            Ok(out) => parse_login_output("codex-cli", &out),
+            Err(_) => (None, None),
+        },
         _ => (None, None),
     };
     ProviderStatus {
@@ -762,19 +752,18 @@ pub async fn probe_status(
     }
 }
 
-async fn run_capture(
-    path: &PathBuf,
-    args: &[&str],
-    timeout_secs: u64,
-    config_env: Option<&(String, String)>,
-) -> Result<String> {
-    let mut cmd = Command::new(path);
-    cmd.args(args);
-    if let Some((k, v)) = config_env {
-        cmd.env_remove(k);
-        cmd.env(k, v);
+/// Run a probe of the CLI the way a turn runs it: in a fresh run folder (removed afterwards), with the
+/// allowlisted environment (`child_env`, which carries the account-folder override), inside the CLI's
+/// sandbox, and refused on macOS when there is no sandbox.
+async fn run_capture(llm: &CliLlm, path: &Path, args: &[&str], timeout_secs: u64) -> Result<String> {
+    let run_dir = make_run_folder()?;
+    let _dir_guard = RemoveTempDirOnDrop { dir: run_dir.clone() };
+    let (binary_dir, extra_read) = llm.binary_dirs(path);
+    let sandbox = crate::sandbox::wrap(&llm.cfg, &run_dir, &crate::sandbox::Profile::Cli { spec: &llm.spec, binary_dir, extra_read });
+    if sandbox.is_none() && crate::sandbox::required() {
+        bail!("the sandbox is off, so Heron won't run {}", llm.spec.display_name);
     }
-    capture(cmd, path, timeout_secs).await
+    llm.run_contained(path, args, timeout_secs, &run_dir, sandbox.as_ref()).await
 }
 
 /// Run a prepared command to completion with a timeout: its stdout on success, its stderr on failure.
@@ -1371,6 +1360,26 @@ impl CliLlm {
         })
     }
 
+    /// A provider for probing `spec` (its version and login), whether or not it is the configured one.
+    /// The command override and the account folder come from `cfg` only when `spec` is the configured
+    /// provider, the same rule `sandbox::own_config_dirs` follows, so the folder the child is told to
+    /// use and the folder its sandbox opens are always the same one.
+    fn for_probe(cfg: &Config, spec: &CliSpec) -> CliLlm {
+        let selected = cfg.llm.provider.trim();
+        CliLlm {
+            spec: spec.clone(),
+            command_override: override_for_provider(spec.id, selected, &cfg.llm.cli_command).to_string(),
+            model: String::new(),
+            config_dir: normalize_config_dir(override_for_provider(spec.id, selected, cfg.llm.cli_config_dir.trim())),
+            allow_agent_tools: false,
+            custom_args: vec![],
+            timeout_secs: cfg.llm.request_timeout_secs,
+            cfg: std::sync::Arc::new(cfg.clone()),
+            store: None,
+            version: Default::default(),
+        }
+    }
+
     fn binary_path(&self) -> Result<PathBuf> {
         let binary = if self.spec.id == "custom-cli" {
             self.command_override.as_str()
@@ -1464,17 +1473,24 @@ impl CliLlm {
 
     /// The folders the CLI's sandbox must be able to read to start it: the install folder of its
     /// binary (for a package under `node_modules`, the whole package), the folder it was found in,
-    /// and, when the binary is a script, its interpreter's folder.
+    /// and, when the binary is a script, its interpreter's folder. All canonical, so a rule names the
+    /// folder the kernel reports, never a symlink to it.
     fn binary_dirs(&self, path: &Path) -> (PathBuf, Vec<PathBuf>) {
-        let real = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let canonical = |p: &Path| dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+        let real = canonical(path);
         let install = package_root(&real).unwrap_or_else(|| real.parent().map(Path::to_path_buf).unwrap_or_default());
-        let mut extra: Vec<PathBuf> = path.parent().map(Path::to_path_buf).into_iter().collect();
-        if let Some(interpreter) = script_interpreter(&real) {
-            if let Some(dir) = interpreter.parent() {
-                extra.push(dir.to_path_buf());
-            }
-            if let Some(dir) = dunce::canonicalize(&interpreter).ok().and_then(|p| p.parent().map(Path::to_path_buf)) {
+        let mut extra: Vec<PathBuf> = vec![];
+        let mut add = |dir: PathBuf| {
+            if dir != install && !extra.contains(&dir) {
                 extra.push(dir);
+            }
+        };
+        if let Some(dir) = path.parent() {
+            add(canonical(dir));
+        }
+        if let Some(interpreter) = script_interpreter(&real) {
+            if let Some(dir) = canonical(&interpreter).parent() {
+                add(dir.to_path_buf());
             }
         }
         (install, extra)
@@ -3131,6 +3147,19 @@ mod tests {
         );
     }
 
+    /// Settings that probe `spec_id` with a fake binary and, when given, an account folder. On macOS
+    /// with no sandbox, probes are refused: `None` (and a skip line).
+    fn probe_cfg(dir: &std::path::Path, spec_id: &str, bin: &Path, config_dir: &str) -> Option<Config> {
+        let mut cfg = test_cfg(dir, spec_id);
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        cfg.llm.cli_config_dir = config_dir.to_string();
+        if crate::sandbox::required() && crate::sandbox::active(&cfg) == crate::sandbox::Kind::None {
+            eprintln!("no CLI sandbox here, so probes are refused; skipping");
+            return None;
+        }
+        Some(cfg)
+    }
+
     #[tokio::test]
     #[cfg(not(windows))]
     async fn probe_applies_the_configured_account_directory() {
@@ -3138,28 +3167,69 @@ mod tests {
         let script = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"1.2.3\"\n  exit 0\nfi\nif [ \"$CLAUDE_CONFIG_DIR\" = \"/tmp/acct\" ]; then\n  echo \"Logged in as test@example.com (Pro)\"\nelse\n  echo \"Not logged in\"\nfi\n";
         let bin = fake_bin(dir.path(), "claude", script);
         let spec = spec_for("claude-cli").unwrap();
-        let probed = probe_status(&spec, &bin.to_string_lossy(), "/tmp/acct").await;
+        let Some(cfg) = probe_cfg(dir.path(), "claude-cli", &bin, "/tmp/acct") else { return };
+        let probed = probe_status(&cfg, &spec).await;
+        assert_eq!(probed.version.as_deref(), Some("1.2.3"));
         assert_eq!(probed.logged_in, Some(true));
         assert_eq!(probed.plan.as_deref(), Some("Claude pro"));
-        let unprobed = probe_status(&spec, &bin.to_string_lossy(), "").await;
+        let unprobed = probe_status(&probe_cfg(dir.path(), "claude-cli", &bin, "").unwrap(), &spec).await;
         assert_eq!(unprobed.logged_in, Some(false));
+        // The account folder belongs to the configured provider only: probing another one with the
+        // same settings does not hand it over.
+        let other = probe_cfg(dir.path(), "codex-cli", &bin, "/tmp/acct").unwrap();
+        let llm = CliLlm::for_probe(&other, &spec);
+        assert!(llm.config_dir.is_empty() && llm.command_override.is_empty());
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn probes_run_contained_like_the_turn() {
+        // A probe sees the allowlisted environment, runs in a run folder, and (on macOS) is refused
+        // with the sandbox off instead of running unsandboxed.
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  case \"$(pwd)\" in */heron-cli-*) ;; *) echo \"ran outside a run folder: $(pwd)\"; exit 1 ;; esac\n  if [ -n \"$HERON_PROBE_TEST_SECRET\" ]; then echo \"leaked\"; exit 1; fi\n  echo \"9.9.9\"\n  exit 0\nfi\necho \"Not logged in\"\n";
+        let bin = fake_bin(dir.path(), "claude", script);
+        let spec = spec_for("claude-cli").unwrap();
+        let mut off = test_cfg(dir.path(), "claude-cli");
+        off.llm.cli_command = bin.to_string_lossy().to_string();
+        off.agent.sandbox = "off".into();
+        let refused = probe_status(&off, &spec).await;
+        if crate::sandbox::required() {
+            assert_eq!(refused.version, None);
+            assert_eq!(refused.hint, "the sandbox is off, so Heron won't run Claude Code (subscription)");
+        } else {
+            assert_eq!(refused.version.as_deref(), Some("9.9.9"), "elsewhere probes run unwrapped, as before");
+        }
+        let Some(cfg) = probe_cfg(dir.path(), "claude-cli", &bin, "") else { return };
+        std::env::set_var("HERON_PROBE_TEST_SECRET", "x");
+        let probed = probe_status(&cfg, &spec).await;
+        std::env::remove_var("HERON_PROBE_TEST_SECRET");
+        assert_eq!(probed.version.as_deref(), Some("9.9.9"));
+        assert_eq!(probed.logged_in, Some(false));
     }
 
     #[tokio::test]
     #[cfg(not(windows))]
     async fn timed_out_probe_leaves_no_orphan_behind() {
         // A probe that hangs must be killed when its timeout expires, not
-        // left running after run_capture stops awaiting it.
+        // left running after the probe stops awaiting it. It runs the way
+        // a probe does (`run_contained`, inside the CLI's sandbox where
+        // there is one), so it records its pid in its run folder: `TMPDIR`.
         let dir = tempfile::tempdir().unwrap();
-        let pid_file = dir.path().join("probe.pid");
-        let script = format!("#!/bin/sh\necho $$ > '{}'\nsleep 30\n", pid_file.display());
-        let bin = fake_bin(dir.path(), "claude", &script);
-        let result = run_capture(&bin, &["--version"], 1, None).await;
+        let bin = fake_bin(dir.path(), "claude", "#!/bin/sh\necho $$ > \"$TMPDIR/probe.pid\"\nsleep 30\n");
+        let mut cfg = test_cfg(dir.path(), "claude-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::for_probe(&cfg, &spec_for("claude-cli").unwrap());
+        let run_dir = make_run_folder().unwrap();
+        let _dir_guard = RemoveTempDirOnDrop { dir: run_dir.clone() };
+        let (binary_dir, extra_read) = llm.binary_dirs(&bin);
+        let sandbox = crate::sandbox::wrap(&llm.cfg, &run_dir, &crate::sandbox::Profile::Cli { spec: &llm.spec, binary_dir, extra_read });
+        let result = llm.run_contained(&bin, &["--version"], 1, &run_dir, sandbox.as_ref()).await;
         assert!(result.is_err());
         // CI can time out a heavily scheduled child before the script's
         // first instruction writes its PID. In that case there is no
         // recorded process to check; the timeout itself was asserted above.
-        if let Ok(contents) = std::fs::read_to_string(&pid_file) {
+        if let Ok(contents) = std::fs::read_to_string(run_dir.join("probe.pid")) {
             let pid: u32 = contents.trim().parse().unwrap();
             // A started child must be reaped, not left as a live orphan.
             assert_ne!(unsafe { libc::kill(pid as libc::pid_t, 0) }, 0);
@@ -3182,21 +3252,15 @@ mod tests {
     #[tokio::test]
     #[cfg(not(windows))]
     async fn claude_probe_passes_text_and_still_reads_json() {
+        // The fake answers "logged in" only when it was asked for --text, and in JSON, which the
+        // parser must still read. It reports through its output: a probe can write only its run folder.
         let dir = tempfile::tempdir().unwrap();
-        let record = dir.path().join("argv.txt");
-        let script = format!(
-            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"1.2.3\"\n  exit 0\nfi\necho \"$@\" > \"{}\"\nprintf '%s\\n' '{{\"loggedIn\": true, \"authMethod\": \"claude.ai\"}}'\n",
-            record.display()
-        );
-        let bin = fake_bin(dir.path(), "claude", &script);
+        let script = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"1.2.3\"\n  exit 0\nfi\ncase \" $* \" in\n  *\" --text \"*) printf '%s\\n' '{\"loggedIn\": true, \"authMethod\": \"claude.ai\"}' ;;\n  *) printf '%s\\n' '{\"loggedIn\": false, \"authMethod\": \"none\"}' ;;\nesac\n";
+        let bin = fake_bin(dir.path(), "claude", script);
         let spec = spec_for("claude-cli").unwrap();
-        let probed = probe_status(&spec, &bin.to_string_lossy(), "").await;
-        let argv = std::fs::read_to_string(&record).unwrap();
-        assert!(
-            argv.contains("--text"),
-            "the probe must ask for human-readable output: {argv}"
-        );
-        assert_eq!(probed.logged_in, Some(true));
+        let Some(cfg) = probe_cfg(dir.path(), "claude-cli", &bin, "") else { return };
+        let probed = probe_status(&cfg, &spec).await;
+        assert_eq!(probed.logged_in, Some(true), "the probe must ask for human-readable output (--text)");
     }
 
     #[test]
@@ -3309,21 +3373,19 @@ mod tests {
         // The probe runs in Heron's working directory, the request in a
         // fresh temp dir: a relative cli_config_dir used to point at two
         // different accounts, and the request's copy was deleted with it.
+        // The fake reports the folder it was given through its output: a
+        // probe can write only its run folder.
         let dir = tempfile::tempdir().unwrap();
-        let record = dir.path().join("cfgdir.txt");
+        let want = std::env::current_dir().unwrap().join("relacct");
         let script = format!(
-            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"1.2.3\"\n  exit 0\nfi\necho \"$CLAUDE_CONFIG_DIR\" > \"{}\"\necho \"Logged in as test@example.com (Pro)\"\n",
-            record.display()
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"1.2.3\"\n  exit 0\nfi\nif [ \"$CLAUDE_CONFIG_DIR\" = \"{}\" ]; then\n  echo \"Logged in as test@example.com (Pro)\"\nelse\n  echo \"Not logged in: CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR\"\nfi\n",
+            want.display()
         );
         let bin = fake_bin(dir.path(), "claude", &script);
         let spec = spec_for("claude-cli").unwrap();
-        let probed = probe_status(&spec, &bin.to_string_lossy(), "relacct").await;
-        assert_eq!(probed.logged_in, Some(true));
-        let want = std::env::current_dir().unwrap().join("relacct");
-        assert_eq!(
-            std::fs::read_to_string(&record).unwrap().trim(),
-            want.to_string_lossy()
-        );
+        let Some(cfg) = probe_cfg(dir.path(), "claude-cli", &bin, "relacct") else { return };
+        let probed = probe_status(&cfg, &spec).await;
+        assert_eq!(probed.logged_in, Some(true), "the probe was not given {}", want.display());
         let mut cfg = test_cfg(dir.path(), "claude-cli");
         cfg.llm.cli_command = bin.to_string_lossy().to_string();
         cfg.llm.cli_config_dir = "relacct".to_string();
@@ -3447,6 +3509,58 @@ mod tests {
         }
         eprintln!("Seatbelt is not in effect here ({}); the CLI runs unwrapped, skipping", crate::sandbox::active(cfg).name());
         false
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn cli_child_cannot_read_ask_tier_or_another_clis_folders() {
+        // A fake codex-cli runs under its own profile while claude-cli is the configured provider,
+        // with an account folder of its own: that folder is claude-cli's, never codex-cli's.
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let home = dirs::home_dir().unwrap();
+        let home = dunce::canonicalize(&home).unwrap_or(home);
+        let tmp = home.join(format!(".heron-cli-sandbox-test-{}", uuid::Uuid::new_v4().simple()));
+        let _cleanup = Cleanup(tmp.clone());
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_bin(dir.path(), "codex", "#!/bin/sh\nfor f in \"$@\"; do cat \"$f\" 2>&1; echo; done\necho finished\n");
+        let mut cfg = test_cfg(dir.path(), "claude-cli");
+        cfg.llm.cli_config_dir = tmp.join("claude-acct").display().to_string();
+        let codex = spec_for("codex-cli").unwrap();
+        let llm = CliLlm::for_probe(&cfg, &codex);
+        assert!(llm.config_dir.is_empty(), "codex-cli is not told to use claude-cli's folder");
+        let run_dir = make_run_folder().unwrap();
+        let _dir_guard = RemoveTempDirOnDrop { dir: run_dir.clone() };
+        let (binary_dir, extra_read) = llm.binary_dirs(&bin);
+        let profile = crate::sandbox::Profile::Cli { spec: &llm.spec, binary_dir, extra_read };
+        // The profile: the folder is in codex-cli's Refused block and no later rule opens it again.
+        let text = crate::sandbox::seatbelt_profile(&llm.cfg, &home, &run_dir, &profile);
+        let acct = format!("(subpath \"{}\")", tmp.join("claude-acct").display());
+        let denied = text.lines().position(|l| l.starts_with("(deny file-read* file-write*") && l.contains(&acct)).unwrap_or_else(|| panic!("{acct} not denied:\n{text}"));
+        assert!(!text.lines().skip(denied).any(|l| l.starts_with("(allow") && l.contains(&acct)), "{acct} opened again:\n{text}");
+        if !cli_seatbelt(&cfg) {
+            return;
+        }
+        let put = |rel: &str, text: &str| {
+            let p = tmp.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, text).unwrap();
+            p
+        };
+        let diary = put("elsewhere/diary.txt", "ASK-TIER-CONTENT");
+        let token = put("claude-acct/token.txt", "OTHER-CLI-CONTENT");
+        std::fs::write(run_dir.join("own.txt"), "RUN-FOLDER-CONTENT").unwrap();
+        let sandbox = crate::sandbox::wrap(&llm.cfg, &run_dir, &profile);
+        let args: Vec<String> = [diary, token, run_dir.join("own.txt")].iter().map(|p| p.display().to_string()).collect();
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let out = llm.run_contained(&bin, &args, 30, &run_dir, sandbox.as_ref()).await.unwrap();
+        assert!(out.contains("RUN-FOLDER-CONTENT") && out.contains("finished"), "the fake CLI ran and read its run folder: {out}");
+        assert!(!out.contains("ASK-TIER-CONTENT"), "an Ask-tier file was readable: {out}");
+        assert!(!out.contains("OTHER-CLI-CONTENT"), "another CLI's folder was readable: {out}");
     }
 
     #[tokio::test]

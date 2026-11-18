@@ -68,18 +68,32 @@ pub fn required() -> bool {
 /// What a sandbox is for.
 #[derive(Debug, Clone)]
 pub enum Profile<'a> {
-    /// A shell command. `grants` are the folders (and single files) the user granted for reading.
-    Shell { grants: Vec<PathBuf> },
+    /// A shell command. `grants` are the folders and single paths the user granted for reading.
+    Shell { grants: Vec<ReadGrant> },
     /// A CLI provider child. `binary_dir` is the install folder of its binary. `extra_read` holds the
     /// interpreter's folder when the binary is a script, and in debug builds the folder of Heron's own
     /// executable when the hybrid topology is on.
     Cli { spec: &'a CliSpec, binary_dir: PathBuf, extra_read: Vec<PathBuf> },
 }
 
-/// The mach services of the Keychain (securityd). Denied to shell commands and to CLIs that keep their
-/// login in their own folders, so a command cannot ask securityd for a Keychain item without touching
-/// any file.
+/// The mach services of the Keychain (securityd). Denied to shell commands only, so a command cannot
+/// ask securityd for a Keychain item without touching any file. No CLI profile denies them: the
+/// Security framework loads the system root certificates through securityd, and without them a CLI
+/// such as codex-cli cannot verify TLS.
 pub const KEYCHAIN_SERVICES: &[&str] = &["com.apple.SecurityServer", "com.apple.securityd.xpc", "com.apple.security.keychaind", "com.apple.securityd"];
+
+/// The last rule of every profile: no asking LaunchServices or Apple Events to start a program, which
+/// would run it outside the sandbox (`open -g -j <app the command wrote>`).
+pub const LAUNCH_SERVICES: &str = "(deny mach-lookup (global-name \"com.apple.coreservices.launchservicesd\") (global-name-prefix \"com.apple.lsd.\") (global-name \"com.apple.coreservices.appleevents\") (global-name \"com.apple.coreservices.quarantine-resolver\"))";
+
+/// launchd starts a job submitted with `launchctl submit` outside the submitter's sandbox; it asks the
+/// sandbox about `job-creation` first, so this rule refuses the submission.
+pub const JOB_CREATION: &str = "(deny job-creation)";
+
+/// Folders named inside a multi-part secret pattern. Each one is write-denied itself, so it cannot be
+/// renamed and take a secret out of its pattern (`mv .config c2` defeating `.config/gh/hosts.yml`).
+/// New files inside them can still be created.
+pub const SEATBELT_SECRET_FOLDERS: &[&str] = &[r"^.*/\.config$", r"^.*/\.config/gh$", r"^.*/\.config/git$", r"^.*/\.config/gcloud$", r"^.*/\.heron$", r"^.*/\.local$", r"^.*/\.local/share$", r"^.*/\.local/share/fish$"];
 
 /// The secret check (`permissions::sensitive_path`) as Seatbelt regular expressions, written in lower
 /// case: [`seatbelt_regex`] makes each one case-insensitive, as the original is. Seatbelt sees absolute
@@ -209,6 +223,16 @@ fn both_forms(p: &Path) -> Vec<PathBuf> {
 /// other macOS name (`/System/Volumes/Data/Users/x` for `/Users/x`, and back), so a rule cannot be
 /// stepped around through the firmlink alias.
 fn subpaths<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> String {
+    filters("subpath", paths)
+}
+
+/// The `literal` filters of one rule, in the same forms as [`subpaths`]: the path itself, never
+/// anything under it.
+fn literals<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> String {
+    filters("literal", paths)
+}
+
+fn filters<'a>(kind: &str, paths: impl IntoIterator<Item = &'a PathBuf>) -> String {
     let mut seen: Vec<PathBuf> = vec![];
     for p in paths {
         for form in both_forms(p) {
@@ -223,7 +247,25 @@ fn subpaths<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> String {
             seen.push(alias);
         }
     }
-    seen.iter().map(|p| format!(" (subpath {})", sbpl_quote(p))).collect()
+    seen.iter().map(|p| format!(" ({kind} {})", sbpl_quote(p))).collect()
+}
+
+/// Every ancestor of a Refused path that lies inside a writable folder, the writable folder included.
+/// Each gets a write deny of its own, so a command cannot rename it and carry the Refused path out
+/// from under its rule.
+fn refused_ancestors(refused: &[PathBuf], writable: &[PathBuf]) -> Vec<PathBuf> {
+    let writable: Vec<PathBuf> = writable.iter().flat_map(|w| both_forms(w)).collect();
+    let mut out: Vec<PathBuf> = vec![];
+    for r in refused.iter().flat_map(|r| both_forms(r)) {
+        for w in writable.iter().filter(|w| r.starts_with(w) && r != **w) {
+            for ancestor in r.ancestors().skip(1).take_while(|a| a.starts_with(w)) {
+                if !out.iter().any(|o| o == ancestor) {
+                    out.push(ancestor.to_path_buf());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The other name of an absolute path on macOS: under `/System/Volumes/Data` or out from under it.
@@ -246,18 +288,22 @@ fn tilde(raw: &str, home: &Path) -> PathBuf {
 }
 
 /// A CLI's own config folders: its registry `config_dirs`, plus, for a CLI that takes a config-folder
-/// variable, that variable's value and the configured `llm.cli_config_dir`.
+/// variable, that variable's value, and `llm.cli_config_dir` when this CLI is the configured provider.
+/// A too-broad value (`~`, `/`, a parent of the home folder, a relative path) is left out: it would
+/// open everything under it.
 pub fn own_config_dirs(cfg: &Config, spec: &CliSpec, home: &Path) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = spec.config_dirs.iter().map(|d| tilde(d, home)).collect();
     if let Some(var) = spec.config_dir_env {
+        let mut overrides: Vec<PathBuf> = vec![];
         if let Ok(value) = std::env::var(var) {
             if !value.trim().is_empty() {
-                dirs.push(tilde(value.trim(), home));
+                overrides.push(tilde(value.trim(), home));
             }
         }
-        if !cfg.llm.cli_config_dir.trim().is_empty() {
-            dirs.push(PathBuf::from(crate::cli_llm::normalize_config_dir(cfg.llm.cli_config_dir.trim())));
+        if cfg.llm.provider.trim() == spec.id && !cfg.llm.cli_config_dir.trim().is_empty() {
+            overrides.push(PathBuf::from(crate::cli_llm::normalize_config_dir(cfg.llm.cli_config_dir.trim())));
         }
+        dirs.extend(overrides.into_iter().filter(|d| !crate::permissions::too_broad(d)));
     }
     dirs
 }
@@ -265,8 +311,9 @@ pub fn own_config_dirs(cfg: &Config, spec: &CliSpec, home: &Path) -> Vec<PathBuf
 /// Files the user's git configuration points git at (`core.excludesFile`, `core.attributesFile`, and
 /// `include.path` / `includeIf` paths), read from `~/.gitconfig` and `~/.config/git/config`. Git stops
 /// with "cannot use ... as an exclude file" when it cannot read the excludes file it was told to use,
-/// so these are readable by shell commands; Refused and secret paths are still denied after them.
-pub fn git_config_files(home: &Path) -> Vec<PathBuf> {
+/// so these are readable by shell commands; Refused and secret paths are still denied after them. An
+/// included file is kept only when `classify_path` finds it neither Refused nor secret.
+pub fn git_config_files(cfg: &Config, home: &Path, workdir: &Path) -> Vec<PathBuf> {
     let mut out = vec![];
     for config in [home.join(".gitconfig"), home.join(".config/git/config")] {
         let Ok(text) = std::fs::read_to_string(&config) else { continue };
@@ -279,8 +326,9 @@ pub fn git_config_files(home: &Path) -> Vec<PathBuf> {
             }
             let Some((key, value)) = line.split_once('=') else { continue };
             let key = key.trim().to_ascii_lowercase();
-            let wanted = (section == "core" && (key == "excludesfile" || key == "attributesfile")) || ((section == "include" || section == "includeif") && key == "path");
-            if !wanted {
+            let core = section == "core" && (key == "excludesfile" || key == "attributesfile");
+            let include = (section == "include" || section == "includeif") && key == "path";
+            if !core && !include {
                 continue;
             }
             let value = value.split(['#', ';']).next().unwrap_or("").trim().trim_matches('"');
@@ -289,6 +337,9 @@ pub fn git_config_files(home: &Path) -> Vec<PathBuf> {
             }
             let path = tilde(value, home);
             let path = if path.is_absolute() { path } else { config.parent().map(|d| d.join(&path)).unwrap_or(path) };
+            if include && matches!(crate::permissions::classify_path(&path, workdir, cfg, false), crate::permissions::Effect::Refused | crate::permissions::Effect::SensitiveRead) {
+                continue;
+            }
             if !out.contains(&path) {
                 out.push(path);
             }
@@ -299,7 +350,8 @@ pub fn git_config_files(home: &Path) -> Vec<PathBuf> {
 
 /// The Seatbelt profile for one command or CLI. Seatbelt applies the last rule that matches, so the
 /// order is the design: deny reads under the user roots, allow metadata everywhere, allow the readable
-/// set, deny writes except the writable set, then deny Refused paths and secrets again.
+/// set, deny writes except the writable set, then deny Refused paths and secrets again (writes too,
+/// so nothing is renamed out of its rule), and last, launching anything outside the sandbox.
 pub fn seatbelt_profile(cfg: &Config, home: &Path, workdir: &Path, profile: &Profile) -> String {
     let roots = crate::permissions::ReadRoots::of(cfg);
     let mut p = String::from("(version 1)\n(allow default)\n");
@@ -307,54 +359,70 @@ pub fn seatbelt_profile(cfg: &Config, home: &Path, workdir: &Path, profile: &Pro
     // Path resolution, `realpath` and git need to `stat` parent folders. This shows that a file exists,
     // its size and its time, never its contents.
     p.push_str("(allow file-read-metadata)\n");
-    let secrets = || {
-        let rules: Vec<String> = SEATBELT_SECRET_PATTERNS.iter().map(|r| format!(" (regex #\"{}\")", seatbelt_regex(r))).collect();
-        format!("(deny file-read*{})\n", rules.concat())
+    let regexes = |patterns: &[&str]| -> String { patterns.iter().map(|r| format!(" (regex #\"{}\")", seatbelt_regex(r))).collect() };
+    let secrets = || format!("(deny file-read*{})\n(deny file-write*{}{})\n", regexes(SEATBELT_SECRET_PATTERNS), regexes(SEATBELT_SECRET_PATTERNS), regexes(SEATBELT_SECRET_FOLDERS));
+    let ancestors = |refused: &[PathBuf], writable: &[PathBuf]| {
+        let a = refused_ancestors(refused, writable);
+        if a.is_empty() { String::new() } else { format!("(deny file-write*{})\n", literals(&a)) }
     };
-    let keychain_deny = || {
-        let names: Vec<String> = KEYCHAIN_SERVICES.iter().map(|n| format!(" (global-name \"{n}\")")).collect();
-        format!("(deny mach-lookup{})\n", names.concat())
-    };
+    let launch = format!("{JOB_CREATION}\n{LAUNCH_SERVICES}\n");
     match profile {
         Profile::Shell { grants } => {
             let mut readable = vec![workdir.to_path_buf()];
-            readable.extend(grants.iter().cloned());
+            readable.extend(grants.iter().filter_map(|g| match g {
+                ReadGrant::Folder(f) => Some(f.clone()),
+                ReadGrant::Exact(_) => None,
+            }));
             readable.extend(TOOLCHAIN_DIRS.iter().map(|d| home.join(d)));
-            let mut literals = vec![home.join(".gitconfig")];
-            literals.extend(git_config_files(home));
-            let literals: Vec<String> = literals.iter().flat_map(|p| both_forms(p)).map(|p| format!(" (literal {})", sbpl_quote(&p))).collect();
-            p.push_str(&format!("(allow file-read*{}{})\n", subpaths(&readable), literals.concat()));
+            let mut single = vec![home.join(".gitconfig")];
+            single.extend(git_config_files(cfg, home, workdir));
+            // A `read=:` grant opens that one path, never anything under it, even when it names a
+            // folder (`read=:/`).
+            single.extend(grants.iter().filter_map(|g| match g {
+                ReadGrant::Exact(e) => Some(e.clone()),
+                ReadGrant::Folder(_) => None,
+            }));
+            p.push_str(&format!("(allow file-read*{}{})\n", subpaths(&readable), literals(&single)));
             p.push_str("(deny file-write*)\n");
             let mut writable = vec![PathBuf::from("/private/tmp"), PathBuf::from("/private/var/folders"), PathBuf::from("/dev"), workdir.to_path_buf()];
             writable.extend(writable_extras(home));
             p.push_str(&format!("(allow file-write*{})\n", subpaths(&writable)));
             p.push_str(&format!("(deny file-read* file-write*{})\n", subpaths(roots.refused_paths())));
+            p.push_str(&ancestors(roots.refused_paths(), &writable));
             p.push_str(&secrets());
-            p.push_str(&keychain_deny());
+            let names: Vec<String> = KEYCHAIN_SERVICES.iter().map(|n| format!(" (global-name \"{n}\")")).collect();
+            p.push_str(&format!("(deny mach-lookup{})\n", names.concat()));
+            p.push_str(&launch);
         }
         Profile::Cli { spec, binary_dir, extra_read } => {
-            let mut readable = vec![workdir.to_path_buf(), binary_dir.clone()];
-            readable.extend(extra_read.iter().cloned());
+            let canonical = |d: &PathBuf| dunce::canonicalize(d).unwrap_or_else(|_| d.clone());
+            let mut readable = vec![workdir.to_path_buf(), canonical(binary_dir)];
+            readable.extend(extra_read.iter().map(canonical));
             p.push_str(&format!("(allow file-read*{})\n", subpaths(&readable)));
             p.push_str("(deny file-write*)\n");
-            p.push_str(&format!("(allow file-write*{})\n", subpaths(&[PathBuf::from("/dev"), workdir.to_path_buf()])));
+            let writable = [PathBuf::from("/dev"), workdir.to_path_buf()];
+            p.push_str(&format!("(allow file-write*{})\n", subpaths(&writable)));
             let own = own_config_dirs(cfg, spec, home);
             let own_forms: Vec<PathBuf> = own.iter().flat_map(|d| both_forms(d)).collect();
             let refused: Vec<PathBuf> = roots.refused_paths().iter().filter(|r| !own_forms.iter().any(|o| r.starts_with(o))).cloned().collect();
             if !refused.is_empty() {
                 p.push_str(&format!("(deny file-read* file-write*{})\n", subpaths(&refused)));
+                p.push_str(&ancestors(&refused, &writable));
             }
             p.push_str(&secrets());
-            match spec.credential_store {
-                CredentialStore::MacosKeychain => p.push_str(&format!("(allow file-read* file-write*{})\n", subpaths(&[home.join("Library/Keychains")]))),
-                CredentialStore::HomeFolder => p.push_str(&keychain_deny()),
+            // Only a CLI that keeps its login in the Keychain reaches the Keychain folder. No CLI's
+            // securityd lookups are denied: they also load the system root certificates.
+            if spec.credential_store == CredentialStore::MacosKeychain {
+                p.push_str(&format!("(allow file-read* file-write*{})\n", subpaths(&[home.join("Library/Keychains")])));
             }
-            // Last, so they win over the Refused and secret rules: a CLI's own folders are the one
-            // exception to Refused, and only inside its own sandbox. A CLI with no folders of its own
-            // (custom-cli) gets no rule: a bare `(allow file-read* file-write*)` would open everything.
+            // After the Refused and secret rules, so they win over them: a CLI's own folders are the
+            // one exception to Refused, and only inside its own sandbox. A CLI with no folders of its
+            // own (custom-cli) gets no rule: a bare `(allow file-read* file-write*)` would open
+            // everything.
             if !own.is_empty() {
                 p.push_str(&format!("(allow file-read* file-write*{})\n", subpaths(&own)));
             }
+            p.push_str(&launch);
         }
     }
     p
@@ -388,19 +456,12 @@ pub fn wrap(cfg: &Config, workdir: &Path, profile: &Profile) -> Option<(String, 
     }
 }
 
-/// The folders (and single files) a shell command may read besides the working folder: the folders of
-/// the standing `read:` rules (in the settings file and those saved from approvals) and the `read:` and
-/// `read=:` grants of this conversation. A grant made earlier in the same turn that is not saved yet is
+/// What a shell command may read besides the working folder: the folders of the standing `read:`
+/// rules (in the settings file and those saved from approvals) and the `read:` folders and `read=:`
+/// single paths of this conversation. A grant made earlier in the same turn that is not saved yet is
 /// not seen, so the command fails closed.
-pub fn shell_grants(cfg: &Config, store: &crate::store::Store, session_id: &str) -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = vec![];
-    for grant in read_grants(cfg, store, Some(session_id)) {
-        let path = grant.path().to_path_buf();
-        if !out.contains(&path) {
-            out.push(path);
-        }
-    }
-    out
+pub fn shell_grants(cfg: &Config, store: &crate::store::Store, session_id: &str) -> Vec<ReadGrant> {
+    read_grants(cfg, store, Some(session_id))
 }
 
 /// One thing the user granted for reading.
@@ -499,8 +560,18 @@ mod tests {
             "[user]\n\tname = x\n[core]\n\texcludesfile = ~/.gitignore_global\n\tattributesFile = \"/srv/attrs\" # comment\n\teditor = vim\n[include]\n\tpath = extra.inc\n[includeIf \"gitdir:~/work/\"]\n\tpath = ~/.gitconfig-work\n[credential]\n\thelper = osxkeychain\n",
         )
         .unwrap();
-        assert_eq!(git_config_files(h), vec![h.join(".gitignore_global"), PathBuf::from("/srv/attrs"), h.join("extra.inc"), h.join(".gitconfig-work")]);
-        assert!(git_config_files(&h.join("nowhere")).is_empty());
+        let cfg = Config { home: h.join(".heron-test-home"), ..Default::default() };
+        let ws = h.join("project");
+        assert_eq!(git_config_files(&cfg, h, &ws), vec![h.join(".gitignore_global"), PathBuf::from("/srv/attrs"), h.join("extra.inc"), h.join(".gitconfig-work")]);
+        assert!(git_config_files(&cfg, &h.join("nowhere"), &ws).is_empty());
+        // An include that names a secret or a Refused file is not opened.
+        let real = real_home();
+        std::fs::write(
+            h.join(".gitconfig"),
+            format!("[include]\n\tpath = ~/.ssh/config\n\tpath = {}/.claude/settings.json\n\tpath = {}/hosts.inc\n\tpath = plain.inc\n", real.display(), cfg.home.display()),
+        )
+        .unwrap();
+        assert_eq!(git_config_files(&cfg, h, &ws), vec![h.join("plain.inc")]);
     }
 
     /// The real home folder: the Refused list is built from it.
@@ -514,7 +585,7 @@ mod tests {
         let home = real_home();
         let h = home.display().to_string();
         let cfg = Config { home: home.join(".heron-profile-test"), ..Default::default() };
-        let profile = seatbelt_profile(&cfg, &home, &home.join("project-profile-test"), &Profile::Shell { grants: vec![home.join("Documents/notes-profile-test")] });
+        let profile = seatbelt_profile(&cfg, &home, &home.join("project-profile-test"), &Profile::Shell { grants: vec![ReadGrant::Folder(home.join("Documents/notes-profile-test"))] });
         let at = |needle: &str| profile.find(needle).unwrap_or_else(|| panic!("{needle} missing from:\n{profile}"));
         let deny_roots = at(&format!("(deny file-read* (subpath \"{h}\") (subpath \"/Users\") (subpath \"/Volumes\") (subpath \"{h}/.heron-profile-test\") (subpath \"/System/Volumes/Data{h}\") (subpath \"/System/Volumes/Data/Users\") (subpath \"/System/Volumes/Data/Volumes\")"));
         let metadata = at("(allow file-read-metadata)");
@@ -524,8 +595,14 @@ mod tests {
         let write = at(&format!("(allow file-write* (subpath \"/private/tmp\") (subpath \"/private/var/folders\") (subpath \"/dev\") (subpath \"{h}/project-profile-test\")"));
         let refused = at(&format!("(deny file-read* file-write* (subpath \"{h}/.heron-profile-test\")"));
         let secrets = at("(deny file-read* (regex #\"");
+        let secret_writes = at("(deny file-write* (regex #\"");
         let keychain = at("(deny mach-lookup (global-name \"com.apple.SecurityServer\")");
-        assert!(deny_roots < metadata && metadata < readable && readable < deny_write && deny_write < write && write < refused && refused < secrets && secrets < keychain, "{profile}");
+        let launch = at(LAUNCH_SERVICES);
+        assert!(
+            deny_roots < metadata && metadata < readable && readable < deny_write && deny_write < write && write < refused && refused < secrets && secrets < secret_writes && secret_writes < keychain && keychain < launch,
+            "{profile}"
+        );
+        assert!(profile.ends_with(&format!("{JOB_CREATION}\n{LAUNCH_SERVICES}\n")), "the launch rules come last: {profile}");
         assert!(profile[refused..secrets].contains(&format!("{h}/.claude\"")) && profile[refused..secrets].contains(&format!("{h}/Library/Keychains\"")), "every Refused path is denied: {profile}");
         // ...by its firmlink alias too (`/System/Volumes/Data/Users/<me>/.claude` is `~/.claude`).
         for refused_alias in [format!("(subpath \"/System/Volumes/Data{h}/.claude\")"), format!("(subpath \"/System/Volumes/Data{h}/.heron-profile-test\")")] {
@@ -555,22 +632,32 @@ mod tests {
         let write = at("(allow file-write* (subpath \"/dev\") (subpath \"/private/var/folders/xy/T/heron-cli-1\") (subpath \"/System/Volumes/Data/dev\")");
         let refused = at(&format!("(deny file-read* file-write* (subpath \"{h}/.heron-profile-test\")"));
         let secrets = at("(deny file-read* (regex #\"");
-        let keychain = at("(deny mach-lookup");
+        let secret_writes = at("(deny file-write* (regex #\"");
         let own = at(&format!("(allow file-read* file-write* (subpath \"{h}/.codex\")"));
-        assert!(write < refused && refused < secrets && secrets < keychain && keychain < own, "{profile}");
+        let launch = at(LAUNCH_SERVICES);
+        assert!(write < refused && refused < secrets && secrets < secret_writes && secret_writes < own && own < launch, "{profile}");
+        assert!(profile.ends_with(&format!("{JOB_CREATION}\n{LAUNCH_SERVICES}\n")), "the launch rules come last: {profile}");
+        // A CLI that keeps its login in its own folder: no Keychain folder, and no securityd deny.
+        assert!(!profile.lines().any(|l| l.starts_with("(allow") && l.contains("Library/Keychains")), "{profile}");
+        for name in KEYCHAIN_SERVICES {
+            assert!(!profile.contains(name), "{name} denied to a CLI:\n{profile}");
+        }
         // Its own folder is not in the Refused block; another CLI's is.
         assert!(!profile[refused..secrets].contains(&format!("{h}/.codex\"")) && profile[refused..secrets].contains(&format!("{h}/.claude\"")), "{profile}");
         // No grants, toolchain folders, .gitconfig or shared temp folders.
         for absent in [".gitconfig", "/private/tmp\"", "/.cargo", "/.rustup"] {
             assert!(!profile.contains(absent), "{absent} in:\n{profile}");
         }
-        // A Keychain CLI gets the Keychain folder and no mach deny.
+        // A Keychain CLI gets the Keychain folder, and no securityd deny either.
         let claude = cli_spec("claude-cli");
         let profile = seatbelt_profile(&cfg, &home, &run, &Profile::Cli { spec: &claude, binary_dir: home.join(".local/share/claude/versions"), extra_read: vec![] });
-        assert!(!profile.contains("mach-lookup"), "{profile}");
+        for name in KEYCHAIN_SERVICES {
+            assert!(!profile.contains(name), "{name} denied to a CLI:\n{profile}");
+        }
         let keychain = profile.find(&format!("(allow file-read* file-write* (subpath \"{h}/Library/Keychains\")")).expect("keychain allow");
         let own = profile.find(&format!("(allow file-read* file-write* (subpath \"{h}/.claude\") (subpath \"{h}/.claude.json\")")).expect("own config");
         assert!(profile.find("(deny file-read* file-write*").unwrap() < keychain && keychain < own, "{profile}");
+        assert!(profile.ends_with(&format!("{JOB_CREATION}\n{LAUNCH_SERVICES}\n")), "{profile}");
     }
 
     /// Every allow or deny in a profile names at least one path: Seatbelt reads a rule with no filter
@@ -641,6 +728,72 @@ mod tests {
         store.kv_set("grants:s1", &serde_json::to_string(&["read:/srv/talk/**", "read=:/srv/one/file.txt", "write_file:*"]).unwrap()).unwrap();
         store.kv_set("grants:s2", &serde_json::to_string(&["read:/srv/other/**"]).unwrap()).unwrap();
         let grants = shell_grants(&cfg, &store, "s1");
-        assert_eq!(grants, vec![PathBuf::from("/srv/docs"), PathBuf::from("/srv/saved"), PathBuf::from("/srv/talk"), PathBuf::from("/srv/one/file.txt")], "a too-broad rule and another conversation's grant are left out");
+        assert_eq!(
+            grants,
+            vec![
+                ReadGrant::Folder(PathBuf::from("/srv/docs")),
+                ReadGrant::Folder(PathBuf::from("/srv/saved")),
+                ReadGrant::Folder(PathBuf::from("/srv/talk")),
+                ReadGrant::Exact(PathBuf::from("/srv/one/file.txt")),
+            ],
+            "a too-broad rule and another conversation's grant are left out"
+        );
+    }
+
+    #[test]
+    fn own_config_dirs_take_the_configured_folder_only_for_its_provider_and_never_a_broad_one() {
+        let home = real_home();
+        let codex = cli_spec("codex-cli");
+        let acct = home.join("heron-own-dirs-test/acct");
+        let mut cfg = Config { home: home.join(".heron-profile-test"), ..Default::default() };
+        cfg.llm.cli_config_dir = acct.display().to_string();
+        cfg.llm.provider = "claude-cli".into();
+        assert!(!own_config_dirs(&cfg, &codex, &home).contains(&acct), "claude-cli's account folder is not codex-cli's");
+        assert!(own_config_dirs(&cfg, &cli_spec("claude-cli"), &home).contains(&acct));
+        cfg.llm.provider = "codex-cli".into();
+        assert!(own_config_dirs(&cfg, &codex, &home).contains(&acct));
+        for broad in ["~", "/", "/Users", home.parent().unwrap().to_str().unwrap()] {
+            cfg.llm.cli_config_dir = broad.into();
+            let normalized = PathBuf::from(crate::cli_llm::normalize_config_dir(broad));
+            assert!(!own_config_dirs(&cfg, &codex, &home).contains(&normalized), "{broad} must not become a CLI's own folder");
+            let profile = seatbelt_profile(&cfg, &home, Path::new("/private/var/folders/xy/T/heron-cli-3"), &Profile::Cli { spec: &codex, binary_dir: PathBuf::from("/usr/local/bin"), extra_read: vec![] });
+            let opened = profile.lines().find(|l| l.starts_with("(allow file-read* file-write*")).unwrap();
+            assert!(!opened.contains(&format!("(subpath {})", sbpl_quote(&normalized))), "{broad}: {opened}");
+        }
+    }
+
+    #[test]
+    fn secrets_and_refused_ancestors_are_write_denied_in_both_profiles() {
+        // The text half of `secrets_and_refused_paths_cannot_be_renamed_out_of_their_rules`.
+        let home = real_home();
+        let ws = home.join("project-rename-test");
+        let mut cfg = Config { home: ws.join("data/heron"), ..Default::default() };
+        cfg.llm.cli_config_dir = ws.join("a/b/acct").display().to_string();
+        let shell = seatbelt_profile(&cfg, &home, &ws, &Profile::Shell { grants: vec![] });
+        let run = ws.clone();
+        let codex = cli_spec("codex-cli");
+        let cli = seatbelt_profile(&cfg, &home, &run, &Profile::Cli { spec: &codex, binary_dir: PathBuf::from("/usr/local/bin"), extra_read: vec![] });
+        let w = ws.display().to_string();
+        for profile in [&shell, &cli] {
+            let line = |start: &str| profile.lines().find(|l| l.starts_with(start)).unwrap_or_else(|| panic!("{start} missing from:\n{profile}")).to_string();
+            let secret_writes = line("(deny file-write* (regex #\"");
+            for pattern in SEATBELT_SECRET_PATTERNS.iter().chain(SEATBELT_SECRET_FOLDERS) {
+                assert!(secret_writes.contains(&format!("(regex #\"{}\")", seatbelt_regex(pattern))), "{pattern} is not write-denied: {secret_writes}");
+            }
+            let ancestors = line("(deny file-write* (literal");
+            for a in [format!("{w}/a/b"), format!("{w}/a"), w.clone(), format!("{w}/data")] {
+                assert!(ancestors.contains(&format!("(literal \"{a}\")")), "{a} can be renamed: {ancestors}");
+            }
+            // Only ancestors: never the Refused folder's contents, nor the home folder above the writable one.
+            assert!(!ancestors.contains(&format!("(literal \"{w}/a/b/acct\")")) && !ancestors.contains(&format!("(literal \"{}\")", home.display())), "{ancestors}");
+        }
+        let compiled: Vec<regex::Regex> = SEATBELT_SECRET_FOLDERS.iter().map(|r| regex::Regex::new(&seatbelt_regex(r)).unwrap()).collect();
+        let folder = |p: &str| compiled.iter().any(|r| r.is_match(p));
+        for p in ["/u/p/.config", "/u/p/.CONFIG/gh", "/u/p/.config/git", "/u/p/.config/gcloud", "/u/.heron", "/u/.local", "/u/.local/share", "/u/.local/share/fish"] {
+            assert!(folder(p), "{p}");
+        }
+        for p in ["/u/p/.config/new.txt", "/u/p/.config/gh/new.txt", "/u/p/.configs", "/u/p/x.config", "/u/.local/bin"] {
+            assert!(!folder(p), "{p}: new files inside the folders stay writable");
+        }
     }
 }
