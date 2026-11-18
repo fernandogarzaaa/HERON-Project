@@ -1142,7 +1142,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from U1's security review: walkers, firmlink alias, credential_store, tests",
-    "version": 51,
+    "version": 52,
     "worktree": {
       "base_branch": "skein/U1f__integrate-base",
       "base_commit": "951510e283dc6494ee4770a3aaa3ec80a1a6e8de",
