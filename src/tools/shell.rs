@@ -16,6 +16,12 @@ fn risk(args: &Value, _ctx: &ToolCtx) -> Effect {
     classify_shell(&summary(args))
 }
 
+/// What the sandbox lets a command read besides the working folder: the standing `read:` rules
+/// always, and this conversation's grants only while no outside content is present, as for a read.
+fn sandbox_grants(ctx: &ToolCtx) -> Vec<crate::sandbox::ReadGrant> {
+    crate::sandbox::shell_grants(&ctx.cfg, &ctx.store, &ctx.session_id, ctx.tainted.load(std::sync::atomic::Ordering::SeqCst))
+}
+
 async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
     let command = arg_str(args, "command")?;
     let timeout = opt_i64(args, "timeout_secs").unwrap_or(ctx.cfg.agent.tool_timeout_secs as i64).clamp(1, 1800) as u64;
@@ -33,7 +39,7 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
         _ => &["-c"],
     };
     let candidates: Vec<(&str, &[&str])> = if chosen.is_empty() { candidates.to_vec() } else { vec![(chosen.as_str(), chosen_flags)] };
-    let grants = crate::sandbox::shell_grants(&ctx.cfg, &ctx.store, &ctx.session_id);
+    let grants = sandbox_grants(ctx);
     let sandbox = crate::sandbox::wrap(&ctx.cfg, &ctx.workspace, &crate::sandbox::Profile::Shell { grants });
     // The classifier cannot see what a command reads at run time, so it cannot stand in for the
     // sandbox: on macOS, no sandbox means no shell.
@@ -424,6 +430,13 @@ mod tests {
             return;
         }
         let ctx = test_ctx(&cfg, &ws, "t");
+        // The positive control: under the same profile a command runs and reads the working folder,
+        // so the denials below come from the profile, not from a command that never ran.
+        let own = tmp.put("project/readme.txt", "WORKSPACE-CONTENT");
+        for cmd in [format!("cat {}", q(&own)), format!("python3 -c \"print(open('{}').read())\"", own.display())] {
+            let out = sh(&ctx, &cmd).await;
+            assert!(out.contains("WORKSPACE-CONTENT"), "{cmd}: {out}");
+        }
         for file in [alias(&private), alias(&refused)] {
             for cmd in [format!("cat {}", q(&file)), format!("python3 -c \"print(open('{}').read())\"", file.display())] {
                 let out = sh(&ctx, &cmd).await;
@@ -431,6 +444,49 @@ mod tests {
                 assert!(out.contains("[exit code"), "{cmd}: {out}");
             }
         }
+    }
+
+    /// Once outside content is present, a "this conversation" grant no longer opens a read, and the
+    /// sandbox follows: only standing rules reach it.
+    #[tokio::test]
+    async fn tainted_conversation_grants_do_not_reach_the_sandbox() {
+        use crate::sandbox::ReadGrant;
+        use std::path::PathBuf;
+        let mut cfg = Config::default();
+        cfg.permissions.allow = vec!["read:/srv/standing-grant-test/**".into()];
+        let probe = test_ctx(&cfg, std::path::Path::new("/srv/project-grant-test"), "g");
+        probe.store.kv_set("grants:g", &serde_json::to_string(&["read:/srv/talk-grant-test/**", "read=:/srv/one-grant-test.txt"]).unwrap()).unwrap();
+        let standing = ReadGrant::Folder(PathBuf::from("/srv/standing-grant-test"));
+        let talk = [ReadGrant::Folder(PathBuf::from("/srv/talk-grant-test")), ReadGrant::Exact(PathBuf::from("/srv/one-grant-test.txt"))];
+        let clean = sandbox_grants(&probe);
+        assert!(clean.contains(&standing) && talk.iter().all(|g| clean.contains(g)), "{clean:?}");
+        probe.tainted.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(sandbox_grants(&probe), vec![standing.clone()], "a conversation grant reached a tainted conversation's sandbox");
+
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let ws = tmp.0.join("project");
+        std::fs::create_dir_all(&ws).unwrap();
+        let talk = tmp.put("talk/notes.txt", "GRANTED-FOR-THIS-CONVERSATION");
+        let one = tmp.put("one/file.txt", "SINGLE-PATH-GRANT");
+        let kept = tmp.put("standing/notes.txt", "GRANTED-STANDING");
+        cfg.permissions.allow = vec![format!("read:{}/**", tmp.0.join("standing").display())];
+        let ctx = test_ctx(&cfg, &ws, "s1");
+        ctx.store.kv_set("grants:s1", &serde_json::to_string(&[format!("read:{}/**", tmp.0.join("talk").display()), format!("read=:{}", one.display())]).unwrap()).unwrap();
+        // Before outside content, the conversation's grants open their paths.
+        assert!(sh(&ctx, &format!("cat {}", q(&talk))).await.contains("GRANTED-FOR-THIS-CONVERSATION"));
+        assert!(sh(&ctx, &format!("cat {}", q(&one))).await.contains("SINGLE-PATH-GRANT"));
+        ctx.tainted.store(true, std::sync::atomic::Ordering::SeqCst);
+        for (file, text) in [(&talk, "GRANTED-FOR-THIS-CONVERSATION"), (&one, "SINGLE-PATH-GRANT")] {
+            for cmd in [format!("cat {}", q(file)), format!("python3 -c \"print(open('{}').read())\"", file.display())] {
+                let out = sh(&ctx, &cmd).await;
+                assert!(!out.contains(text) && out.contains("[exit code"), "{cmd}: {out}");
+            }
+        }
+        // A standing rule still applies, and the command runs: the denials come from the profile.
+        assert!(sh(&ctx, &format!("cat {}", q(&kept))).await.contains("GRANTED-STANDING"));
     }
 
     #[tokio::test]
@@ -813,7 +869,7 @@ mod tests {
         // A `read=:` grant on a too-broad target is one path in the profile, never what is under it.
         let probe = test_ctx(&cfg, &home.join("project-grant-test"), "g");
         probe.store.kv_set("grants:g", &serde_json::to_string(&["read=:/".to_string(), format!("read=:{}", home.display())]).unwrap()).unwrap();
-        let grants = crate::sandbox::shell_grants(&probe.cfg, &probe.store, "g");
+        let grants = crate::sandbox::shell_grants(&probe.cfg, &probe.store, "g", false);
         let text = crate::sandbox::seatbelt_profile(&cfg, &home, &home.join("project-grant-test"), &crate::sandbox::Profile::Shell { grants });
         let readable = text.lines().find(|l| l.starts_with("(allow file-read* (subpath")).unwrap();
         for p in ["/".to_string(), home.display().to_string()] {
