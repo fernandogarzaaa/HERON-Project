@@ -287,7 +287,7 @@
       "claim_token": "3e9cc2d0f38b4ae695ffed79b4848372",
       "claimed_at": "2026-11-18T14:05:46.848123+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T14:09:17.129576+00:00",
+      "last_heartbeat": "2026-11-18T14:09:47.137808+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -314,7 +314,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Baseline run on today's `main` code (measurement only)",
-    "version": 10,
+    "version": 11,
     "worktree": {
       "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
       "base_commit": "40e9e18dd7b1afd13978cd668523c84991f0360f",
@@ -335,15 +335,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "9ae71fd9103b4308a0a818b985d8620d",
+      "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
+      "claim_token": "a7dbb0d0185e4c9883a9f47e745d1120",
+      "claimed_at": "2026-11-18T14:09:47.182777+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-18T14:09:47.182777+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "U0"
@@ -365,11 +365,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "genesis json audit of the pass-rule grammar (item 8c)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "40e9e18dd7b1afd13978cd668523c84991f0360f",
       "branch": null,
       "path": null
     }
