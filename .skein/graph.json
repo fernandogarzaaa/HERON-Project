@@ -1791,7 +1791,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from U1g's review: kernel lookup prefixes fail closed, sandbox test, parked taint",
-    "version": 40,
+    "version": 41,
     "worktree": {
       "base_branch": "skein/U1h__integrate-base",
       "base_commit": "f41079b309c95d49ef9f50968f80c0072b885df4",
