@@ -1729,6 +1729,14 @@
         "holder": "agent-3",
         "outcome": "released",
         "started_at": "2026-11-18T18:55:44.227243+00:00"
+      },
+      {
+        "attempt_id": "a1e75a4c61b141a088721772f446db0b",
+        "ended_at": "2026-11-18T18:56:09.281168+00:00",
+        "error": "worktree setup failed: node 'U2c' base changed from 9bdfc646 to c759e3e7 (dependency re-ran); refusing to reuse a worktree sitting on a different base. Run `skein worktree gc` to remove the stale worktree, or reset the node.",
+        "holder": "agent-3",
+        "outcome": "released",
+        "started_at": "2026-11-18T18:56:09.221525+00:00"
       }
     ],
     "attempts_used": 0,
@@ -1742,15 +1750,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "a1e75a4c61b141a088721772f446db0b",
-      "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
-      "claim_token": "01b47cb3f9434728bdd6068c95bf2884",
-      "claimed_at": "2026-11-18T18:56:09.221525+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T18:56:09.221525+00:00",
-      "node_version": 20,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2f"
@@ -1768,7 +1776,7 @@
         "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2c_20261118T161030423295_adapter.log"
       }
     ],
-    "handoff_note": "Done. Verification passed. Last output: Next: on your Mac, run `bash eval/containment/run.sh && python3 -I eval/containment/check.py --recorded`, then `python3 -I eval/containment/check.py` to see whether G4 holds.\n[release note] worktree setup failed: node 'U2c' base changed from 9bdfc646 to c759e3e7 (dependency re-ran); refusing to reuse a worktree sitting on a different base. Run `skein worktree gc` to remove the stale worktree, or reset the node.",
+    "handoff_note": "Done. Verification passed. Last output: Next: on your Mac, run `bash eval/containment/run.sh && python3 -I eval/containment/check.py --recorded`, then `python3 -I eval/containment/check.py` to see whether G4 holds.\n[release note] worktree setup failed: node 'U2c' base changed from 9bdfc646 to c759e3e7 (dependency re-ran); refusing to reuse a worktree sitting on a different base. Run `skein worktree gc` to remove the stale worktree, or reset the node.\n[release note] worktree setup failed: node 'U2c' base changed from 9bdfc646 to c759e3e7 (dependency re-ran); refusing to reuse a worktree sitting on a different base. Run `skein worktree gc` to remove the stale worktree, or reset the node.",
     "id": "U2c",
     "integration_for": null,
     "intent": {
@@ -1852,9 +1860,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "Containment check on each installed candidate CLI (measurement; records results, G4 is judged in U2w)",
-    "version": 21,
+    "version": 22,
     "worktree": {
       "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
       "base_commit": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
