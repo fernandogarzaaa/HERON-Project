@@ -2243,7 +2243,7 @@
       "claim_token": "6b80e1f29be44b3a8da9d94950563933",
       "claimed_at": "2026-11-18T19:14:30.532166+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T19:14:30.532166+00:00",
+      "last_heartbeat": "2026-11-18T19:16:00.889139+00:00",
       "node_version": 3,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -2269,9 +2269,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Regression tests that run each reproduced U2 escape under Seatbelt",
-    "version": 5,
+    "version": 8,
     "worktree": {
       "base_branch": "skein/U2g__integrate-base",
       "base_commit": "8b7fc85330722c2e9a05671d8a851ec180d9fefb",
@@ -2364,6 +2364,14 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-18T16:14:43.150927+00:00"
+      },
+      {
+        "attempt_id": "d243c846016a4818a5eecaa54fe7adc4",
+        "ended_at": "2026-11-18T19:16:23.306791+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-18T18:59:50.577591+00:00"
       }
     ],
     "attempts_used": 1,
@@ -2377,15 +2385,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "d243c846016a4818a5eecaa54fe7adc4",
-      "base_branch": "skein/U2s__integrate-base",
-      "claim_token": "db8744acc03e4a90b525377ef6457754",
-      "claimed_at": "2026-11-18T18:59:50.577591+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T19:14:21.291602+00:00",
-      "node_version": 23,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U0",
@@ -2396,17 +2404,17 @@
     "evidence": [
       {
         "command": "bash eval/spike/run-spike.sh && python3 -I eval/check_gate.py --spike eval/spike/envelope/summary.json eval/spike/hybrid/summary.json --report eval/spike/topology.md",
-        "duration_ms": 211,
-        "exit_code": 127,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2s_20261118T161754051967_0.log"
+        "duration_ms": 829766,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2s_20261118T190233357991_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2s_20261118T161754264309_adapter.log"
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2s_20261118T191623127433_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=1); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: **Decision for you:** the spec says only that `--resume` is supported. Without it, the script starts both arms over, which would throw away 100 runs. I made it move any existing `summary.json` to `summary.previous.json` first. Say so if you'd rather it refuse to start over.",
     "id": "U2s",
     "integration_for": null,
     "intent": {
@@ -2418,13 +2426,61 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "d243c846016a4818a5eecaa54fe7adc4",
+      "base_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
+      "changed_files": [
+        "eval/spike/envelope/summary.json",
+        "eval/spike/hybrid/summary.json",
+        "eval/spike/make_pairs.py",
+        "eval/spike/pairs-key.json",
+        "eval/spike/pairs.md",
+        "eval/spike/run-spike.sh",
+        "eval/spike/test_spike.py",
+        "eval/spike/topology.md"
+      ],
+      "commit": "03be82fa21358445e8c7b9c8d48fb9dcd1e32898",
+      "diff_stats": {
+        "eval/spike/envelope/summary.json": {
+          "added": 579,
+          "deleted": 0
+        },
+        "eval/spike/hybrid/summary.json": {
+          "added": 579,
+          "deleted": 0
+        },
+        "eval/spike/make_pairs.py": {
+          "added": 111,
+          "deleted": 0
+        },
+        "eval/spike/pairs-key.json": {
+          "added": 85,
+          "deleted": 0
+        },
+        "eval/spike/pairs.md": {
+          "added": 211,
+          "deleted": 0
+        },
+        "eval/spike/run-spike.sh": {
+          "added": 88,
+          "deleted": 0
+        },
+        "eval/spike/test_spike.py": {
+          "added": 254,
+          "deleted": 0
+        },
+        "eval/spike/topology.md": {
+          "added": 37,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 54,
+    "version": 59,
     "worktree": {
       "base_branch": "skein/U2s__integrate-base",
       "base_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
