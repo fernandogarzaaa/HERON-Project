@@ -2105,15 +2105,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "d243c846016a4818a5eecaa54fe7adc4",
+      "base_branch": "skein/U2s__integrate-base",
+      "claim_token": "db8744acc03e4a90b525377ef6457754",
+      "claimed_at": "2026-11-18T18:59:50.577591+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-18T18:59:50.577591+00:00",
+      "node_version": 23,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "U0",
@@ -2150,9 +2150,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 23,
+    "version": 24,
     "worktree": {
       "base_branch": "skein/U2s__integrate-base",
       "base_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
