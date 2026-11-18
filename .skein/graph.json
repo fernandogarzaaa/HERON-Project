@@ -1509,9 +1509,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement)",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U2s__integrate-base",
       "branch": null,
       "path": null
     }
