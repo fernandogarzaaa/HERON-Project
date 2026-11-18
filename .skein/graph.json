@@ -1368,7 +1368,7 @@
       "claim_token": "213133f08a9c47a388ad4919e0158972",
       "claimed_at": "2026-11-18T18:55:17.129647+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T18:57:17.421119+00:00",
+      "last_heartbeat": "2026-11-18T18:59:47.506952+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1396,7 +1396,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U1f's security review: /.vol fail-closed, alias in too_broad, read=: walker scope, tainted shell grants",
-    "version": 8,
+    "version": 13,
     "worktree": {
       "base_branch": "skein/U1g__integrate-base",
       "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
@@ -1745,6 +1745,14 @@
         "holder": "agent-3",
         "outcome": "released",
         "started_at": "2026-11-18T18:57:08.153011+00:00"
+      },
+      {
+        "attempt_id": "c15d3987ccc64a25bb56acbda403f8b6",
+        "ended_at": "2026-11-18T18:59:50.520087+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-18T18:57:35.181051+00:00"
       }
     ],
     "attempts_used": 0,
@@ -1758,15 +1766,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "c15d3987ccc64a25bb56acbda403f8b6",
-      "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
-      "claim_token": "eed3bc1954864f788280d2153b0fc424",
-      "claimed_at": "2026-11-18T18:57:35.181051+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-18T18:57:35.181051+00:00",
-      "node_version": 25,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2f"
@@ -1774,17 +1782,17 @@
     "evidence": [
       {
         "command": "bash eval/containment/run.sh && python3 -I eval/containment/check.py --recorded",
-        "duration_ms": 72013,
+        "duration_ms": 69355,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2c_20261118T160918408076_0.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2c_20261118T185841082933_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2c_20261118T161030423295_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U2c_20261118T185950439465_adapter.log"
       }
     ],
-    "handoff_note": "Done. Verification passed. Last output: Next: on your Mac, run `bash eval/containment/run.sh && python3 -I eval/containment/check.py --recorded`, then `python3 -I eval/containment/check.py` to see whether G4 holds.\n[release note] worktree setup failed: node 'U2c' base changed from 9bdfc646 to c759e3e7 (dependency re-ran); refusing to reuse a worktree sitting on a different base. Run `skein worktree gc` to remove the stale worktree, or reset the node.\n[release note] worktree setup failed: node 'U2c' base changed from 9bdfc646 to c759e3e7 (dependency re-ran); refusing to reuse a worktree sitting on a different base. Run `skein worktree gc` to remove the stale worktree, or reset the node.\n[release note] worktree setup failed: node 'U2c' base changed from 9bdfc646 to c759e3e7 (dependency re-ran); refusing to reuse a worktree sitting on a different base. Run `skein worktree gc` to remove the stale worktree, or reset the node.",
+    "handoff_note": "Done. Verification passed. Last output: **Next:** run the check on your Mac. Then run `python3 -I eval/containment/check.py` to see whether G4 holds. If codex still fails, the cause is in `src/`, so add a `U2-fix-<n>` node (M18).",
     "id": "U2c",
     "integration_for": null,
     "intent": {
@@ -1797,8 +1805,8 @@
     "rejected_count": 0,
     "removed": false,
     "result": {
-      "attempt_id": "fa009a32fa924c5f850f9f4885a314f1",
-      "base_commit": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
+      "attempt_id": "c15d3987ccc64a25bb56acbda403f8b6",
+      "base_commit": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
       "changed_files": [
         "eval/containment/README.md",
         "eval/containment/__init__.py",
@@ -1813,7 +1821,7 @@
         "eval/containment/run.sh",
         "eval/containment/test_containment.py"
       ],
-      "commit": "9748fc6cbfdf3f5ad86a579895b39fc3bcf8ca46",
+      "commit": "fd48f6a7c4082df9a2ed474b8da9d673c1673e4f",
       "diff_stats": {
         "eval/containment/README.md": {
           "added": 40,
@@ -1868,9 +1876,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Containment check on each installed candidate CLI (measurement; records results, G4 is judged in U2w)",
-    "version": 27,
+    "version": 32,
     "worktree": {
       "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
       "base_commit": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
