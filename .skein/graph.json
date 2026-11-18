@@ -1368,7 +1368,7 @@
       "claim_token": "213133f08a9c47a388ad4919e0158972",
       "claimed_at": "2026-11-18T18:55:17.129647+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-18T18:55:47.348227+00:00",
+      "last_heartbeat": "2026-11-18T18:56:47.394764+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1396,7 +1396,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U1f's security review: /.vol fail-closed, alias in too_broad, read=: walker scope, tainted shell grants",
-    "version": 5,
+    "version": 7,
     "worktree": {
       "base_branch": "skein/U1g__integrate-base",
       "base_commit": "b518c56af7d235033f6aa165673472c6c50e8052",
@@ -1750,15 +1750,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "d3d6b269f280482c8076dab3f1a2cf56",
+      "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
+      "claim_token": "be6b2d48949a43feba32ea812be484c0",
+      "claimed_at": "2026-11-18T18:57:08.153011+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-18T18:57:08.153011+00:00",
+      "node_version": 22,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "U2f"
@@ -1860,9 +1860,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Containment check on each installed candidate CLI (measurement; records results, G4 is judged in U2w)",
-    "version": 22,
+    "version": 23,
     "worktree": {
       "base_branch": "c759e3e7092d0b3b28b6a18a14efd7f27477a0b3",
       "base_commit": "9bdfc6469b88a573c4706f8fecbe8f15d7b62c3d",
