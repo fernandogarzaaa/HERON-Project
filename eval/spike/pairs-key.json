@@ -1,0 +1,85 @@
+{
+  "seed": "c637f001da414ab6da9f9e5901f69d2b934b58820aab605e00bdc67b71155f30",
+  "pairs": [
+    {
+      "n": 1,
+      "task": "t04",
+      "A": "hybrid",
+      "B": "envelope",
+      "envelope_run": 2,
+      "hybrid_run": 1
+    },
+    {
+      "n": 2,
+      "task": "t02",
+      "A": "envelope",
+      "B": "hybrid",
+      "envelope_run": 2,
+      "hybrid_run": 5
+    },
+    {
+      "n": 3,
+      "task": "t08",
+      "A": "envelope",
+      "B": "hybrid",
+      "envelope_run": 5,
+      "hybrid_run": 4
+    },
+    {
+      "n": 4,
+      "task": "t03",
+      "A": "hybrid",
+      "B": "envelope",
+      "envelope_run": 3,
+      "hybrid_run": 5
+    },
+    {
+      "n": 5,
+      "task": "t10",
+      "A": "hybrid",
+      "B": "envelope",
+      "envelope_run": 2,
+      "hybrid_run": 5
+    },
+    {
+      "n": 6,
+      "task": "t06",
+      "A": "envelope",
+      "B": "hybrid",
+      "envelope_run": 1,
+      "hybrid_run": 1
+    },
+    {
+      "n": 7,
+      "task": "t01",
+      "A": "hybrid",
+      "B": "envelope",
+      "envelope_run": 3,
+      "hybrid_run": 3
+    },
+    {
+      "n": 8,
+      "task": "t05",
+      "A": "hybrid",
+      "B": "envelope",
+      "envelope_run": 1,
+      "hybrid_run": 1
+    },
+    {
+      "n": 9,
+      "task": "t09",
+      "A": "envelope",
+      "B": "hybrid",
+      "envelope_run": 2,
+      "hybrid_run": 1
+    },
+    {
+      "n": 10,
+      "task": "t07",
+      "A": "hybrid",
+      "B": "envelope",
+      "envelope_run": 3,
+      "hybrid_run": 3
+    }
+  ]
+}
