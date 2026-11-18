@@ -3148,13 +3148,14 @@ mod tests {
     }
 
     /// Settings that probe `spec_id` with a fake binary and, when given, an account folder. On macOS
-    /// with no sandbox, probes are refused: `None` (and a skip line).
+    /// with no sandbox, probes are refused: `None` (and a skip line, or a panic with
+    /// `HERON_REQUIRE_SEATBELT=1`).
     fn probe_cfg(dir: &std::path::Path, spec_id: &str, bin: &Path, config_dir: &str) -> Option<Config> {
         let mut cfg = test_cfg(dir, spec_id);
         cfg.llm.cli_command = bin.to_string_lossy().to_string();
         cfg.llm.cli_config_dir = config_dir.to_string();
         if crate::sandbox::required() && crate::sandbox::active(&cfg) == crate::sandbox::Kind::None {
-            eprintln!("no CLI sandbox here, so probes are refused; skipping");
+            crate::sandbox::skip_seatbelt_test("no CLI sandbox here, so probes are refused");
             return None;
         }
         Some(cfg)
@@ -3206,6 +3207,47 @@ mod tests {
         std::env::remove_var("HERON_PROBE_TEST_SECRET");
         assert_eq!(probed.version.as_deref(), Some("9.9.9"));
         assert_eq!(probed.logged_in, Some(false));
+
+        // The Seatbelt half: the probe runs inside the CLI's sandbox (`run_capture` hands
+        // `run_contained` the wrapped prefix). A fake CLI whose `--version` path reads a file planted
+        // in the home folder and writes outside its run folder reports both as failed, and its
+        // version still comes back.
+        if !cli_seatbelt(&cfg) {
+            return;
+        }
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let home = dirs::home_dir().unwrap();
+        let home = dunce::canonicalize(&home).unwrap_or(home);
+        let tmp = home.join(format!(".heron-probe-sandbox-test-{}", uuid::Uuid::new_v4().simple()));
+        let _cleanup = Cleanup(tmp.clone());
+        std::fs::create_dir_all(&tmp).unwrap();
+        let planted = tmp.join("diary.txt");
+        std::fs::write(&planted, "HOME-FOLDER-CONTENT").unwrap();
+        assert_eq!(std::fs::read_to_string(&planted).unwrap(), "HOME-FOLDER-CONTENT", "the planted file reads outside the sandbox");
+        let attack_dir = tempfile::tempdir().unwrap();
+        let attack_dir_path = dunce::canonicalize(attack_dir.path()).unwrap();
+        // Two places outside the run folder: the home folder, and a temporary folder that the shell
+        // profile could write but the CLI profile cannot.
+        let outside = [tmp.join("written-by-probe.txt"), attack_dir_path.join("written-by-probe.txt")];
+        let q = |p: &Path| format!("'{}'", p.display().to_string().replace('\'', "'\\''"));
+        let attack = format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  if content=$(cat {planted} 2>/dev/null); then read=\"$content\"; else read=denied; fi\n  w=denied\n  for f in {o1} {o2}; do if echo pwned > \"$f\" 2>/dev/null; then w=\"wrote:$f\"; fi; done\n  echo \"9.9.9 home-read=$read outside-write=$w\"\n  exit 0\nfi\necho \"Not logged in\"\n",
+            planted = q(&planted),
+            o1 = q(&outside[0]),
+            o2 = q(&outside[1]),
+        );
+        let attack_bin = fake_bin(&attack_dir_path, "claude", &attack);
+        let attack_cfg = probe_cfg(&attack_dir_path, "claude-cli", &attack_bin, "").unwrap();
+        let probed = probe_status(&attack_cfg, &spec).await;
+        assert_eq!(probed.version.as_deref(), Some("9.9.9 home-read=denied outside-write=denied"), "the probe ran outside the CLI's sandbox, or did not run: {}", probed.hint);
+        for f in &outside {
+            assert!(!f.exists(), "the probe wrote {}", f.display());
+        }
     }
 
     #[tokio::test]
@@ -3224,16 +3266,14 @@ mod tests {
         let _dir_guard = RemoveTempDirOnDrop { dir: run_dir.clone() };
         let (binary_dir, extra_read) = llm.binary_dirs(&bin);
         let sandbox = crate::sandbox::wrap(&llm.cfg, &run_dir, &crate::sandbox::Profile::Cli { spec: &llm.spec, binary_dir, extra_read });
-        let result = llm.run_contained(&bin, &["--version"], 1, &run_dir, sandbox.as_ref()).await;
+        let result = llm.run_contained(&bin, &["--version"], 3, &run_dir, sandbox.as_ref()).await;
         assert!(result.is_err());
-        // CI can time out a heavily scheduled child before the script's
-        // first instruction writes its PID. In that case there is no
-        // recorded process to check; the timeout itself was asserted above.
-        if let Ok(contents) = std::fs::read_to_string(run_dir.join("probe.pid")) {
-            let pid: u32 = contents.trim().parse().unwrap();
-            // A started child must be reaped, not left as a live orphan.
-            assert_ne!(unsafe { libc::kill(pid as libc::pid_t, 0) }, 0);
-        }
+        // The timeout leaves the script time to record its pid. No pid means the probe never ran
+        // (a sandbox that refused it, say), which must fail rather than pass unchecked.
+        let contents = std::fs::read_to_string(run_dir.join("probe.pid")).unwrap_or_else(|e| panic!("the probe wrote no pid, so it never ran: {e}; {result:?}"));
+        let pid: u32 = contents.trim().parse().unwrap();
+        // A started child must be reaped, not left as a live orphan.
+        assert_ne!(unsafe { libc::kill(pid as libc::pid_t, 0) }, 0);
     }
 
     #[test]
@@ -3502,12 +3542,13 @@ mod tests {
         ChatRequest { messages: vec![Message::user("hi")], ..Default::default() }
     }
 
-    /// The containment tests need the CLI sandbox: Seatbelt. Elsewhere the CLI runs unwrapped.
+    /// The containment tests need the CLI sandbox: Seatbelt. Elsewhere the CLI runs unwrapped. With
+    /// `HERON_REQUIRE_SEATBELT=1` (the gate) a skip fails instead.
     fn cli_seatbelt(cfg: &Config) -> bool {
         if crate::sandbox::active(cfg) == crate::sandbox::Kind::Seatbelt {
             return true;
         }
-        eprintln!("Seatbelt is not in effect here ({}); the CLI runs unwrapped, skipping", crate::sandbox::active(cfg).name());
+        crate::sandbox::skip_seatbelt_test(&format!("Seatbelt is not in effect here ({}); the CLI runs unwrapped", crate::sandbox::active(cfg).name()));
         false
     }
 

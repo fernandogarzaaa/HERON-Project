@@ -466,13 +466,24 @@ async fn providers(cfg: &Config) -> Result<()> {
             "                  {} — login: `{}`",
             spec.cost_note, spec.login_command
         );
-        if !st.installed || st.logged_in == Some(false) {
+        if shows_provider_hint(&st, probes_refused(cfg)) {
             println!("                  {}", st.hint);
         }
     }
     println!();
     println!("* = selected in the current config. Full list, login steps and safety rules: docs/cli-providers.md");
     Ok(())
+}
+
+/// Are probes refused here? The same check as `probe_status`: on macOS, no sandbox means no CLI.
+fn probes_refused(cfg: &Config) -> bool {
+    heron::sandbox::required() && heron::sandbox::active(cfg) == heron::sandbox::Kind::None
+}
+
+/// Does `heron providers` print the probe's hint under a provider? When it is missing, logged out, or
+/// refused because the sandbox is off (the hint then says so, as `heron doctor` does).
+fn shows_provider_hint(st: &heron::cli_llm::ProviderStatus, refused: bool) -> bool {
+    !st.installed || st.logged_in == Some(false) || refused
 }
 
 async fn doctor(cfg: &Config) -> Result<()> {
@@ -798,5 +809,27 @@ mod tests {
             "failed printing to stdout: Input/output error (os error 5)"
         ));
         assert!(!is_broken_pipe_print("something else entirely"));
+    }
+
+    #[test]
+    fn providers_shows_the_hint_when_probes_are_refused() {
+        let st = |installed: bool, logged_in: Option<bool>| heron::cli_llm::ProviderStatus {
+            id: "codex-cli".into(),
+            display_name: "Codex".into(),
+            installed,
+            version: None,
+            logged_in,
+            plan: None,
+            hint: "the sandbox is off, so Heron won't run Codex".into(),
+        };
+        // Installed with no login probed: the refusal is the only reason to print the hint.
+        assert!(shows_provider_hint(&st(true, None), true));
+        assert!(!shows_provider_hint(&st(true, None), false));
+        assert!(!shows_provider_hint(&st(true, Some(true)), false));
+        assert!(shows_provider_hint(&st(false, None), false) && shows_provider_hint(&st(true, Some(false)), false));
+        // Refused exactly when probe_status refuses: on macOS with the sandbox off.
+        let mut off = Config::default();
+        off.agent.sandbox = "off".into();
+        assert_eq!(probes_refused(&off), cfg!(target_os = "macos"));
     }
 }

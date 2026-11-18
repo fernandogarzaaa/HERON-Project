@@ -368,12 +368,13 @@ mod tests {
         }
     }
 
-    /// The Seatbelt tests run only where Seatbelt is in effect, and say so elsewhere.
+    /// The Seatbelt tests run only where Seatbelt is in effect, and say so elsewhere. With
+    /// `HERON_REQUIRE_SEATBELT=1` (the gate) a skip fails instead.
     fn seatbelt(cfg: &Config) -> bool {
         if crate::sandbox::active(cfg) == crate::sandbox::Kind::Seatbelt {
             return true;
         }
-        eprintln!("Seatbelt is not in effect here ({}); skipping", crate::sandbox::active(cfg).name());
+        crate::sandbox::skip_seatbelt_test(&format!("Seatbelt is not in effect here ({})", crate::sandbox::active(cfg).name()));
         false
     }
 
@@ -795,8 +796,10 @@ mod tests {
         }
         let _job = RemoveJob(label.clone());
         let ctx = test_ctx(&cfg, &ws, "t");
-        let open_out = sh(&ctx, "open -g -j ./Payload.app").await;
-        let submit_out = sh(&ctx, &format!("launchctl submit -l {label} -- /bin/sh -c {}", q(std::path::Path::new(&format!("echo launched > {}", q(&by_launchd)))))).await;
+        // Each command records that it started and its own exit status, so a command that never ran
+        // (or could not be found) cannot pass as refused.
+        let open_out = sh(&ctx, "echo open-started; /usr/bin/open -g -j ./Payload.app; echo \"open-rc=$?\"").await;
+        let submit_out = sh(&ctx, &format!("echo submit-started; /bin/launchctl submit -l {label} -- /bin/sh -c {}; echo \"submit-rc=$?\"", q(std::path::Path::new(&format!("echo launched > {}", q(&by_launchd)))))).await;
         // Give a launched program time to run.
         for _ in 0..50 {
             if by_open.exists() || by_launchd.exists() {
@@ -806,6 +809,130 @@ mod tests {
         }
         assert!(!by_open.exists(), "`open` started a program outside the sandbox: {open_out}");
         assert!(!by_launchd.exists(), "`launchctl submit` started a program outside the sandbox: {submit_out}");
+        // The positive control: both commands ran under the profile and were refused.
+        for (out, tag) in [(&open_out, "open"), (&submit_out, "submit")] {
+            assert!(out.contains(&format!("{tag}-started")), "`{tag}` never ran: {out}");
+            let rc = out.lines().find_map(|l| l.strip_prefix(&format!("{tag}-rc="))).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or_else(|| panic!("`{tag}` reported no exit status: {out}"));
+            assert!(![0, 126, 127].contains(&rc), "`{tag}` was not refused, or could not run (exit {rc}): {out}");
+        }
+    }
+
+    /// Sets `CLAUDE_CONFIG_DIR` and `CODEX_HOME` for one case and puts back what was there when
+    /// dropped, panic or not. Held under `sandbox::CONFIG_DIR_ENV`.
+    struct ConfigDirEnv(Vec<(&'static str, Option<std::ffi::OsString>)>);
+    impl ConfigDirEnv {
+        const VARS: [&'static str; 2] = ["CLAUDE_CONFIG_DIR", "CODEX_HOME"];
+        fn set(values: &[(&'static str, &str)]) -> ConfigDirEnv {
+            let saved = ConfigDirEnv(Self::VARS.iter().map(|v| (*v, std::env::var_os(v))).collect());
+            for v in Self::VARS {
+                std::env::remove_var(v);
+            }
+            for (k, v) in values {
+                std::env::set_var(k, v);
+            }
+            saved
+        }
+    }
+    impl Drop for ConfigDirEnv {
+        fn drop(&mut self) {
+            for (k, v) in &self.0 {
+                match v {
+                    Some(v) => std::env::set_var(k, v),
+                    None => std::env::remove_var(k),
+                }
+            }
+        }
+    }
+
+    /// A config-folder override of `~` or `/` (`llm.cli_config_dir`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`)
+    /// opens nothing: under that CLI's real profile, a file planted in the home folder outside the
+    /// CLI's own folders still cannot be read.
+    #[test]
+    fn broad_config_dir_override_opens_nothing_in_a_cli_sandbox() {
+        let _lock = crate::sandbox::CONFIG_DIR_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let home = dunce::canonicalize(dirs::home_dir().unwrap()).unwrap();
+        let run = tempfile::tempdir().unwrap();
+        let run_dir = dunce::canonicalize(run.path()).unwrap();
+        // (how the override is set, the CLI it applies to, the value)
+        let mut cases: Vec<(&str, &str, String)> = vec![];
+        for value in ["~", "/"] {
+            cases.push(("llm.cli_config_dir", "claude-cli", value.into()));
+            cases.push(("llm.cli_config_dir", "codex-cli", value.into()));
+            cases.push(("CLAUDE_CONFIG_DIR", "claude-cli", value.into()));
+            cases.push(("CODEX_HOME", "codex-cli", value.into()));
+        }
+        let configure = |how: &str, id: &str, value: &str| -> (Config, ConfigDirEnv) {
+            let mut cfg = Config::default();
+            cfg.llm.provider = id.into();
+            let env = if how == "llm.cli_config_dir" {
+                cfg.llm.cli_config_dir = value.into();
+                ConfigDirEnv::set(&[])
+            } else {
+                ConfigDirEnv::set(&[(if how == "CODEX_HOME" { "CODEX_HOME" } else { "CLAUDE_CONFIG_DIR" }, value)])
+            };
+            (cfg, env)
+        };
+        let own_line = |text: &str| text.lines().rfind(|l| l.starts_with("(allow file-read* file-write*")).unwrap_or("").to_string();
+
+        // The profile text. A narrow override in the same place is opened, so each case really
+        // reaches the CLI's own-folder rule; `~` and `/` are not.
+        let narrow = home.join(format!(".heron-override-test-{}", uuid::Uuid::new_v4().simple()));
+        for (how, id, value) in &cases {
+            let spec = crate::cli_llm::spec_for(id).unwrap();
+            let profile = crate::sandbox::Profile::Cli { spec: &spec, binary_dir: "/usr/bin".into(), extra_read: vec![] };
+            let (cfg, env) = configure(how, id, &narrow.display().to_string());
+            let opened = own_line(&crate::sandbox::seatbelt_profile(&cfg, &home, &run_dir, &profile));
+            drop(env);
+            assert!(opened.contains(&format!("(subpath \"{}\")", narrow.display())), "{how} on {id}: a narrow override is not opened: {opened}");
+            let (cfg, env) = configure(how, id, value);
+            let text = crate::sandbox::seatbelt_profile(&cfg, &home, &run_dir, &profile);
+            drop(env);
+            for broad in [home.clone(), std::path::PathBuf::from("/")] {
+                let opened = text.lines().filter(|l| l.starts_with("(allow")).find(|l| l.contains(&format!("(subpath \"{}\")", broad.display())));
+                assert!(opened.is_none(), "{how}={value} on {id} opens {}: {opened:?}", broad.display());
+            }
+        }
+
+        if !seatbelt(&Config::default()) {
+            return;
+        }
+        let tmp = HomeTemp::new();
+        let planted = tmp.put("elsewhere/diary.txt", "HOME-FOLDER-CONTENT");
+        assert_eq!(std::fs::read_to_string(&planted).unwrap(), "HOME-FOLDER-CONTENT", "the planted file reads outside the sandbox");
+        std::fs::write(run_dir.join("own.txt"), "RUN-FOLDER-CONTENT").unwrap();
+        let mut ran = 0;
+        for (how, id, value) in &cases {
+            let spec = crate::cli_llm::spec_for(id).unwrap();
+            let profile = crate::sandbox::Profile::Cli { spec: &spec, binary_dir: "/usr/bin".into(), extra_read: vec![] };
+            let (cfg, env) = configure(how, id, value);
+            let prefix = crate::sandbox::wrap(&cfg, &run_dir, &profile).expect("Seatbelt wraps a CLI");
+            drop(env);
+            let cat = |file: &std::path::Path| {
+                let out = std::process::Command::new(&prefix.0).args(&prefix.1).arg("/bin/cat").arg(file).output().unwrap();
+                (out.status.success(), String::from_utf8_lossy(&out.stdout).to_string(), String::from_utf8_lossy(&out.stderr).to_string())
+            };
+            // The positive control: under the same profile the command runs and reads its run folder.
+            // Or the sandbox refuses the whole run: the override's value is Refused (ReadRoots), so
+            // `/` denies everything, the run folder and /bin/cat included. That fails closed.
+            let (ok, out, err) = cat(&run_dir.join("own.txt"));
+            let runs = ok && out.contains("RUN-FOLDER-CONTENT");
+            let outcome = if runs { "the command ran" } else { "the sandbox refused the whole run" };
+            assert!(runs || (!ok && out.is_empty()), "{how}={value} on {id}: the command neither ran nor was refused: exit ok={ok}, {out}{err}");
+            // Which outcome is read off the profile actually used: the whole run is refused exactly
+            // when it denies `/` itself, and every other case must run.
+            let sbpl = prefix.1.iter().find(|a| a.contains("(version 1)")).unwrap_or_else(|| panic!("{how}={value} on {id}: no profile in {prefix:?}"));
+            let refuses_root = sbpl.lines().any(|l| l.starts_with("(deny file-read* file-write*") && l.contains("(subpath \"/\")"));
+            assert_eq!(runs, !refuses_root, "{how}={value} on {id}: {outcome}, but the profile {} `/`: {out}{err}", if refuses_root { "denies" } else { "does not deny" });
+            let (ok, out, err) = cat(&planted);
+            assert!(!out.contains("HOME-FOLDER-CONTENT"), "{how}={value} on {id} ({outcome}) opened the home folder: {out}");
+            assert!(!ok && out.is_empty(), "{how}={value} on {id} ({outcome}): the read was not refused: {out}{err}");
+            if runs {
+                assert!(err.contains("Operation not permitted"), "{how}={value} on {id} ({outcome}): the read was not refused by the sandbox: {out}{err}");
+                ran += 1;
+            }
+        }
+        // Not every case may fail closed by refusing everything, or the test would check nothing.
+        assert!(ran > 0,"no case ran a command, so no case checked the home folder");
     }
 
     #[tokio::test]
