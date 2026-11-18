@@ -2271,9 +2271,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Regression tests that run each reproduced U2 escape under Seatbelt",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U2g__integrate-base",
       "branch": null,
       "path": null
     }
