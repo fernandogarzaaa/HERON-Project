@@ -1338,15 +1338,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "4d8df4ae99504facadf1aee36c3d7c3d",
+      "base_branch": "feat/heron-v1",
+      "claim_token": "b6c87e6013ad4b71ac6ac704ed6a2f18",
+      "claimed_at": "2026-11-19T18:36:27.424511+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-19T18:36:27.424511+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [],
@@ -1366,11 +1366,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Sync feat head into U3r base",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/heron-v1",
       "branch": null,
       "path": null
     }
@@ -7486,7 +7486,7 @@
       "claim_token": "40f68c6d26bd4c09af3a9099c8f6f710",
       "claimed_at": "2026-11-19T18:27:23.926306+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T18:35:54.956253+00:00",
+      "last_heartbeat": "2026-11-19T18:36:25.023340+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -7514,7 +7514,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3o's review (35m)",
-    "version": 21,
+    "version": 22,
     "worktree": {
       "base_branch": "skein/U3q__integrate-base",
       "base_commit": "242294e0badea989fcc124ba9ff9b6f76b47a27d",
