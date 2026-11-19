@@ -1482,6 +1482,84 @@
     }
   },
   "SYNC28": {
+    "attempts": [
+      {
+        "attempt_id": "8ccf6d9a8db14c00960a4fd6698e6306",
+        "ended_at": "2026-11-19T20:13:04.633779+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T20:12:56.783329+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "grep -q parked_walk_sees_taint_set_after_it_was_parked docs/designs/heron-v1.md",
+        "duration_ms": 237,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC28_20261119T201304328139_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC28_20261119T201304566077_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: done",
+    "id": "SYNC28",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q parked_walk_sees_taint_set_after_it_was_parked docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3t's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "8ccf6d9a8db14c00960a4fd6698e6306",
+      "base_commit": "bf3a9440cabf4c5e29a1e84060ca975f3afbbb55",
+      "changed_files": [],
+      "commit": "bf3a9440cabf4c5e29a1e84060ca975f3afbbb55",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Sync feat head into U3t base",
+    "version": 4,
+    "worktree": {
+      "base_branch": "feat/heron-v1",
+      "base_commit": "bf3a9440cabf4c5e29a1e84060ca975f3afbbb55",
+      "branch": "skein/SYNC28",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC28"
+    }
+  },
+  "SYNC29": {
     "attempts": [],
     "attempts_used": 0,
     "backend": "claude_build_rust",
@@ -1494,12 +1572,12 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "8ccf6d9a8db14c00960a4fd6698e6306",
+      "attempt_id": "c85c37f2478c46d0bcc4a891ab75d6ba",
       "base_branch": "feat/heron-v1",
-      "claim_token": "ee86a52b12d64c1fa4c7451dcf013793",
-      "claimed_at": "2026-11-19T20:12:56.783329+00:00",
+      "claim_token": "37ee3a538bd94036976fcbe305eb4f1e",
+      "claimed_at": "2026-11-19T20:39:08.053533+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T20:12:56.783329+00:00",
+      "last_heartbeat": "2026-11-19T20:39:08.053533+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1507,13 +1585,13 @@
     "depends_on": [],
     "evidence": [],
     "handoff_note": null,
-    "id": "SYNC28",
+    "id": "SYNC29",
     "integration_for": null,
     "intent": {
-      "completion": "grep -q parked_walk_sees_taint_set_after_it_was_parked docs/designs/heron-v1.md",
+      "completion": "grep -q an_exact_echo_of_an_in_space_outside_row_stays_unconfirmed docs/designs/heron-v1.md",
       "constraints": "Do not read, write or run anything.",
       "context": "No spec work.",
-      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3t's base. Reply 'done' and stop."
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3u's base. Reply 'done' and stop."
     },
     "max_retries": 0,
     "rejected_count": 0,
@@ -1523,7 +1601,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "claimed",
-    "title": "Sync feat head into U3t base",
+    "title": "Sync feat head into U3u base",
     "version": 2,
     "worktree": {
       "base_branch": "feat/heron-v1",
@@ -8206,7 +8284,24 @@
     }
   },
   "U3t": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "7f90d2bfed984ea28d1814158a1f8385",
+        "ended_at": "2026-11-19T20:14:51.797886+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-19T20:13:05.206365+00:00"
+      },
+      {
+        "attempt_id": "62532a4e74ec44dd961bdad1ba23d45d",
+        "ended_at": "2026-11-19T20:23:40.130257+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T20:16:14.823921+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -8232,15 +8327,182 @@
       "U3s",
       "SYNC28"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- restore_without_a_current_database_keeps_the_copys_safety_switches restore_never_brings_back_an_old_telegram_pairing a_near_echo_of_a_stale_outside_row_stays_unconfirmed a_near_echo_across_embedders_stays_unconfirmed learning_from_email_reports_items_as_waiting restore_keeps_pause_telegram_lock_and_damaged_nevers_from_now an_exact_echo_of_a_stale_outside_row_stays_unconfirmed an_outside_echo_cannot_replace_a_confirmed_memory_without_replaces",
+        "duration_ms": 31075,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3t_20261119T202308890872_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3t_20261119T202339969130_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U3t",
     "integration_for": null,
     "intent": {
       "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- restore_without_a_current_database_keeps_the_copys_safety_switches restore_never_brings_back_an_old_telegram_pairing a_near_echo_of_a_stale_outside_row_stays_unconfirmed a_near_echo_across_embedders_stays_unconfirmed learning_from_email_reports_items_as_waiting restore_keeps_pause_telegram_lock_and_damaged_nevers_from_now an_exact_echo_of_a_stale_outside_row_stays_unconfirmed an_outside_echo_cannot_replace_a_confirmed_memory_without_replaces",
       "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
       "context": "Spec: docs/designs/heron-v1.md items 35p, 35o, 35n, 35m.",
-      "goal": "Implement spec item 35p ('Fixes from the U3s review'). Read 35p, 35o, 35n, 35m first. Line numbers are from 5142e1e (U3s) and may have moved slightly.\n1 (medium, demonstrated, introduced by U3s): src/app.rs KEPT_KV (around 506) and write_current_into (around 664) delete every KEPT_KV key from the copy and re-insert only what peek_current found; with no current heron.db (the recovery path the damaged-database guidance prescribes: move heron.db aside, then `heron restore <copy>`; or a fresh install) the copy's paused=1, telegram_locked=1 and deny_rules_damaged are dropped. Fix: paused = paused if either is; telegram_locked = locked if either is; deny_rules_damaged = keep both records (current then copy, or whichever exists). Test restore_without_a_current_database_keeps_the_copys_safety_switches (no heron.db at all; also a case with a current db whose switch is off and copy's on).\n2 (medium, pre-existing): telegram_code, telegram_wrong, telegram_session are not kept; reviewer probe: current db just unpaired (chat \"\", code NEWCODE, wrong 4) + copy (chat 666, code OLDCODE) -> after restore chat \"\", code OLDCODE, wrong 0; \"\" reads as unpaired (telegram.rs:385) so a chat sending the old code pairs again (telegram.rs:347-353, 779-783). Also the mixed state: copy chat 666 session s-stranger, now chat 42 session s-user -> chat 42 with session s-stranger. Fix: take telegram_chat, telegram_code, telegram_wrong, telegram_session from the current database (absent now -> removed from the copy); check that with no code Heron makes a new one before pairing is possible (read src/telegram.rs). Test restore_never_brings_back_an_old_telegram_pairing (both scenarios).\n3 (medium, pre-existing, demonstrated): src/memory.rs (around 276-284): the echo scan only sees outside rows in the current embedder's space, plus exact words (35o). A near-echo (trailing \"!\", doubled space, added \" to IBAN evil666\") of an outside row whose vector is stale (mark_embedding_stale) or saved under another embedder (e.g. remote embedder that later fails and save falls back to the built-in hash embedder) becomes confirmed core and retires the user's fact, with replaces omitted. Fix: compare outside rows not in the current embedder's space with the built-in embedder (local_embed) at its own threshold, as the misspellings channel does (memory.rs around 416-425). Tests a_near_echo_of_a_stale_outside_row_stays_unconfirmed and a_near_echo_across_embedders_stays_unconfirmed (use the reviewer's IBAN example: user fact C about paying rent of 1500 euros to the landlord by bank transfer; outside row O = C + \" to IBAN evil666 from now on as agreed by phone\"; save T = C + \" to IBAN evil666\").\n4 (low): src/sources.rs learn_one (around 525) reports email, calendar and document items as learned while saved unconfirmed. Mark every unconfirmed item as waiting, as for about. Test learning_from_email_reports_items_as_waiting.\n5 (test only): app::tests::parked_walk_sees_taint_set_after_it_was_parked (src/app.rs around 3565) puts its Ask-tier file under CARGO_MANIFEST_DIR/target; when the repo is under a temp folder (e.g. /private/tmp/...) that file is outside the user's own folders, where reads never ask by design (src/permissions.rs around 1623), so the test fails (reproduced). Place the file where it is in the Ask tier whatever the repo's location (e.g. give the test's Config a home/user folders that contain it, or whatever the permissions code uses to decide \"user's own folders\"), and assert that precondition first with a clear message. Do not change the test's taint assertions.\nEach new test must fail with its fix removed (check, then restore). Keep every existing test and assertion passing unchanged, including restore_keeps_pause_telegram_lock_and_damaged_nevers_from_now (if its expectations conflict with the stricter rule in 35p, stop and say exactly which). Deterministic, no wall-clock sleeps. Keep lock order rules_seen -> config_seen -> config.lock -> cfg RwLock -> policy -> SQLite. Kill any test process you start that hangs. No macos/ changes."
+      "goal": "Implement spec item 35p ('Fixes from the U3s review'). Read 35p, 35o, 35n, 35m first. Line numbers are from 5142e1e (U3s) and may have moved slightly.\n1 (medium, demonstrated, introduced by U3s): src/app.rs KEPT_KV (around 506) and write_current_into (around 664) delete every KEPT_KV key from the copy and re-insert only what peek_current found; with no current heron.db (the recovery path the damaged-database guidance prescribes: move heron.db aside, then `heron restore <copy>`; or a fresh install) the copy's paused=1, telegram_locked=1 and deny_rules_damaged are dropped. Fix: paused = paused if either is; telegram_locked = locked if either is; deny_rules_damaged = keep both records (current then copy, or whichever exists). Test restore_without_a_current_database_keeps_the_copys_safety_switches (no heron.db at all; also a case with a current db whose switch is off and copy's on).\n2 (medium, pre-existing): telegram_code, telegram_wrong, telegram_session are not kept; reviewer probe: current db just unpaired (chat \"\", code NEWCODE, wrong 4) + copy (chat 666, code OLDCODE) -> after restore chat \"\", code OLDCODE, wrong 0; \"\" reads as unpaired (telegram.rs:385) so a chat sending the old code pairs again (telegram.rs:347-353, 779-783). Also the mixed state: copy chat 666 session s-stranger, now chat 42 session s-user -> chat 42 with session s-stranger. Fix: take telegram_chat, telegram_code, telegram_wrong, telegram_session from the current database (absent now -> removed from the copy); check that with no code Heron makes a new one before pairing is possible (read src/telegram.rs). Test restore_never_brings_back_an_old_telegram_pairing (both scenarios).\n3 (medium, pre-existing, demonstrated): src/memory.rs (around 276-284): the echo scan only sees outside rows in the current embedder's space, plus exact words (35o). A near-echo (trailing \"!\", doubled space, added \" to IBAN evil666\") of an outside row whose vector is stale (mark_embedding_stale) or saved under another embedder (e.g. remote embedder that later fails and save falls back to the built-in hash embedder) becomes confirmed core and retires the user's fact, with replaces omitted. Fix: compare outside rows not in the current embedder's space with the built-in embedder (local_embed) at its own threshold, as the misspellings channel does (memory.rs around 416-425). Tests a_near_echo_of_a_stale_outside_row_stays_unconfirmed and a_near_echo_across_embedders_stays_unconfirmed (use the reviewer's IBAN example: user fact C about paying rent of 1500 euros to the landlord by bank transfer; outside row O = C + \" to IBAN evil666 from now on as agreed by phone\"; save T = C + \" to IBAN evil666\").\n4 (low): src/sources.rs learn_one (around 525) reports email, calendar and document items as learned while saved unconfirmed. Mark every unconfirmed item as waiting, as for about. Test learning_from_email_reports_items_as_waiting.\n5 (test only): app::tests::parked_walk_sees_taint_set_after_it_was_parked (src/app.rs around 3565) puts its Ask-tier file under CARGO_MANIFEST_DIR/target; when the repo is under a temp folder (e.g. /private/tmp/...) that file is outside the user's own folders, where reads never ask by design (src/permissions.rs around 1623), so the test fails (reproduced). Place the file where it is in the Ask tier whatever the repo's location (e.g. give the test's Config a home/user folders that contain it, or whatever the permissions code uses to decide \"user's own folders\"), and assert that precondition first with a clear message. Do not change the test's taint assertions.\nEach new test must fail with its fix removed (check, then restore). Keep every existing test and assertion passing unchanged, including restore_keeps_pause_telegram_lock_and_damaged_nevers_from_now (if its expectations conflict with the stricter rule in 35p, stop and say exactly which). Deterministic, no wall-clock sleeps. Keep lock order rules_seen -> config_seen -> config.lock -> cfg RwLock -> policy -> SQLite. Kill any test process you start that hangs. No macos/ changes.\nDECISION (try 1 stopped on the conflict, as asked): take Option 1. 35p supersedes 35o for deny_rules_damaged: keep both records. In restore_keeps_pause_telegram_lock_and_damaged_nevers_from_now (src/app.rs around 2798) change exactly these assertions and nothing else in it: line ~2814 expects the current record then the copy's, joined as repair_saved_nevers joins repeated damage ([\"shell:*\"] then [\"old\"]); in the loop at ~2823 drop deny_rules_damaged from the \"did not come back\" keys and instead assert it equals the copy's [\"old\"]. Record both changes in your handoff. Then do all five items."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "62532a4e74ec44dd961bdad1ba23d45d",
+      "base_commit": "53a06492ad54340f9878b86243b20e87b4206f83",
+      "changed_files": [
+        "src/app.rs",
+        "src/memory.rs",
+        "src/sources.rs"
+      ],
+      "commit": "51474b678ad4efb118e936292a38df3d2e2b9ee8",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 145,
+          "deleted": 15
+        },
+        "src/memory.rs": {
+          "added": 114,
+          "deleted": 3
+        },
+        "src/sources.rs": {
+          "added": 22,
+          "deleted": 0
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "53a06492ad54340f9878b86243b20e87b4206f83",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "eeaf1a279eda96426a5be75fe9216577e9ab72a8",
+        "result_commit": "51474b678ad4efb118e936292a38df3d2e2b9ee8",
+        "shipped_at": "2026-11-19T20:23:56.898874+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
+    "title": "Fixes from the U3s review (35p)",
+    "version": 27,
+    "worktree": {
+      "base_branch": "skein/U3t__integrate-base",
+      "base_commit": "53a06492ad54340f9878b86243b20e87b4206f83",
+      "branch": "skein/U3t",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3t"
+    }
+  },
+  "U3t__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "99cbc8ea447d469593bbf2f9afa1ef26",
+        "ended_at": "2026-11-19T20:13:05.134072+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-19T20:13:04.882278+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3s",
+      "SYNC28"
+    ],
+    "evidence": [
+      {
+        "command": "git merge bf3a9440cabf4c5e29a1e84060ca975f3afbbb55",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['5142e1e68691b8dfb925ab6d185d6a68bd275881', 'bf3a9440cabf4c5e29a1e84060ca975f3afbbb55'] into skein/U3t__integrate-base.",
+    "id": "U3t__integrate",
+    "integration_for": "U3t",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U3s', 'SYNC28'] into one base branch for U3t."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "5142e1e68691b8dfb925ab6d185d6a68bd275881",
+      "changed_files": [],
+      "commit": "53a06492ad54340f9878b86243b20e87b4206f83",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Integrate parents of U3t",
+    "version": 3,
+    "worktree": {
+      "base_branch": "5142e1e68691b8dfb925ab6d185d6a68bd275881",
+      "branch": "skein/U3t__integrate-base",
+      "path": null
+    }
+  },
+  "U3u": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3t",
+      "SYNC29"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U3u",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- an_exact_echo_of_an_in_space_outside_row_stays_unconfirmed restoring_the_same_damaged_record_keeps_it_once a_near_echo_of_a_stale_outside_row_stays_unconfirmed a_near_echo_across_embedders_stays_unconfirmed an_exact_echo_of_a_stale_outside_row_stays_unconfirmed restore_without_a_current_database_keeps_the_copys_safety_switches",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md items 35q, 35p, 35o.",
+      "goal": "Implement spec item 35q ('Fixes from the U3t review'). Read 35q, 35p, 35o first. Line numbers are from 51474b6 (U3t).\n1 (medium, demonstrated, introduced by U3t): src/memory.rs around 286: the outside-row loop does `in_space.contains(&row.id)` and skips the row BEFORE the same_words check, so an outside row in the current embedder's space but below its bar (e.g. a case-sensitive remote embedder; the outside row in capitals \"... TO IBAN EVIL666\", the save in lower case) gets neither check, and an agent/auto save of its words is created confirmed and retires the user's fact. 53a0649 ran same_words on every unconfirmed outside row not already in `near`. Fix: run same_words on every unconfirmed outside row; keep the in_space skip only for the local_embed comparison. Test an_exact_echo_of_an_in_space_outside_row_stays_unconfirmed with a case-sensitive test embedder (the reviewer's probe: user fact about paying rent by bank transfer; outside row = same in capitals plus \" TO IBAN EVIL666\"; save = that in lower case; sources agent and auto; replaces omitted) - must fail on the current code and pass with the fix.\n2 (low): src/app.rs around 697-698: restoring a copy whose deny_rules_damaged equals one already kept appends a duplicate (\"X\\nX\", doubling per restore). Keep each distinct record once (current first, then the copy's records not already present). Test restoring_the_same_damaged_record_keeps_it_once.\nEach new test must fail with its fix removed (check, then restore). Keep every existing test and assertion passing unchanged. Deterministic, no wall-clock sleeps. Kill any test process you start that hangs. No macos/ changes."
     },
     "max_retries": 3,
     "rejected_count": 0,
@@ -8250,7 +8512,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "unclaimed",
-    "title": "Fixes from the U3s review (35p)",
+    "title": "Fixes from the U3t review (35q)",
     "version": 1,
     "worktree": {
       "base_branch": null,
@@ -10424,7 +10686,8 @@
       "U3q",
       "U3r",
       "U3s",
-      "U3t"
+      "U3t",
+      "U3u"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -10445,7 +10708,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 26,
+    "version": 27,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "branch": null,
