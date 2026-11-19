@@ -978,11 +978,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Sync feat head into U3m base",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/heron-v1",
-      "branch": null,
-      "path": null
+      "base_commit": "84e4adedad11745642d04c7a1e536d60df4c3f22",
+      "branch": "skein/SYNC21",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC21"
     }
   },
   "SYNC4": {
