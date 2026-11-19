@@ -4491,11 +4491,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from U3f's review: config.toml revoke across cores, job read_file, dropped gateway run_end, explicit choices saved, atomic revoke",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U3g__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "19384e891d51f18541cde83bd23ada0397b7f645",
+      "branch": "skein/U3g",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3g"
     }
   },
   "U3g__integrate": {
