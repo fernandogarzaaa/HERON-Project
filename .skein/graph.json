@@ -6484,11 +6484,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Release and CI workflow changes",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "54bcccc119df0616e988ea48d255b8a633b66843",
-      "branch": null,
-      "path": null
+      "base_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
+      "branch": "skein/U7b",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U7b"
     }
   },
   "Ut": {
