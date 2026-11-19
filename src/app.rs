@@ -2873,6 +2873,7 @@ mod tests {
             assert_eq!(store.kv_get(k), None, "{k} came back from the copy");
         }
         assert_eq!(store.kv_get("deny_rules_damaged").as_deref(), Some("[\"old\"]"));
+        assert_eq!(store.kv_get("not_a_switch").as_deref(), Some("from the copy"));
     }
 
     /// Repeated damage is kept record by record, but the same record is kept once: restoring a copy
