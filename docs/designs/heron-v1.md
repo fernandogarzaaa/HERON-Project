@@ -1744,7 +1744,8 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         *   the risk list on the risk notice;
         *   approval details ("Show details");
         *   settings and permission lists;
-        *   tool output.
+        *   tool output;
+        *   the Inbox detail pane (parked approvals, suggestions, delivered items). It sits beside the Inbox list, not inside it, so it is a separate page area, not a nested scroll view.
     *   **Views that fit get no scroll view:** short dialogs, buttons, headers and footers. Footers and primary buttons stay visible while the content above them scrolls.
     *   **The risk-notice box is sized to its content.** It is as tall as the risk text, up to 230 pt, and scrolls only when the text is taller. No empty space is left below short text. This replaces the fixed 230 pt height in `heron-mac-visual.md`.
 *   **Tests:** `OverflowSnapshotTests` in `HeronUITests`, at the window's minimum size (the `minWidth` and `minHeight` the app sets), light mode, with long demo content from the preview stubs: a long transcript, a long risk list, long tool output and long approval details. Each snapshot shows the content clipped only at a scroll edge, with the footer and buttons fully visible. One more case, a short risk list, shows the box at its content height. If `ImageRenderer` can't render scroll views, the helper renders an `NSHostingView` into a bitmap instead. These add to item 41's snapshot scope; the references follow item 41's rules and are part of the owner's Q7 review.
