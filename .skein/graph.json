@@ -5278,6 +5278,14 @@
         "holder": "agent-1",
         "outcome": "failed",
         "started_at": "2026-11-19T03:52:28.180755+00:00"
+      },
+      {
+        "attempt_id": "15def2f0389744429e731b64fd4e44c5",
+        "ended_at": "2026-11-19T04:37:47.842010+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T04:36:21.553947+00:00"
       }
     ],
     "attempts_used": 4,
@@ -5291,15 +5299,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "15def2f0389744429e731b64fd4e44c5",
-      "base_branch": "skein/U3i__integrate-base",
-      "claim_token": "4ee35b43ce1b45efa28f5e3b41515926",
-      "claimed_at": "2026-11-19T04:36:21.553947+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T04:36:21.553947+00:00",
-      "node_version": 120,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3h",
@@ -5308,17 +5316,17 @@
     "evidence": [
       {
         "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- tool_setting_on_a_stale_core_is_saved failed_tool_setting_save_changes_nothing first_run_core_takes_in_rules_written_during_startup never_survives_a_missing_config_and_the_next_save mcp_serve_reloads_rules_before_each_call settings_save_does_not_bring_back_a_revoked_rule",
-        "duration_ms": 12519,
-        "exit_code": 101,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3i_20261119T042135329155_0.log"
+        "duration_ms": 26240,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3i_20261119T043721499328_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3i_20261119T042147853185_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3i_20261119T043747743587_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: Next: run the completion check outside the sandbox, as the supervisor normally does.",
     "id": "U3i",
     "integration_for": null,
     "intent": {
@@ -5330,13 +5338,51 @@
     "max_retries": 6,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "15def2f0389744429e731b64fd4e44c5",
+      "base_commit": "e037c700161e793ef6cb91e3be92b8148dd9a9c8",
+      "changed_files": [
+        "src/app.rs",
+        "src/config.rs",
+        "src/main.rs",
+        "src/mcp.rs",
+        "src/permissions.rs",
+        "src/server.rs"
+      ],
+      "commit": "5d81a0f5dc7e8dff5747337ad5e7c28afed38c5e",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 62,
+          "deleted": 7
+        },
+        "src/config.rs": {
+          "added": 31,
+          "deleted": 3
+        },
+        "src/main.rs": {
+          "added": 2,
+          "deleted": 1
+        },
+        "src/mcp.rs": {
+          "added": 75,
+          "deleted": 1
+        },
+        "src/permissions.rs": {
+          "added": 15,
+          "deleted": 4
+        },
+        "src/server.rs": {
+          "added": 192,
+          "deleted": 13
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Fixes from U3h's review (35e)",
-    "version": 122,
+    "version": 125,
     "worktree": {
       "base_branch": "skein/U3i__integrate-base",
       "base_commit": "e037c700161e793ef6cb91e3be92b8148dd9a9c8",
