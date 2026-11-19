@@ -6159,15 +6159,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "9e3d6bd20468418bad635e1a7c7a0582",
+      "base_branch": "skein/U3l__integrate__integrate-base",
+      "claim_token": "6f9f168dd0454f8587a298def3205a48",
+      "claimed_at": "2026-11-19T16:43:15.610936+00:00",
+      "holder": "skein-auto-merge",
+      "last_heartbeat": "2026-11-19T16:43:15.610936+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "skein-auto-merge"
     },
     "depends_on": [
       "U3k",
@@ -6190,11 +6190,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Integrate parents of U3l",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3l__integrate__integrate-base",
       "branch": null,
       "path": null
     }
