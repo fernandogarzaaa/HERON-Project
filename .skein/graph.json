@@ -1560,7 +1560,16 @@
     }
   },
   "SYNC29": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "c85c37f2478c46d0bcc4a891ab75d6ba",
+        "ended_at": "2026-11-19T20:39:16.901240+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T20:39:08.053533+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1572,19 +1581,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "c85c37f2478c46d0bcc4a891ab75d6ba",
-      "base_branch": "feat/heron-v1",
-      "claim_token": "37ee3a538bd94036976fcbe305eb4f1e",
-      "claimed_at": "2026-11-19T20:39:08.053533+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T20:39:08.053533+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -q an_exact_echo_of_an_in_space_outside_row_stays_unconfirmed docs/designs/heron-v1.md",
+        "duration_ms": 235,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC29_20261119T203916584458_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC29_20261119T203916820748_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: done",
     "id": "SYNC29",
     "integration_for": null,
     "intent": {
@@ -1596,13 +1617,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "c85c37f2478c46d0bcc4a891ab75d6ba",
+      "base_commit": "57980779850fbd4b49f8710796b950d84b311e1d",
+      "changed_files": [],
+      "commit": "57980779850fbd4b49f8710796b950d84b311e1d",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Sync feat head into U3u base",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "57980779850fbd4b49f8710796b950d84b311e1d",
