@@ -160,9 +160,11 @@ public struct HeronTheme: Equatable, Sendable {
 
 private struct HeronThemeKey: EnvironmentKey { static let defaultValue = HeronTheme.default }
 private struct TextScaleKey: EnvironmentKey { static let defaultValue: CGFloat = 1 }
-/// Snapshot renders draw scroll views flat and avatars still, because `ImageRenderer` can't render a
-/// `ScrollView` and has no clock.
+/// Snapshot renders draw avatars still, because there is no clock.
 private struct SnapshotModeKey: EnvironmentKey { static let defaultValue = false }
+/// `ImageRenderer` can't render a `ScrollView`, so its snapshots draw scroll views flat. The overflow
+/// snapshots render through an `NSHostingView` instead, which draws real scroll views, and leave this off.
+private struct FlatScrollKey: EnvironmentKey { static let defaultValue = false }
 
 public extension EnvironmentValues {
     var heronTheme: HeronTheme {
@@ -176,6 +178,10 @@ public extension EnvironmentValues {
     var heronSnapshotMode: Bool {
         get { self[SnapshotModeKey.self] }
         set { self[SnapshotModeKey.self] = newValue }
+    }
+    var heronFlatScroll: Bool {
+        get { self[FlatScrollKey.self] }
+        set { self[FlatScrollKey.self] = newValue }
     }
 }
 

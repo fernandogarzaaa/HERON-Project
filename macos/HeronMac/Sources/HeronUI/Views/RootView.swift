@@ -2,6 +2,19 @@ import SwiftUI
 import AppKit
 import HeronCore
 
+/// The smallest sizes the app's windows allow: the `minWidth` and `minHeight` it sets. The overflow snapshots
+/// (heron-v1.md item 41b) render at these, so the layouts are checked where space is tightest.
+enum WindowMinimum {
+    /// The main window.
+    static let main = CGSize(width: 900, height: 600)
+    /// The sidebar's least width; the page beside it gets the rest.
+    static let sidebarWidth: CGFloat = 220
+    /// The first-run window.
+    static let firstRun = CGSize(width: 900, height: 700)
+    /// The page beside the sidebar in the smallest main window.
+    static var page: CGSize { CGSize(width: main.width - sidebarWidth, height: main.height) }
+}
+
 /// The app's root: first run, or the main window. It applies the theme, text size and accent.
 public struct RootView: View {
     @Bindable var model: AppModel
@@ -24,7 +37,7 @@ struct RootContent: View {
             if !model.hasBootstrapped {
                 StartingView(avatarStyle: model.preferences.avatarStyle)
             } else if model.needsFirstRun {
-                FirstRunView(model: model).frame(minWidth: 900, minHeight: 700)
+                FirstRunView(model: model).frame(minWidth: WindowMinimum.firstRun.width, minHeight: WindowMinimum.firstRun.height)
             } else {
                 MainView(model: model)
             }
@@ -64,7 +77,7 @@ struct MainView: View {
     var body: some View {
         NavigationSplitView {
             SidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 300)
+                .navigationSplitViewColumnWidth(min: WindowMinimum.sidebarWidth, ideal: 240, max: 300)
         } detail: {
             VStack(spacing: 0) {
                 banners
@@ -75,7 +88,7 @@ struct MainView: View {
             .navigationSubtitle("Research preview")
             .toolbar { toolbar }
         }
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(minWidth: WindowMinimum.main.width, minHeight: WindowMinimum.main.height)
         .sheet(item: Binding(get: { model.chat.liveApproval }, set: { _ in })) { request in
             ApprovalSheetView(request: request, avatarStyle: model.preferences.avatarStyle, agentName: model.agentName) { decision in
                 Task { await model.chat.answer(decision) }

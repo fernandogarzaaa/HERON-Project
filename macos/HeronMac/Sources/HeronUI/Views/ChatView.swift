@@ -6,6 +6,8 @@ import HeronCore
 /// a sheet from the main window.
 struct ChatView: View {
     @Bindable var model: AppModel
+    /// Open every reply's steps, as if "N steps" had been clicked. Snapshots use it to show tool output.
+    var expandSteps = false
     @Environment(\.heronTheme) private var theme
     @Environment(\.heronTextScale) private var scale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -50,12 +52,15 @@ struct ChatView: View {
 
     // MARK: Thread
 
+    /// The transcript is the page's one scroll container. `defaultScrollAnchor(.bottom)` keeps it on the newest
+    /// message while a reply streams in, and leaves it where it is once the user has scrolled up to read.
+    /// Sending a message always jumps to the bottom.
     private var thread: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            HScroll {
                 LazyVStack(alignment: .leading, spacing: Spacing.s5) {
                     ForEach(chat.messages) { message in
-                        MessageRow(message: message, model: model, scale: scale).id(message.id)
+                        MessageRow(message: message, model: model, scale: scale, expandSteps: expandSteps).id(message.id)
                     }
                     if chat.answeredElsewhere {
                         Label("Answered from your phone", systemImage: "iphone").font(HeronFont.sub).foregroundStyle(theme.ink2)
@@ -64,17 +69,21 @@ struct ChatView: View {
                     if let line = chat.runStatusLine {
                         Text(line).font(HeronFont.sub).foregroundStyle(theme.ink3)
                     }
-                    Color.clear.frame(height: 1).id("bottom")
+                    Color.clear.frame(height: 1).id(Self.bottomID)
                 }
                 .frame(maxWidth: Spacing.chatColumn, alignment: .leading)
-                .padding(.horizontal, Spacing.s6).padding(.top, Spacing.s5)
+                .padding(.horizontal, Spacing.s6).padding(.vertical, Spacing.s5)
                 .frame(maxWidth: .infinity)
             }
-            .onChange(of: chat.messages) { _, _ in
-                withAnimation(Motion.animation(Motion.std, reduceMotion: reduceMotion)) { proxy.scrollTo("bottom") }
+            .defaultScrollAnchor(.bottom)
+            .onChange(of: chat.messages.last?.id) { _, _ in
+                guard chat.messages.last?.role == .user else { return }
+                withAnimation(Motion.animation(Motion.std, reduceMotion: reduceMotion)) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
             }
         }
     }
+
+    static let bottomID = "bottom"
 
     // MARK: Composer
 
@@ -122,6 +131,7 @@ private struct MessageRow: View {
     let message: ChatMessage
     @Bindable var model: AppModel
     let scale: CGFloat
+    let expandSteps: Bool
     @Environment(\.heronTheme) private var theme
 
     var body: some View {
@@ -141,7 +151,7 @@ private struct MessageRow: View {
                 AvatarView(style: model.preferences.avatarStyle, state: message.finished ? .idle : model.avatar.state, name: model.agentName, size: 28,
                            image: model.preferences.avatarStyle == .image ? NSImage(contentsOf: DisplayPreferences.avatarImageURL) : nil)
                 VStack(alignment: .leading, spacing: Spacing.s2) {
-                    if !message.steps.isEmpty { ActivityTrack(steps: message.steps, finished: message.finished) }
+                    if !message.steps.isEmpty { ActivityTrack(steps: message.steps, finished: message.finished, startsExpanded: expandSteps) }
                     if !message.text.isEmpty {
                         Text(message.text).font(HeronFont.reading(scale: scale)).foregroundStyle(theme.ink)
                             .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
@@ -159,7 +169,13 @@ struct ActivityTrack: View {
     let steps: [ChatStep]
     let finished: Bool
     @Environment(\.heronTheme) private var theme
-    @State private var expanded = false
+    @State private var expanded: Bool
+
+    init(steps: [ChatStep], finished: Bool, startsExpanded: Bool = false) {
+        self.steps = steps
+        self.finished = finished
+        self._expanded = State(initialValue: startsExpanded)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -212,7 +228,9 @@ private struct StepRow: View {
             } else {
                 Image(systemName: ActivityTrack.symbol(for: step.name)).foregroundStyle(theme.ink2).frame(width: 16)
             }
+            // Tool output can be long: it wraps, and the transcript (the page's one scroll view) scrolls.
             Text(step.sentence).foregroundStyle(step.status == .waiting ? theme.waiting : theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
             if step.untrusted { HTag("Outside content", tone: .outside, symbol: "globe") }
             if step.status == .failed { HTag("Failed", tone: .danger) }
             Spacer(minLength: Spacing.s2)

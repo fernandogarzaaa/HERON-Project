@@ -42,6 +42,25 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
 
     public func setSandbox(_ kind: String) { with { $0.sandbox = kind } }
 
+    /// Adds the long demo conversation (`PreviewDemo.longSession`) so a screen can show a transcript that
+    /// overflows. It is not part of the sample data, so no other test sees it.
+    public func seedLongConversation(id: String = "s-long") {
+        let session = PreviewDemo.longSession(id: id, now: now)
+        with { $0.sessions[id] = session }
+    }
+
+    /// Adds a short conversation whose reply holds very long tool output (`PreviewDemo.longToolOutput`).
+    public func seedLongToolOutputConversation(id: String = "s-tool") {
+        let session = PreviewDemo.toolOutputSession(id: id, now: now)
+        with { $0.sessions[id] = session }
+    }
+
+    /// Adds a delivered Inbox item whose body (`PreviewDemo.longInboxBody`) is far taller than the detail pane.
+    public func seedLongInboxItem(id: Int = 100) {
+        let item = InboxItem(id: id, timestamp: now, title: "Quarterly review results", body: PreviewDemo.longInboxBody, read: false)
+        with { $0.inbox.insert(item, at: 0) }
+    }
+
     // MARK: State and conversations
 
     public func state() async throws -> CoreState {
