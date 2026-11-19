@@ -7650,9 +7650,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Full gate on the final branch",
-    "version": 12,
+    "version": 13,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/verify__integrate-base",
       "branch": null,
       "path": null
     }
