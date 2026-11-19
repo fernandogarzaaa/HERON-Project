@@ -7738,9 +7738,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "needs_human",
+    "status": "unclaimed",
     "title": "Integrate parents of verify",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "skein/verify__integrate__integrate-base",
       "branch": null,
