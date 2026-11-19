@@ -5818,7 +5818,16 @@
     }
   },
   "U3k": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "7b46028686354b03acf7a4eb8756a170",
+        "ended_at": "2026-11-19T16:17:04.999315+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-19T15:48:20.185512+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -5830,22 +5839,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "7b46028686354b03acf7a4eb8756a170",
-      "base_branch": "skein/U3k__integrate-base",
-      "claim_token": "40f9ba3f4cec45a39ca61223a011fa25",
-      "claimed_at": "2026-11-19T15:48:20.185512+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T16:16:53.652748+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3j",
       "SYNC19"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- recreated_config_does_not_lift_a_never_on_an_idle_core heron_init_does_not_lift_a_never hand_edit_cannot_lift_a_never only_the_app_lifts_a_never concurrent_mode_changes_end_as_the_file_says recreated_config_does_not_lift_a_never same_tool_settings_on_one_core_end_as_the_file_says",
+        "duration_ms": 60652,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3k_20261119T161604321914_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3k_20261119T161704976049_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "U3k",
     "integration_for": null,
     "intent": {
@@ -5858,12 +5879,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-19T16:18:06.141318+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "unclaimed",
     "title": "Fixes from U3j's review (35g, owner decision)",
-    "version": 61,
+    "version": 62,
     "worktree": {
       "base_branch": "skein/U3k__integrate-base",
       "base_commit": "476f1dbf9ac54d6d48d90a21fec154b4784bee44",
