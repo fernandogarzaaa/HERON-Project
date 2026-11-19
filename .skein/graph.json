@@ -6997,10 +6997,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "09858f6ed10edd31c8ebf57860828dc8ae5abc63",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "fe31a750988c05bda5263c8044eb1af455646ab3",
+        "result_commit": "b0a3bfa0599993ee7ad604d96917c678a2536e08",
+        "shipped_at": "2026-11-19T17:36:38.647815+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Integrate parents of U3o",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "09858f6ed10edd31c8ebf57860828dc8ae5abc63",
       "branch": "skein/U3o__integrate-base",
