@@ -8798,29 +8798,44 @@
     }
   },
   "U3v__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "902518e497394bdfb5ea1a75c8a1be15",
+        "ended_at": "2026-11-19T20:51:14.744768+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-19T20:51:14.414769+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "902518e497394bdfb5ea1a75c8a1be15",
-      "base_branch": "skein/U3v__integrate__integrate-base",
-      "claim_token": "1c1f89b438cc4cc1be76bd22c5b17b32",
-      "claimed_at": "2026-11-19T20:51:14.414769+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-19T20:51:14.414769+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3u",
       "SYNC30"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge ce58c3eb747c41b51baad3e28958b12c91597362",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['255fec809f99334b63834cc64e8ff8de8f5c2dd7', 'ce58c3eb747c41b51baad3e28958b12c91597362'] into skein/U3v__integrate-base.",
     "id": "U3v__integrate",
     "integration_for": "U3v",
     "intent": {
@@ -8832,16 +8847,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "255fec809f99334b63834cc64e8ff8de8f5c2dd7",
+      "changed_files": [],
+      "commit": "a096de351842999370d1288dc32472cb006e2d6e",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of U3v",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/U3v__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "255fec809f99334b63834cc64e8ff8de8f5c2dd7",
+      "branch": "skein/U3v__integrate-base",
       "path": null
     }
   },
