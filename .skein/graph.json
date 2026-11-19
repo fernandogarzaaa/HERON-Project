@@ -5574,7 +5574,7 @@
       "claim_token": "f6b69c628da94255b0acf58fd0ea3296",
       "claimed_at": "2026-11-19T05:08:13.771014+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T05:08:13.771014+00:00",
+      "last_heartbeat": "2026-11-19T05:08:44.032382+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -5601,9 +5601,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Fixes from U3i's review (35f)",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "skein/U3j__integrate-base",
       "base_commit": "5f3d64e610966d87ee40632e5d7130291cbbce03",
@@ -7271,10 +7271,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "c454dbc14232408cf80f4ad8645d2957bc7b66da",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "011284687a0d45aff7333b4d5ac0849a7b4f93fd",
+        "result_commit": "83b39e4a7769172cf011031f20313e22433280a1",
+        "shipped_at": "2026-11-19T05:08:44.201659+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from CI on all three OSes, two flaky tests (47b)",
-    "version": 67,
+    "version": 68,
     "worktree": {
       "base_branch": "skein/U7c__integrate-base",
       "base_commit": "c454dbc14232408cf80f4ad8645d2957bc7b66da",
