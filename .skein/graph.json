@@ -4499,29 +4499,44 @@
     }
   },
   "U3g__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "3580df88c5f44ea282027e59271c76db",
+        "ended_at": "2026-11-19T00:07:59.731074+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-19T00:07:59.489610+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "3580df88c5f44ea282027e59271c76db",
-      "base_branch": "skein/U3g__integrate__integrate-base",
-      "claim_token": "1050b1d61ecc425db902beed15746bd3",
-      "claimed_at": "2026-11-19T00:07:59.489610+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-19T00:07:59.489610+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2x",
       "SYNC13"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 4b17ba2bd5116e8707ca519a6528977a9a1a4826",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['405ae4ebe680451f517a5e47be9a27e1dca7f2ef', '4b17ba2bd5116e8707ca519a6528977a9a1a4826'] into skein/U3g__integrate-base.",
     "id": "U3g__integrate",
     "integration_for": "U3g",
     "intent": {
@@ -4533,16 +4548,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "405ae4ebe680451f517a5e47be9a27e1dca7f2ef",
+      "changed_files": [],
+      "commit": "19384e891d51f18541cde83bd23ada0397b7f645",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of U3g",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/U3g__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "405ae4ebe680451f517a5e47be9a27e1dca7f2ef",
+      "branch": "skein/U3g__integrate-base",
       "path": null
     }
   },
@@ -4849,7 +4869,7 @@
       "claim_token": "c5051871828d45c58fd3eeb1df451a8a",
       "claimed_at": "2026-11-19T00:02:29.163606+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T00:07:29.679837+00:00",
+      "last_heartbeat": "2026-11-19T00:07:59.695856+00:00",
       "node_version": 3,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4877,7 +4897,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Core API client against the recorded fixtures",
-    "version": 15,
+    "version": 16,
     "worktree": {
       "base_branch": "skein/U4b__integrate-base",
       "base_commit": "b2760052fc73b6517ca2df020c7189c42667a669",
