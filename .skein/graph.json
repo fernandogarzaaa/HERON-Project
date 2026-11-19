@@ -5379,10 +5379,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "e037c700161e793ef6cb91e3be92b8148dd9a9c8",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "98cc01e124178c6470a7282ada0a9dd06042f56d",
+        "result_commit": "5d81a0f5dc7e8dff5747337ad5e7c28afed38c5e",
+        "shipped_at": "2026-11-19T04:38:06.978843+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U3h's review (35e)",
-    "version": 125,
+    "version": 126,
     "worktree": {
       "base_branch": "skein/U3i__integrate-base",
       "base_commit": "e037c700161e793ef6cb91e3be92b8148dd9a9c8",
