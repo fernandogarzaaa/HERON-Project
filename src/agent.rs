@@ -822,8 +822,11 @@ impl Agent {
         }
         // Once outside content is in the conversation the reply may repeat what a web page or email
         // claimed. Only the user's own words are safe to learn lasting facts from.
-        let assistant = if session.tainted.load(std::sync::atomic::Ordering::SeqCst) { "(not shown)" } else { assistant };
-        self.memory.learn_from_exchange(self.llm.as_ref(), self.cfg.fast_model(), user, assistant).await.unwrap_or_default()
+        // Whatever the learner returns is then saved as outside content (unconfirmed), so a forwarded
+        // message cannot become a confirmed core memory even if the model extracts a fact from it.
+        let tainted = session.tainted.load(std::sync::atomic::Ordering::SeqCst);
+        let (assistant, source) = if tainted { ("(not shown)", "outside") } else { (assistant, "auto") };
+        self.memory.learn_from_exchange_as(self.llm.as_ref(), self.cfg.fast_model(), user, assistant, source).await.unwrap_or_default()
     }
 }
 

@@ -305,6 +305,12 @@ impl Memory {
     /// Ask the (fast) model to extract durable facts from the latest exchange and store them.
     /// Returns what was learned. Failures are non-fatal by design.
     pub async fn learn_from_exchange(&self, llm: &dyn Llm, model: &str, user: &str, assistant: &str) -> Result<Vec<String>> {
+        self.learn_from_exchange_as(llm, model, user, assistant, "auto").await
+    }
+
+    /// As `learn_from_exchange`, saving every item with `source`. A conversation that has taken in
+    /// outside content passes `"outside"`, so whatever the model returns stays unconfirmed.
+    pub async fn learn_from_exchange_as(&self, llm: &dyn Llm, model: &str, user: &str, assistant: &str, source: &str) -> Result<Vec<String>> {
         if user.trim().len() < 12 {
             return Ok(vec![]);
         }
@@ -339,7 +345,7 @@ impl Memory {
             let kind = if ["profile", "preference", "workflow", "project", "person", "fact"].contains(&kind) { kind } else { "fact" };
             let imp = it["importance"].as_f64().unwrap_or(0.5);
             let replaces = it["replaces"].as_i64().filter(|id| known.iter().any(|m| m.id == *id));
-            match self.save_replacing(content, kind, "", imp, "auto", replaces).await {
+            match self.save_replacing(content, kind, "", imp, source, replaces).await {
                 Ok(SaveOutcome::Created(_)) => learned.push(content.to_string()),
                 Ok(SaveOutcome::Updated(_)) if replaces.is_some() => learned.push(format!("{content} (updated)")),
                 _ => {}
