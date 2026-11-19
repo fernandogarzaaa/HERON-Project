@@ -6144,9 +6144,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from U3k's review (35h core, owner decision)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3l__integrate-base",
       "branch": null,
       "path": null
     }
