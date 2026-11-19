@@ -6484,10 +6484,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "fd5f950459c28a46a1bd8cc3490e15ce6ee8e8ff",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "3df611474d5c8ccb73cf7b8ef37ae5eaefee3073",
+        "result_commit": "670539bb4915e1c2c0d3328c9e17c80271bae88e",
+        "shipped_at": "2026-11-19T17:17:10.066971+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Integrate parents of U3m",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "fd5f950459c28a46a1bd8cc3490e15ce6ee8e8ff",
       "branch": "skein/U3m__integrate-base",
