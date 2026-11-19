@@ -1014,6 +1014,84 @@
     }
   },
   "SYNC22": {
+    "attempts": [
+      {
+        "attempt_id": "8c7c3b7b748248c5a726471ee19ab9cb",
+        "ended_at": "2026-11-19T17:31:26.304555+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T17:31:18.512392+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "grep -q clean_learner_cannot_upgrade_an_outside_memory docs/designs/heron-v1.md",
+        "duration_ms": 215,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC22_20261119T173126029360_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC22_20261119T173126244880_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: the supervisor can pick these up in a node that is allowed to edit design files.",
+    "id": "SYNC22",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q clean_learner_cannot_upgrade_an_outside_memory docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3n's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "8c7c3b7b748248c5a726471ee19ab9cb",
+      "base_commit": "320e47f942d30cacb94e3621f3e6fe577a6545e9",
+      "changed_files": [],
+      "commit": "320e47f942d30cacb94e3621f3e6fe577a6545e9",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Sync feat head into U3n base",
+    "version": 4,
+    "worktree": {
+      "base_branch": "feat/heron-v1",
+      "base_commit": "320e47f942d30cacb94e3621f3e6fe577a6545e9",
+      "branch": "skein/SYNC22",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC22"
+    }
+  },
+  "SYNC23": {
     "attempts": [],
     "attempts_used": 0,
     "backend": "claude_build_rust",
@@ -1026,26 +1104,26 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "8c7c3b7b748248c5a726471ee19ab9cb",
+      "attempt_id": "703f4b0e4613469fbee9ce1143f69850",
       "base_branch": "feat/heron-v1",
-      "claim_token": "dc9c9bb5f6c847f6a094c5b2941517f2",
-      "claimed_at": "2026-11-19T17:31:18.512392+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T17:31:18.512392+00:00",
+      "claim_token": "71d3fcd2409041229fd711c92c49f5ce",
+      "claimed_at": "2026-11-19T17:33:17.641020+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-19T17:33:17.641020+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [],
     "handoff_note": null,
-    "id": "SYNC22",
+    "id": "SYNC23",
     "integration_for": null,
     "intent": {
-      "completion": "grep -q clean_learner_cannot_upgrade_an_outside_memory docs/designs/heron-v1.md",
+      "completion": "grep -q restore_does_not_bring_back_revoked_grants docs/designs/heron-v1.md",
       "constraints": "Do not read, write or run anything.",
       "context": "No spec work.",
-      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3n's base. Reply 'done' and stop."
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3o's base. Reply 'done' and stop."
     },
     "max_retries": 0,
     "rejected_count": 0,
@@ -1055,7 +1133,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "claimed",
-    "title": "Sync feat head into U3n base",
+    "title": "Sync feat head into U3o base",
     "version": 2,
     "worktree": {
       "base_branch": "feat/heron-v1",
@@ -6626,15 +6704,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "59f30f45b53d4a508296392281a22868",
+      "base_branch": "skein/U3n__integrate-base",
+      "claim_token": "5338604307d04c0d9a6263ca5967d28e",
+      "claimed_at": "2026-11-19T17:31:26.957463+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T17:32:57.341158+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U3m",
@@ -6657,8 +6735,130 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "in_progress",
     "title": "Fixes from U3m's review (35j)",
+    "version": 7,
+    "worktree": {
+      "base_branch": "skein/U3n__integrate-base",
+      "base_commit": "f823cb357b57f75fe2befdd557772ec67d570c3f",
+      "branch": "skein/U3n",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3n"
+    }
+  },
+  "U3n__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "8e5b3bfde25c4d01833ac0d34447821a",
+        "ended_at": "2026-11-19T17:31:26.884593+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-19T17:31:26.574045+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3m",
+      "SYNC22"
+    ],
+    "evidence": [
+      {
+        "command": "git merge 320e47f942d30cacb94e3621f3e6fe577a6545e9",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['176ec1d72e5f4f79c0ac95bf4bbc56edab9a811c', '320e47f942d30cacb94e3621f3e6fe577a6545e9'] into skein/U3n__integrate-base.",
+    "id": "U3n__integrate",
+    "integration_for": "U3n",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U3m', 'SYNC22'] into one base branch for U3n."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "176ec1d72e5f4f79c0ac95bf4bbc56edab9a811c",
+      "changed_files": [],
+      "commit": "f823cb357b57f75fe2befdd557772ec67d570c3f",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Integrate parents of U3n",
+    "version": 3,
+    "worktree": {
+      "base_branch": "176ec1d72e5f4f79c0ac95bf4bbc56edab9a811c",
+      "branch": "skein/U3n__integrate-base",
+      "path": null
+    }
+  },
+  "U3o": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3n",
+      "SYNC23"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U3o",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- timed_out_reload_still_takes_in_nevers_and_drops_file_allows held_config_lock_cannot_stall_reloads_behind_a_setting_change restore_refuses_when_current_nevers_cannot_be_read restore_failure_after_swap_keeps_current_nevers restore_does_not_bring_back_revoked_grants doctor_reports_an_incomplete_rebuild startup_reports_a_busy_database_as_busy removing_a_never_lifts_it_on_every_core",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md items 35k, 35h (owner decision), 35g, 35f, 35e, 35d, 35c, 35b, and section 3 'Another core already running'.",
+      "goal": "Implement spec item 35k ('Fixes from U3l's review'). Read 35k, 35h, 35g first. Line numbers are from U3l's result fd5f950 and may have moved (U3n changed src/memory.rs).\nL1 (demonstrated): a reload that times out on config.lock returns early from take_config_rules (app.rs:947-958), so take_config_rules_held never runs: a never set or a config.toml rule revoked on another core doesn't reach this core while some process holds the lock (probe: B sets write_file never, revokes config rule shell:git *, an outside program holds config.lock >5 s, A's reload logs the timeout and A in Yolo still allows both). Fix: on timeout still read kv deny_rules and add any new nevers (read only; writing kv needs the lock), and drop the allow rules that came from config.toml as for an unreadable file, until a reload gets the lock.\nL2 (demonstrated): lock_config_file (app.rs:586-597) waits without limit and is called while rules_seen and config_seen are held (e.g. set_tool_setting app.rs:716); reload_rules (app.rs:922-923) then waits on rules_seen with a plain std Mutex on the async thread. Probe: outside program holds config.lock, one POST /api/tools/x, then a reload with lock_wait=0 is still blocked after 3 s; in the server every turn start and GET /api/nevers (server.rs:801) parks a tokio worker. Fix: bound every wait for config.lock (5 s, injectable) and fail that change closed with an error; run the reload's mutex waits, file reads and SQLite calls off the async threads.\nL3+L4+restore info: heron restore swallows errors reading the current db (app.rs:368-372, peek_kv with no busy timeout), so over a damaged/busy db it silently lifts kv-only nevers; Store::restore swaps the db in and may upgrade it before kv_update writes the union (app.rs:373-380), so a failure there loses the current set and a retry reads the restored copy as current; and restore brings back \"always\" grants revoked since the copy. Fix per 35k: read current deny_rules and allow_rules first with a busy timeout, refuse with a message if unreadable; write them into the copy BEFORE swapping it in; nevers = current set plus copy's, always grants = current set only. Test the main.rs wiring (main.rs:677 must go through this path).\nL5: heron doctor (app.rs:346,351; main.rs:559-565) can rebuild a smaller set and prints a check mark either way, overwriting the damaged value. Fix per 35k: say which sources it used, keep the damaged value in kv deny_rules_damaged, exit non-zero on an incomplete rebuild; log failed writes of deny_rules_last_good (app.rs:580 and at startup). Test the main.rs wiring.\nInfo: startup reports any kv_update error as damaged (app.rs:404); tell busy/I-O apart. With config.toml missing, a remove_never whose file write fails after the kv lift should return success with the notice.\nTests (names in your check): timed_out_reload_still_takes_in_nevers_and_drops_file_allows, held_config_lock_cannot_stall_reloads_behind_a_setting_change, restore_refuses_when_current_nevers_cannot_be_read, restore_failure_after_swap_keeps_current_nevers, restore_does_not_bring_back_revoked_grants, doctor_reports_an_incomplete_rebuild, startup_reports_a_busy_database_as_busy, and extend removing_a_never_lifts_it_on_every_core. Each must fail with its fix removed (check, then restore). Deterministic: inject lock waits and failures (SQLite triggers as the review did), no wall-clock sleeps. Keep lock order rules_seen -> config_seen -> config.lock -> cfg RwLock -> policy -> SQLite. Keep every existing test and assertion."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fixes from U3l's review (35k)",
     "version": 1,
     "worktree": {
       "base_branch": null,
@@ -8826,7 +9026,8 @@
       "U3l",
       "U4d",
       "U3m",
-      "U3n"
+      "U3n",
+      "U3o"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -8847,7 +9048,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 20,
+    "version": 21,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "branch": null,
