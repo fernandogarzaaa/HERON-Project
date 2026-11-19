@@ -7005,6 +7005,59 @@
       "path": null
     }
   },
+  "U4d": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_swift",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "macos/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3l",
+      "U4c"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U4d",
+    "integration_for": null,
+    "intent": {
+      "completion": "swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 35h, item 41b (scrolling), and the Mac app section; macos/HeronMac/DESIGN-CHOICES.md.",
+      "goal": "Implement spec item 35h, Mac app part (U4d): Settings -> Permissions gets a \"Never\" section listing every rule from GET /api/nevers ([{\"rule\",\"tool\",\"in_file\"}]), each with a Remove button. Remove asks first (a confirm that says Heron will be allowed to do what the rule refused), calls DELETE /api/nevers {\"rule\"}, then refreshes; errors show inline. A rule that isn't in config.toml (in_file false) says it is kept by Heron only. The list scrolls with the page per item 41b (one scroll container per page, no nesting). Decode the recorded fixture tests/fixtures/api/nevers.json (add it to the client's fixture-decoding tests like the other fixtures), add the endpoint to CoreClientProtocol, CoreClient, ManagedCoreClient and PreviewCoreClient, and preview data. Snapshot tests (light and dark): a short list, a long list at the smallest window, the confirm sheet, and an error. Follow macos/HeronMac/DESIGN-CHOICES.md and the existing Settings views.\nHOW TO RUN SWIFT: your sandbox exempts a Bash call only when the whole command is exactly 'swift build ...' or 'swift test ...': no '2>&1', pipes, &&, cd, env prefixes or --disable-sandbox. Run each as its own call."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Mac app: the Never list with Remove (35h)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U6": {
     "attempts": [
       {
