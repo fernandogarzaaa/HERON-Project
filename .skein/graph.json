@@ -5771,10 +5771,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "37752be85caa5ea5fee908c99bdd1f37c01b2e05",
+        "result_commit": "fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7",
+        "shipped_at": "2026-11-19T00:48:56.361057+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Scrolling only where content overflows; risk-notice box sized to content; overflow snapshots",
-    "version": 48,
+    "version": 49,
     "worktree": {
       "base_branch": "skein/U4c__integrate-base",
       "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
