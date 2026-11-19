@@ -4513,7 +4513,7 @@
       "claim_token": "d32de5eb183c4087a511e08e09c14b27",
       "claimed_at": "2026-11-19T00:07:59.784438+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:25:01.011758+00:00",
+      "last_heartbeat": "2026-11-19T00:26:31.069228+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4541,7 +4541,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3f's review: config.toml revoke across cores, job read_file, dropped gateway run_end, explicit choices saved, atomic revoke",
-    "version": 38,
+    "version": 41,
     "worktree": {
       "base_branch": "skein/U3g__integrate-base",
       "base_commit": "19384e891d51f18541cde83bd23ada0397b7f645",
@@ -4919,6 +4919,14 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-19T00:21:55.937448+00:00"
+      },
+      {
+        "attempt_id": "39ea0ef81e34468a8e1e6ce2c7ccb971",
+        "ended_at": "2026-11-19T00:26:38.729663+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-19T00:25:13.278990+00:00"
       }
     ],
     "attempts_used": 1,
@@ -4932,15 +4940,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "39ea0ef81e34468a8e1e6ce2c7ccb971",
-      "base_branch": "skein/U4b__integrate-base",
-      "claim_token": "443e31961a44418da3dea63349669f17",
-      "claimed_at": "2026-11-19T00:25:13.278990+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T00:25:13.278990+00:00",
-      "node_version": 52,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U4a",
@@ -4949,53 +4957,53 @@
     "evidence": [
       {
         "command": "swift build --package-path macos/HeronMac",
-        "duration_ms": 838,
+        "duration_ms": 833,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002235582177_0.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002629268924_0.log"
       },
       {
         "command": "swift test --package-path macos/HeronMac",
-        "duration_ms": 6270,
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002236423970_1.log"
+        "duration_ms": 5393,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002630105375_1.log"
       },
       {
         "command": "grep -qx '.build/' macos/HeronMac/.gitignore",
-        "duration_ms": 213,
+        "duration_ms": 211,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002242697993_2.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002635502608_2.log"
       },
       {
         "command": "test -s macos/HeronMac/DESIGN-CHOICES.md",
-        "duration_ms": 222,
+        "duration_ms": 210,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002242915479_3.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002635717213_3.log"
       },
       {
         "command": "test -s tests/fixtures/api/state.json && test -s tests/fixtures/api/events-error.jsonl",
-        "duration_ms": 224,
+        "duration_ms": 208,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002243144992_4.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002635930520_4.log"
       },
       {
         "command": "swift test --package-path macos/HeronMac --filter 'ModelDecodingTests|EventStreamResumeTests'",
-        "duration_ms": 1462,
+        "duration_ms": 1450,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002243377060_5.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002636141834_5.log"
       },
       {
         "command": "swift test --package-path macos/HeronMac list > \"${TMPDIR:-/tmp}/u4b-tests.txt\" && grep -q 'ModelDecodingTests' \"${TMPDIR:-/tmp}/u4b-tests.txt\" && grep -q 'EventStreamResumeTests' \"${TMPDIR:-/tmp}/u4b-tests.txt\" && grep -q 'SSEParserTests' \"${TMPDIR:-/tmp}/u4b-tests.txt\"",
-        "duration_ms": 1046,
+        "duration_ms": 1040,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002244845699_6.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002637595079_6.log"
       },
       {
         "command": "<adapter:claude_build_swift>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002245892195_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002638635587_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: The EventStreamResumeTests fix from try 2 is untouched. Nothing is committed.",
     "id": "U4b",
     "integration_for": null,
     "intent": {
@@ -5007,13 +5015,121 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "39ea0ef81e34468a8e1e6ce2c7ccb971",
+      "base_commit": "b2760052fc73b6517ca2df020c7189c42667a669",
+      "changed_files": [
+        "macos/HeronMac/DESIGN-CHOICES.md",
+        "macos/HeronMac/Sources/Heron/HeronApp.swift",
+        "macos/HeronMac/Sources/HeronCore/Models.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/Components.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/MenuBarViews.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/ScreenViews.swift",
+        "macos/HeronMac/Tests/HeronUITests/ScreenStoreTests.swift",
+        "macos/HeronMac/Sources/HeronCore/CoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/CoreProcess.swift",
+        "macos/HeronMac/Sources/HeronCore/EventStream.swift",
+        "macos/HeronMac/Sources/HeronCore/ManagedCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/SSEParser.swift",
+        "macos/HeronMac/Sources/HeronCore/Wire.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/CoreClientTests.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/CoreProcessTests.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/EventStreamResumeTests.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/ModelDecodingTests.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/SSEParserTests.swift",
+        "macos/HeronMac/Tests/HeronUITests/AvatarStateTests.swift"
+      ],
+      "commit": "73e4ca9063f40d644aeab44f7383633758e37bc6",
+      "diff_stats": {
+        "macos/HeronMac/DESIGN-CHOICES.md": {
+          "added": 36,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/Heron/HeronApp.swift": {
+          "added": 49,
+          "deleted": 6
+        },
+        "macos/HeronMac/Sources/HeronCore/CoreClient.swift": {
+          "added": 318,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/CoreProcess.swift": {
+          "added": 282,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/EventStream.swift": {
+          "added": 76,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/ManagedCoreClient.swift": {
+          "added": 142,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/Models.swift": {
+          "added": 6,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronCore/SSEParser.swift": {
+          "added": 110,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/Wire.swift": {
+          "added": 426,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift": {
+          "added": 2,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/Components.swift": {
+          "added": 3,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/MenuBarViews.swift": {
+          "added": 3,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/ScreenViews.swift": {
+          "added": 1,
+          "deleted": 1
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/CoreClientTests.swift": {
+          "added": 294,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/CoreProcessTests.swift": {
+          "added": 169,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/EventStreamResumeTests.swift": {
+          "added": 187,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/ModelDecodingTests.swift": {
+          "added": 364,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/SSEParserTests.swift": {
+          "added": 85,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronUITests/AvatarStateTests.swift": {
+          "added": 110,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronUITests/ScreenStoreTests.swift": {
+          "added": 8,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Core API client against the recorded fixtures",
-    "version": 54,
+    "version": 57,
     "worktree": {
       "base_branch": "skein/U4b__integrate-base",
       "base_commit": "b2760052fc73b6517ca2df020c7189c42667a669",
