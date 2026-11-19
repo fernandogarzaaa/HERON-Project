@@ -6375,15 +6375,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "c202a5e1617b491ca86f6464438c05d7",
+      "base_branch": "skein/U3m__integrate-base",
+      "claim_token": "a2363d68d1aa485094f0f6ad51b0b1eb",
+      "claimed_at": "2026-11-19T17:16:55.476881+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T17:16:55.476881+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U3l",
@@ -6406,9 +6406,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "G3 NEW-1: tainted learning stays unconfirmed (35i)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U3m__integrate-base",
       "branch": null,
