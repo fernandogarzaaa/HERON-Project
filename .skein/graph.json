@@ -11035,15 +11035,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "e7081e16d22c479caedc071b6c1ef615",
+      "base_branch": "skein/verify__integrate-base",
+      "claim_token": "6eb8c672fac941f8abf10589658c3e7d",
+      "claimed_at": "2026-11-19T21:15:06.464868+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T21:15:06.464868+00:00",
+      "node_version": 29,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U0",
@@ -11102,9 +11102,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Full gate on the final branch",
-    "version": 29,
+    "version": 30,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "branch": null,
