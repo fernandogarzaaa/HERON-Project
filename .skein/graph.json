@@ -8300,7 +8300,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from the U3s review (35p)",
-    "version": 10,
+    "version": 11,
     "worktree": {
       "base_branch": "skein/U3t__integrate-base",
       "base_commit": "53a06492ad54340f9878b86243b20e87b4206f83",
