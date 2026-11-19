@@ -4513,7 +4513,7 @@
       "claim_token": "d32de5eb183c4087a511e08e09c14b27",
       "claimed_at": "2026-11-19T00:07:59.784438+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:17:30.553201+00:00",
+      "last_heartbeat": "2026-11-19T00:20:30.721103+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4541,7 +4541,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3f's review: config.toml revoke across cores, job read_file, dropped gateway run_end, explicit choices saved, atomic revoke",
-    "version": 23,
+    "version": 29,
     "worktree": {
       "base_branch": "skein/U3g__integrate-base",
       "base_commit": "19384e891d51f18541cde83bd23ada0397b7f645",
@@ -4903,7 +4903,16 @@
     }
   },
   "U4b": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "1194ed56bcf841169ce0e694cf9f7d10",
+        "ended_at": "2026-11-19T00:20:47.625373+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-19T00:02:29.163606+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -4915,22 +4924,70 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "1194ed56bcf841169ce0e694cf9f7d10",
-      "base_branch": "skein/U4b__integrate-base",
-      "claim_token": "c5051871828d45c58fd3eeb1df451a8a",
-      "claimed_at": "2026-11-19T00:02:29.163606+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T00:17:30.270034+00:00",
-      "node_version": 3,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U4a",
       "Ut"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift build --package-path macos/HeronMac",
+        "duration_ms": 9821,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002025399119_0.log"
+      },
+      {
+        "command": "swift test --package-path macos/HeronMac",
+        "duration_ms": 9185,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002035224383_1.log"
+      },
+      {
+        "command": "grep -qx '.build/' macos/HeronMac/.gitignore",
+        "duration_ms": 218,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002044413707_2.log"
+      },
+      {
+        "command": "test -s macos/HeronMac/DESIGN-CHOICES.md",
+        "duration_ms": 224,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002044638185_3.log"
+      },
+      {
+        "command": "test -s tests/fixtures/api/state.json && test -s tests/fixtures/api/events-error.jsonl",
+        "duration_ms": 226,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002044869976_4.log"
+      },
+      {
+        "command": "swift test --package-path macos/HeronMac --filter 'ModelDecodingTests|EventStreamResumeTests'",
+        "duration_ms": 1465,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002045103492_5.log"
+      },
+      {
+        "command": "swift test --package-path macos/HeronMac list > \"${TMPDIR:-/tmp}/u4b-tests.txt\" && grep -q 'ModelDecodingTests' \"${TMPDIR:-/tmp}/u4b-tests.txt\" && grep -q 'EventStreamResumeTests' \"${TMPDIR:-/tmp}/u4b-tests.txt\" && grep -q 'SSEParserTests' \"${TMPDIR:-/tmp}/u4b-tests.txt\"",
+        "duration_ms": 1041,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002046572692_6.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4b_20261119T002047614656_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "U4b",
     "integration_for": null,
     "intent": {
@@ -4943,12 +5000,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-19T00:21:55.893182+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "unclaimed",
     "title": "Core API client against the recorded fixtures",
-    "version": 35,
+    "version": 42,
     "worktree": {
       "base_branch": "skein/U4b__integrate-base",
       "base_commit": "b2760052fc73b6517ca2df020c7189c42667a669",
