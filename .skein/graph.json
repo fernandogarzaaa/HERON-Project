@@ -6408,11 +6408,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "G3 NEW-1: tainted learning stays unconfirmed (35i)",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U3m__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "670539bb4915e1c2c0d3328c9e17c80271bae88e",
+      "branch": "skein/U3m",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3m"
     }
   },
   "U3m__integrate": {
