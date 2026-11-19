@@ -6305,7 +6305,7 @@
       "completion": "bash packaging/macos/make-upgrade-fixture.sh --if-missing && bash packaging/macos/build-app.sh --unsigned && test -f dist/Heron-macos-universal.dmg && test -x dist/Heron.app/Contents/MacOS/heron-cli && bash packaging/macos/upgrade-test.sh",
       "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
       "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit U7 (items 44-46), plus every spec section those items link to. Read the Preconditions and Work units table too.",
-      "goal": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test\n\nHOW TO RUN SWIFT: your sandbox exempts a Bash call only when the whole command is exactly 'swift build ...' or 'swift test ...': no '2>&1', pipes, &&, cd, env prefixes or --disable-sandbox. Anything else runs sandboxed and SwiftPM fails there."
+      "goal": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test\n\nHOW TO RUN SWIFT: your sandbox exempts a Bash call only when the whole command is exactly 'swift build ...' or 'swift test ...': no '2>&1', pipes, &&, cd, env prefixes or --disable-sandbox. Anything else runs sandboxed and SwiftPM fails there.\nPREVIOUS ATTEMPT FAILED (try 1). Everything up to the upgrade test passed: the fixture, the universal build, signing, the DMG and dist/Heron.app/Contents/MacOS/heron-cli. Then upgrade-test.sh printed \"Parse error in 3rd command line argument: unable to open database file (14)\" for every query and failed.\nCause (reproduced by the orchestrator): the fixture's heron.db is in WAL journal mode and the archive holds no heron.db-shm. `sqlite3 -readonly` cannot create the -shm file, so opening a WAL database read-only with no -shm fails with SQLITE_CANTOPEN (14). Your q() in upgrade-test.sh uses `sqlite3 -readonly \"$DB\"`.\nFix: in upgrade-test.sh, open the database normally for the queries, `q() { sqlite3 \"$DB\" \"$1\"; }`. The queries are SELECT and PRAGMA reads only, so no data changes; sqlite3 may create ordinary -wal/-shm files, which is fine. Update the comment above q() to say why -readonly is not used. Do not use `?immutable=1`: after the new binary runs, data can sit in heron.db-wal and an immutable open would ignore it. Keep the fixture as 0.3.1 leaves it (WAL); don't change make-upgrade-fixture.sh's journal mode. Keep every existing assertion.\nVerified: `sqlite3 \"$DB\" \"PRAGMA user_version;\"` on the extracted fixture prints 2 and exits 0; the -readonly form exits 1 with the error above.\nYou cannot run the scripts yourself (only swift build/test are allowed). The completion check runs them.\n"
     },
     "max_retries": 3,
     "rejected_count": 0,
@@ -6316,7 +6316,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test",
-    "version": 33,
+    "version": 34,
     "worktree": {
       "base_branch": "skein/U7__integrate-base",
       "base_commit": "8879a8df1ef209e79497077acd7951d92568d372",
