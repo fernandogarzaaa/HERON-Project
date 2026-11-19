@@ -6350,10 +6350,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "8879a8df1ef209e79497077acd7951d92568d372",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "dc5b8ec9b8b139fc7bcdbd271ccf1326e61a5498",
+        "result_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
+        "shipped_at": "2026-11-19T01:17:58.645510+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test",
-    "version": 37,
+    "version": 38,
     "worktree": {
       "base_branch": "skein/U7__integrate-base",
       "base_commit": "8879a8df1ef209e79497077acd7951d92568d372",
