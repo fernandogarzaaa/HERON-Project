@@ -4884,7 +4884,7 @@
       "claim_token": "579d676cf8674e99a45a2ae40c8459eb",
       "claimed_at": "2026-11-19T00:42:03.845001+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:43:34.133763+00:00",
+      "last_heartbeat": "2026-11-19T00:44:34.176384+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4912,7 +4912,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3g's review: stale settings save, startup window, unreadable config fails closed, never across cores",
-    "version": 7,
+    "version": 9,
     "worktree": {
       "base_branch": "skein/U3h__integrate-base",
       "base_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
@@ -5626,15 +5626,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "008efa07a4d44b2c9605fe7ef735cf98",
+      "base_branch": "skein/U4c__integrate-base",
+      "claim_token": "f87263cef36d42fb94dfe48db51b4dfa",
+      "claimed_at": "2026-11-19T00:45:01.101874+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-19T00:45:01.101874+00:00",
+      "node_version": 39,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "U4b",
@@ -5684,12 +5684,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": "2026-11-19T00:45:01.054296+00:00",
+    "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Scrolling only where content overflows; risk-notice box sized to content; overflow snapshots",
-    "version": 39,
+    "version": 40,
     "worktree": {
       "base_branch": "skein/U4c__integrate-base",
       "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
