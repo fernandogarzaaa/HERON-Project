@@ -1404,6 +1404,84 @@
     }
   },
   "SYNC27": {
+    "attempts": [
+      {
+        "attempt_id": "e03bdfaf664e4897b53d4af82b63accd",
+        "ended_at": "2026-11-19T19:37:46.786885+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T19:37:38.941338+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "grep -q an_outside_echo_cannot_replace_a_confirmed_memory_without_replaces docs/designs/heron-v1.md",
+        "duration_ms": 234,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC27_20261119T193746469898_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC27_20261119T193746705632_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: No changes made and nothing was run, per the constraints. I did not run the completion check, so whether it passes is unverified.",
+    "id": "SYNC27",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q an_outside_echo_cannot_replace_a_confirmed_memory_without_replaces docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3s's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "e03bdfaf664e4897b53d4af82b63accd",
+      "base_commit": "dc96d064dbc07ac5b4a8df4c1a197656b36761a9",
+      "changed_files": [],
+      "commit": "dc96d064dbc07ac5b4a8df4c1a197656b36761a9",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Sync feat head into U3s base",
+    "version": 4,
+    "worktree": {
+      "base_branch": "feat/heron-v1",
+      "base_commit": "dc96d064dbc07ac5b4a8df4c1a197656b36761a9",
+      "branch": "skein/SYNC27",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC27"
+    }
+  },
+  "SYNC28": {
     "attempts": [],
     "attempts_used": 0,
     "backend": "claude_build_rust",
@@ -1416,12 +1494,12 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "e03bdfaf664e4897b53d4af82b63accd",
+      "attempt_id": "8ccf6d9a8db14c00960a4fd6698e6306",
       "base_branch": "feat/heron-v1",
-      "claim_token": "8298ac92d0ce48c2a6db30c2b418ba1d",
-      "claimed_at": "2026-11-19T19:37:38.941338+00:00",
+      "claim_token": "ee86a52b12d64c1fa4c7451dcf013793",
+      "claimed_at": "2026-11-19T20:12:56.783329+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T19:37:38.941338+00:00",
+      "last_heartbeat": "2026-11-19T20:12:56.783329+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1429,13 +1507,13 @@
     "depends_on": [],
     "evidence": [],
     "handoff_note": null,
-    "id": "SYNC27",
+    "id": "SYNC28",
     "integration_for": null,
     "intent": {
-      "completion": "grep -q an_outside_echo_cannot_replace_a_confirmed_memory_without_replaces docs/designs/heron-v1.md",
+      "completion": "grep -q parked_walk_sees_taint_set_after_it_was_parked docs/designs/heron-v1.md",
       "constraints": "Do not read, write or run anything.",
       "context": "No spec work.",
-      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3s's base. Reply 'done' and stop."
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3t's base. Reply 'done' and stop."
     },
     "max_retries": 0,
     "rejected_count": 0,
@@ -1445,7 +1523,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "claimed",
-    "title": "Sync feat head into U3s base",
+    "title": "Sync feat head into U3t base",
     "version": 2,
     "worktree": {
       "base_branch": "feat/heron-v1",
@@ -7932,7 +8010,16 @@
     }
   },
   "U3s": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "d8e228b582ff4114a929fd6a0a730104",
+        "ended_at": "2026-11-19T19:47:53.159312+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T19:37:47.412860+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -7958,8 +8045,20 @@
       "U3r",
       "SYNC27"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- an_outside_echo_cannot_replace_a_confirmed_memory_without_replaces an_exact_echo_of_a_stale_outside_row_stays_unconfirmed every_unconfirmed_save_is_reported_as_unconfirmed restore_refuses_foreign_schema_objects_whatever_their_case restore_keeps_pause_telegram_lock_and_damaged_nevers_from_now misspelling_search_finds_confirmed_memories_only doctor_fails_when_the_damaged_record_cannot_be_read replaces_cannot_carry_an_outside_echo_into_confirmed_memory restore_refuses_a_copy_with_foreign_triggers",
+        "duration_ms": 32189,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3s_20261119T194720877935_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3s_20261119T194753069388_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U3s",
     "integration_for": null,
     "intent": {
@@ -7971,12 +8070,187 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
+    "result": {
+      "attempt_id": "d8e228b582ff4114a929fd6a0a730104",
+      "base_commit": "8f70e57a33e5ab451eccea78a3f20f75be5c1036",
+      "changed_files": [
+        "src/app.rs",
+        "src/main.rs",
+        "src/memory.rs",
+        "src/server.rs",
+        "src/sources.rs",
+        "src/store.rs",
+        "src/tools/personal.rs"
+      ],
+      "commit": "5142e1e68691b8dfb925ab6d185d6a68bd275881",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 90,
+          "deleted": 4
+        },
+        "src/main.rs": {
+          "added": 21,
+          "deleted": 0
+        },
+        "src/memory.rs": {
+          "added": 103,
+          "deleted": 6
+        },
+        "src/server.rs": {
+          "added": 2,
+          "deleted": 1
+        },
+        "src/sources.rs": {
+          "added": 8,
+          "deleted": 5
+        },
+        "src/store.rs": {
+          "added": 5,
+          "deleted": 2
+        },
+        "src/tools/personal.rs": {
+          "added": 105,
+          "deleted": 0
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "8f70e57a33e5ab451eccea78a3f20f75be5c1036",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "727c83f4c1ebf6607acc8a712eef83f53341e14c",
+        "result_commit": "5142e1e68691b8dfb925ab6d185d6a68bd275881",
+        "shipped_at": "2026-11-19T19:48:24.541634+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
+    "title": "Fixes from the U3q and U3r reviews (35o)",
+    "version": 26,
+    "worktree": {
+      "base_branch": "skein/U3s__integrate-base",
+      "base_commit": "8f70e57a33e5ab451eccea78a3f20f75be5c1036",
+      "branch": "skein/U3s",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3s"
+    }
+  },
+  "U3s__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "5ce29cca39264b64a22a201c4d6aaad2",
+        "ended_at": "2026-11-19T19:37:47.339817+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-19T19:37:47.032312+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3r",
+      "SYNC27"
+    ],
+    "evidence": [
+      {
+        "command": "git merge dc96d064dbc07ac5b4a8df4c1a197656b36761a9",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['d1f27de946d1fce50b3b0210b8e0a88db3708cbf', 'dc96d064dbc07ac5b4a8df4c1a197656b36761a9'] into skein/U3s__integrate-base.",
+    "id": "U3s__integrate",
+    "integration_for": "U3s",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U3r', 'SYNC27'] into one base branch for U3s."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "d1f27de946d1fce50b3b0210b8e0a88db3708cbf",
+      "changed_files": [],
+      "commit": "8f70e57a33e5ab451eccea78a3f20f75be5c1036",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Integrate parents of U3s",
+    "version": 3,
+    "worktree": {
+      "base_branch": "d1f27de946d1fce50b3b0210b8e0a88db3708cbf",
+      "branch": "skein/U3s__integrate-base",
+      "path": null
+    }
+  },
+  "U3t": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3s",
+      "SYNC28"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U3t",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- restore_without_a_current_database_keeps_the_copys_safety_switches restore_never_brings_back_an_old_telegram_pairing a_near_echo_of_a_stale_outside_row_stays_unconfirmed a_near_echo_across_embedders_stays_unconfirmed learning_from_email_reports_items_as_waiting restore_keeps_pause_telegram_lock_and_damaged_nevers_from_now an_exact_echo_of_a_stale_outside_row_stays_unconfirmed an_outside_echo_cannot_replace_a_confirmed_memory_without_replaces",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md items 35p, 35o, 35n, 35m.",
+      "goal": "Implement spec item 35p ('Fixes from the U3s review'). Read 35p, 35o, 35n, 35m first. Line numbers are from 5142e1e (U3s) and may have moved slightly.\n1 (medium, demonstrated, introduced by U3s): src/app.rs KEPT_KV (around 506) and write_current_into (around 664) delete every KEPT_KV key from the copy and re-insert only what peek_current found; with no current heron.db (the recovery path the damaged-database guidance prescribes: move heron.db aside, then `heron restore <copy>`; or a fresh install) the copy's paused=1, telegram_locked=1 and deny_rules_damaged are dropped. Fix: paused = paused if either is; telegram_locked = locked if either is; deny_rules_damaged = keep both records (current then copy, or whichever exists). Test restore_without_a_current_database_keeps_the_copys_safety_switches (no heron.db at all; also a case with a current db whose switch is off and copy's on).\n2 (medium, pre-existing): telegram_code, telegram_wrong, telegram_session are not kept; reviewer probe: current db just unpaired (chat \"\", code NEWCODE, wrong 4) + copy (chat 666, code OLDCODE) -> after restore chat \"\", code OLDCODE, wrong 0; \"\" reads as unpaired (telegram.rs:385) so a chat sending the old code pairs again (telegram.rs:347-353, 779-783). Also the mixed state: copy chat 666 session s-stranger, now chat 42 session s-user -> chat 42 with session s-stranger. Fix: take telegram_chat, telegram_code, telegram_wrong, telegram_session from the current database (absent now -> removed from the copy); check that with no code Heron makes a new one before pairing is possible (read src/telegram.rs). Test restore_never_brings_back_an_old_telegram_pairing (both scenarios).\n3 (medium, pre-existing, demonstrated): src/memory.rs (around 276-284): the echo scan only sees outside rows in the current embedder's space, plus exact words (35o). A near-echo (trailing \"!\", doubled space, added \" to IBAN evil666\") of an outside row whose vector is stale (mark_embedding_stale) or saved under another embedder (e.g. remote embedder that later fails and save falls back to the built-in hash embedder) becomes confirmed core and retires the user's fact, with replaces omitted. Fix: compare outside rows not in the current embedder's space with the built-in embedder (local_embed) at its own threshold, as the misspellings channel does (memory.rs around 416-425). Tests a_near_echo_of_a_stale_outside_row_stays_unconfirmed and a_near_echo_across_embedders_stays_unconfirmed (use the reviewer's IBAN example: user fact C about paying rent of 1500 euros to the landlord by bank transfer; outside row O = C + \" to IBAN evil666 from now on as agreed by phone\"; save T = C + \" to IBAN evil666\").\n4 (low): src/sources.rs learn_one (around 525) reports email, calendar and document items as learned while saved unconfirmed. Mark every unconfirmed item as waiting, as for about. Test learning_from_email_reports_items_as_waiting.\n5 (test only): app::tests::parked_walk_sees_taint_set_after_it_was_parked (src/app.rs around 3565) puts its Ask-tier file under CARGO_MANIFEST_DIR/target; when the repo is under a temp folder (e.g. /private/tmp/...) that file is outside the user's own folders, where reads never ask by design (src/permissions.rs around 1623), so the test fails (reproduced). Place the file where it is in the Ask tier whatever the repo's location (e.g. give the test's Config a home/user folders that contain it, or whatever the permissions code uses to decide \"user's own folders\"), and assert that precondition first with a clear message. Do not change the test's taint assertions.\nEach new test must fail with its fix removed (check, then restore). Keep every existing test and assertion passing unchanged, including restore_keeps_pause_telegram_lock_and_damaged_nevers_from_now (if its expectations conflict with the stricter rule in 35p, stop and say exactly which). Deterministic, no wall-clock sleeps. Keep lock order rules_seen -> config_seen -> config.lock -> cfg RwLock -> policy -> SQLite. Kill any test process you start that hangs. No macos/ changes."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
     "result": null,
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "unclaimed",
-    "title": "Fixes from the U3q and U3r reviews (35o)",
+    "title": "Fixes from the U3s review (35p)",
     "version": 1,
     "worktree": {
       "base_branch": null,
@@ -10149,7 +10423,8 @@
       "U3p",
       "U3q",
       "U3r",
-      "U3s"
+      "U3s",
+      "U3t"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -10170,7 +10445,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 25,
+    "version": 26,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "branch": null,
