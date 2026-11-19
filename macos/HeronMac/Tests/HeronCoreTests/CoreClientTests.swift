@@ -124,6 +124,33 @@ final class CoreClientTests: XCTestCase {
         XCTAssertEqual(try body(seen)["rule"] as? String, "shell:git *")
     }
 
+    func testNeversAreListedWithGetAndRemovedWithDeleteAndTheRule() async throws {
+        let list = try Fixtures.text("nevers.json")
+        let client = makeClient { _ in .init(200, json: list) }
+        let nevers = try await client.nevers()
+        XCTAssertEqual(nevers.map(\.rule), ["web_fetch:*"])
+        var seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual(seen.method, "GET")
+        XCTAssertEqual(seen.path, "/api/nevers")
+        XCTAssertEqual(seen.token, "secret-token")
+
+        let remover = makeClient { _ in .init(200, json: #"{"ok":true}"#) }
+        try await remover.removeNever(rule: "web_fetch:*example.com*")
+        seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual(seen.method, "DELETE")
+        XCTAssertEqual(seen.path, "/api/nevers")
+        XCTAssertEqual(seen.token, "secret-token")
+        XCTAssertEqual(seen.contentType, "application/json")
+        XCTAssertEqual(try body(seen)["rule"] as? String, "web_fetch:*example.com*")
+    }
+
+    func testRemovingARuleThatIsNotANeverIsNotFound() async throws {
+        let client = makeClient { _ in .init(404, json: #"{"error":"That rule is not a never."}"#) }
+        do { try await client.removeNever(rule: "nope:*"); XCTFail("expected 404") } catch {
+            XCTAssertEqual(error as? CoreError, .notFound)
+        }
+    }
+
     func testStatusCodesBecomeTheErrorsScreensReactTo() async throws {
         let busy = makeClient { _ in .init(409, json: #"{"error":"session_busy","message":"Heron is still replying."}"#) }
         do { _ = try await busy.sendMessage(sessionID: "s1", message: "hi", title: nil); XCTFail("expected sessionBusy") } catch {

@@ -507,6 +507,23 @@ public struct Grant: Sendable, Equatable, Identifiable {
     }
 }
 
+/// One "never" rule from `GET /api/nevers`: something Heron always refuses, whatever the permission mode.
+public struct NeverRule: Sendable, Equatable, Identifiable {
+    /// The exact rule, such as `web_fetch:*` or `shell:*sudo*`. `DELETE /api/nevers` takes it back verbatim.
+    public var rule: String
+    /// The tool the rule is about (`web_fetch`).
+    public var tool: String
+    /// Whether `config.toml` lists the rule. False means only Heron's own store holds it.
+    public var inFile: Bool
+    public var id: String { rule }
+
+    public init(rule: String, tool: String, inFile: Bool) {
+        self.rule = rule
+        self.tool = tool
+        self.inFile = inFile
+    }
+}
+
 public struct RuleNotice: Sendable, Equatable, Identifiable {
     public var rule: String
     public var notice: String

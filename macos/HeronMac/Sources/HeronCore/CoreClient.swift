@@ -306,6 +306,8 @@ public final class CoreClient: CoreClientProtocol, Sendable {
     public func setAwareness(_ enabled: Bool) async throws { try await send("POST", "/awareness", body: ["enabled": enabled]) }
     public func grants() async throws -> [Grant] { try CoreWire.grants(try await send("GET", "/grants")) }
     public func revokeGrant(rule: String) async throws { try await send("DELETE", "/grants", body: ["rule": rule]) }
+    public func nevers() async throws -> [NeverRule] { try CoreWire.nevers(try await send("GET", "/nevers")) }
+    public func removeNever(rule: String) async throws { try await send("DELETE", "/nevers", body: ["rule": rule]) }
     public func usage() async throws -> UsageReport { try CoreWire.usage(try await send("GET", "/usage")) }
 }
 

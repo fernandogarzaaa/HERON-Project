@@ -23,7 +23,8 @@ public struct SettingsView: View {
     }
 }
 
-private struct SettingsTabContent: View {
+/// One settings tab inside the page's one scroll container (heron-v1.md item 41b).
+struct SettingsTabContent: View {
     @Bindable var model: AppModel
     let tab: SettingsTab
     @Environment(\.heronTheme) private var theme
@@ -263,6 +264,7 @@ private struct PermissionsTab: View {
                     }
                 }
             }
+            NeverSection(store: store)
             if !store.ruleNotices.isEmpty {
                 VStack(alignment: .leading, spacing: Spacing.s2) {
                     SectionLabel("Older rules")

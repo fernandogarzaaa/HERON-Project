@@ -76,6 +76,13 @@ public final class SettingsStore {
     public private(set) var settings: CoreSettings?
     public private(set) var providers: [ProviderStatus] = []
     public private(set) var grants: [Grant] = []
+    /// Every "never" rule (`GET /api/nevers`), listed in Settings › Permissions.
+    public private(set) var nevers: [NeverRule] = []
+    /// The rule the user asked to remove; the confirm sheet shows while it is set.
+    public private(set) var pendingNeverRemoval: NeverRule?
+    /// What went wrong loading the list or removing a rule, shown inline in the "Never" section.
+    public private(set) var neverError: String?
+    public private(set) var isRemovingNever = false
     public private(set) var usage: UsageReport?
     public private(set) var loadState: LoadState = .idle
     public private(set) var error: String?
@@ -97,10 +104,36 @@ public final class SettingsStore {
             (state, settings, providers, grants, usage) = try await (s, st, p, g, u)
             loadState = .loaded
         } catch { loadState = .failed(describe(error)) }
+        // Its own request: a core that can't list "never" rules still lets the rest of Settings load.
+        do { nevers = try await client.nevers(); neverError = nil } catch { neverError = describe(error) }
     }
 
     public func revoke(_ grant: Grant) async {
         do { try await client.revokeGrant(rule: grant.rule); grants.removeAll { $0.rule == grant.rule } } catch { self.error = describe(error) }
+    }
+
+    // MARK: "Never" rules (heron-v1.md item 35h)
+
+    /// Remove asks first: this opens the confirm sheet and changes nothing yet.
+    public func askToRemoveNever(_ rule: NeverRule) {
+        guard !isRemovingNever else { return }
+        pendingNeverRemoval = rule
+    }
+
+    public func cancelNeverRemoval() { pendingNeverRemoval = nil }
+
+    /// The confirmed removal: `DELETE /api/nevers`, then the list is read again so the page shows what the core holds.
+    /// A failure stays on the page as `neverError`, whether the delete or the refresh failed.
+    public func confirmNeverRemoval() async {
+        guard let rule = pendingNeverRemoval, !isRemovingNever else { return }
+        pendingNeverRemoval = nil
+        isRemovingNever = true
+        defer { isRemovingNever = false }
+        neverError = nil
+        var message: String?
+        do { try await client.removeNever(rule: rule.rule) } catch { message = describe(error) }
+        do { nevers = try await client.nevers() } catch { message = message ?? describe(error) }
+        neverError = message
     }
 
     public func setMode(_ mode: PermissionMode) async {

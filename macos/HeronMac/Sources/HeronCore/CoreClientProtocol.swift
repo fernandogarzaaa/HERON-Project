@@ -67,7 +67,10 @@ public protocol CoreClientProtocol: Sendable {
     func setAwareness(_ enabled: Bool) async throws                          // POST /api/awareness
     func grants() async throws -> [Grant]                                    // GET /api/grants
     func revokeGrant(rule: String) async throws                              // DELETE /api/grants
-    func usage() async throws -> UsageReport                                 // GET /api/usage
+    func nevers() async throws -> [NeverRule]                                // GET /api/nevers
+    /// `DELETE /api/nevers {"rule"}`. Throws `CoreError.notFound` (404) for a rule that isn't a "never".
+    func removeNever(rule: String) async throws                              // DELETE /api/nevers
+    func usage() async throws -> UsageReport                                // GET /api/usage
 }
 
 /// The `session` event that starts a run.

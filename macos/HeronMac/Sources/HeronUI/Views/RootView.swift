@@ -11,6 +11,9 @@ enum WindowMinimum {
     static let sidebarWidth: CGFloat = 220
     /// The first-run window.
     static let firstRun = CGSize(width: 900, height: 700)
+    /// The Settings window is a fixed 720 × 560 pt; its tab bar takes the top of that, so a tab's page is a little
+    /// shorter than the window.
+    static let settingsPage = CGSize(width: 720, height: 500)
     /// The page beside the sidebar in the smallest main window.
     static var page: CGSize { CGSize(width: main.width - sidebarWidth, height: main.height) }
 }
