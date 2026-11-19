@@ -7802,10 +7802,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "b57bdda46d12988ca72f9014d87a425a99b2e1f1",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "cffbb99fda4f880ab605a0916b050709d6b40b24",
+        "result_commit": "e31c656439b3ce3c70dd932a1972cfea74884740",
+        "shipped_at": "2026-11-19T19:07:41.606137+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Integrate parents of U3r",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "b57bdda46d12988ca72f9014d87a425a99b2e1f1",
       "branch": "skein/U3r__integrate-base",
