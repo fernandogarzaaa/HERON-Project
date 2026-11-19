@@ -4982,10 +4982,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "8c972a56ca3fc58a5e89d6a479f250a3efe20bca",
+        "result_commit": "d1bfed2fde88a633abe82238f282be5a902853db",
+        "shipped_at": "2026-11-19T01:07:33.970305+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U3g's review: stale settings save, startup window, unreadable config fails closed, never across cores",
-    "version": 55,
+    "version": 56,
     "worktree": {
       "base_branch": "skein/U3h__integrate-base",
       "base_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
