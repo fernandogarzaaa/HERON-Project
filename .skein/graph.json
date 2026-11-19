@@ -6491,9 +6491,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "blocked",
     "title": "Release and CI workflow changes",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "54bcccc119df0616e988ea48d255b8a633b66843",
       "base_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
