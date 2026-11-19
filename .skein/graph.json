@@ -6960,15 +6960,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "34f6b45599c046d3934d148725386111",
+      "base_branch": "skein/U7c__integrate-base",
+      "claim_token": "1ff4f6bfe89940cfb5c7a26969873fd7",
+      "claimed_at": "2026-11-19T04:37:48.508283+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T04:37:48.508283+00:00",
+      "node_version": 4,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U3i",
@@ -6991,9 +6991,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fixes from CI on all three OSes, two flaky tests (47b)",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "skein/U7c__integrate-base",
       "branch": null,
