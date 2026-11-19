@@ -6921,9 +6921,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from U3l's review (35k)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3o__integrate-base",
       "branch": null,
       "path": null
     }
