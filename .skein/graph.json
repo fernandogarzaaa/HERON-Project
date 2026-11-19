@@ -4698,11 +4698,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Core API client against the recorded fixtures",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "skein/U4b__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "b2760052fc73b6517ca2df020c7189c42667a669",
+      "branch": "skein/U4b",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U4b"
     }
   },
   "U4b__integrate": {
