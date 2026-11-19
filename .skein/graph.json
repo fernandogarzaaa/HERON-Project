@@ -7464,9 +7464,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from U3o's review (35m)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3q__integrate-base",
       "branch": null,
       "path": null
     }
