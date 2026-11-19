@@ -4912,11 +4912,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from U3g's review: stale settings save, startup window, unreadable config fails closed, never across cores",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U3h__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
+      "branch": "skein/U3h",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3h"
     }
   },
   "U3h__integrate": {
