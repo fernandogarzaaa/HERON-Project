@@ -4524,7 +4524,16 @@
     }
   },
   "U3g": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "0727143a47e94b22a9a5e2b637cfa048",
+        "ended_at": "2026-11-19T00:32:08.335632+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T00:07:59.784438+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -4536,22 +4545,58 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "0727143a47e94b22a9a5e2b637cfa048",
-      "base_branch": "skein/U3g__integrate-base",
-      "claim_token": "d32de5eb183c4087a511e08e09c14b27",
-      "claimed_at": "2026-11-19T00:07:59.784438+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:28:31.189816+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U2x",
       "SYNC13"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins",
+        "duration_ms": 15177,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3g_20261119T003128494124_0.log"
+      },
+      {
+        "command": "cargo test --locked --features desktop --bin heron-desktop",
+        "duration_ms": 12016,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3g_20261119T003143681616_1.log"
+      },
+      {
+        "command": "cargo clippy --locked --all-targets -- -D warnings",
+        "duration_ms": 429,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3g_20261119T003155700929_2.log"
+      },
+      {
+        "command": "HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins",
+        "duration_ms": 11581,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3g_20261119T003156133163_3.log"
+      },
+      {
+        "command": "bash eval/require-tests.sh --lib -- revoked_config_rule_stays_revoked_across_cores revoke_during_a_job_closes_read_file dropped_telegram_gateway_ends_the_run_on_the_bus explicit_mode_choice_is_saved_under_a_cli_override revoke_with_unparseable_config_changes_nothing revoked_config_grant_closes_for_a_run_in_progress",
+        "duration_ms": 430,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3g_20261119T003207718064_4.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3g_20261119T003208148555_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U3g",
     "integration_for": null,
     "intent": {
@@ -4563,13 +4608,51 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "0727143a47e94b22a9a5e2b637cfa048",
+      "base_commit": "19384e891d51f18541cde83bd23ada0397b7f645",
+      "changed_files": [
+        "src/app.rs",
+        "src/config.rs",
+        "src/permissions.rs",
+        "src/server.rs",
+        "src/telegram.rs",
+        "src/tools/shell.rs"
+      ],
+      "commit": "715d544a4a918d9611915bba42d701a576b1b3c0",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 186,
+          "deleted": 10
+        },
+        "src/config.rs": {
+          "added": 110,
+          "deleted": 3
+        },
+        "src/permissions.rs": {
+          "added": 21,
+          "deleted": 3
+        },
+        "src/server.rs": {
+          "added": 160,
+          "deleted": 29
+        },
+        "src/telegram.rs": {
+          "added": 60,
+          "deleted": 5
+        },
+        "src/tools/shell.rs": {
+          "added": 29,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Fixes from U3f's review: config.toml revoke across cores, job read_file, dropped gateway run_end, explicit choices saved, atomic revoke",
-    "version": 45,
+    "version": 53,
     "worktree": {
       "base_branch": "skein/U3g__integrate-base",
       "base_commit": "19384e891d51f18541cde83bd23ada0397b7f645",
@@ -5251,7 +5334,7 @@
       "claim_token": "50ec8a0cbdb54e23888c8ded429d4376",
       "claimed_at": "2026-11-19T00:28:43.578128+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T00:28:43.578128+00:00",
+      "last_heartbeat": "2026-11-19T00:31:43.934774+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -5277,9 +5360,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Scrolling only where content overflows; risk-notice box sized to content; overflow snapshots",
-    "version": 4,
+    "version": 10,
     "worktree": {
       "base_branch": "skein/U4c__integrate-base",
       "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
