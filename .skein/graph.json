@@ -6244,15 +6244,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "8d8a826502764da5b892ebdccffbcabc",
+      "base_branch": "skein/U7__integrate-base",
+      "claim_token": "3fd708b527394cb3a687658cd6551eb3",
+      "claimed_at": "2026-11-19T01:07:08.526748+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T01:07:08.526748+00:00",
+      "node_version": 11,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U4c",
@@ -6275,9 +6275,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test",
-    "version": 11,
+    "version": 12,
     "worktree": {
       "base_branch": "skein/U7__integrate-base",
       "branch": null,
