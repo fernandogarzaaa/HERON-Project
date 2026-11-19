@@ -6993,11 +6993,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from CI on all three OSes, two flaky tests (47b)",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "skein/U7c__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "c454dbc14232408cf80f4ad8645d2957bc7b66da",
+      "branch": "skein/U7c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U7c"
     }
   },
   "U7c__integrate": {
