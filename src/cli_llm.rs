@@ -783,6 +783,7 @@ async fn capture(mut cmd: Command, path: &Path, timeout_secs: u64) -> Result<Str
     // overlayfs even after the writer has closed. This also affects
     // user-installed CLI wrappers that have just been replaced. Retry
     // only that transient Unix errno; other spawn errors fail normally.
+    #[cfg(unix)]
     let mut attempt = 0;
     let mut child = loop {
         match cmd.spawn() {
