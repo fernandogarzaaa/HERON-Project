@@ -30,7 +30,7 @@ a few bash scripts.
 | `--runs N` | Runs per task. Default 3, the G7 sizing. |
 | `--out DIR` | Folder that gets `summary.json`. |
 | `--driver eve\|direct` | How the turn is sent. Default `eve`. |
-| `--topology envelope\|hybrid` | Default `envelope`. `hybrid` needs `--build debug`. |
+| `--topology envelope` | The only topology. `hybrid` was removed in U2w (the envelope won the spike) and is refused. |
 | `--build debug\|release` | Build with `cargo build --locked` (plus `--release`). Default `release`. |
 | `--heron-bin PATH` | Use this binary and skip the build. |
 | `--artifacts DIR` | Per-run folders (home, working folder, logs). Default `DIR/runs`. |

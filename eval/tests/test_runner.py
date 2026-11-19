@@ -150,9 +150,17 @@ class Config(TempCase):
         self.assertNotIn("HERON_CLI_TOPOLOGY", env)
         self.assertNotIn("HERON_X", env)
 
-    def test_core_env_sets_the_topology_only_for_hybrid(self):
-        self.assertEqual(rct.core_env("/h", "hybrid")["HERON_CLI_TOPOLOGY"], "hybrid")
-        self.assertNotIn("HERON_CLI_TOPOLOGY", rct.core_env("/h", "envelope"))
+    def test_core_env_never_sets_a_topology(self):
+        # U2w deleted the hybrid topology, so nothing selects it any more.
+        for topology in ("envelope", "hybrid"):
+            self.assertNotIn("HERON_CLI_TOPOLOGY", rct.core_env("/h", topology))
+
+    def test_hybrid_topology_is_refused(self):
+        # A hybrid run would silently run the envelope under a hybrid label.
+        opts = rct.parse_args(["--provider", "demo", "--out", "/tmp/x", "--topology", "hybrid", "--build", "debug"])
+        with self.assertRaises(rct.UsageError) as ctx:
+            rct.validate_options(opts, [])
+        self.assertIn("removed in U2w", str(ctx.exception))
 
 
 class EveConfig(unittest.TestCase):
@@ -209,8 +217,10 @@ class Options(unittest.TestCase):
                 with self.assertRaises(rct.UsageError):
                     rct.validate_options(opts, self.tasks())
 
-    def test_hybrid_with_a_debug_build_is_allowed(self):
-        rct.validate_options(self.opts(topology="hybrid", build="debug"), self.tasks())
+    def test_hybrid_is_refused_even_with_a_debug_build(self):
+        # Before U2w, hybrid ran with a debug build. The core has no hybrid mode now.
+        with self.assertRaises(rct.UsageError):
+            rct.validate_options(self.opts(topology="hybrid", build="debug"), self.tasks())
 
     def test_bad_flags_exit_2(self):
         with self.assertRaises(SystemExit) as ctx:
