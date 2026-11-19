@@ -5210,7 +5210,7 @@
       "claim_token": "22ae7c75e1a449689ff807ec85978a57",
       "claimed_at": "2026-11-19T03:52:28.180755+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T03:54:58.470591+00:00",
+      "last_heartbeat": "2026-11-19T03:55:58.548598+00:00",
       "node_version": 58,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -5250,7 +5250,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3h's review (35e)",
-    "version": 65,
+    "version": 67,
     "worktree": {
       "base_branch": "skein/U3i__integrate-base",
       "base_commit": "e037c700161e793ef6cb91e3be92b8148dd9a9c8",
@@ -6783,10 +6783,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "76165ba5490b418ec01791e54db6c5e638432518",
+        "result_commit": "d3aad305fc4b233e447ebd347cc60436cea104d7",
+        "shipped_at": "2026-11-19T03:56:22.051721+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Release and CI workflow changes",
-    "version": 11,
+    "version": 12,
     "worktree": {
       "base_branch": "54bcccc119df0616e988ea48d255b8a633b66843",
       "base_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
