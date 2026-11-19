@@ -6250,6 +6250,14 @@
         "holder": "agent-1",
         "outcome": "failed",
         "started_at": "2026-11-19T01:07:08.526748+00:00"
+      },
+      {
+        "attempt_id": "579f58653a6f45aaa5d29eaca5920490",
+        "ended_at": "2026-11-19T01:16:44.391065+00:00",
+        "error": "released by agent-1",
+        "holder": "agent-1",
+        "outcome": "released",
+        "started_at": "2026-11-19T01:16:15.768772+00:00"
       }
     ],
     "attempts_used": 0,
@@ -6263,15 +6271,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "579f58653a6f45aaa5d29eaca5920490",
-      "base_branch": "skein/U7__integrate-base",
-      "claim_token": "d3de8ee97da54b21a2fe6c00ea2f6ca1",
-      "claimed_at": "2026-11-19T01:16:15.768772+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T01:16:15.768772+00:00",
-      "node_version": 30,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U4c",
@@ -6290,7 +6298,7 @@
         "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U7_20261119T011527158213_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "completion command failed (adapter exit=0); see evidence\n[release note] released by agent-1",
     "id": "U7",
     "integration_for": null,
     "intent": {
@@ -6306,9 +6314,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test",
-    "version": 32,
+    "version": 33,
     "worktree": {
       "base_branch": "skein/U7__integrate-base",
       "base_commit": "8879a8df1ef209e79497077acd7951d92568d372",
