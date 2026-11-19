@@ -5863,9 +5863,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from U3j's review (35g, owner decision)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3k__integrate-base",
       "branch": null,
       "path": null
     }
