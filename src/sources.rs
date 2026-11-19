@@ -4,7 +4,7 @@
 
 use crate::app::App;
 use crate::llm::{ChatRequest, Llm, Message};
-use crate::memory::{tokenize, SaveOutcome};
+use crate::memory::{tokenize, SaveOutcome, Saved, Standing, WAITING_NOTE};
 use crate::permissions::{classify_path, Effect};
 use crate::store::{KnowledgeItem, Store};
 use crate::util::{now_ts, preview, truncate_middle};
@@ -515,12 +515,15 @@ async fn learn_one(app: &App, source: &str) -> Result<Vec<String>> {
                         || provider.account_epoch(&current).as_ref() != source_account_epoch.as_ref() {
                         bail!("OAuth account was disconnected or changed during source learning.");
                     }
-                    app.memory.save(content, kind, source, importance, source).await?
+                    app.memory.save_detailed(content, kind, source, importance, source, None).await?
                 } else {
-                    app.memory.save(content, kind, source, importance, source).await?
+                    app.memory.save_detailed(content, kind, source, importance, source, None).await?
                 };
-                if let SaveOutcome::Created(_) = result {
-                    learned.push(content.to_string());
+                match result {
+                    // Kept unconfirmed next to something that came from outside: waiting for the user.
+                    Saved { standing: Standing::Unconfirmed | Standing::AlreadyUnconfirmed, .. } => learned.push(format!("{content}{WAITING_NOTE}")),
+                    Saved { outcome: SaveOutcome::Created(_), .. } => learned.push(content.to_string()),
+                    _ => {}
                 }
             }
         }
