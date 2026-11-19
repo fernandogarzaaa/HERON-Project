@@ -7726,11 +7726,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from U3p's review (35n)",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U3r__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "e31c656439b3ce3c70dd932a1972cfea74884740",
+      "branch": "skein/U3r",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3r"
     }
   },
   "U3r__integrate": {
