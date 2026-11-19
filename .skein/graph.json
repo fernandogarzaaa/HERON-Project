@@ -5834,6 +5834,14 @@
         "holder": "agent-1",
         "outcome": "failed",
         "started_at": "2026-11-19T16:18:06.270687+00:00"
+      },
+      {
+        "attempt_id": "b48ded9ac3a745358d669445abd72cb5",
+        "ended_at": "2026-11-19T16:25:31.718685+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T16:24:02.121221+00:00"
       }
     ],
     "attempts_used": 1,
@@ -5847,15 +5855,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "b48ded9ac3a745358d669445abd72cb5",
-      "base_branch": "skein/U3k__integrate-base",
-      "claim_token": "3db866f6fe9345bebc1d342ce50e6aa2",
-      "claimed_at": "2026-11-19T16:24:02.121221+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T16:24:02.121221+00:00",
-      "node_version": 70,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3j",
@@ -5864,17 +5872,17 @@
     "evidence": [
       {
         "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- recreated_config_does_not_lift_a_never_on_an_idle_core heron_init_does_not_lift_a_never hand_edit_cannot_lift_a_never only_the_app_lifts_a_never concurrent_mode_changes_end_as_the_file_says recreated_config_does_not_lift_a_never same_tool_settings_on_one_core_end_as_the_file_says",
-        "duration_ms": 96318,
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3k_20261119T161851395054_0.log"
+        "duration_ms": 56387,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3k_20261119T162435093140_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3k_20261119T162027717133_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3k_20261119T162531482150_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: Next: the supervisor runs the completion check on this worktree. Change-policy warnings: eval/require-tests.sh is outside the declared blast radius ['src/**']",
     "id": "U3k",
     "integration_for": null,
     "intent": {
@@ -5886,13 +5894,46 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "b48ded9ac3a745358d669445abd72cb5",
+      "base_commit": "476f1dbf9ac54d6d48d90a21fec154b4784bee44",
+      "changed_files": [
+        "eval/require-tests.sh",
+        "src/app.rs",
+        "src/config.rs",
+        "src/server.rs",
+        "src/store.rs"
+      ],
+      "commit": "b195b36ffc3ba4a2d4e9d482ed1975199a2754b2",
+      "diff_stats": {
+        "eval/require-tests.sh": {
+          "added": 3,
+          "deleted": 1
+        },
+        "src/app.rs": {
+          "added": 231,
+          "deleted": 112
+        },
+        "src/config.rs": {
+          "added": 15,
+          "deleted": 6
+        },
+        "src/server.rs": {
+          "added": 294,
+          "deleted": 16
+        },
+        "src/store.rs": {
+          "added": 5,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Fixes from U3j's review (35g, owner decision)",
-    "version": 72,
+    "version": 75,
     "worktree": {
       "base_branch": "skein/U3k__integrate-base",
       "base_commit": "476f1dbf9ac54d6d48d90a21fec154b4784bee44",
