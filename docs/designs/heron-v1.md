@@ -761,6 +761,35 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 *   [docs/cli-providers.md](../cli-providers.md): today's CLI provider behaviour.
 *   Review reports: [reviews/](reviews/).
 
+## Known low issues
+
+Open at v1 (2026-11-20). The review rule for the last rounds: a medium or high finding gets a fix unit before verify; lows are listed here and in the v1 PR description instead. Locations are at 39684aa unless the item says otherwise.
+
+### Memory trust (reviews of U3p to U3v)
+
+*   **A user restating a planted outside row loses their fact's standing (low, close to medium; introduced by U3v).** When a `user` or `onboarding` save repeats an outside row's words, that row is confirmed and the user's nearer fact is retired, but the survivor keeps the outside row's kind, importance and tags (`src/memory.rs` around 361-377), so the fact can drop out of the always-on "About the user" memories. It stays confirmed, in the user's words, and found by search. Fix: give the survivor the retired fact's kind, the higher importance and merged tags.
+*   **Mixed scores can pick an outside row as the one a user updates (low; remote or neural embedder only).** Built-in and embedder similarities are sorted together (`src/memory.rs` around 285-318), so a user's update can target an in-space outside row and leave two confirmed versions of the fact.
+*   **The echo checks see the 3000 most important memories (low).** `list_memories(None, 3000)` is ordered by importance and outside rows are saved at 0.6 or less, so in a store of more than 3000 memories the oldest outside rows get neither the exact-words nor the near-echo check.
+*   **Small information and wording leaks (low).** `recall`'s count of unconfirmed matches and the "already says this" reply let the model learn whether outside rows match a query (no text, no instructions). `same_words` ignores letter case, so a change that only changes case (a URL path, an ID) is reported as "nothing changed". An unconfirmed row updated in place keeps no history.
+
+### Restore and permissions
+
+*   **The schema check compares triggers and views only (low; no exploit found).** Table and index definitions in a copy are not compared with Heron's (a `kv` with a CHECK constraint passes); the odd shapes the reviewers tried fail closed. A trigger row stored as a blob is refused with an unhelpful message.
+*   **The damaged-nevers merge works line by line (low).** It collapses duplicate lines inside the current value, and a damaged value that itself contains newlines (only on real corruption) loses its record boundary. A record the user cleared comes back from an older copy that still holds it (the stricter side, 35q).
+*   **File tools do not re-check the path when they open it (low; existed before v1).** A file swapped between the check and the open (TOCTOU) is read as checked.
+*   **`cli_config_dir = "~"` (low).** The child gets `CLAUDE_CONFIG_DIR=$HOME` while the sandbox does not open it (safe, confusing), and the value is not trimmed.
+
+### Reported by earlier reviews, not re-checked at the v1 head
+
+*   U3f round: job and suggestion `read_file` use the policy from the start of the run; `AbortAgentsOnDrop` sends no `run_end`; an explicit choice equal to the CLI override is not saved; a revoke on an unparseable config half-applies.
+*   U3h round: the `config.toml.previous` message. U3i round: the policy is read outside the lock in one path. U3j round: `set_mode` runs outside the lock.
+*   U1i round: test location dependence, one model-call assertion that cannot fail, an untested `/Volumes` alias.
+
+### Outside the code
+
+*   **M-DEP-1 (P2): rusqlite 0.32.1** is behind; upgrading touches `Cargo.lock` and is left for after v1.
+*   **Branch protection** on `main` has `enforce_admins` off.
+
 ## Future Improvements
 
 *   **CLI-owned loop (topology c),** once its preconditions in [Alternative A](#alternative-a-let-the-cli-own-the-agent-loop-topology-c) hold.
@@ -1792,7 +1821,7 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 
 *   **Type / Scope**: `src/**`. The U3u review found 35q's claims true, no high or medium issue introduced, every named mutant killed, and one medium finding that existed before.
 *   **Every outside row gets the built-in-embedder comparison (medium, demonstrated, existed before U3u).** The built-in comparison ran only for outside rows outside the current embedder's space, so with a case-sensitive remote embedder a near-echo of an in-space outside row (the same words in other letter case plus a "!") stayed under that embedder's bar, failed the exact-words check, and became a confirmed memory that retired the user's fact. The built-in comparison now runs for every unconfirmed outside row, at its own threshold. Test: `a_near_echo_of_an_in_space_outside_row_stays_unconfirmed` (case-sensitive test embedder).
-*   **A user restating an outside row still retires their older fact (low, demonstrated, introduced by U3u).** A `user` or `onboarding` save in the exact words of an outside row confirmed that row and left the user's nearer older fact confirmed too, so two confirmed versions remained. A vouching save still confirms what it restates, and the nearer confirmed fact it updates is retired as before U3u. Test: `a_user_restating_an_outside_row_keeps_one_confirmed_version`.
+*   **A user restating an outside row still retires their older fact (low, demonstrated, introduced by U3u).** A `user` or `onboarding` save in the exact words of an outside row confirmed that row and left the user's nearer older fact confirmed too, so two confirmed versions remained. A vouching save still confirms what it restates, and the nearer confirmed fact is retired, so one confirmed version remains. (Correction after the U3v review: before U3u nothing was retired on this path, and when a fact was retired the new row took its kind, importance and tags; U3v's survivor keeps the outside row's instead. Listed under Known low issues.) Test: `a_user_restating_an_outside_row_keeps_one_confirmed_version`.
 *   **An assertion U3u dropped comes back (test only).** `restore_keeps_pause_telegram_lock_and_damaged_nevers_from_now` again asserts that `not_a_switch` comes back from the copy when there is no current kv.
 
 #### Work unit U2w: apply the measurements
