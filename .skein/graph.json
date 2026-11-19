@@ -390,6 +390,84 @@
     }
   },
   "SYNC15": {
+    "attempts": [
+      {
+        "attempt_id": "c5544162511844c08a6a0d8235b154d7",
+        "ended_at": "2026-11-19T00:42:03.272588+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T00:41:55.519964+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "grep -q never_on_one_core_holds_on_another docs/designs/heron-v1.md",
+        "duration_ms": 212,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC15_20261119T004203008921_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC15_20261119T004203221630_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I made no changes and ran nothing, per the constraints, so the completion check (`grep -q never_on_one_core_holds_on_another docs/designs/heron-v1.md`) is unverified.",
+    "id": "SYNC15",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q never_on_one_core_holds_on_another docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3h's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "c5544162511844c08a6a0d8235b154d7",
+      "base_commit": "6cce13f37f539e68948679c8423b3e1ff009d6a1",
+      "changed_files": [],
+      "commit": "6cce13f37f539e68948679c8423b3e1ff009d6a1",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Sync: capture the feat/heron-v1 head for U3h",
+    "version": 4,
+    "worktree": {
+      "base_branch": "feat/heron-v1",
+      "base_commit": "6cce13f37f539e68948679c8423b3e1ff009d6a1",
+      "branch": "skein/SYNC15",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC15"
+    }
+  },
+  "SYNC16": {
     "attempts": [],
     "attempts_used": 0,
     "backend": "claude_build_rust",
@@ -402,12 +480,12 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "c5544162511844c08a6a0d8235b154d7",
+      "attempt_id": "426a1eb96c974af2bae5c5b6ab608712",
       "base_branch": "feat/heron-v1",
-      "claim_token": "b76502ab2ead42f2af0ab9bb61635ed0",
-      "claimed_at": "2026-11-19T00:41:55.519964+00:00",
+      "claim_token": "97abf53ca7c541c2815c49515957a892",
+      "claimed_at": "2026-11-19T01:23:27.314737+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:41:55.519964+00:00",
+      "last_heartbeat": "2026-11-19T01:23:27.314737+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -415,13 +493,13 @@
     "depends_on": [],
     "evidence": [],
     "handoff_note": null,
-    "id": "SYNC15",
+    "id": "SYNC16",
     "integration_for": null,
     "intent": {
-      "completion": "grep -q never_on_one_core_holds_on_another docs/designs/heron-v1.md",
+      "completion": "grep -q tool_setting_on_a_stale_core_is_saved docs/designs/heron-v1.md",
       "constraints": "Do not read, write or run anything.",
       "context": "No spec work.",
-      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3h's base. Reply 'done' and stop."
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3i's base. Reply 'done' and stop."
     },
     "max_retries": 0,
     "rejected_count": 0,
@@ -431,7 +509,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "claimed",
-    "title": "Sync: capture the feat/heron-v1 head for U3h",
+    "title": "Sync feat head into U3i base",
     "version": 2,
     "worktree": {
       "base_branch": "feat/heron-v1",
@@ -4839,7 +4917,16 @@
     }
   },
   "U3h": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "af7c84881ec7450a83df2bd32a07be29",
+        "ended_at": "2026-11-19T01:07:07.870890+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T00:42:03.845001+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -4865,8 +4952,44 @@
       "U3g",
       "SYNC15"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins",
+        "duration_ms": 12500,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3h_20261119T010638973120_0.log"
+      },
+      {
+        "command": "cargo test --locked --features desktop --bin heron-desktop",
+        "duration_ms": 2708,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3h_20261119T010651476707_1.log"
+      },
+      {
+        "command": "cargo clippy --locked --all-targets -- -D warnings",
+        "duration_ms": 416,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3h_20261119T010654187784_2.log"
+      },
+      {
+        "command": "HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins",
+        "duration_ms": 12720,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3h_20261119T010654607666_3.log"
+      },
+      {
+        "command": "bash eval/require-tests.sh --lib -- settings_save_does_not_bring_back_a_revoked_rule new_core_drops_a_rule_revoked_while_it_started unreadable_config_drops_its_rules_on_reload never_on_one_core_holds_on_another",
+        "duration_ms": 420,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3h_20261119T010707331301_4.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3h_20261119T010707752085_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U3h",
     "integration_for": null,
     "intent": {
@@ -4878,12 +5001,182 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
+    "result": {
+      "attempt_id": "af7c84881ec7450a83df2bd32a07be29",
+      "base_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
+      "changed_files": [
+        "src/app.rs",
+        "src/config.rs",
+        "src/permissions.rs",
+        "src/server.rs"
+      ],
+      "commit": "d1bfed2fde88a633abe82238f282be5a902853db",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 182,
+          "deleted": 61
+        },
+        "src/config.rs": {
+          "added": 23,
+          "deleted": 2
+        },
+        "src/permissions.rs": {
+          "added": 18,
+          "deleted": 0
+        },
+        "src/server.rs": {
+          "added": 371,
+          "deleted": 81
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "8c972a56ca3fc58a5e89d6a479f250a3efe20bca",
+        "result_commit": "d1bfed2fde88a633abe82238f282be5a902853db",
+        "shipped_at": "2026-11-19T01:07:33.970305+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
+    "title": "Fixes from U3g's review: stale settings save, startup window, unreadable config fails closed, never across cores",
+    "version": 56,
+    "worktree": {
+      "base_branch": "skein/U3h__integrate-base",
+      "base_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
+      "branch": "skein/U3h",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3h"
+    }
+  },
+  "U3h__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "575159c929aa4c6296f53821198019ff",
+        "ended_at": "2026-11-19T00:42:03.780441+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-19T00:42:03.485040+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3g",
+      "SYNC15"
+    ],
+    "evidence": [
+      {
+        "command": "git merge 6cce13f37f539e68948679c8423b3e1ff009d6a1",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['715d544a4a918d9611915bba42d701a576b1b3c0', '6cce13f37f539e68948679c8423b3e1ff009d6a1'] into skein/U3h__integrate-base.",
+    "id": "U3h__integrate",
+    "integration_for": "U3h",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U3g', 'SYNC15'] into one base branch for U3h."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "715d544a4a918d9611915bba42d701a576b1b3c0",
+      "changed_files": [],
+      "commit": "d4d655e81660319ed68df6352a8f578b963177b0",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "715d544a4a918d9611915bba42d701a576b1b3c0",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "723a3d2540f3f9986ff364ea41600428dc0486ba",
+        "result_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
+        "shipped_at": "2026-11-19T00:48:57.092819+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
+    "title": "Integrate parents of U3h",
+    "version": 4,
+    "worktree": {
+      "base_branch": "715d544a4a918d9611915bba42d701a576b1b3c0",
+      "branch": "skein/U3h__integrate-base",
+      "path": null
+    }
+  },
+  "U3i": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3h",
+      "SYNC16"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U3i",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- tool_setting_on_a_stale_core_is_saved failed_tool_setting_save_changes_nothing first_run_core_takes_in_rules_written_during_startup never_survives_a_missing_config_and_the_next_save mcp_serve_reloads_rules_before_each_call settings_save_does_not_bring_back_a_revoked_rule",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md items 35e, 35d, 35c, 35b, and section 3 'Another core already running'.",
+      "goal": "Fix what an independent review of U3h found, as the spec's item 35e ('Fixes from U3h's review') says. Line numbers below are from U3h's result d1bfed2.\n(1) Medium, demonstrated: set_tool (server.rs:1153-1163) edits A's in-memory deny/allow lists by retain-then-push, and save_config diffs against in-memory `before` (app.rs:261,265). If another core already cleared the rule on disk and this core hasn't reloaded, the diff is empty, nothing is written, and the reload in the same save (app.rs:452 remove_deny) drops the deny from this core too. Fix: under the config lock, take in the file's current rules first, then apply the change, and always write the edited rule's membership in both lists (like `chosen` does for mode/model). Test tool_setting_on_a_stale_core_is_saved: two Apps on one home, both start with web_fetch:* as never; B sets ask; A (not reloaded) sets never; assert A's policy denies, the file's deny list holds web_fetch:*, B denies after reload, and a fresh core reports never. Also cover allow and ask.\n(2) Low, demonstrated: set_tool changes the live policy before the save (server.rs:1153), so with an unparseable config.toml it returns 400 but the grant is live, and the next persist_rules (app.rs:364) writes it to kv. Fix: save first, change the policy only after the save succeeds. Test failed_tool_setting_save_changes_nothing: break config.toml, POST allow, assert error, policy unchanged, then call persist_rules and assert kv has no such rule; same for never on an ask request.\n(3) Low, demonstrated: with no config.toml at startup, `seen` falls back to the file as it is at assemble time (app.rs:168-171) while the policy came from defaults, so a rule another core wrote in between is never taken in. Fix: fall back to SavedRules::default(). Test first_run_core_takes_in_rules_written_during_startup.\n(4) Amends 35d: never (deny) rules stay in force while config.toml is missing or unparseable (app.rs:413-422 already keeps them), and a save that recreates the file writes the deny rules this core still holds, so the next reload doesn't drop them (today the recreated defaults file drops it: reviewer probe showed deny=[] after one save). Allow rules still drop. Fix the code comment to match. Test never_survives_a_missing_config_and_the_next_save.\n(5) heron mcp-serve (main.rs:823-827 -> mcp.rs:235,271) decides with &app.policy and never reloads. Call reload_rules before each tool call. Test mcp_serve_reloads_rules_before_each_call: a rule revoked or set to never on another App is honoured by the serve path's next call.\n(6) settings_save_does_not_bring_back_a_revoked_rule removes its Keychain entry (service Heron, account email_password@<hash of its temp home>, written server.rs:1494, deleted :2261) only as its last statement. Put the delete in a Drop guard so a failed assert or panic still removes it. Touch only that test's own entry.\nKeep every existing test and assertion. Each new test must fail with its fix removed; check that by reasoning or by temporarily reverting, then restore. Reads under /private/tmp count as local reads in this codebase, so put any folder that must need a grant under a HomeTemp-style folder, as existing tests do."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
     "result": null,
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "unclaimed",
-    "title": "Fixes from U3g's review: stale settings save, startup window, unreadable config fails closed, never across cores",
+    "title": "Fixes from U3h's review (35e)",
     "version": 1,
     "worktree": {
       "base_branch": null,
@@ -5508,9 +5801,25 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-19T00:28:43.578128+00:00"
+      },
+      {
+        "attempt_id": "f680f05ee79e4c5f852073060c37c99d",
+        "ended_at": "2026-11-19T00:42:57.122394+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-19T00:41:02.472020+00:00"
+      },
+      {
+        "attempt_id": "008efa07a4d44b2c9605fe7ef735cf98",
+        "ended_at": "2026-11-19T00:48:23.110900+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-19T00:45:01.101874+00:00"
       }
     ],
-    "attempts_used": 0,
+    "attempts_used": 1,
     "backend": "claude_build_swift",
     "backend_config": {
       "effort": "high",
@@ -5521,15 +5830,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "f680f05ee79e4c5f852073060c37c99d",
-      "base_branch": "skein/U4c__integrate-base",
-      "claim_token": "06da60cff54f4d8c9a1a83a0ddb2def7",
-      "claimed_at": "2026-11-19T00:41:02.472020+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T00:41:32.649340+00:00",
-      "node_version": 30,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U4b",
@@ -5538,53 +5847,140 @@
     "evidence": [
       {
         "command": "swift build --package-path macos/HeronMac",
-        "duration_ms": 10259,
+        "duration_ms": 834,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T003920667931_0.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004802959605_0.log"
       },
       {
         "command": "swift test --package-path macos/HeronMac",
-        "duration_ms": 13207,
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T003930933146_1.log"
+        "duration_ms": 11448,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004803799448_1.log"
       },
       {
         "command": "swift test --package-path macos/HeronMac --filter OverflowSnapshotTests",
-        "duration_ms": 5665,
+        "duration_ms": 6230,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T003944145635_2.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004815252211_2.log"
       },
       {
         "command": "swift test --package-path macos/HeronMac list > \"${TMPDIR:-/tmp}/u4c-tests.txt\" && grep -q 'OverflowSnapshotTests' \"${TMPDIR:-/tmp}/u4c-tests.txt\"",
-        "duration_ms": 1039,
+        "duration_ms": 1489,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T003949816630_3.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004821485740_3.log"
       },
       {
         "command": "<adapter:claude_build_swift>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T003950856472_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004822975635_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: I didn't mutation-test the new sizing tests with testteeth.",
     "id": "U4c",
     "integration_for": null,
     "intent": {
       "completion": "swift build --package-path macos/HeronMac\nswift test --package-path macos/HeronMac\nswift test --package-path macos/HeronMac --filter OverflowSnapshotTests\nswift test --package-path macos/HeronMac list > \"${TMPDIR:-/tmp}/u4c-tests.txt\" && grep -q 'OverflowSnapshotTests' \"${TMPDIR:-/tmp}/u4c-tests.txt\"",
       "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
       "context": "Spec: docs/designs/heron-v1.md item 41b and item 41 (snapshot helper rules), Work unit U4 split notes; visual spec docs/designs/heron-mac-visual.md (risk notice row now says sized to content up to 230 pt). U4a/U4b code is in macos/HeronMac (RootView.swift sets the min frames; SnapshotHelper in Tests/HeronUITests). You may run swift build and swift test yourself.",
-      "goal": "Build the spec's item 41b (search 'Scrolling where content overflows'), the owner's request: content that overflows must scroll 'where its appropriate. dont add random scrolling features everywhere'. (1) Exactly one scroll container per page, never nested, for the views that can grow past the window: chat transcript (pinned to the newest message unless the user scrolled up), the risk-notice risk list, approval details ('Show details'), settings and permission lists, tool output. (2) Short dialogs, buttons, headers and footers get no scroll view; footers and primary buttons stay visible while content above scrolls. (3) The risk-notice box is as tall as its text up to 230 pt and scrolls only when taller; no empty space below short text. (4) Add OverflowSnapshotTests in HeronUITests at the window's minimum size (the minWidth/minHeight the app sets), light mode, with long demo content from the preview stubs (long transcript, long risk list, long tool output, long approval details), plus a short-risk-list case showing the box at content height. If ImageRenderer can't render scroll views, render an NSHostingView into a bitmap. New references are recorded on the first run (item 41 rules); run swift test again so they pass, and look at each PNG you record to confirm nothing but a scroll edge clips content and the footer is visible. Keep every existing test passing; update existing snapshot references only where this change alters them, and say which in your handoff.\n\nTRY 1 RESULT (supervisor reviewed the recorded PNGs): the overflow snapshots for transcript, tool output, long risk list, approval details and the short risk list look right. Keep them. ONE BUG: the re-recorded risk-notice-sandbox-on-light/-on-dark/-off-dark references still show the 230 pt box with a large empty area under the two-entry preview text, which is exactly what item 41b removes. Cause: HScroll's flat branch (heronFlatScroll, Components.swift) does content.frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .topLeading).clipped(), and inside RiskNoticeView's maxHeight: .infinity parent that flexible frame grows to maxHeight. Snapshots must show what the app shows: make the flat branch size to the content's natural height (fixedSize vertically, measured like the non-flat branch) and clip only when taller than maxHeight. Then delete those three risk-notice-* references (they were recorded with the bug) and run swift test --package-path macos/HeronMac twice as separate Bash calls so they re-record and pass; Read each re-recorded PNG and confirm the box hugs the text and the checkbox/footer sit right under it. ALSO (owner rule, now in spec item 41b): the Inbox detail pane (parked approvals, suggestions, delivered items) scrolls when its text is long. It sits beside the Inbox List, not inside it, so it is a separate page area, not nesting. Use HScroll (no maxHeight) for the detail pane only. Add an OverflowSnapshotTests case for a long Inbox detail if the renderer allows; otherwise a layout test. Keep one scroll container per page area, never nested."
+      "goal": "Build the spec's item 41b (search 'Scrolling where content overflows'), the owner's request: content that overflows must scroll 'where its appropriate. dont add random scrolling features everywhere'. (1) Exactly one scroll container per page, never nested, for the views that can grow past the window: chat transcript (pinned to the newest message unless the user scrolled up), the risk-notice risk list, approval details ('Show details'), settings and permission lists, tool output. (2) Short dialogs, buttons, headers and footers get no scroll view; footers and primary buttons stay visible while content above scrolls. (3) The risk-notice box is as tall as its text up to 230 pt and scrolls only when taller; no empty space below short text. (4) Add OverflowSnapshotTests in HeronUITests at the window's minimum size (the minWidth/minHeight the app sets), light mode, with long demo content from the preview stubs (long transcript, long risk list, long tool output, long approval details), plus a short-risk-list case showing the box at content height. If ImageRenderer can't render scroll views, render an NSHostingView into a bitmap. New references are recorded on the first run (item 41 rules); run swift test again so they pass, and look at each PNG you record to confirm nothing but a scroll edge clips content and the footer is visible. Keep every existing test passing; update existing snapshot references only where this change alters them, and say which in your handoff.\n\nTRY 1 RESULT (supervisor reviewed the recorded PNGs): the overflow snapshots for transcript, tool output, long risk list, approval details and the short risk list look right. Keep them. ONE BUG: the re-recorded risk-notice-sandbox-on-light/-on-dark/-off-dark references still show the 230 pt box with a large empty area under the two-entry preview text, which is exactly what item 41b removes. Cause: HScroll's flat branch (heronFlatScroll, Components.swift) does content.frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .topLeading).clipped(), and inside RiskNoticeView's maxHeight: .infinity parent that flexible frame grows to maxHeight. Snapshots must show what the app shows: make the flat branch size to the content's natural height (fixedSize vertically, measured like the non-flat branch) and clip only when taller than maxHeight. Then delete those three risk-notice-* references (they were recorded with the bug) and run swift test --package-path macos/HeronMac twice as separate Bash calls so they re-record and pass; Read each re-recorded PNG and confirm the box hugs the text and the checkbox/footer sit right under it. ALSO (owner rule, now in spec item 41b): the Inbox detail pane (parked approvals, suggestions, delivered items) scrolls when its text is long. It sits beside the Inbox List, not inside it, so it is a separate page area, not nesting. Use HScroll (no maxHeight) for the detail pane only. Add an OverflowSnapshotTests case for a long Inbox detail if the renderer allows; otherwise a layout test. Keep one scroll container per page area, never nested.\n\nTRY 2 RESULT (supervisor ran the check and looked at the PNGs): the Inbox detail pane is good (overflow-inbox-detail-light shows the list plus a scrolling detail pane; keep it). The risk-notice box is STILL 230 pt with empty space in risk-notice-sandbox-on-light, and your two new tests fail: HScrollSizingTests testFlatShortContentIsAsTallAsItsContent (measured 0.0, expected 50) and testFlatTallContentIsClippedAtTheCap (0.0 vs 230). Cause: under ImageRenderer there is one layout pass, so the GeometryReader preference -> @State naturalHeight never updates; any approach that measures into @State reads 0 there. Use a stateless one-pass approach instead, e.g. a custom SwiftUI Layout (Layout protocol) that asks the child for sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) and reports min(ideal, maxHeight), used by the flat branch (and preferably the live branch, wrapping a ScrollView only when ideal > maxHeight, or ViewThatFits(in: .vertical)). The three risk-notice-* references in the worktree were re-recorded WITH the bug: delete them again before re-recording.\nHOW TO RUN SWIFT (why you could not build): your sandbox exempts a Bash call only when the WHOLE command is exactly 'swift build ...' or 'swift test ...' with nothing else: no '2>&1', no pipes (| tail, | grep), no &&, no rm, no cd, no --disable-sandbox. Your piped 'swift build ... 2>&1 | tail -15' ran inside the sandbox and failed. Run exactly: 'swift build --package-path macos/HeronMac' then 'swift test --package-path macos/HeronMac' (twice, separate calls, so new references record then pass), and use the Read tool on each re-recorded PNG. Delete files with a separate rm call."
     },
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "008efa07a4d44b2c9605fe7ef735cf98",
+      "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
+      "changed_files": [
+        "macos/HeronMac/DESIGN-CHOICES.md",
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/PreviewData.swift",
+        "macos/HeronMac/Sources/HeronUI/Tokens/Theme.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/ApprovalSheetView.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/ChatView.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/Components.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/FirstRunViews.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/RootView.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/ScreenViews.swift",
+        "macos/HeronMac/Tests/HeronUITests/SnapshotHelper.swift",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/risk-notice-sandbox-off-dark.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/risk-notice-sandbox-on-dark.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/risk-notice-sandbox-on-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/OverflowSnapshotTests.swift",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/overflow-approval-details-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/overflow-chat-tool-output-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/overflow-chat-transcript-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/overflow-inbox-detail-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/overflow-risk-notice-long-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/overflow-risk-notice-short-light.macos27.png"
+      ],
+      "commit": "fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7",
+      "diff_stats": {
+        "macos/HeronMac/DESIGN-CHOICES.md": {
+          "added": 6,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift": {
+          "added": 19,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewData.swift": {
+          "added": 61,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Tokens/Theme.swift": {
+          "added": 8,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/ApprovalSheetView.swift": {
+          "added": 15,
+          "deleted": 3
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/ChatView.swift": {
+          "added": 26,
+          "deleted": 8
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/Components.swift": {
+          "added": 45,
+          "deleted": 5
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/FirstRunViews.swift": {
+          "added": 5,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/RootView.swift": {
+          "added": 16,
+          "deleted": 3
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/ScreenViews.swift": {
+          "added": 11,
+          "deleted": 6
+        },
+        "macos/HeronMac/Tests/HeronUITests/OverflowSnapshotTests.swift": {
+          "added": 153,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronUITests/SnapshotHelper.swift": {
+          "added": 77,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
-    "status": "in_progress",
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "37752be85caa5ea5fee908c99bdd1f37c01b2e05",
+        "result_commit": "fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7",
+        "shipped_at": "2026-11-19T00:48:56.361057+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
     "title": "Scrolling only where content overflows; risk-notice box sized to content; overflow snapshots",
-    "version": 33,
+    "version": 49,
     "worktree": {
       "base_branch": "skein/U4c__integrate-base",
       "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
@@ -5949,7 +6345,32 @@
     }
   },
   "U7": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "8d8a826502764da5b892ebdccffbcabc",
+        "ended_at": "2026-11-19T01:15:27.174832+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-19T01:07:08.526748+00:00"
+      },
+      {
+        "attempt_id": "579f58653a6f45aaa5d29eaca5920490",
+        "ended_at": "2026-11-19T01:16:44.391065+00:00",
+        "error": "released by agent-1",
+        "holder": "agent-1",
+        "outcome": "released",
+        "started_at": "2026-11-19T01:16:15.768772+00:00"
+      },
+      {
+        "attempt_id": "f2602470dec945d3a5e00c502a9c6ea4",
+        "ended_at": "2026-11-19T01:17:25.607412+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T01:17:05.220186+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -5975,34 +6396,173 @@
       "U4c",
       "U3h"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash packaging/macos/make-upgrade-fixture.sh --if-missing && bash packaging/macos/build-app.sh --unsigned && test -f dist/Heron-macos-universal.dmg && test -x dist/Heron.app/Contents/MacOS/heron-cli && bash packaging/macos/upgrade-test.sh",
+        "duration_ms": 8006,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U7_20261119T011717508880_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U7_20261119T011725515646_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run the completion check. The upgrade test is its last step.",
     "id": "U7",
     "integration_for": null,
     "intent": {
       "completion": "bash packaging/macos/make-upgrade-fixture.sh --if-missing && bash packaging/macos/build-app.sh --unsigned && test -f dist/Heron-macos-universal.dmg && test -x dist/Heron.app/Contents/MacOS/heron-cli && bash packaging/macos/upgrade-test.sh",
       "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
       "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit U7 (items 44-46), plus every spec section those items link to. Read the Preconditions and Work units table too.",
-      "goal": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test"
+      "goal": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test\n\nHOW TO RUN SWIFT: your sandbox exempts a Bash call only when the whole command is exactly 'swift build ...' or 'swift test ...': no '2>&1', pipes, &&, cd, env prefixes or --disable-sandbox. Anything else runs sandboxed and SwiftPM fails there.\nPREVIOUS ATTEMPT FAILED (try 1). Everything up to the upgrade test passed: the fixture, the universal build, signing, the DMG and dist/Heron.app/Contents/MacOS/heron-cli. Then upgrade-test.sh printed \"Parse error in 3rd command line argument: unable to open database file (14)\" for every query and failed.\nCause (reproduced by the orchestrator): the fixture's heron.db is in WAL journal mode and the archive holds no heron.db-shm. `sqlite3 -readonly` cannot create the -shm file, so opening a WAL database read-only with no -shm fails with SQLITE_CANTOPEN (14). Your q() in upgrade-test.sh uses `sqlite3 -readonly \"$DB\"`.\nFix: in upgrade-test.sh, open the database normally for the queries, `q() { sqlite3 \"$DB\" \"$1\"; }`. The queries are SELECT and PRAGMA reads only, so no data changes; sqlite3 may create ordinary -wal/-shm files, which is fine. Update the comment above q() to say why -readonly is not used. Do not use `?immutable=1`: after the new binary runs, data can sit in heron.db-wal and an immutable open would ignore it. Keep the fixture as 0.3.1 leaves it (WAL); don't change make-upgrade-fixture.sh's journal mode. Keep every existing assertion.\nVerified: `sqlite3 \"$DB\" \"PRAGMA user_version;\"` on the extracted fixture prints 2 and exits 0; the -readonly form exits 1 with the error above.\nYou cannot run the scripts yourself (only swift build/test are allowed). The completion check runs them.\n"
     },
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "f2602470dec945d3a5e00c502a9c6ea4",
+      "base_commit": "8879a8df1ef209e79497077acd7951d92568d372",
+      "changed_files": [
+        "packaging/macos/Info.plist",
+        "packaging/macos/build-app.sh",
+        "packaging/macos/fixtures/heron-home-0.3.1.tar.gz",
+        "packaging/macos/make-upgrade-fixture.sh",
+        "packaging/macos/upgrade-test.sh"
+      ],
+      "commit": "54bcccc119df0616e988ea48d255b8a633b66843",
+      "diff_stats": {
+        "packaging/macos/Info.plist": {
+          "added": 1,
+          "deleted": 1
+        },
+        "packaging/macos/build-app.sh": {
+          "added": 100,
+          "deleted": 12
+        },
+        "packaging/macos/make-upgrade-fixture.sh": {
+          "added": 146,
+          "deleted": 0
+        },
+        "packaging/macos/upgrade-test.sh": {
+          "added": 105,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
-    "status": "unclaimed",
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "8879a8df1ef209e79497077acd7951d92568d372",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "dc5b8ec9b8b139fc7bcdbd271ccf1326e61a5498",
+        "result_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
+        "shipped_at": "2026-11-19T01:17:58.645510+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
     "title": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test",
-    "version": 9,
+    "version": 38,
     "worktree": {
+      "base_branch": "skein/U7__integrate-base",
+      "base_commit": "8879a8df1ef209e79497077acd7951d92568d372",
+      "branch": "skein/U7",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U7"
+    }
+  },
+  "U7__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "a287c97e7ac648bdb200f6d57456edf5",
+        "ended_at": "2026-11-19T01:07:08.465224+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-19T01:07:08.124586+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
       "base_branch": null,
-      "branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U4c",
+      "U3h"
+    ],
+    "evidence": [
+      {
+        "command": "git merge d1bfed2fde88a633abe82238f282be5a902853db",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7', 'd1bfed2fde88a633abe82238f282be5a902853db'] into skein/U7__integrate-base.",
+    "id": "U7__integrate",
+    "integration_for": "U7",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U4c', 'U3h'] into one base branch for U7."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7",
+      "changed_files": [],
+      "commit": "8879a8df1ef209e79497077acd7951d92568d372",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "aea4f44b061112438ac2c8c9f02ce12821fe2b34",
+        "result_commit": "8879a8df1ef209e79497077acd7951d92568d372",
+        "shipped_at": "2026-11-19T01:07:34.571429+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
+    "title": "Integrate parents of U7",
+    "version": 4,
+    "worktree": {
+      "base_branch": "fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7",
+      "branch": "skein/U7__integrate-base",
       "path": null
     }
   },
   "U7b": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "0ff5280c35244607920894ff61cb7acc",
+        "ended_at": "2026-11-19T01:17:52.224623+00:00",
+        "error": "released by agent-1",
+        "holder": "agent-1",
+        "outcome": "released",
+        "started_at": "2026-11-19T01:17:25.692990+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -6028,7 +6588,7 @@
       "U7"
     ],
     "evidence": [],
-    "handoff_note": null,
+    "handoff_note": "[release note] released by agent-1",
     "id": "U7b",
     "integration_for": null,
     "intent": {
@@ -6044,13 +6604,14 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "blocked",
     "title": "Release and CI workflow changes",
-    "version": 1,
+    "version": 5,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "54bcccc119df0616e988ea48d255b8a633b66843",
+      "base_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
+      "branch": "skein/U7b",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U7b"
     }
   },
   "Ut": {
@@ -6260,7 +6821,8 @@
       "U7b",
       "U3g",
       "U4c",
-      "U3h"
+      "U3h",
+      "U3i"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -6281,7 +6843,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Full gate on the final branch",
-    "version": 9,
+    "version": 10,
     "worktree": {
       "base_branch": null,
       "branch": null,

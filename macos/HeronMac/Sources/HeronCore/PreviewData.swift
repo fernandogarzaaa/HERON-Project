@@ -16,6 +16,67 @@ struct PreviewSession {
     }
 }
 
+/// Long demo content, so overflow can be seen and snapshot-tested (heron-v1.md item 41b): a long risk list,
+/// long tool output, long approval details and a long transcript. Nothing here is shown in the running app.
+public enum PreviewDemo {
+    /// A risk list far taller than the 230 pt risk box, so the box scrolls.
+    public static let longRiskNotice = RiskNotice(version: 3, text: longRiskText, acceptedVersion: nil)
+
+    /// A risk list that fits in the box with room to spare, so the box is as tall as its text.
+    public static let shortRiskNotice = RiskNotice(
+        version: 3,
+        text: "**C35-8. Heron can act on your files and accounts.** It reads and changes files in your working folder when you allow it.",
+        acceptedVersion: nil)
+
+    public static let longRiskText: String = (1...14).map { n in
+        "**R-\(n). Risk number \(n).** This is one entry of a long risk list. It says what can go wrong, why Heron can't prevent it completely, and what Heron does to reduce it, in a few plain sentences so the entry wraps over more than one line in the box."
+    }.joined(separator: "\n\n")
+
+    /// What a command printed: dozens of lines, as a tool's preview in the transcript.
+    public static let longToolOutput: String = (1...40).map { n in
+        "src/module\(n)/handler.swift:\(n * 7): note: processed item \(n) of 40 and wrote the result to ~/Work/out/item-\(n).json"
+    }.joined(separator: "\n")
+
+    /// An action text far taller than the approval sheet allows, so "Show details" scrolls.
+    public static let longApprovalDetail: String = (1...30).map { n in
+        "To: person\(n)@northwind.example   Subject: Friday summary, part \(n)"
+    }.joined(separator: "\n")
+
+    /// A delivered Inbox item's text, far taller than the detail pane, so the pane scrolls.
+    public static let longInboxBody: String = (1...30).map { n in
+        "Result \(n): the Northwind account changed in a way that needs a decision, and Heron wrote down what it found and what it suggests, in a few plain sentences so the entry wraps over more than one line."
+    }.joined(separator: "\n\n")
+
+    /// A short exchange whose reply holds `longToolOutput`: the output is longer than the transcript is tall.
+    static func toolOutputSession(id: String, now: Date) -> PreviewSession {
+        var s = PreviewSession(id: id, title: "Build output", now: now)
+        s.append(role: "user", content: "Run the build and show me what it printed.", now: now)
+        s.detail.messages.append(SessionMessage(
+            id: s.detail.messages.count, role: "assistant", content: "The build finished. Here is what it printed.",
+            toolCalls: [ToolCallInfo(id: "t-out", name: "shell", summary: longToolOutput, ok: true, durationMs: 1_240, untrusted: false)]))
+        s.summary.messages = s.detail.messages.count
+        return s
+    }
+
+    /// A conversation of 16 messages, with the long tool output in one reply.
+    static func longSession(id: String, now: Date) -> PreviewSession {
+        var s = PreviewSession(id: id, title: "Quarterly review", now: now)
+        for n in 1...8 {
+            s.append(role: "user", content: "Question \(n): what changed in the Northwind account this quarter, and what should I do about item \(n)?", now: now)
+            var reply = SessionMessage(
+                id: s.detail.messages.count, role: "assistant",
+                content: "Answer \(n): the account grew, one invoice is late, and item \(n) needs a decision from you before Friday. I checked the notes and the calendar to be sure, and nothing else is blocked.",
+                toolCalls: [])
+            if n == 4 {
+                reply.toolCalls = [ToolCallInfo(id: "t-long", name: "shell", summary: longToolOutput, ok: true, durationMs: 840, untrusted: false)]
+            }
+            s.detail.messages.append(reply)
+            s.summary.messages = s.detail.messages.count
+        }
+        return s
+    }
+}
+
 /// The sample data behind `PreviewCoreClient`: the content of the mockups in docs/designs/heron-mac-visual/.
 struct PreviewData {
     var sessions: [String: PreviewSession] = [:]

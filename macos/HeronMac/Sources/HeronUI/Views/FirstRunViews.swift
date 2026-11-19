@@ -80,6 +80,9 @@ public struct RiskNoticeScreen: View {
 
     @Environment(\.heronTheme) private var theme
 
+    /// The tallest the risk box gets before its text scrolls.
+    static let riskBoxMaxHeight: CGFloat = 230
+
     public init(notice: RiskNotice, sandboxOn: Bool, noticeUpdated: Bool = false, accepted: Binding<Bool>,
                 style: Style = .firstRun, avatarStyle: AvatarStyle = .ripple,
                 onAccept: @escaping () -> Void = {}, onQuit: @escaping () -> Void = {}) {
@@ -112,8 +115,8 @@ public struct RiskNoticeScreen: View {
                         Text("Version \(notice.version) · from the risk register built into this copy of Heron")
                             .font(HeronFont.sub).foregroundStyle(theme.ink3)
                     }
-                    HScroll(maxHeight: 230) { MarkdownText(markdown: notice.text).padding(Spacing.s4) }
-                        .frame(height: 230)
+                    // As tall as the text, up to 230 pt, and a scroll view only when the text is taller (item 41b).
+                    HScroll(maxHeight: Self.riskBoxMaxHeight) { MarkdownText(markdown: notice.text).padding(Spacing.s4) }
                         .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(theme.surface))
                         .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(theme.cardBorder, lineWidth: theme.cardBorderWidth))
                         .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
