@@ -6748,7 +6748,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Release and CI workflow changes",
-    "version": 7,
+    "version": 8,
     "worktree": {
       "base_branch": "54bcccc119df0616e988ea48d255b8a633b66843",
       "base_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
