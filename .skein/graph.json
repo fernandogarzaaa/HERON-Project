@@ -390,7 +390,16 @@
     }
   },
   "SYNC15": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "c5544162511844c08a6a0d8235b154d7",
+        "ended_at": "2026-11-19T00:42:03.272588+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T00:41:55.519964+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -402,19 +411,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "c5544162511844c08a6a0d8235b154d7",
-      "base_branch": "feat/heron-v1",
-      "claim_token": "b76502ab2ead42f2af0ab9bb61635ed0",
-      "claimed_at": "2026-11-19T00:41:55.519964+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:41:55.519964+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -q never_on_one_core_holds_on_another docs/designs/heron-v1.md",
+        "duration_ms": 212,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC15_20261119T004203008921_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC15_20261119T004203221630_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I made no changes and ran nothing, per the constraints, so the completion check (`grep -q never_on_one_core_holds_on_another docs/designs/heron-v1.md`) is unverified.",
     "id": "SYNC15",
     "integration_for": null,
     "intent": {
@@ -426,13 +447,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "c5544162511844c08a6a0d8235b154d7",
+      "base_commit": "6cce13f37f539e68948679c8423b3e1ff009d6a1",
+      "changed_files": [],
+      "commit": "6cce13f37f539e68948679c8423b3e1ff009d6a1",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Sync: capture the feat/heron-v1 head for U3h",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "6cce13f37f539e68948679c8423b3e1ff009d6a1",
@@ -5527,7 +5554,7 @@
       "claim_token": "06da60cff54f4d8c9a1a83a0ddb2def7",
       "claimed_at": "2026-11-19T00:41:02.472020+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T00:41:32.649340+00:00",
+      "last_heartbeat": "2026-11-19T00:42:02.666722+00:00",
       "node_version": 30,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -5585,7 +5612,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Scrolling only where content overflows; risk-notice box sized to content; overflow snapshots",
-    "version": 33,
+    "version": 34,
     "worktree": {
       "base_branch": "skein/U4c__integrate-base",
       "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
