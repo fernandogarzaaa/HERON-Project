@@ -5528,6 +5528,60 @@
       "path": null
     }
   },
+  "U3j": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3i",
+      "U7c",
+      "SYNC18"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U3j",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- same_tool_settings_on_one_core_end_as_the_file_says recreated_config_does_not_lift_a_never tool_setting_on_a_stale_core_is_saved failed_tool_setting_save_changes_nothing",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md items 35f, 35e, 35d, 35c, 35b, and section 3 'Another core already running'.",
+      "goal": "Fix what an independent review of U3i found, as the spec's item 35f ('Fixes from U3i's review') says. Line numbers are from U3i's result 5d81a0f; U7c's changes may have moved them.\n(1) Low, demonstrated with an injected 400 ms pause: App::set_tool_setting drops rules_seen, config_seen and the file lock when its block ends (app.rs:347), then calls self.policy.set_tool_setting (:348) and persist_rules (:349). Interleaving T1 allow (saved, descheduled) / T2 ask or never (saved and applied) / T1 applies allow: the file says ask or holds the deny, but A's policy, kv (persist_rules at app.rs:412 counts the rule as this core's own) and every later core say allow. Same with allow vs revoke_grant on the same core. Fix: change the policy inside the locked block, after save_changes_held returns Ok, and keep persist_rules consistent with it; make revoke_grant (app.rs:288-298) do its reload, save and remove_allow under one lock acquisition. Keep lock order rules_seen -> config_seen -> config.lock -> cfg RwLock. Test same_tool_settings_on_one_core_end_as_the_file_says: add a test-only hook (cfg(test)) between the save and the policy change so the test can force the interleaving deterministically (no sleeps); cover allow vs ask, allow vs never, allow vs revoke; assert the policy, kv and a fresh core all match the file.\n(2) Low, demonstrated: A holds never web_fetch:*; config.toml is deleted; A's reload keeps the never (app.rs:468-470); core B starts while the file is missing (seen empty, no deny); B saves an unrelated setting and save_changes_held (config.rs:516, :524) recreates the file with deny []; A's next reload sees deny_gone and calls remove_deny (app.rs:506). Fix: after a reload that found the file missing or unparseable, the next reload that reads the file takes in its deny rules as additions only, so it lifts nothing, and the next save writes back the denies this core holds. A never is lifted only by a read that follows a read in which the rule was present. Test recreated_config_does_not_lift_a_never (the review's probe_fresh_core_recreating_lifts_never scenario, asserting A and B both still refuse and the file ends with the deny).\n(3) Test strength: tool_setting_on_a_stale_core_is_saved passes with either half of the 35e fix removed (the take-in of the file's rules at app.rs:324, or the forced membership at :334). Add one case that fails without the take-in alone and one that fails without the forced membership alone; check each by temporarily removing that half, then restore. failed_tool_setting_save_changes_nothing passes with the early parse check (app.rs:320-323) removed; add a case that fails without it: with an unparseable file, the refused change must not drop config allow rules from the live policy or set config_unreadable.\nKeep every existing test and assertion. Your tests must be deterministic: no wall-clock sleeps."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fixes from U3i's review (35f)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U4a": {
     "attempts": [
       {
