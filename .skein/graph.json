@@ -6716,15 +6716,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "e11dc32b945d4a2a94952dcada6ba85c",
+      "base_branch": "54bcccc119df0616e988ea48d255b8a633b66843",
+      "claim_token": "b241f9feb3a0473c914bf48e825937dc",
+      "claimed_at": "2026-11-19T03:54:08.558193+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-19T03:54:08.558193+00:00",
+      "node_version": 6,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "U7"
@@ -6746,9 +6746,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Release and CI workflow changes",
-    "version": 6,
+    "version": 7,
     "worktree": {
       "base_branch": "54bcccc119df0616e988ea48d255b8a633b66843",
       "base_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
