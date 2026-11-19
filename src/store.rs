@@ -381,13 +381,16 @@ fn peek_connection(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
-/// Every trigger and view in a database that Heron's own schema does not have, as `"<type> <name>"`.
+/// Every trigger, view or other schema object (anything but a table or an index, whatever the case of
+/// its type) in a database that Heron's own schema does not have, as `"<type> <name>"`.
 /// A copy holding one could run its own SQL on every later write (a trigger on `kv` could reset the
 /// permission rules), so it is never restored.
 fn foreign_schema(conn: &Connection) -> Result<Vec<String>> {
     static OWN: std::sync::OnceLock<Vec<(String, String, String)>> = std::sync::OnceLock::new();
     let read = |conn: &Connection| -> Result<Vec<(String, String, String)>> {
-        let mut st = conn.prepare("SELECT type, name, coalesce(sql, '') FROM sqlite_master WHERE type IN ('trigger', 'view')")?;
+        // Anything that is not a table or an index, by any spelling of its type: SQLite loads a row typed
+        // `TRIGGER` or `VIEW` (set through `writable_schema`) as a working trigger or view.
+        let mut st = conn.prepare("SELECT type, name, coalesce(sql, '') FROM sqlite_master WHERE lower(type) NOT IN ('table', 'index')")?;
         let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?;
         // Compared without regard to spacing, which SQLite keeps as written.
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().map(|(t, n, sql)| (t, n, sql.split_whitespace().collect::<Vec<_>>().join(" "))).collect())

@@ -1036,6 +1036,27 @@ mod tests {
         assert!(said.contains("never"), "{said}");
     }
 
+    /// The kept damaged value can't be read (here: a blob where text should be) while the saved rules
+    /// are sound: the never line must fail, not pass unnoticed, and so must `heron doctor`.
+    #[tokio::test]
+    async fn doctor_fails_when_the_damaged_record_cannot_be_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = doctor_home(dir.path());
+        Store::open(&cfg.db_path()).unwrap().kv_set("deny_rules", r#"["web_fetch:*"]"#).unwrap();
+        // Control: with nothing kept, the line passes and so does the command.
+        let (passed, line) = never_check(&cfg, &Store::open(&cfg.db_path()).unwrap());
+        assert!(passed, "{line}");
+        doctor(&cfg).await.unwrap();
+
+        rusqlite::Connection::open(cfg.db_path()).unwrap().execute("INSERT INTO kv(k, v) VALUES ('deny_rules_damaged', X'00ff')", []).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert!(heron::app::kept_damaged_nevers(&store).is_err(), "the setup no longer makes the kept value unreadable");
+        let (passed, line) = never_check(&cfg, &store);
+        assert!(!passed && !line.is_empty(), "an unreadable damaged record passed the never check: {line}");
+        let said = format!("{:#}", doctor(&cfg).await.expect_err("an unreadable damaged record fails `heron doctor`"));
+        assert!(said.contains("never"), "{said}");
+    }
+
     /// `heron restore` as typed goes through `restore_keeping_nevers`, not a bare copy.
     #[tokio::test]
     async fn the_restore_command_leaves_permissions_as_they_are() {
