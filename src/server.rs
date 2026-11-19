@@ -2,7 +2,7 @@
 //! Loopback-only by default; every API call requires the per-launch token.
 
 use crate::agent::Session;
-use crate::app::{App, ConfigChange};
+use crate::app::{App, ConfigChange, Lift};
 use crate::config::Config;
 use crate::events::Item;
 use crate::permissions::{Approval, ApprovalRequest, Approver, Mode};
@@ -804,12 +804,19 @@ async fn list_nevers(State(st): S) -> ApiResult {
 }
 
 /// Lift one "never" rule, exactly as written, in heron.db and in `config.toml` in one step. 404 when
-/// it is not a "never" rule.
-async fn remove_never(State(st): S, Json(b): Json<GrantBody>) -> ApiResult {
-    if !st.app.remove_never(&b.rule)? {
-        return Err(ApiError(StatusCode::NOT_FOUND, "That is not a \"never\" rule.".into()));
+/// it is not a "never" rule. When `config.toml` is missing and could not be written, the lift still
+/// holds on every Heron (heron.db has it), so it succeeds, and `x-heron-notice` says so.
+async fn remove_never(State(st): S, Json(b): Json<GrantBody>) -> std::result::Result<Response, ApiError> {
+    let notice = match st.app.lift_never(&b.rule)? {
+        Lift::NotANever => return Err(ApiError(StatusCode::NOT_FOUND, "That is not a \"never\" rule.".into())),
+        Lift::Lifted => None,
+        Lift::LiftedConfigNotWritten => Some(crate::app::LIFTED_BUT_CONFIG_NOT_WRITTEN_NOTICE),
+    };
+    let mut response = Json(json!({"ok": true, "rule": b.rule})).into_response();
+    if let Some(notice) = notice {
+        response.headers_mut().insert("x-heron-notice", header::HeaderValue::from_static(notice));
     }
-    Ok(Json(json!({"ok": true, "rule": b.rule})))
+    Ok(response)
 }
 
 #[derive(Deserialize)]
@@ -2762,7 +2769,7 @@ mod tests {
             // second has either finished or found the first holding the lock, and goes on then.
             let (said, heard) = std::sync::mpsc::channel::<&str>();
             let waiting = said.clone();
-            *app.test_hooks.waiting.lock().unwrap() = Some(Box::new(move || {
+            *app.test_hooks.waiting.lock().unwrap() = Some(Arc::new(move || {
                 let _ = waiting.send("waiting");
             }));
             let second_run: Arc<std::sync::Mutex<Option<std::thread::JoinHandle<anyhow::Result<()>>>>> = Default::default();
@@ -3154,6 +3161,41 @@ mod tests {
             assert_eq!(hb.send("DELETE", "/nevers", json!({"rule": other})).await.status, 404, "{other}");
         }
         assert!(saved_nevers(&b).is_empty());
+
+        // config.toml cannot be written (as on a full disk) after heron.db has been changed.
+        {
+            use crate::permissions::Effect::WorkspaceWrite;
+            let fail_the_write = || *b.test_hooks.fail_config_write.lock().unwrap() = true;
+            let notice = |reply: &Reply| reply.headers.iter().find(|(n, _)| n == "x-heron-notice").map(|(_, v)| v.clone());
+            b.set_tool_setting("write_file", "never").unwrap();
+
+            // With the file there, that is an error: the file still lists the rule, and the next
+            // reload takes it back into heron.db, so it is still refused.
+            fail_the_write();
+            let reply = hb.send("DELETE", "/nevers", json!({"rule": "write_file:*"})).await;
+            assert_eq!(reply.status, 400);
+            assert_eq!(nevers_on_disk(&home), vec!["write_file:*"]);
+            b.reload_rules();
+            assert!(refuses(&b, "write_file", "notes.md", WorkspaceWrite));
+            assert_eq!(saved_nevers(&b), vec!["write_file:*"]);
+
+            // With the file missing, the lift is in heron.db, which every core goes by, and a missing
+            // file lists no "never": it succeeds, and the notice says the file was not written.
+            std::fs::remove_file(home.join("config.toml")).unwrap();
+            fail_the_write();
+            let reply = hb.send("DELETE", "/nevers", json!({"rule": "write_file:*"})).await;
+            assert_eq!(reply.status, 200);
+            assert_eq!(notice(&reply).as_deref(), Some(crate::app::LIFTED_BUT_CONFIG_NOT_WRITTEN_NOTICE));
+            assert_eq!(reply.json().await, json!({"ok": true, "rule": "write_file:*"}));
+            assert!(!home.join("config.toml").exists());
+            assert!(saved_nevers(&b).is_empty(), "{:?}", saved_nevers(&b));
+            a.reload_rules();
+            b.reload_rules();
+            let fresh = yolo_core(&home, &ws).await;
+            for app in [&a, &b, &fresh] {
+                assert!(!refuses(app, "write_file", "notes.md", WorkspaceWrite), "{:?}", app.policy.deny_rules());
+            }
+        }
     }
 
     #[tokio::test]
@@ -3284,7 +3326,7 @@ mod tests {
         *a.test_hooks.lock_wait.lock().unwrap() = Some(Duration::ZERO);
         let waited = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = waited.clone();
-        *a.test_hooks.waiting.lock().unwrap() = Some(Box::new(move || flag.store(true, std::sync::atomic::Ordering::SeqCst)));
+        *a.test_hooks.waiting.lock().unwrap() = Some(Arc::new(move || flag.store(true, std::sync::atomic::Ordering::SeqCst)));
 
         // Another program holds the lock (stopped in the middle of a save), and the file has changed:
         // the git rule revoked, and a new "never".
@@ -3307,8 +3349,9 @@ mod tests {
             panic!("the reload waited for the held lock");
         }
         assert!(waited.load(std::sync::atomic::Ordering::SeqCst), "the lock was found held");
-        // Nothing was read: the rules are as they were.
-        assert!(git(&a), "{:?}", a.policy.allow_rules());
+        // The file was not read and heron.db not written. Its allow rule is dropped until a reload
+        // gets the lock, as for a file that cannot be read (35k; 35h kept it); nothing else changed.
+        assert!(!git(&a), "{:?}", a.policy.allow_rules());
         assert_eq!(a.policy.tool_setting("write_file"), "ask");
         assert!(refuses_fetch(&a));
         assert_eq!(saved_nevers(&a), vec!["web_fetch:*"]);
@@ -3339,6 +3382,121 @@ mod tests {
         assert_eq!(a.policy.tool_setting("write_file"), "never");
     }
 
+    /// The review's probe: B sets a "never" and revokes a `config.toml` rule while another program
+    /// holds `config.lock` across A's reload. A still takes in the "never" (from heron.db, read only)
+    /// and drops the file's allow rules until a reload gets the lock.
+    #[tokio::test]
+    async fn timed_out_reload_still_takes_in_nevers_and_drops_file_allows() {
+        use crate::permissions::Effect::WorkspaceWrite;
+        let dir = tempfile::tempdir().unwrap();
+        let home = home_with_a_never(dir.path(), &["shell:git *", "shell:make *"]);
+        let ws = dir.path().join("ws");
+        let (a, b) = (yolo_core(&home, &ws).await, yolo_core(&home, &ws).await);
+        let allows = |app: &App, rule: &str| app.policy.allow_rules().iter().any(|r| r == rule);
+        assert!(allows(&a, "shell:git *") && allows(&a, "shell:make *"));
+        b.set_tool_setting("write_file", "never").unwrap();
+        assert!(b.revoke_grant("shell:git *").unwrap());
+        *a.test_hooks.lock_wait.lock().unwrap() = Some(Duration::ZERO);
+
+        let held = Config { home: home.clone(), ..Default::default() }.lock_file().unwrap();
+        a.reload_rules();
+        // The "never" set on B is refused here, in Yolo mode too.
+        assert!(refuses(&a, "write_file", "notes.md", WorkspaceWrite), "{:?}", a.policy.deny_rules());
+        assert_eq!(a.policy.tool_setting("write_file"), "never");
+        assert!(refuses_fetch(&a));
+        // No allow rule from the file applies, the revoked one included, and the notice says why.
+        assert!(!allows(&a, "shell:git *") && !allows(&a, "shell:make *"), "{:?}", a.policy.allow_rules());
+        assert!(a.cfg().permissions.allow.is_empty(), "{:?}", a.cfg().permissions.allow);
+        assert_eq!(a.config_notice(), Some(crate::app::CONFIG_UNREADABLE_NOTICE));
+        // Read only: heron.db is as B left it.
+        assert_eq!(saved_nevers(&a), vec!["web_fetch:*", "write_file:*"]);
+        // The holder is half-way through a lift: heron.db no longer has `web_fetch:*`, the file still
+        // does. Without the lock, nothing is lifted.
+        a.store.kv_set("deny_rules", &json!(["write_file:*"]).to_string()).unwrap();
+        a.reload_rules();
+        assert!(refuses_fetch(&a), "{:?}", a.policy.deny_rules());
+        assert_eq!(saved_nevers(&a), vec!["write_file:*"], "nothing was written");
+
+        // Once the lock is let go, the file's rules apply again, without the revoked one.
+        drop(held);
+        a.reload_rules();
+        assert!(allows(&a, "shell:make *") && !allows(&a, "shell:git *"), "{:?}", a.policy.allow_rules());
+        assert_eq!(a.policy.tool_setting("write_file"), "never");
+        assert_eq!(a.config_notice(), None);
+        // The file still lists `web_fetch:*`, so it is taken back into heron.db.
+        assert!(refuses_fetch(&a));
+        assert_eq!(saved_nevers(&a), vec!["write_file:*", "web_fetch:*"]);
+    }
+
+    /// Another program holds `config.lock`; a tool-setting change waits for it while holding the
+    /// saved-rules and config locks, and a reload waits behind it. The change gives up after its
+    /// bounded wait with an error and nothing changed, so the reload finishes; and while the reload
+    /// waits, the server's only worker thread still runs other requests.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn held_config_lock_cannot_stall_reloads_behind_a_setting_change() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = tempfile::tempdir().unwrap();
+        let home = home_with_a_never(dir.path(), &[]);
+        let a = yolo_core(&home, &dir.path().join("ws")).await;
+        let file_before = std::fs::read_to_string(home.join("config.toml")).unwrap();
+        // Every wait for the lock is set to none at all, so the test does not sleep.
+        *a.test_hooks.lock_wait.lock().unwrap() = Some(Duration::ZERO);
+        let held = Config { home: home.clone(), ..Default::default() }.lock_file().unwrap();
+
+        // The change, finding the lock held, waits in the hook until the reload is waiting behind it.
+        let (said, heard) = std::sync::mpsc::channel::<&str>();
+        let (go, gone) = std::sync::mpsc::channel::<()>();
+        let gone = std::sync::Mutex::new(gone);
+        let calls = AtomicUsize::new(0);
+        *a.test_hooks.waiting.lock().unwrap() = Some(Arc::new(move || match calls.fetch_add(1, Ordering::SeqCst) {
+            0 => {
+                let _ = said.send("the change waits for config.lock");
+                let _ = gone.lock().unwrap().recv();
+            }
+            1 => {
+                let _ = said.send("the reload waits behind it");
+            }
+            _ => {}
+        }));
+        let changing = a.clone();
+        let change = std::thread::spawn(move || changing.set_tool_setting("write_file", "never"));
+        assert_eq!(heard.recv().unwrap(), "the change waits for config.lock");
+        let (done, reloaded) = std::sync::mpsc::channel::<()>();
+        let reloading = a.clone();
+        let reload = tokio::spawn(async move {
+            reloading.reload_rules();
+            let _ = done.send(());
+        });
+        assert_eq!(heard.recv().unwrap(), "the reload waits behind it");
+        // Another request on the server meanwhile: the reload's wait did not park the only worker.
+        let (pong, ponged) = std::sync::mpsc::channel::<()>();
+        drop(tokio::spawn(async move {
+            let _ = pong.send(());
+        }));
+        let others_ran = ponged.recv_timeout(Duration::from_secs(60)).is_ok();
+        go.send(()).unwrap();
+        // Only a change that waits without end for the lock holds the reload up here (it is let go
+        // then, so the test ends).
+        if reloaded.recv_timeout(Duration::from_secs(60)).is_err() {
+            drop(held);
+            panic!("the reload stalled behind the setting change");
+        }
+        assert!(others_ran, "the reload's wait parked the server's only worker");
+        reload.await.unwrap();
+
+        // The change failed closed: an error naming the lock, and nothing changed anywhere.
+        let said = format!("{:#}", change.join().unwrap().expect_err("the change gave up on the held lock"));
+        assert!(said.contains("config.lock"), "{said}");
+        assert_eq!(a.policy.tool_setting("write_file"), "ask");
+        assert_eq!(saved_nevers(&a), vec!["web_fetch:*"]);
+        assert_eq!(std::fs::read_to_string(home.join("config.toml")).unwrap(), file_before);
+
+        // Once the lock is let go, the same change goes through.
+        drop(held);
+        a.set_tool_setting("write_file", "never").unwrap();
+        assert_eq!(a.policy.tool_setting("write_file"), "never");
+    }
+
     #[tokio::test]
     async fn reload_holds_the_file_lock_while_it_saves_a_never() {
         let dir = tempfile::tempdir().unwrap();
@@ -3349,7 +3507,7 @@ mod tests {
         // file lock A's reload holds, or, if A held none, finishes first.
         let (said, heard) = std::sync::mpsc::channel::<&str>();
         let waiting = said.clone();
-        *b.test_hooks.waiting.lock().unwrap() = Some(Box::new(move || {
+        *b.test_hooks.waiting.lock().unwrap() = Some(Arc::new(move || {
             let _ = waiting.send("waiting");
         }));
         let lift: Arc<std::sync::Mutex<Option<std::thread::JoinHandle<anyhow::Result<bool>>>>> = Default::default();
@@ -3402,7 +3560,7 @@ mod tests {
             // until the second has either finished or found the first holding the lock.
             let (said, heard) = std::sync::mpsc::channel::<&str>();
             let waiting = said.clone();
-            *app.test_hooks.waiting.lock().unwrap() = Some(Box::new(move || {
+            *app.test_hooks.waiting.lock().unwrap() = Some(Arc::new(move || {
                 let _ = waiting.send("waiting");
             }));
             let second_run: Arc<std::sync::Mutex<Option<std::thread::JoinHandle<anyhow::Result<()>>>>> = Default::default();

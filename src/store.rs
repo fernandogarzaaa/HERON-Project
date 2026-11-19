@@ -685,12 +685,14 @@ impl Store {
     }
 
     /// The value of `k` in the kv table of the database at `path`, read without opening it as Heron
-    /// does (no upgrade, nothing written). `None` when there is no database or no such value.
+    /// does (no upgrade, nothing written). `None` when there is no database or no such value. While
+    /// another program is writing, it waits as [`Store::open`] does before it gives up with an error.
     pub fn peek_kv(path: &Path, k: &str) -> Result<Option<String>> {
         if !path.exists() {
             return Ok(None);
         }
         let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).with_context(|| format!("cannot open {}", path.display()))?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(conn.query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional()?)
     }
 
