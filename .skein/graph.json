@@ -4884,7 +4884,7 @@
       "claim_token": "579d676cf8674e99a45a2ae40c8459eb",
       "claimed_at": "2026-11-19T00:42:03.845001+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:44:34.176384+00:00",
+      "last_heartbeat": "2026-11-19T00:48:04.349181+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4912,7 +4912,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3g's review: stale settings save, startup window, unreadable config fails closed, never across cores",
-    "version": 9,
+    "version": 16,
     "worktree": {
       "base_branch": "skein/U3h__integrate-base",
       "base_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
@@ -5613,6 +5613,14 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-19T00:41:02.472020+00:00"
+      },
+      {
+        "attempt_id": "008efa07a4d44b2c9605fe7ef735cf98",
+        "ended_at": "2026-11-19T00:48:23.110900+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-19T00:45:01.101874+00:00"
       }
     ],
     "attempts_used": 1,
@@ -5626,15 +5634,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "008efa07a4d44b2c9605fe7ef735cf98",
-      "base_branch": "skein/U4c__integrate-base",
-      "claim_token": "f87263cef36d42fb94dfe48db51b4dfa",
-      "claimed_at": "2026-11-19T00:45:01.101874+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T00:45:01.101874+00:00",
-      "node_version": 39,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U4b",
@@ -5643,35 +5651,35 @@
     "evidence": [
       {
         "command": "swift build --package-path macos/HeronMac",
-        "duration_ms": 3339,
+        "duration_ms": 834,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004233447118_0.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004802959605_0.log"
       },
       {
         "command": "swift test --package-path macos/HeronMac",
-        "duration_ms": 13251,
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004236790139_1.log"
+        "duration_ms": 11448,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004803799448_1.log"
       },
       {
         "command": "swift test --package-path macos/HeronMac --filter OverflowSnapshotTests",
-        "duration_ms": 6024,
+        "duration_ms": 6230,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004250045875_2.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004815252211_2.log"
       },
       {
         "command": "swift test --package-path macos/HeronMac list > \"${TMPDIR:-/tmp}/u4c-tests.txt\" && grep -q 'OverflowSnapshotTests' \"${TMPDIR:-/tmp}/u4c-tests.txt\"",
-        "duration_ms": 1040,
+        "duration_ms": 1489,
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004256072921_3.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004821485740_3.log"
       },
       {
         "command": "<adapter:claude_build_swift>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004257114030_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T004822975635_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: I didn't mutation-test the new sizing tests with testteeth.",
     "id": "U4c",
     "integration_for": null,
     "intent": {
@@ -5683,13 +5691,90 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "008efa07a4d44b2c9605fe7ef735cf98",
+      "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
+      "changed_files": [
+        "macos/HeronMac/DESIGN-CHOICES.md",
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/PreviewData.swift",
+        "macos/HeronMac/Sources/HeronUI/Tokens/Theme.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/ApprovalSheetView.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/ChatView.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/Components.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/FirstRunViews.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/RootView.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/ScreenViews.swift",
+        "macos/HeronMac/Tests/HeronUITests/SnapshotHelper.swift",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/risk-notice-sandbox-off-dark.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/risk-notice-sandbox-on-dark.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/risk-notice-sandbox-on-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/OverflowSnapshotTests.swift",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/overflow-approval-details-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/overflow-chat-tool-output-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/overflow-chat-transcript-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/overflow-inbox-detail-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/overflow-risk-notice-long-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/overflow-risk-notice-short-light.macos27.png"
+      ],
+      "commit": "fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7",
+      "diff_stats": {
+        "macos/HeronMac/DESIGN-CHOICES.md": {
+          "added": 6,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift": {
+          "added": 19,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewData.swift": {
+          "added": 61,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Tokens/Theme.swift": {
+          "added": 8,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/ApprovalSheetView.swift": {
+          "added": 15,
+          "deleted": 3
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/ChatView.swift": {
+          "added": 26,
+          "deleted": 8
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/Components.swift": {
+          "added": 45,
+          "deleted": 5
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/FirstRunViews.swift": {
+          "added": 5,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/RootView.swift": {
+          "added": 16,
+          "deleted": 3
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/ScreenViews.swift": {
+          "added": 11,
+          "deleted": 6
+        },
+        "macos/HeronMac/Tests/HeronUITests/OverflowSnapshotTests.swift": {
+          "added": 153,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronUITests/SnapshotHelper.swift": {
+          "added": 77,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Scrolling only where content overflows; risk-notice box sized to content; overflow snapshots",
-    "version": 41,
+    "version": 48,
     "worktree": {
       "base_branch": "skein/U4c__integrate-base",
       "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
