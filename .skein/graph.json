@@ -5930,10 +5930,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "476f1dbf9ac54d6d48d90a21fec154b4784bee44",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "70a41cac7739da42f15f78d28296b7f50b9c8f25",
+        "result_commit": "b195b36ffc3ba4a2d4e9d482ed1975199a2754b2",
+        "shipped_at": "2026-11-19T16:25:53.102901+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U3j's review (35g, owner decision)",
-    "version": 75,
+    "version": 76,
     "worktree": {
       "base_branch": "skein/U3k__integrate-base",
       "base_commit": "476f1dbf9ac54d6d48d90a21fec154b4784bee44",
