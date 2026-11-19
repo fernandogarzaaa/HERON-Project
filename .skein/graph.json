@@ -7402,7 +7402,8 @@
       "U4c",
       "U3h",
       "U3i",
-      "U7c"
+      "U7c",
+      "U3j"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -7423,7 +7424,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Full gate on the final branch",
-    "version": 11,
+    "version": 12,
     "worktree": {
       "base_branch": null,
       "branch": null,
