@@ -11031,6 +11031,14 @@
         "holder": "agent-1",
         "outcome": "failed",
         "started_at": "2026-11-19T21:15:06.464868+00:00"
+      },
+      {
+        "attempt_id": "253fb1e41267460cae093a284625f67c",
+        "ended_at": "2026-11-19T22:23:03.049333+00:00",
+        "error": "released by agent-1",
+        "holder": "agent-1",
+        "outcome": "released",
+        "started_at": "2026-11-19T21:23:00.441778+00:00"
       }
     ],
     "attempts_used": 0,
@@ -11044,15 +11052,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "253fb1e41267460cae093a284625f67c",
-      "base_branch": "skein/verify__integrate-base",
-      "claim_token": "a0ffab8560934f3c835e0727e5d7e99b",
-      "claimed_at": "2026-11-19T21:23:00.441778+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T21:23:00.441778+00:00",
-      "node_version": 46,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U0",
@@ -11107,7 +11115,7 @@
         "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/verify_20261119T212149499329_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "completion command failed (adapter exit=0); see evidence\n[release note] released by agent-1",
     "id": "verify",
     "integration_for": null,
     "intent": {
@@ -11123,9 +11131,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "Full gate on the final branch",
-    "version": 48,
+    "version": 166,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "base_commit": "4ae08905b90e43c8f2c1e8d8483d5933b26da68f",
