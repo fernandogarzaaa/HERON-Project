@@ -1404,7 +1404,16 @@
     }
   },
   "SYNC27": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "e03bdfaf664e4897b53d4af82b63accd",
+        "ended_at": "2026-11-19T19:37:46.786885+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T19:37:38.941338+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1416,19 +1425,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "e03bdfaf664e4897b53d4af82b63accd",
-      "base_branch": "feat/heron-v1",
-      "claim_token": "8298ac92d0ce48c2a6db30c2b418ba1d",
-      "claimed_at": "2026-11-19T19:37:38.941338+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T19:37:38.941338+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -q an_outside_echo_cannot_replace_a_confirmed_memory_without_replaces docs/designs/heron-v1.md",
+        "duration_ms": 234,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC27_20261119T193746469898_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC27_20261119T193746705632_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: No changes made and nothing was run, per the constraints. I did not run the completion check, so whether it passes is unverified.",
     "id": "SYNC27",
     "integration_for": null,
     "intent": {
@@ -1440,13 +1461,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "e03bdfaf664e4897b53d4af82b63accd",
+      "base_commit": "dc96d064dbc07ac5b4a8df4c1a197656b36761a9",
+      "changed_files": [],
+      "commit": "dc96d064dbc07ac5b4a8df4c1a197656b36761a9",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Sync feat head into U3s base",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "dc96d064dbc07ac5b4a8df4c1a197656b36761a9",
