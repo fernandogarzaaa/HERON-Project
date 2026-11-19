@@ -4491,9 +4491,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from U3f's review: config.toml revoke across cores, job read_file, dropped gateway run_end, explicit choices saved, atomic revoke",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3g__integrate-base",
       "branch": null,
       "path": null
     }
