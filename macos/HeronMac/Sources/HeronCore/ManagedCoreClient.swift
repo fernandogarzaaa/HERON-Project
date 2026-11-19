@@ -138,5 +138,7 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
     public func setAwareness(_ enabled: Bool) async throws { try await current().setAwareness(enabled) }
     public func grants() async throws -> [Grant] { try await current().grants() }
     public func revokeGrant(rule: String) async throws { try await current().revokeGrant(rule: rule) }
+    public func nevers() async throws -> [NeverRule] { try await current().nevers() }
+    public func removeNever(rule: String) async throws { try await current().removeNever(rule: rule) }
     public func usage() async throws -> UsageReport { try await current().usage() }
 }

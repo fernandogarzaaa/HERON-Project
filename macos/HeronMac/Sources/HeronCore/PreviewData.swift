@@ -28,6 +28,13 @@ public enum PreviewDemo {
         text: "**C35-8. Heron can act on your files and accounts.** It reads and changes files in your working folder when you allow it.",
         acceptedVersion: nil)
 
+    /// Twelve "never" rules, taller than the Settings page at its fixed size, so the page scrolls. Every third
+    /// rule lives only in Heron's store (not in `config.toml`).
+    public static let longNevers: [NeverRule] = (1...12).map { n in
+        NeverRule(rule: n % 4 == 0 ? "shell:*blocked-command-\(n)*" : "web_fetch:*blocked-site-\(n).example*",
+                  tool: n % 4 == 0 ? "shell" : "web_fetch", inFile: n % 3 != 0)
+    }
+
     public static let longRiskText: String = (1...14).map { n in
         "**R-\(n). Risk number \(n).** This is one entry of a long risk list. It says what can go wrong, why Heron can't prevent it completely, and what Heron does to reduce it, in a few plain sentences so the entry wraps over more than one line in the box."
     }.joined(separator: "\n\n")
@@ -98,6 +105,9 @@ struct PreviewData {
     var audit: [AuditEntry] = []
     var providers: [ProviderStatus] = []
     var grants: [Grant] = []
+    var nevers: [NeverRule] = []
+    /// When set, the next `removeNever` throws it (a test hook), so a screen can show a failed removal.
+    var neverRemovalFailure: CoreError?
     var ruleNotices: [RuleNotice] = []
     var connections: [ConnectionInfo] = []
     var usage = UsageReport(days: [], monthTokens: 0)
@@ -190,6 +200,11 @@ struct PreviewData {
         d.grants = [
             Grant(rule: "read:/Users/sam/Notes/**", kind: "read"),
             Grant(rule: "shell:git *", kind: "tool"),
+        ]
+        d.nevers = [
+            NeverRule(rule: "web_fetch:*", tool: "web_fetch", inFile: true),
+            NeverRule(rule: "shell:*sudo*", tool: "shell", inFile: true),
+            NeverRule(rule: "send_email:*@competitor.example", tool: "send_email", inFile: false),
         ]
         d.ruleNotices = [
             RuleNotice(rule: "read_file:*", notice: "From your settings file. It no longer opens reads outside your working folder. Add a folder above instead."),

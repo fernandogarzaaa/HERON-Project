@@ -130,6 +130,30 @@ final class PreviewCoreClientTests: XCTestCase {
         for normal in ["safe", "state", "write", "exec", "network", "outside"] { XCTAssertFalse(req(normal).isHighRisk, normal) }
     }
 
+    func testNeversCanBeListedAndRemovedOnce() async throws {
+        let c = try await client()
+        let before = try await c.nevers()
+        XCTAssertEqual(before.map(\.rule), ["web_fetch:*", "shell:*sudo*", "send_email:*@competitor.example"])
+        XCTAssertEqual(before.map(\.inFile), [true, true, false], "one rule is kept by Heron only")
+        try await c.removeNever(rule: "shell:*sudo*")
+        let after = try await c.nevers()
+        XCTAssertEqual(after.map(\.rule), ["web_fetch:*", "send_email:*@competitor.example"])
+        do { try await c.removeNever(rule: "shell:*sudo*"); XCTFail("removing twice fails") } catch { XCTAssertEqual(error as? CoreError, .notFound) }
+    }
+
+    func testAFailedRemovalLeavesTheRuleInForce() async throws {
+        let c = try await client()
+        c.failNextNeverRemoval(with: .failed("Heron couldn't save that."))
+        do { try await c.removeNever(rule: "web_fetch:*"); XCTFail("expected the failure") } catch {
+            XCTAssertEqual(error as? CoreError, .failed("Heron couldn't save that."))
+        }
+        let held = try await c.nevers()
+        XCTAssertTrue(held.contains { $0.rule == "web_fetch:*" })
+        try await c.removeNever(rule: "web_fetch:*")
+        let after = try await c.nevers()
+        XCTAssertFalse(after.contains { $0.rule == "web_fetch:*" }, "the failure was for one attempt only")
+    }
+
     func testMutationsRoundTrip() async throws {
         let c = try await client()
         let id = try await c.addTask(title: "New", due: nil)
