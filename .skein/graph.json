@@ -4513,7 +4513,7 @@
       "claim_token": "d32de5eb183c4087a511e08e09c14b27",
       "claimed_at": "2026-11-19T00:07:59.784438+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:23:30.926340+00:00",
+      "last_heartbeat": "2026-11-19T00:25:01.011758+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4541,7 +4541,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3f's review: config.toml revoke across cores, job read_file, dropped gateway run_end, explicit choices saved, atomic revoke",
-    "version": 35,
+    "version": 38,
     "worktree": {
       "base_branch": "skein/U3g__integrate-base",
       "base_commit": "19384e891d51f18541cde83bd23ada0397b7f645",
@@ -4932,15 +4932,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "39ea0ef81e34468a8e1e6ce2c7ccb971",
+      "base_branch": "skein/U4b__integrate-base",
+      "claim_token": "443e31961a44418da3dea63349669f17",
+      "claimed_at": "2026-11-19T00:25:13.278990+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-19T00:25:13.278990+00:00",
+      "node_version": 52,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "U4a",
@@ -5008,12 +5008,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": "2026-11-19T00:25:13.237505+00:00",
+    "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Core API client against the recorded fixtures",
-    "version": 52,
+    "version": 53,
     "worktree": {
       "base_branch": "skein/U4b__integrate-base",
       "base_commit": "b2760052fc73b6517ca2df020c7189c42667a669",
