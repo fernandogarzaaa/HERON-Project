@@ -5011,9 +5011,9 @@
     "retry_at": "2026-11-19T00:25:13.237505+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "blocked",
+    "status": "unclaimed",
     "title": "Core API client against the recorded fixtures",
-    "version": 51,
+    "version": 52,
     "worktree": {
       "base_branch": "skein/U4b__integrate-base",
       "base_commit": "b2760052fc73b6517ca2df020c7189c42667a669",
