@@ -1014,7 +1014,16 @@
     }
   },
   "SYNC22": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "8c7c3b7b748248c5a726471ee19ab9cb",
+        "ended_at": "2026-11-19T17:31:26.304555+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T17:31:18.512392+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1026,19 +1035,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "8c7c3b7b748248c5a726471ee19ab9cb",
-      "base_branch": "feat/heron-v1",
-      "claim_token": "dc9c9bb5f6c847f6a094c5b2941517f2",
-      "claimed_at": "2026-11-19T17:31:18.512392+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T17:31:18.512392+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -q clean_learner_cannot_upgrade_an_outside_memory docs/designs/heron-v1.md",
+        "duration_ms": 215,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC22_20261119T173126029360_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC22_20261119T173126244880_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: the supervisor can pick these up in a node that is allowed to edit design files.",
     "id": "SYNC22",
     "integration_for": null,
     "intent": {
@@ -1050,13 +1071,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "8c7c3b7b748248c5a726471ee19ab9cb",
+      "base_commit": "320e47f942d30cacb94e3621f3e6fe577a6545e9",
+      "changed_files": [],
+      "commit": "320e47f942d30cacb94e3621f3e6fe577a6545e9",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Sync feat head into U3n base",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "320e47f942d30cacb94e3621f3e6fe577a6545e9",
