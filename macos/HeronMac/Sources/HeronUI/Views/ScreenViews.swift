@@ -105,7 +105,7 @@ struct TodayView: View {
                     ForEach(Array(events.enumerated()), id: \.element.id) { i, e in
                         if i > 0 { RowDivider() }
                         HStack(alignment: .firstTextBaseline, spacing: Spacing.s3) {
-                            Text(Fmt.time(e.start)).font(HeronFont.body).monospacedDigit().foregroundStyle(theme.ink2).frame(width: 48, alignment: .leading)
+                            Text(Fmt.time(of: e)).font(HeronFont.body).monospacedDigit().foregroundStyle(theme.ink2).frame(width: 48, alignment: .leading)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(e.title).foregroundStyle(theme.ink)
                                 if let place = e.place { Text(place).font(HeronFont.callout).foregroundStyle(theme.ink2) }

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import HeronCore
 
 // MARK: Surfaces
 
@@ -354,6 +355,8 @@ struct MarkdownText: View {
 
 enum Fmt {
     static func time(_ d: Date) -> String { format("HH:mm", d) }
+    /// "09:30" for a real date, otherwise the core's own words ("tomorrow 10:00").
+    static func time(of event: CalendarEvent) -> String { event.start.map { time($0) } ?? event.whenText }
     static func relative(_ d: Date, now: Date = Date()) -> String {
         let secs = now.timeIntervalSince(d)
         if abs(secs) < 60 { return "just now" }

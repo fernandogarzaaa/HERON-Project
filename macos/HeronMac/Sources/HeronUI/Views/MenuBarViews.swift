@@ -64,7 +64,8 @@ private struct Panel: View {
         return Array((live + parked).prefix(3))
     }
 
-    private var nextEvent: CalendarEvent? { model.today.summary?.events.first { $0.start >= Date() } }
+    /// The core serves only events in the next day, so one whose time isn't a date ("tomorrow 10:00") is still ahead.
+    private var nextEvent: CalendarEvent? { model.today.summary?.events.first { ($0.start ?? .distantFuture) >= Date() } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -99,7 +100,7 @@ private struct Panel: View {
                 RowDivider()
                 VStack(alignment: .leading, spacing: Spacing.s1) {
                     SectionLabel("Next")
-                    Text("\(Fmt.time(next.start))  \(next.title)").foregroundStyle(theme.ink).monospacedDigit()
+                    Text("\(Fmt.time(of: next))  \(next.title)").foregroundStyle(theme.ink).monospacedDigit()
                 }.padding(Spacing.s4)
             }
             RowDivider()
