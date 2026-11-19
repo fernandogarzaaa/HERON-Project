@@ -4109,10 +4109,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "b4462d41a2488a563eb73b2143207b7910378a28",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "29e807064a7ba9f4f5937a44ca61685eb96702d1",
+        "result_commit": "8047772e846dae955c305212a242eb77b2c99f6b",
+        "shipped_at": "2026-11-19T00:32:37.337253+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Risk notice in the core, event bus in `App`, runs that outlive connections, approvals on the bus, `serve --print-endpoin",
-    "version": 187,
+    "version": 188,
     "worktree": {
       "base_branch": "skein/U3__integrate-base",
       "base_commit": "b4462d41a2488a563eb73b2143207b7910378a28",
