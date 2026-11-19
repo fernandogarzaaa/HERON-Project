@@ -1,7 +1,8 @@
 name: CI
 on:
   push:
-    branches: [main]
+    # feat/heron-v1 is the v1 integration branch: CI on all three OSes must be green on it before the v1 PR.
+    branches: [main, feat/heron-v1]
   pull_request:
 permissions:
   contents: read
