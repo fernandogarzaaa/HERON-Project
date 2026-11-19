@@ -2468,6 +2468,63 @@ mod tests {
             let listed = hb.json("GET", "/tools", Value::Null).await;
             assert_eq!(listed.as_array().unwrap().iter().find(|t| t["name"] == "web_fetch").unwrap()["setting"], by_a, "{start}");
         }
+
+        // The change is made on the file's rules as they are now: another tool that B just set to
+        // "never" is refused on A as soon as A's own change returns, before any reload.
+        {
+            let dir = tempfile::tempdir().unwrap();
+            let home = dir.path().join("home");
+            let mut saved = Config { home: home.clone(), ..Default::default() };
+            saved.agent.auto_memory = false;
+            saved.save().unwrap();
+            let (a, b) = two_cores_from_saved_settings(&home, &dir.path().join("ws")).await;
+            let (ha, hb) = (serve_app(tempfile::tempdir().unwrap(), a.clone()), serve_app(tempfile::tempdir().unwrap(), b.clone()));
+            assert_eq!(hb.json("POST", "/tools/shell", json!({"setting": "never"})).await["setting"], "never");
+            assert_eq!(a.policy.tool_setting("shell"), "ask", "A is stale");
+            assert_eq!(ha.json("POST", "/tools/web_fetch", json!({"setting": "allow"})).await["setting"], "allow");
+            assert_eq!(a.policy.tool_setting("shell"), "never");
+            a.policy.set_mode(Mode::Yolo);
+            let shell = crate::permissions::decide_for(&a.policy, "shell", "ls", crate::permissions::Effect::ProcessExec, false);
+            assert!(matches!(shell, crate::permissions::Verdict::Deny(_)), "{shell:?}");
+            let disk = Config::read_saved(&home).unwrap().permissions;
+            assert_eq!((a.cfg().permissions.allow.clone(), a.cfg().permissions.deny.clone()), (disk.allow, disk.deny));
+        }
+
+        // The rule is written as chosen even when this core's lists already say so and the file
+        // does not (settings assembled in memory): (in the file, in memory, chosen).
+        for (in_file, in_memory, chosen) in [("ask", "never", "never"), ("never", "ask", "ask"), ("ask", "allow", "allow")] {
+            let dir = tempfile::tempdir().unwrap();
+            let home = dir.path().join("home");
+            let rule = "web_fetch:*".to_string();
+            let with = |c: &mut Config, setting: &str| {
+                c.permissions.allow.retain(|r| *r != rule);
+                c.permissions.deny.retain(|r| *r != rule);
+                match setting {
+                    "allow" => c.permissions.allow.push(rule.clone()),
+                    "never" => c.permissions.deny.push(rule.clone()),
+                    _ => {}
+                }
+            };
+            let mut saved = Config { home: home.clone(), ..Default::default() };
+            saved.agent.auto_memory = false;
+            with(&mut saved, in_file);
+            saved.save().unwrap();
+            let mut cfg = Config::read_saved(&home).unwrap();
+            with(&mut cfg, in_memory);
+            let store = Store::open(&cfg.db_path()).unwrap();
+            crate::risk_notice::accept_current(&store).unwrap();
+            let ws = dir.path().join("ws");
+            let app = App::assemble(cfg, ws.clone(), store, scripted(vec![])).await.unwrap();
+            assert_eq!(app.policy.tool_setting("web_fetch"), in_memory);
+
+            app.set_tool_setting("web_fetch", chosen).unwrap();
+            let disk = Config::read_saved(&home).unwrap().permissions;
+            assert_eq!((disk.allow.contains(&rule), disk.deny.contains(&rule)), (chosen == "allow", chosen == "never"), "{in_file} {in_memory}: {disk:?}");
+            app.reload_rules();
+            assert_eq!(app.policy.tool_setting("web_fetch"), chosen, "{in_file} {in_memory}");
+            let (fresh, _) = two_cores_from_saved_settings(&home, &ws).await;
+            assert_eq!(fresh.policy.tool_setting("web_fetch"), chosen, "{in_file} {in_memory}");
+        }
     }
 
     #[tokio::test]
@@ -2508,6 +2565,22 @@ mod tests {
         saved.save().unwrap();
         assert_eq!(h.json("POST", "/tools/web_fetch", json!({"setting": "never"})).await["setting"], "never");
         assert_eq!(Config::read_saved(&home).unwrap().permissions.deny, vec!["shell:*", "web_fetch:*"]);
+
+        // A refused change takes nothing in from the broken file either: the "always allow" rules
+        // that came from it stay live, and the file is not marked unreadable, until a reload says so.
+        saved.permissions.allow = vec!["shell:git *".into()];
+        saved.permissions.deny.clear();
+        saved.save().unwrap();
+        app.reload_rules();
+        let git = || crate::permissions::decide_for(&app.policy, "shell", "git push", crate::permissions::Effect::ProcessExec, false);
+        assert_eq!(git(), crate::permissions::Verdict::Allow);
+        std::fs::write(&config, broken).unwrap();
+        assert_eq!(h.send("POST", "/tools/write_file", json!({"setting": "never"})).await.status, 400);
+        assert_eq!(app.config_unreadable(), None);
+        assert!(app.policy.allow_rules().contains(&"shell:git *".to_string()), "{:?}", app.policy.allow_rules());
+        assert_eq!(app.cfg().permissions.allow, vec!["shell:git *"]);
+        assert_eq!(git(), crate::permissions::Verdict::Allow);
+        assert_eq!(app.policy.tool_setting("write_file"), "ask");
     }
 
     #[tokio::test]
@@ -2592,6 +2665,129 @@ mod tests {
         assert!(Config::read_saved(&home).unwrap().permissions.deny.is_empty());
         app.reload_rules();
         assert_eq!(app.policy.tool_setting("web_fetch"), "ask");
+    }
+
+    #[tokio::test]
+    async fn same_tool_settings_on_one_core_end_as_the_file_says() {
+        // A request on the core: a tool setting, or "revoke" for `DELETE /api/grants` on the rule.
+        fn request(app: &App, what: &str) -> anyhow::Result<()> {
+            match what {
+                "revoke" => app.revoke_grant("web_fetch:*").map(|revoked| assert!(revoked)),
+                setting => app.set_tool_setting("web_fetch", setting),
+            }
+        }
+        // (what web_fetch starts as, the first request, the second). The second arrives while the
+        // first is between its save and its policy change.
+        for (start, first, second) in [("ask", "allow", "ask"), ("ask", "allow", "never"), ("ask", "allow", "revoke"), ("allow", "revoke", "allow")] {
+            let dir = tempfile::tempdir().unwrap();
+            let home = dir.path().join("home");
+            let mut saved = Config { home: home.clone(), ..Default::default() };
+            saved.agent.auto_memory = false;
+            if start == "allow" {
+                saved.permissions.allow = vec!["web_fetch:*".into()];
+            }
+            saved.save().unwrap();
+            let ws = dir.path().join("ws");
+            let (app, _) = two_cores_from_saved_settings(&home, &ws).await;
+            assert_eq!(app.policy.tool_setting("web_fetch"), start);
+
+            // The second request runs on a thread of its own. The first waits in the hook until the
+            // second has either finished or found the first holding the lock, and goes on then.
+            let (said, heard) = std::sync::mpsc::channel::<&str>();
+            let waiting = said.clone();
+            *app.test_hooks.waiting.lock().unwrap() = Some(Box::new(move || {
+                let _ = waiting.send("waiting");
+            }));
+            let second_run: Arc<std::sync::Mutex<Option<std::thread::JoinHandle<anyhow::Result<()>>>>> = Default::default();
+            let (other, slot) = (app.clone(), second_run.clone());
+            *app.test_hooks.after_save.lock().unwrap() = Some(Box::new(move || {
+                let done = said.clone();
+                *slot.lock().unwrap() = Some(std::thread::spawn(move || {
+                    let result = request(&other, second);
+                    let _ = done.send("done");
+                    result
+                }));
+                heard.recv().unwrap();
+            }));
+            request(&app, first).unwrap();
+            let second_run = second_run.lock().unwrap().take().expect("the first request reached the hook");
+            second_run.join().unwrap().unwrap();
+
+            // The second came last, so its choice is in the file, and the core says what the file says.
+            let ended = if second == "revoke" { "ask" } else { second };
+            let disk = Config::read_saved(&home).unwrap().permissions;
+            let rule = "web_fetch:*".to_string();
+            let on_disk = if disk.deny.contains(&rule) { "never" } else if disk.allow.contains(&rule) { "allow" } else { "ask" };
+            assert_eq!(on_disk, ended, "{first} then {second}: {disk:?}");
+            assert_eq!(app.policy.tool_setting("web_fetch"), on_disk, "{first} then {second}");
+            assert_eq!((app.cfg().permissions.allow.contains(&rule), app.cfg().permissions.deny.contains(&rule)), (disk.allow.contains(&rule), disk.deny.contains(&rule)), "{first} then {second}");
+            // A tool setting lives in the file, never among the saved "always" answers.
+            let kv = || app.store.kv_get("allow_rules").unwrap_or_default();
+            assert!(!kv().contains(&rule), "{first} then {second}: {}", kv());
+            app.persist_rules();
+            app.reload_rules();
+            assert!(!kv().contains(&rule), "{first} then {second}: {}", kv());
+            assert_eq!(app.policy.tool_setting("web_fetch"), on_disk, "{first} then {second}");
+            let (fresh, _) = two_cores_from_saved_settings(&home, &ws).await;
+            assert_eq!(fresh.policy.tool_setting("web_fetch"), on_disk, "{first} then {second}");
+        }
+    }
+
+    #[tokio::test]
+    async fn recreated_config_does_not_lift_a_never() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.deny = vec!["web_fetch:*".into()];
+        saved.save().unwrap();
+        let ws = dir.path().join("ws");
+        let core = || async {
+            let cfg = Config::read_saved(&home).unwrap();
+            let store = Store::open(&cfg.db_path()).unwrap();
+            crate::risk_notice::accept_current(&store).unwrap();
+            let app = Arc::new(App::assemble(cfg, ws.clone(), store, scripted(vec![])).await.unwrap());
+            // In Yolo mode, what a core is not told to refuse it runs unasked.
+            app.policy.set_mode(Mode::Yolo);
+            app
+        };
+        let refuses = |app: &App| matches!(crate::permissions::decide_for(&app.policy, "web_fetch", "https://example.com/", crate::permissions::Effect::NetworkRead, false), crate::permissions::Verdict::Deny(_));
+        let a = core().await;
+        assert!(refuses(&a));
+
+        // The file is deleted; A keeps the "never" through its reload.
+        std::fs::remove_file(home.join("config.toml")).unwrap();
+        a.reload_rules();
+        assert!(refuses(&a));
+        // B starts while the file is missing, so it holds no "never", and its save of something
+        // else recreates the file without it.
+        let b = core().await;
+        assert!(!refuses(&b));
+        b.update_config(ConfigChange::edit(|c| c.agent.name = "Wren".into())).unwrap();
+        assert!(Config::read_saved(&home).unwrap().permissions.deny.is_empty());
+
+        // A's reloads take in the recreated file and lift nothing: the rule was not in the file at a
+        // read before.
+        for _ in 0..2 {
+            a.reload_rules();
+            assert!(refuses(&a), "{:?}", a.policy.deny_rules());
+            assert_eq!(a.cfg().permissions.deny, vec!["web_fetch:*"]);
+        }
+        // A's next save, of something else, writes the "never" back, and B takes it in.
+        a.update_config(ConfigChange::edit(|c| c.agent.name = "Ibis".into())).unwrap();
+        assert_eq!(Config::read_saved(&home).unwrap().permissions.deny, vec!["web_fetch:*"]);
+        b.reload_rules();
+        for app in [&a, &b] {
+            app.reload_rules();
+            assert!(refuses(app), "{:?}", app.policy.deny_rules());
+        }
+        assert!(refuses(&*core().await));
+        assert_eq!(Config::read_saved(&home).unwrap().agent.name, "Ibis");
+
+        // Now that the file held it, setting it back to "ask" on B lifts it on A too.
+        b.set_tool_setting("web_fetch", "ask").unwrap();
+        a.reload_rules();
+        assert!(!refuses(&a), "{:?}", a.policy.deny_rules());
     }
 
     #[cfg(unix)]
