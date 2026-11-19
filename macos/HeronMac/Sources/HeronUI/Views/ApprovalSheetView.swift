@@ -79,13 +79,19 @@ public struct ApprovalSheetView: View {
 
     @Environment(\.heronTheme) private var theme
     @State private var scope: Scope = .once
-    @State private var showDetails = false
+    @State private var showDetails: Bool
 
+    /// The tallest the action text and "Show details" get before they scroll. Short ones get no scroll view.
+    static let detailMaxHeight: CGFloat = 160
+
+    /// - Parameter showDetails: whether "Show details" starts open.
     public init(request: ApprovalRequest, avatarStyle: AvatarStyle = .ripple, agentName: String = "Heron",
+                showDetails: Bool = false,
                 onAnswer: @escaping (ApprovalDecision) -> Void) {
         self.request = request
         self.avatarStyle = avatarStyle
         self.agentName = agentName
+        self._showDetails = State(initialValue: showDetails)
         self.onAnswer = onAnswer
     }
 
@@ -94,10 +100,16 @@ public struct ApprovalSheetView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s4) {
             header
-            detail
+            // The action text and "Show details" share one scroll view that exists only when they are tall.
+            // The buttons below stay visible.
+            HScroll(maxHeight: Self.detailMaxHeight) {
+                VStack(alignment: .leading, spacing: Spacing.s4) {
+                    detail
+                    if showDetails { rawDetails }
+                }
+            }
             impact
             scopeSection
-            if showDetails { rawDetails }
             footer
         }
         .padding(Spacing.s6)

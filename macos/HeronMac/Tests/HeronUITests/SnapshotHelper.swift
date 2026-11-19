@@ -41,10 +41,76 @@ enum Snapshot {
             .environment(\.colorScheme, dark ? .dark : .light)
             .environment(\.heronTheme, theme)
             .environment(\.heronSnapshotMode, true)
+            .environment(\.heronFlatScroll, true)
             .frame(width: size.width, height: size.height > 0 ? size.height : nil, alignment: .topLeading)
             .background(theme.window)
         let image = try render(content, width: size.width, height: size.height)
         return try compare(image, name: name, forceRecord: record)
+    }
+
+    /// Like `check`, but renders through an `NSHostingView` so scroll views are real: `ImageRenderer` can't draw
+    /// them. Used by the overflow snapshots (heron-v1.md item 41b), which must show where content scrolls.
+    /// The view is drawn at exactly `size`, light or dark, 1 pt = 1 pixel.
+    @MainActor
+    static func checkScrolling<V: View>(_ view: V, name: String, size: CGSize, dark: Bool) throws -> Outcome {
+        let theme = HeronTheme.resolve(theme: .dusk, accent: .system, isDark: dark)
+        let content = view
+            .environment(\.colorScheme, dark ? .dark : .light)
+            .environment(\.heronTheme, theme)
+            .environment(\.heronSnapshotMode, true)
+            .environment(\.heronFlatScroll, false)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .background(theme.window)
+        let image = try renderHosted(content, size: size, dark: dark)
+        return try compare(image, name: name)
+    }
+
+    /// An `NSHostingView` for a view, sized to `size` and put in an off-screen window, so it lays out and draws.
+    /// Keep the result alive while using the view: the window goes away with it.
+    struct Hosted<V: View> {
+        let view: NSHostingView<V>
+        let window: NSWindow
+    }
+
+    @MainActor
+    static func makeHosted<V: View>(_ content: V, size: CGSize, dark: Bool = false) -> Hosted<V> {
+        _ = NSApplication.shared
+        let hosting = NSHostingView(rootView: content)
+        hosting.frame = CGRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.contentView = hosting
+        return Hosted(view: hosting, window: window)
+    }
+
+    /// Measured heights (the risk box) and scroll views settle over a few turns of the run loop.
+    @MainActor
+    static func settle(_ hostedView: NSView) {
+        for _ in 0..<8 {
+            hostedView.layoutSubtreeIfNeeded()
+            hostedView.displayIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        hostedView.layoutSubtreeIfNeeded()
+    }
+
+    @MainActor
+    static func renderHosted<V: View>(_ content: V, size: CGSize, dark: Bool) throws -> CGImage {
+        let hosted = makeHosted(content, size: size, dark: dark)
+        let hostedView = hosted.view
+        settle(hostedView)
+        defer { withExtendedLifetime(hosted) {} }
+        let rep = try XCTUnwrap(hostedView.bitmapImageRepForCachingDisplay(in: hostedView.bounds), "the hosting view can't be drawn")
+        hostedView.cacheDisplay(in: hostedView.bounds, to: rep)
+        let drawn = try XCTUnwrap(rep.cgImage, "the hosting view drew nothing")
+        // Whatever the screen's scale, keep 1 pt = 1 pixel, like `ImageRenderer` at scale 1.
+        let w = Int(size.width), h = Int(size.height)
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.interpolationQuality = .high
+        ctx.draw(drawn, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return try XCTUnwrap(ctx.makeImage())
     }
 
     @MainActor
@@ -118,7 +184,17 @@ extension XCTestCase {
     /// Asserts a snapshot, following the record-and-fail-once rule.
     @MainActor
     func assertSnapshot<V: View>(_ view: V, name: String, size: CGSize, dark: Bool, file: StaticString = #filePath, line: UInt = #line) throws {
-        switch try Snapshot.check(view, name: name, size: size, dark: dark) {
+        try reportSnapshot(try Snapshot.check(view, name: name, size: size, dark: dark), name: name, file: file, line: line)
+    }
+
+    /// Asserts a snapshot rendered with real scroll views (`Snapshot.checkScrolling`), with the same rules.
+    @MainActor
+    func assertScrollingSnapshot<V: View>(_ view: V, name: String, size: CGSize, dark: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
+        try reportSnapshot(try Snapshot.checkScrolling(view, name: name, size: size, dark: dark), name: name, file: file, line: line)
+    }
+
+    private func reportSnapshot(_ outcome: Snapshot.Outcome, name: String, file: StaticString, line: UInt) throws {
+        switch outcome {
         case .matched:
             break
         case .recorded(let url):

@@ -20,20 +20,60 @@ private struct HeronCard: ViewModifier {
     }
 }
 
-/// A `ScrollView` that draws flat in snapshot renders, which can't draw scroll views.
+/// The app's one scroll container. A page uses at most one, and never inside another.
+///
+/// - Without `maxHeight` it is a plain `ScrollView` that fills the space it is given: use it for a page body
+///   that can outgrow the window (the transcript, a settings tab, a list screen).
+/// - With `maxHeight` it is as tall as its content, up to that height, and becomes a `ScrollView` only when the
+///   content is taller. Short content gets no scroll view and no empty space below it.
+///
+/// Under `heronFlatScroll` (`ImageRenderer` snapshots, which can't draw scroll views) it draws flat and clipped.
 struct HScroll<Content: View>: View {
     var axes: Axis.Set = .vertical
     var maxHeight: CGFloat?
     @ViewBuilder var content: Content
-    @Environment(\.heronSnapshotMode) private var snapshot
+    @Environment(\.heronFlatScroll) private var flat
 
     var body: some View {
-        if snapshot {
-            content.frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .topLeading).clipped()
+        if flat, let maxHeight {
+            // One layout pass, no state: the `Layout` asks the content for its natural height and reports
+            // `min(natural, maxHeight)`; `clipped()` cuts it off only when it is taller.
+            CappedHeightLayout(maxHeight: maxHeight) {
+                content.frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .clipped()
+        } else if flat {
+            content.frame(maxWidth: .infinity, alignment: .topLeading).clipped()
+        } else if let maxHeight {
+            // A `ScrollView` reports its content's height when none is proposed, so the layout makes the box
+            // as tall as the content up to `maxHeight`; the scroll view then only has something to scroll
+            // when the content is taller.
+            CappedHeightLayout(maxHeight: maxHeight, offersCappedHeight: true) {
+                ScrollView(axes) { content.frame(maxWidth: .infinity, alignment: .topLeading) }
+            }
         } else {
             ScrollView(axes) { content.frame(maxWidth: .infinity, alignment: .topLeading) }
-                .frame(maxHeight: maxHeight)
         }
+    }
+}
+
+/// Sizes its one child to its natural height for the proposed width, capped at `maxHeight`. With
+/// `offersCappedHeight` the child is then given exactly that height (a `ScrollView` scrolls inside it);
+/// without, it is laid out at its full natural height from the top, so a parent that clips shows its top part.
+private struct CappedHeightLayout: Layout {
+    var maxHeight: CGFloat
+    var offersCappedHeight = false
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let natural = child.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: proposal.width ?? natural.width, height: min(natural.height, maxHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let child = subviews.first else { return }
+        child.place(at: bounds.origin, anchor: .topLeading,
+                    proposal: ProposedViewSize(width: bounds.width, height: offersCappedHeight ? bounds.height : nil))
     }
 }
 

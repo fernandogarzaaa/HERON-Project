@@ -263,10 +263,13 @@ struct InboxView: View {
         .padding(.vertical, 2)
     }
 
+    /// The detail pane is its own page area beside the list, so it gets its own single `HScroll` (parked
+    /// approvals, suggestions, delivered items). A live approval is the approval sheet, which scrolls its own
+    /// details and keeps its buttons visible, so it is not wrapped again.
     @ViewBuilder private var detail: some View {
         switch inbox.selection {
         case .parked(let id):
-            if let p = inbox.approvals.parked.first(where: { $0.id == id }) { parkedDetail(p) } else { placeholder }
+            if let p = inbox.approvals.parked.first(where: { $0.id == id }) { HScroll { parkedDetail(p) } } else { placeholder }
         case .live(let id):
             if let r = inbox.approvals.live.first(where: { $0.id == id }) {
                 ApprovalSheetView(request: r, avatarStyle: model.preferences.avatarStyle, agentName: model.agentName) { decision in
@@ -274,13 +277,15 @@ struct InboxView: View {
                 }.padding(Spacing.s6)
             } else { placeholder }
         case .suggestion(let id):
-            if let s = inbox.suggestions.first(where: { $0.id == id }) { suggestionDetail(s) } else { placeholder }
+            if let s = inbox.suggestions.first(where: { $0.id == id }) { HScroll { suggestionDetail(s) } } else { placeholder }
         case .delivered(let id):
             if let i = inbox.items.first(where: { $0.id == id }) {
-                VStack(alignment: .leading, spacing: Spacing.s3) {
-                    Text(i.title).font(HeronFont.title2).foregroundStyle(theme.ink)
-                    Text(i.body).foregroundStyle(theme.ink)
-                }.padding(Spacing.s6).textSelection(.enabled)
+                HScroll {
+                    VStack(alignment: .leading, spacing: Spacing.s3) {
+                        Text(i.title).font(HeronFont.title2).foregroundStyle(theme.ink)
+                        Text(i.body).foregroundStyle(theme.ink)
+                    }.padding(Spacing.s6).textSelection(.enabled)
+                }
             } else { placeholder }
         case nil: placeholder
         }
