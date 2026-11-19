@@ -498,14 +498,41 @@ impl Config {
     /// another Heron on this home has changed since. The file is read and written under
     /// [`Config::lock_file`]. Returns the settings as written.
     pub fn save_changes(&self, before: &Config, chosen: &[&str]) -> Result<Config> {
-        let (old, new) = (toml::Value::try_from(before)?, toml::Value::try_from(self)?);
         let _lock = self.lock_file()?;
+        self.save_changes_held(before, chosen, &[])
+    }
+
+    /// [`Config::save_changes`], with [`Config::lock_file`] already held. Each of `members` is
+    /// `(list, item, present)`: after the merge, `item` is put in the list at the dotted path `list`
+    /// when `present` (at the end, if it is not there yet) and taken out of it otherwise, whatever
+    /// `before` held. A choice the user just made is written this way even when this copy of the
+    /// settings already matched it and another Heron has changed the file since.
+    ///
+    /// When there is no `config.toml` yet (or no longer), the "never" rules in `self` are written
+    /// too: a refusal stays in force while the file is missing, so recreating the file must not drop
+    /// it at the next reload.
+    pub(crate) fn save_changes_held(&self, before: &Config, chosen: &[&str], members: &[(&str, &str, bool)]) -> Result<Config> {
+        let (old, new) = (toml::Value::try_from(before)?, toml::Value::try_from(self)?);
+        let recreating = !self.home.join("config.toml").exists();
         let mut saved = toml::Value::try_from(Self::read_saved(&self.home)?)?;
         apply_changes(&mut saved, &old, &new);
         for path in chosen {
             if let Some(value) = toml_get(&new, path) {
                 toml_set(&mut saved, path, value.clone());
             }
+        }
+        let held_deny: Vec<(&str, &str, bool)> = if recreating { self.permissions.deny.iter().map(|r| ("permissions.deny", r.as_str(), true)).collect() } else { vec![] };
+        for (path, item, present) in held_deny.iter().chain(members) {
+            let mut list = toml_get(&saved, path).and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let item = toml::Value::String(item.to_string());
+            if *present {
+                if !list.contains(&item) {
+                    list.push(item);
+                }
+            } else {
+                list.retain(|v| *v != item);
+            }
+            toml_set(&mut saved, path, toml::Value::Array(list));
         }
         let mut merged: Config = saved.try_into().context("the changed settings could not be combined with the saved ones; nothing was saved")?;
         merged.home = self.home.clone();
@@ -515,8 +542,9 @@ impl Config {
 
     /// Hold the lock that every Heron on this home takes to read-and-write `config.toml`, until the
     /// returned file is dropped. It is a file of its own: `config.toml` is replaced by a rename on each
-    /// save, so a lock on it would not outlive the save.
-    fn lock_file(&self) -> Result<std::fs::File> {
+    /// save, so a lock on it would not outlive the save. A second handle on it blocks even within one
+    /// program, so whoever holds it calls [`Config::save_changes_held`], not `save_changes`.
+    pub(crate) fn lock_file(&self) -> Result<std::fs::File> {
         self.ensure_home()?;
         let path = self.home.join("config.lock");
         let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).with_context(|| format!("opening {}", path.display()))?;

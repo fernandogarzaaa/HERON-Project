@@ -824,7 +824,8 @@ async fn real_main() -> Result<()> {
             let agent = app.agent(Arc::new(DenyAll));
             // One session id per connection, so each program's calls are told apart in the log.
             let ctx = agent.tool_ctx(&format!("mcp-{}", uuid::Uuid::new_v4().simple()));
-            heron::mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app.tools, &ctx, &app.policy).await
+            // The rules are reloaded before each call, so a revoke or a "never" on another core holds.
+            heron::mcp::serve_app(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app, &ctx).await
         }
         Cmd::Init | Cmd::Doctor | Cmd::Providers | Cmd::Eval { .. } | Cmd::Backup { .. } | Cmd::Restore { .. } => unreachable!(),
     }

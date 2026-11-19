@@ -232,7 +232,19 @@ pub async fn attach(registry: &mut ToolRegistry, name: &str, cfg: &McpServerConf
 pub const SERVED_TOOLS: &[&str] = &["search_knowledge", "remember", "recall", "forget", "task_add", "task_list", "task_update", "schedule_add", "schedule_list", "schedule_remove"];
 
 /// Serve MCP on the given streams until EOF.
-pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mut writer: W, registry: &ToolRegistry, ctx: &ToolCtx, policy: &crate::permissions::Policy) -> Result<()> {
+pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, writer: W, registry: &ToolRegistry, ctx: &ToolCtx, policy: &crate::permissions::Policy) -> Result<()> {
+    serve_with(reader, writer, registry, ctx, policy, &|| {}).await
+}
+
+/// `heron mcp-serve`: serve `app`'s tools, deciding each call by its live policy. Another Heron on
+/// this home may have revoked a rule or set a tool to "never" since the last call, so the rules are
+/// reloaded before each tool call, as they are at the start of every turn.
+pub async fn serve_app<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, writer: W, app: &crate::app::App, ctx: &ToolCtx) -> Result<()> {
+    serve_with(reader, writer, &app.tools, ctx, &app.policy, &|| app.reload_rules()).await
+}
+
+/// [`serve`], calling `before_call` before each tool call is decided.
+async fn serve_with<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mut writer: W, registry: &ToolRegistry, ctx: &ToolCtx, policy: &crate::permissions::Policy, before_call: &(dyn Fn() + Sync)) -> Result<()> {
     // What another program sends is outside content: the connection is tainted from the start, so
     // every state write asks, and with nobody here to answer, is refused (M-2).
     if !ctx.tainted.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -267,6 +279,7 @@ pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mu
                     // here to approve, so anything that would need approval is refused, not run. What
                     // another program sends is outside content.
                     Some(tool) => {
+                        before_call();
                         let (effect, summary, target) = (tool.risk(&args, ctx), tool.summary(&args), tool.read_target(&args, ctx));
                         let verdict = policy.decide(&crate::permissions::Call { tool: name, summary: &summary, effect, read_target: target.as_deref() }, ctx);
                         let audit_args = crate::util::redact_secrets(&crate::util::preview(&args.to_string(), 600));
@@ -401,5 +414,66 @@ mod tests {
             assert!(store.kv_get(&format!("tainted:{session}")).is_some());
             assert!(store.audit_log(10).unwrap().iter().all(|a| a.session_id == session), "{mode:?}");
         }
+    }
+
+    /// `heron mcp-serve` runs `serve_app`; a revoke or a "never" set on another core over the same
+    /// home reaches the connection's next call.
+    #[tokio::test]
+    async fn mcp_serve_reloads_rules_before_each_call() {
+        use crate::app::App;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.allow = vec!["shell:git *".into()];
+        saved.save().unwrap();
+        let core = || async {
+            let cfg = Config::read_saved(&home).unwrap();
+            let store = Store::open(&cfg.db_path()).unwrap();
+            crate::risk_notice::accept_current(&store).unwrap();
+            Arc::new(App::assemble(cfg, dir.path().join("ws"), store, Arc::new(crate::llm::ScriptedLlm::new(vec![]))).await.unwrap())
+        };
+        let (a, b) = (core().await, core().await);
+        let has_git = |app: &App| app.policy.allow_rules().iter().any(|r| r == "shell:git *");
+        assert!(has_git(&a));
+
+        // One connection to A's serve path, kept open across the calls.
+        let ctx = a.agent(Arc::new(crate::permissions::DenyAll)).tool_ctx("mcp-reload");
+        let (client, server) = tokio::io::duplex(1 << 16);
+        let (server_read, server_write) = tokio::io::split(server);
+        let serving = tokio::spawn({
+            let a = a.clone();
+            async move { serve_app(BufReader::new(server_read), server_write, &a, &ctx).await }
+        });
+        let (client_read, mut client_write) = tokio::io::split(client);
+        let mut replies = BufReader::new(client_read).lines();
+        let mut recall = async |id: u32| -> Value {
+            let call = json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": "recall", "arguments": {"query": "anything"}}});
+            client_write.write_all(format!("{call}\n").as_bytes()).await.unwrap();
+            let line = tokio::time::timeout(std::time::Duration::from_secs(20), replies.next_line()).await.expect("no reply").unwrap().unwrap();
+            serde_json::from_str(&line).unwrap()
+        };
+
+        let first = recall(1).await;
+        assert_eq!(first["result"]["isError"], false, "{first}");
+
+        // On B: the config rule is revoked and recall is set to "never". A has not looked yet.
+        assert!(b.revoke_grant("shell:git *").unwrap());
+        b.set_tool_setting("recall", "never").unwrap();
+        assert!(has_git(&a), "A has not reloaded yet");
+        assert_eq!(a.policy.tool_setting("recall"), "ask");
+
+        // A's next call over the same connection is decided by the rules as they are now.
+        let second = recall(2).await;
+        assert_eq!(second["result"]["isError"], true, "{second}");
+        assert!(second["result"]["content"][0]["text"].as_str().unwrap().contains("Not allowed"), "{second}");
+        assert!(!has_git(&a), "{:?}", a.policy.allow_rules());
+        assert_eq!(a.policy.tool_setting("recall"), "never");
+
+        // Closing the connection (both halves) ends the serve loop.
+        drop(recall);
+        drop((client_write, replies));
+        tokio::time::timeout(std::time::Duration::from_secs(20), serving).await.expect("serve did not end at EOF").unwrap().unwrap();
     }
 }

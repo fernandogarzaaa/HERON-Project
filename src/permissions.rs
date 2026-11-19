@@ -294,19 +294,30 @@ impl Policy {
         }
     }
 
-    pub fn set_tool_setting(&self, tool: &str, setting: &str) -> Result<()> {
+    /// The error [`Policy::set_tool_setting`] would return for this choice, without changing anything.
+    pub fn check_tool_setting(tool: &str, setting: &str) -> Result<()> {
+        Self::tool_setting_matcher(tool, setting).map(|_| ())
+    }
+
+    fn tool_setting_matcher(tool: &str, setting: &str) -> Result<GlobMatcher> {
+        if !["ask", "allow", "never"].contains(&setting) {
+            bail!("unknown setting '{setting}' (use ask, allow or never)");
+        }
         if setting == "allow" && READ_TOOLS.contains(&tool) {
             bail!("reads outside the working folder are granted per folder");
         }
+        Ok(Glob::new(&format!("{tool}:*")).map_err(|e| anyhow!("bad tool name: {e}"))?.compile_matcher())
+    }
+
+    pub fn set_tool_setting(&self, tool: &str, setting: &str) -> Result<()> {
+        let matcher = Self::tool_setting_matcher(tool, setting)?;
         let rule = format!("{tool}:*");
-        let matcher = Glob::new(&rule).map_err(|e| anyhow!("bad tool name: {e}"))?.compile_matcher();
         self.allow.write().unwrap().retain(|(r, _)| *r != rule);
         self.deny.write().unwrap().retain(|(r, _)| *r != rule);
         match setting {
             "allow" => self.allow.write().unwrap().push((rule, matcher)),
             "never" => self.deny.write().unwrap().push((rule, matcher)),
-            "ask" => {}
-            other => bail!("unknown setting '{other}' (use ask, allow or never)"),
+            _ => {}
         }
         Ok(())
     }
