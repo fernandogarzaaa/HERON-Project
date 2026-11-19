@@ -6270,6 +6270,59 @@
       "path": null
     }
   },
+  "U3m": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3l",
+      "SYNC21"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U3m",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- m8_forwarded_telegram_message_taints learned_items_from_a_tainted_session_stay_unconfirmed",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 35i, the M-8 row of 'Security findings in scope', and docs/designs/reviews/g3-rerun.md (NEW-1).",
+      "goal": "Implement spec item 35i (NEW-1 from the independent G3 rerun; full evidence in docs/designs/reviews/g3-rerun.md, search NEW-1). Line numbers are from 16cfc8d and may have moved.\nA forwarded Telegram message can become a confirmed core memory: auto-memory (on by default) learns from the wrapped forwarded text, and the learner saves learned items with source \"auto\" (telegram.rs:572, agent.rs:817-826, memory.rs:342), so they are confirmed core memories that later appear in a clean session's system prompt as trusted facts. Only the learner prompt's instruction prevents it.\nFix: when the session is tainted, save every learned item as outside content (unconfirmed, the same way untrusted memories are saved elsewhere; see how memory.rs distinguishes confirmed vs outside), whatever the learner returns, on every path that runs the learner (Telegram, the app's chat in server.rs, the terminal turn, unattended runs). A clean session's learning stays as it is.\nTests: extend m8_forwarded_telegram_message_taints with an auto_memory = true case (scripted learner returns a fact from the forwarded text) asserting the item is saved unconfirmed and is absent from memory.core(); add learned_items_from_a_tainted_session_stay_unconfirmed for the app's chat path, plus a clean-session control that stays confirmed. Each must fail with the fix removed (check, then restore). Keep every existing test and assertion."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "G3 NEW-1: tainted learning stays unconfirmed (35i)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U4a": {
     "attempts": [
       {
