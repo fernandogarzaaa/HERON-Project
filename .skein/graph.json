@@ -480,15 +480,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "426a1eb96c974af2bae5c5b6ab608712",
+      "base_branch": "feat/heron-v1",
+      "claim_token": "97abf53ca7c541c2815c49515957a892",
+      "claimed_at": "2026-11-19T01:23:27.314737+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T01:23:27.314737+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [],
     "evidence": [],
@@ -508,11 +508,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Sync feat head into U3i base",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/heron-v1",
       "branch": null,
       "path": null
     }
