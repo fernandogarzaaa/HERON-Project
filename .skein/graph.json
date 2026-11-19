@@ -5972,10 +5972,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "8047772e846dae955c305212a242eb77b2c99f6b",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "13e94c23592bb3fc1664ea765876f7f42a14b6ca",
+        "result_commit": "c8c9f282acd8b34b5b19fcac0d77a6444ed67ff5",
+        "shipped_at": "2026-11-19T00:32:37.658991+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Integration tests for U1 to U3, and the recorded API fixtures",
-    "version": 33,
+    "version": 34,
     "worktree": {
       "base_branch": "8047772e846dae955c305212a242eb77b2c99f6b",
       "base_commit": "8047772e846dae955c305212a242eb77b2c99f6b",
