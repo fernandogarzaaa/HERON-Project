@@ -1170,6 +1170,84 @@
     }
   },
   "SYNC24": {
+    "attempts": [
+      {
+        "attempt_id": "36a45471c61c4fb6913e82046f07e1d7",
+        "ended_at": "2026-11-19T17:50:47.913401+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-19T17:50:39.069293+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "grep -q agent_or_auto_paraphrase_cannot_upgrade_an_outside_memory docs/designs/heron-v1.md",
+        "duration_ms": 222,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC24_20261119T175047627415_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC24_20261119T175047850656_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: done",
+    "id": "SYNC24",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q agent_or_auto_paraphrase_cannot_upgrade_an_outside_memory docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3p's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "36a45471c61c4fb6913e82046f07e1d7",
+      "base_commit": "21e5976ef9867b6c4bccab7818bee09fba5f8019",
+      "changed_files": [],
+      "commit": "21e5976ef9867b6c4bccab7818bee09fba5f8019",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Sync feat head into U3p base",
+    "version": 4,
+    "worktree": {
+      "base_branch": "feat/heron-v1",
+      "base_commit": "21e5976ef9867b6c4bccab7818bee09fba5f8019",
+      "branch": "skein/SYNC24",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC24"
+    }
+  },
+  "SYNC25": {
     "attempts": [],
     "attempts_used": 0,
     "backend": "claude_build_rust",
@@ -1182,26 +1260,26 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "36a45471c61c4fb6913e82046f07e1d7",
+      "attempt_id": "b21867969e114728a3eca5bd060bb5ca",
       "base_branch": "feat/heron-v1",
-      "claim_token": "df362a850c9b43598f032e03d1812728",
-      "claimed_at": "2026-11-19T17:50:39.069293+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T17:50:39.069293+00:00",
+      "claim_token": "93292b49dbd14874b4914192e1086e69",
+      "claimed_at": "2026-11-19T18:27:14.076060+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T18:27:14.076060+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "worker_id": "agent-1"
     },
     "depends_on": [],
     "evidence": [],
     "handoff_note": null,
-    "id": "SYNC24",
+    "id": "SYNC25",
     "integration_for": null,
     "intent": {
-      "completion": "grep -q agent_or_auto_paraphrase_cannot_upgrade_an_outside_memory docs/designs/heron-v1.md",
+      "completion": "grep -q restore_refuses_a_copy_with_foreign_triggers docs/designs/heron-v1.md",
       "constraints": "Do not read, write or run anything.",
       "context": "No spec work.",
-      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3p's base. Reply 'done' and stop."
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3q's base. Reply 'done' and stop."
     },
     "max_retries": 0,
     "rejected_count": 0,
@@ -1211,7 +1289,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "claimed",
-    "title": "Sync feat head into U3p base",
+    "title": "Sync feat head into U3q base",
     "version": 2,
     "worktree": {
       "base_branch": "feat/heron-v1",
@@ -6936,7 +7014,16 @@
     }
   },
   "U3o": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "059dcace17ac460ba6aa8d2f52ce8758",
+        "ended_at": "2026-11-19T18:08:14.242092+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T17:36:26.388810+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -6948,22 +7035,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "059dcace17ac460ba6aa8d2f52ce8758",
-      "base_branch": "skein/U3o__integrate-base",
-      "claim_token": "46612cda0b054fe39f46c9371acdada0",
-      "claimed_at": "2026-11-19T17:36:26.388810+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T17:50:27.770692+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3n",
       "SYNC23"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- timed_out_reload_still_takes_in_nevers_and_drops_file_allows held_config_lock_cannot_stall_reloads_behind_a_setting_change restore_refuses_when_current_nevers_cannot_be_read restore_failure_after_swap_keeps_current_nevers restore_does_not_bring_back_revoked_grants doctor_reports_an_incomplete_rebuild startup_reports_a_busy_database_as_busy removing_a_never_lifts_it_on_every_core",
+        "duration_ms": 30437,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3o_20261119T180743690290_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3o_20261119T180814129470_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U3o",
     "integration_for": null,
     "intent": {
@@ -6975,13 +7074,56 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "059dcace17ac460ba6aa8d2f52ce8758",
+      "base_commit": "b0a3bfa0599993ee7ad604d96917c678a2536e08",
+      "changed_files": [
+        "src/app.rs",
+        "src/config.rs",
+        "src/main.rs",
+        "src/server.rs",
+        "src/store.rs"
+      ],
+      "commit": "527db9039863f8a3fec1796fa926a2bdbe24b3b9",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 421,
+          "deleted": 97
+        },
+        "src/config.rs": {
+          "added": 50,
+          "deleted": 1
+        },
+        "src/main.rs": {
+          "added": 99,
+          "deleted": 18
+        },
+        "src/server.rs": {
+          "added": 170,
+          "deleted": 12
+        },
+        "src/store.rs": {
+          "added": 3,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
-    "status": "in_progress",
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "b0a3bfa0599993ee7ad604d96917c678a2536e08",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "2d68e6a6b1e279cc148a44278413ff4780132f8c",
+        "result_commit": "527db9039863f8a3fec1796fa926a2bdbe24b3b9",
+        "shipped_at": "2026-11-19T18:08:24.075921+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
     "title": "Fixes from U3l's review (35k)",
-    "version": 32,
+    "version": 69,
     "worktree": {
       "base_branch": "skein/U3o__integrate-base",
       "base_commit": "b0a3bfa0599993ee7ad604d96917c678a2536e08",
@@ -7068,7 +7210,16 @@
     }
   },
   "U3p": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "04405b68a92643e6852e52333a361ac1",
+        "ended_at": "2026-11-19T18:18:50.454887+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T18:08:15.024714+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -7094,8 +7245,20 @@
       "U3o",
       "SYNC24"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- agent_or_auto_paraphrase_cannot_upgrade_an_outside_memory onboarding_restatement_confirms_an_outside_memory unknown_source_starts_unconfirmed restatements_keep_one_row_and_never_unconfirm learner_known_list_is_not_crowded_out_by_outside_memories clean_learner_cannot_upgrade_an_outside_memory tainted_learner_cannot_rewrite_a_confirmed_memory",
+        "duration_ms": 39323,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3p_20261119T181810761678_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3p_20261119T181850085619_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U3p",
     "integration_for": null,
     "intent": {
@@ -7107,12 +7270,172 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
+    "result": {
+      "attempt_id": "04405b68a92643e6852e52333a361ac1",
+      "base_commit": "3eb1b9bfc08e7db755c1fd037a5a3cc2bdfc85eb",
+      "changed_files": [
+        "src/memory.rs",
+        "src/tools/personal.rs"
+      ],
+      "commit": "3cd5266b561e45c823d03193b08c660759f77988",
+      "diff_stats": {
+        "src/memory.rs": {
+          "added": 203,
+          "deleted": 17
+        },
+        "src/tools/personal.rs": {
+          "added": 31,
+          "deleted": 1
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "3eb1b9bfc08e7db755c1fd037a5a3cc2bdfc85eb",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "8878264f37ae267e672eda08af2f80fa2994b929",
+        "result_commit": "3cd5266b561e45c823d03193b08c660759f77988",
+        "shipped_at": "2026-11-19T18:19:04.015331+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
+    "title": "Fixes from U3n's review (35l)",
+    "version": 27,
+    "worktree": {
+      "base_branch": "skein/U3p__integrate-base",
+      "base_commit": "3eb1b9bfc08e7db755c1fd037a5a3cc2bdfc85eb",
+      "branch": "skein/U3p",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3p"
+    }
+  },
+  "U3p__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "38f7ef1962c3412f825f9a44c9163aa5",
+        "ended_at": "2026-11-19T18:08:14.950386+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-19T18:08:14.532840+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3o",
+      "SYNC24"
+    ],
+    "evidence": [
+      {
+        "command": "git merge 21e5976ef9867b6c4bccab7818bee09fba5f8019",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['527db9039863f8a3fec1796fa926a2bdbe24b3b9', '21e5976ef9867b6c4bccab7818bee09fba5f8019'] into skein/U3p__integrate-base.",
+    "id": "U3p__integrate",
+    "integration_for": "U3p",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U3o', 'SYNC24'] into one base branch for U3p."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "527db9039863f8a3fec1796fa926a2bdbe24b3b9",
+      "changed_files": [],
+      "commit": "3eb1b9bfc08e7db755c1fd037a5a3cc2bdfc85eb",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "527db9039863f8a3fec1796fa926a2bdbe24b3b9",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "c601af9c63290ea79a46f1afe6ac9ce2c9acdc62",
+        "result_commit": "3eb1b9bfc08e7db755c1fd037a5a3cc2bdfc85eb",
+        "shipped_at": "2026-11-19T18:08:25.116358+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
+    "title": "Integrate parents of U3p",
+    "version": 4,
+    "worktree": {
+      "base_branch": "527db9039863f8a3fec1796fa926a2bdbe24b3b9",
+      "branch": "skein/U3p__integrate-base",
+      "path": null
+    }
+  },
+  "U3q": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3p",
+      "SYNC25"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U3q",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- turn_end_and_setting_changes_do_not_park_async_workers restore_refuses_a_copy_with_foreign_triggers restored_schedules_come_back_paused_and_grants_stay_current damaged_database_guidance_says_to_move_it_aside doctor_fails_on_an_unreadable_database timed_out_reload_notice_names_the_lock incomplete_rebuild_stays_visible restore_failure_after_swap_keeps_current_nevers",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md items 35m, 35k, 35h (owner decision), 35g, and section 3 'Another core already running'.",
+      "goal": "Implement spec item 35m ('Fixes from U3o's review'), including its build decision on restored schedules and grants. Read 35m, 35k (with its Decisions bullet), 35h, 35g first. Line numbers are from U3o's result 527db90 and may have moved (U3p changed src/memory.rs and src/tools/personal.rs).\nL1 (demonstrated): persist_rules (app.rs:1008) takes lock_rules_seen (app.rs:1035) directly and run_chat calls it at every turn end (server.rs:603); revoke_grant (app.rs:774-775), set_tool_setting (835-836), lift_never (908-909) and save_config (614) take the same locks directly; their handlers run on async workers (server.rs:441, 791, 810, 1187). Reviewer probe: worker_threads=1 runtime, injected 3 s lock wait: turn-end persist_rules delayed an unrelated task 2.70 s; a second set_tool_setting 2.70 s; reload_rules (already off_async) 76 us. Fix: run them off the async threads via the existing off_async helper or spawn_blocking. Test turn_end_and_setting_changes_do_not_park_async_workers.\nL2 (demonstrated): Store::restore copies the whole schema incl. triggers; a copy with `AFTER UPDATE ON kv WHEN NEW.k='allow_rules'` setting deny_rules/deny_rules_last_good to [] and allow_rules to [\"shell:*\"] defeats restore_keeping_nevers (app.rs:487-498) and keeps firing later. Fix: refuse a copy whose sqlite_master has any trigger or view not in Heron's own schema; read deny_rules and allow_rules back from the work copy before the swap and refuse if they differ from what was written. Test restore_refuses_a_copy_with_foreign_triggers.\nDECISION: restore keeps per-session grants (grants:<sid>) and mcp_pin:* from the CURRENT database (like always grants); a schedule present in the copy but not in the current database comes back paused. Test restored_schedules_come_back_paused_and_grants_stay_current.\nL3 (demonstrated): store.rs:550, store.rs:576 and doctor's copies line (main.rs:593) send users to `heron restore`; restore over an unreadable db refuses and points to doctor (app.rs:477), which prints store.rs:550 again (loop). With garbage in heron.db, doctor(&cfg) returns Ok (never check never runs). Fix: every damaged-database message says to move heron.db aside, then `heron restore <copy>`; doctor exits non-zero when the database can't be read and runs the never check whenever the db opens. Also: unreadable_nevers_error (app.rs:360) reports a corrupt/not-a-database heron.db as \"check the disk\" - report it as a damaged database; a timed-out reload stores its lock message as seen.unreadable (app.rs:1113) so GET /api/grants says config.toml can't be read - make the notice name the held config.lock. Tests damaged_database_guidance_says_to_move_it_aside, doctor_fails_on_an_unreadable_database, timed_out_reload_notice_names_the_lock.\nL4: doctor's incomplete rebuild is loud once only (app.rs:437-438 writes the shrunk set; next doctor prints Sound, main.rs:923 asserts that; a second damage overwrites deny_rules_damaged). Fix: keep deny_rules_damaged until the user clears it (append on a second damage), and every later doctor and the GET /api/nevers notice say some never rules may have been lost and name the kept value. Update the main.rs:923 assertion accordingly (record that in your handoff). Test incomplete_rebuild_stays_visible.\nL5 mutants that survived and must now be killed: doctor's never-check error path made to pass (main.rs:555); Cmd::Restore (main.rs:711) calling Store::restore directly (test must go through the dispatch); peek_kv without busy_timeout (store.rs:695); the DatabaseLocked case removed (app.rs:363); the deny_rules_last_good write into the copy removed (app.rs:495). Give restore_failure_after_swap_keeps_current_nevers a case whose failure is injected AFTER the swap. Clean up any `.restoring-*` folder left in home by a crash, at the next start or restore.\nEach new test must fail with its fix removed (check, then restore). Deterministic, no wall-clock sleeps (inject waits). Keep lock order rules_seen -> config_seen -> config.lock -> cfg RwLock -> policy -> SQLite. Keep every other existing test and assertion. Kill any test process you start that hangs."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
     "result": null,
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "unclaimed",
-    "title": "Fixes from U3n's review (35l)",
+    "title": "Fixes from U3o's review (35m)",
     "version": 1,
     "worktree": {
       "base_branch": null,
@@ -9282,7 +9605,8 @@
       "U3m",
       "U3n",
       "U3o",
-      "U3p"
+      "U3p",
+      "U3q"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -9303,7 +9627,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 22,
+    "version": 23,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "branch": null,
