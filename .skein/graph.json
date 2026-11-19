@@ -4699,10 +4699,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "19384e891d51f18541cde83bd23ada0397b7f645",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "516c8535636910f9649bcffac57926e1844153d7",
+        "result_commit": "715d544a4a918d9611915bba42d701a576b1b3c0",
+        "shipped_at": "2026-11-19T00:32:38.965222+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U3f's review: config.toml revoke across cores, job read_file, dropped gateway run_end, explicit choices saved, atomic revoke",
-    "version": 53,
+    "version": 54,
     "worktree": {
       "base_branch": "skein/U3g__integrate-base",
       "base_commit": "19384e891d51f18541cde83bd23ada0397b7f645",
