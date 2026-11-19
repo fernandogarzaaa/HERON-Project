@@ -7432,9 +7432,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Mac app: the Never list with Remove (35h)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U4d__integrate-base",
       "branch": null,
       "path": null
     }
