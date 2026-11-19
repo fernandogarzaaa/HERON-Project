@@ -6993,9 +6993,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from CI on all three OSes, two flaky tests (47b)",
-    "version": 3,
+    "version": 4,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U7c__integrate-base",
       "branch": null,
       "path": null
     }
