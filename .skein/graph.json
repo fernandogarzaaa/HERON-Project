@@ -6440,7 +6440,16 @@
     }
   },
   "U7b": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "0ff5280c35244607920894ff61cb7acc",
+        "ended_at": "2026-11-19T01:17:52.224623+00:00",
+        "error": "released by agent-1",
+        "holder": "agent-1",
+        "outcome": "released",
+        "started_at": "2026-11-19T01:17:25.692990+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -6452,21 +6461,21 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "0ff5280c35244607920894ff61cb7acc",
-      "base_branch": "54bcccc119df0616e988ea48d255b8a633b66843",
-      "claim_token": "31019000f75e4abcb5879d9baefc5fa8",
-      "claimed_at": "2026-11-19T01:17:25.692990+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T01:17:25.692990+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U7"
     ],
     "evidence": [],
-    "handoff_note": null,
+    "handoff_note": "[release note] released by agent-1",
     "id": "U7b",
     "integration_for": null,
     "intent": {
@@ -6482,9 +6491,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "Release and CI workflow changes",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "54bcccc119df0616e988ea48d255b8a633b66843",
       "base_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
