@@ -43,7 +43,7 @@ pub struct ServerState {
     oauth_transition: tokio::sync::Mutex<()>,
     /// Runs in progress, by conversation, with their run id: a run that is finishing can never
     /// clear the entry of the one that followed it. Only `POST /api/cancel` aborts a run.
-    running: Mutex<HashMap<String, (String, tokio::task::AbortHandle)>>,
+    running: Mutex<HashMap<String, (String, tokio::task::JoinHandle<()>)>>,
 }
 
 impl ServerState {
@@ -529,9 +529,9 @@ async fn chat(State(st): S, Json(body): Json<ChatBody>) -> std::result::Result<R
         if running.contains_key(&sid) {
             return Ok(session_busy());
         }
-        st.app.events.publish(&sid, &run_id, json!({"type": "session", "id": sid, "run_id": run_id}));
+        st.app.publish_run_start(&sid, &run_id);
         let handle = tokio::spawn(run_chat(st.clone(), session, message, run_id.clone()));
-        running.insert(sid, (run_id.clone(), handle.abort_handle()));
+        running.insert(sid, (run_id.clone(), handle));
     }
     // Dropping this response, or its falling behind, ends only the response: the run goes on, and a
     // client picks it up again from `/api/events`.
@@ -569,6 +569,8 @@ fn sse(item: &Item) -> SseEvent {
 /// turn ends, or `cancel` when it stops the run first.
 async fn run_chat(st: Arc<ServerState>, mut session: Session, message: String, run_id: String) {
     let sid = session.id.clone();
+    // Rules another Heron on this home revoked or added since this one last looked apply from here.
+    st.app.reload_rules();
     let agent = st.app.agent(Arc::new(WebApprover { state: st.clone(), session_id: sid.clone(), run_id: run_id.clone() }));
     let outcome = agent.run_turn(&mut session, &message, &st.app.sink_for(&sid, &run_id)).await;
     // Free the conversation before the (slower) background learning step.
@@ -633,15 +635,29 @@ async fn cancel(State(st): S, Json(b): Json<SessionBody>) -> ApiResult {
     for (id, p) in cleared {
         st.app.events.publish(&p.session_id, &p.run_id, json!({"type": "approval_resolved", "id": id, "decision": "cancelled"}));
     }
-    let cancelled = match entry {
-        Some((run_id, _)) => {
-            st.app.events.publish(&b.session_id, &run_id, json!({"type": "cancelled"}));
-            st.app.publish_run_end(&b.session_id, &run_id);
-            true
-        }
-        None => false,
+    let Some((run_id, handle)) = entry else {
+        return Ok(Json(json!({"ok": true, "cancelled": false})));
     };
-    Ok(Json(json!({"ok": true, "cancelled": cancelled})))
+    // The task may be in the middle of a step on another thread. Once it has stopped it publishes
+    // nothing more, so waiting for that keeps `run_end` the run's last event. The run has left
+    // `running`, so its end is published by a task of its own: a client that drops this request
+    // while it waits cannot leave the run without `run_end`.
+    let ended = tokio::spawn(async move {
+        let _ = handle.await;
+        // An approval that step registered after the ones above were cleared goes too.
+        let late: Vec<(String, PendingApproval)> = {
+            let mut approvals = st.approvals.lock().unwrap();
+            let ids: Vec<String> = approvals.iter().filter(|(_, p)| p.run_id == run_id).map(|(id, _)| id.clone()).collect();
+            ids.into_iter().filter_map(|id| approvals.remove(&id).map(|p| (id, p))).collect()
+        };
+        for (id, p) in late {
+            st.app.events.publish(&p.session_id, &p.run_id, json!({"type": "approval_resolved", "id": id, "decision": "cancelled"}));
+        }
+        st.app.events.publish(&b.session_id, &run_id, json!({"type": "cancelled"}));
+        st.app.publish_run_end(&b.session_id, &run_id);
+    });
+    let _ = ended.await;
+    Ok(Json(json!({"ok": true, "cancelled": true})))
 }
 
 // ---------- the event bus, the risk notice, providers and grants ----------
@@ -729,6 +745,8 @@ async fn accept_provider_version(State(st): S, Path(id): Path<String>, Json(b): 
 
 /// Every standing allow rule: folder reads (`read:`) and tool rules.
 async fn list_grants(State(st): S) -> ApiResult {
+    // Including what another Heron on this home granted or revoked since this one last looked.
+    st.app.reload_rules();
     let grants: Vec<Value> = st.app.policy.allow_rules().into_iter().map(|rule| json!({"kind": if rule.starts_with("read:") { "read" } else { "tool" }, "rule": rule})).collect();
     Ok(Json(json!(grants)))
 }
@@ -741,6 +759,7 @@ struct GrantBody {
 /// Revoke a standing rule everywhere it lives: the policy, the saved "always" answers and the
 /// settings file.
 async fn revoke_grant(State(st): S, Json(b): Json<GrantBody>) -> ApiResult {
+    st.app.reload_rules();
     let removed = st.app.policy.remove_allow(&b.rule);
     let mut cfg = (*st.app.cfg()).clone();
     let in_config = cfg.permissions.allow.contains(&b.rule);
@@ -1082,7 +1101,12 @@ async fn list_approvals(State(st): S) -> ApiResult {
 
 async fn answer_approval(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>) -> ApiResult {
     match b.get("action").and_then(|a| a.as_str()) {
-        Some("approve") => Ok(Json(json!({"result": st.app.run_parked(id).await?}))),
+        Some("approve") => match st.app.run_parked(id).await {
+            Ok(result) => Ok(Json(json!({"result": result}))),
+            // As for `/api/chat` (Q15): the request stays waiting until the notice is accepted.
+            Err(e) if e.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some() => Err(ApiError(StatusCode::PRECONDITION_REQUIRED, "risk_notice_not_accepted".into())),
+            Err(e) => Err(e.into()),
+        },
         Some("dismiss") => {
             st.app.store.resolve_approval(id, "dismissed", None)?;
             Ok(Json(json!({"dismissed": true})))
@@ -1579,6 +1603,11 @@ mod tests {
         if accept {
             crate::risk_notice::accept_current(&app.store).unwrap();
         }
+        serve_app(dir, app)
+    }
+
+    /// The server over `router` for an app that is already built.
+    fn serve_app(dir: tempfile::TempDir, app: Arc<App>) -> Harness {
         let (connect, incoming) = tokio::sync::mpsc::unbounded_channel();
         let served = router(app.clone(), "test-token".into());
         tokio::spawn(async move { axum::serve(Pipes(incoming), served).await });
@@ -1902,6 +1931,181 @@ mod tests {
         // Nothing comes back after a restart.
         let restarted = App::assemble(saved, h.dir.path().join("ws"), h.app.store.clone(), scripted(vec![])).await.unwrap();
         assert!(restarted.policy.allow_rules().is_empty(), "{:?}", restarted.policy.allow_rules());
+    }
+
+    /// A model that notes the standing rules of a policy each time it is called, then says "Hello.".
+    struct NotesRules(Arc<std::sync::OnceLock<Arc<crate::permissions::Policy>>>, Arc<Mutex<Vec<Vec<String>>>>);
+
+    #[async_trait]
+    impl Llm for NotesRules {
+        async fn chat(&self, _req: ChatRequest, _on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
+            self.1.lock().unwrap().push(self.0.get().map(|p| p.allow_rules()).unwrap_or_default());
+            Ok(ChatResponse { message: Message::assistant("Hello."), usage: Default::default(), model: "notes".into() })
+        }
+    }
+
+    #[tokio::test]
+    async fn revoked_grant_stays_revoked_with_a_second_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        cfg.ensure_home().unwrap();
+        let seed = Store::open(&cfg.db_path()).unwrap();
+        seed.kv_set("allow_rules", &json!(["shell:git *", "shell:make *"]).to_string()).unwrap();
+        crate::risk_notice::accept_current(&seed).unwrap();
+        // Two cores on one home, each with its own connection (§3, "Another core already running").
+        let core = |llm: Arc<dyn Llm>| {
+            let (cfg, ws) = (cfg.clone(), dir.path().join("ws"));
+            async move { Arc::new(App::assemble(cfg.clone(), ws, Store::open(&cfg.db_path()).unwrap(), llm).await.unwrap()) }
+        };
+        let (policy_of_b, seen_by_model) = (Arc::new(std::sync::OnceLock::new()), Arc::new(Mutex::new(vec![])));
+        let a = core(scripted(vec![])).await;
+        let b = core(Arc::new(NotesRules(policy_of_b.clone(), seen_by_model.clone()))).await;
+        let _ = policy_of_b.set(b.policy.clone());
+        for app in [&a, &b] {
+            assert_eq!(app.policy.allow_rules(), vec!["shell:git *", "shell:make *"]);
+        }
+        let (ha, hb) = (serve_app(tempfile::tempdir().unwrap(), a.clone()), serve_app(tempfile::tempdir().unwrap(), b.clone()));
+        let saved = || serde_json::from_str::<Vec<String>>(&seed.kv_get("allow_rules").unwrap_or_default()).unwrap_or_default();
+        let has = |app: &App, rule: &str| app.policy.allow_rules().iter().any(|r| r == rule);
+        // The other core got an "always" answer of its own that it has not saved yet.
+        b.policy.add_allow("shell:ls *").unwrap();
+
+        // A rule is revoked in one core. In the other, the next turn no longer has it by the time
+        // anything is decided, and does not write it back; its own new rule is kept.
+        ha.json("DELETE", "/grants", json!({"rule": "shell:git *"})).await;
+        assert_eq!(saved(), vec!["shell:make *"]);
+        let events = hb.chat(json!({"message": "hi"})).await.all().await;
+        assert_eq!(find(&events, "done")["text"], "Hello.");
+        let at_model = seen_by_model.lock().unwrap().clone();
+        assert_eq!(at_model.len(), 1);
+        assert!(!at_model[0].iter().any(|r| r == "shell:git *"), "the turn ran with the revoked rule: {at_model:?}");
+        assert!(!has(&b, "shell:git *"));
+        assert_eq!(saved(), vec!["shell:ls *", "shell:make *"]);
+
+        // Another is revoked while a turn in the other core is going. When that turn ends and saves,
+        // only what that core changed itself is written.
+        ha.json("DELETE", "/grants", json!({"rule": "shell:make *"})).await;
+        assert!(has(&b, "shell:make *"), "the other core has not looked yet");
+        b.persist_rules();
+        assert_eq!(saved(), vec!["shell:ls *"]);
+        assert!(!has(&b, "shell:make *"), "{:?}", b.policy.allow_rules());
+
+        // Neither comes back in a core started afterwards, nor in the first core.
+        let fresh = core(scripted(vec![])).await;
+        assert_eq!(fresh.policy.allow_rules(), vec!["shell:ls *"]);
+        a.reload_rules();
+        a.persist_rules();
+        assert_eq!(a.policy.allow_rules(), vec!["shell:ls *"]);
+        assert_eq!(saved(), vec!["shell:ls *"]);
+    }
+
+    #[tokio::test]
+    async fn revoked_config_grant_closes_for_a_run_in_progress() {
+        use crate::tools::shell::tests::{q, seatbelt};
+        // A folder outside the working folder that needs a grant (as in the walker tests).
+        let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        let outside = tempfile::Builder::new().prefix("heron-ask-tier-test").tempdir_in(target).unwrap();
+        let granted = dunce::canonicalize(outside.path()).unwrap().join("granted");
+        std::fs::create_dir_all(&granted).unwrap();
+        let secret = granted.join("notes.txt");
+        std::fs::write(&secret, "GRANTED-CONTENT").unwrap();
+        let rule = format!("read:{}/**", granted.display());
+        let h = harness(scripted(vec![]), true, |c| c.permissions.allow = vec![rule.clone()]).await;
+        assert!(h.app.policy.allow_rules().contains(&rule), "{:?}", h.app.policy.rule_notices());
+        // A run that started with the rule in its settings, and keeps that snapshot.
+        let agent = h.app.agent(Arc::new(crate::permissions::DenyAll));
+        let ctx = agent.tool_ctx("run-in-progress");
+        let call = |tool: &'static str, args: Value| {
+            let (tools, ctx) = (h.app.tools.clone(), ctx.clone());
+            async move { tools.get(tool).unwrap().call(&args, &ctx).await.unwrap() }
+        };
+        // A walk of the working folder opens the granted file through a link to it.
+        std::os::unix::fs::symlink(&secret, h.app.workspace.join("granted-link.txt")).unwrap();
+        let search = json!({"pattern": "GRANTED-CONTENT"});
+        let cat = json!({"command": format!("cat {}", q(&secret))});
+        let sandboxed = seatbelt(&h.app.cfg());
+        assert!(call("search_files", search.clone()).await.contains("granted-link.txt"));
+        if sandboxed {
+            assert!(call("shell", cat.clone()).await.contains("GRANTED-CONTENT"));
+        }
+
+        h.json("DELETE", "/grants", json!({"rule": rule})).await;
+        assert!(ctx.cfg.permissions.allow.contains(&rule), "the run's settings snapshot still names it");
+        // The run's next walk and next command no longer get it.
+        let found = call("search_files", search).await;
+        assert!(!found.contains("granted-link.txt"), "{found}");
+        if sandboxed {
+            let out = call("shell", cat).await;
+            assert!(!out.contains("GRANTED-CONTENT"), "{out}");
+        }
+    }
+
+    /// A model whose step does not yield: once it has begun, an abort cannot stop it before it ends.
+    struct Stalls(Arc<std::sync::atomic::AtomicBool>);
+
+    #[async_trait]
+    impl Llm for Stalls {
+        async fn chat(&self, _req: ChatRequest, on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(600));
+            on_delta("late words");
+            Ok(ChatResponse { message: Message::assistant("late words"), usage: Default::default(), model: "stalls".into() })
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn no_event_follows_run_end_after_cancel() {
+        let entered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let h = harness(Arc::new(Stalls(entered.clone())), true, |_| {}).await;
+        let mut bus = h.app.events.subscribe(None);
+        let mut chat = h.chat(json!({"message": "hi"})).await;
+        let session = chat.next().await.unwrap();
+        let run_id = session["run_id"].as_str().unwrap().to_string();
+        while !entered.load(std::sync::atomic::Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        // Stopped while the step is still going on another thread.
+        assert_eq!(h.json("POST", "/cancel", json!({"session_id": session["id"]})).await["cancelled"], true);
+        // Everything the run published, read for longer than the step takes.
+        let mut kinds = vec![];
+        while let Ok(Some(Item::Event(e))) = tokio::time::timeout(Duration::from_millis(1500), bus.next()).await {
+            if e.run_id == run_id {
+                kinds.push(e.kind().to_string());
+            }
+        }
+        assert_eq!(kinds.first().map(String::as_str), Some("session"), "{kinds:?}");
+        assert_eq!(&kinds[kinds.len() - 2..], ["cancelled", "run_end"], "nothing of the run follows run_end: {kinds:?}");
+        assert!(kinds.iter().any(|k| k == "text"), "the step's own output came before the end: {kinds:?}");
+        assert_eq!(kinds.iter().filter(|k| *k == "run_end").count(), 1, "{kinds:?}");
+        assert!(!kinds.iter().any(|k| k == "done"), "a stopped run reports no outcome: {kinds:?}");
+    }
+
+    #[tokio::test]
+    async fn parked_approval_waits_for_the_risk_notice() {
+        let h = harness(scripted(vec![]), false, |_| {}).await;
+        let sid = h.app.store.create_session("⏰ stretch", "schedule").unwrap();
+        let args = json!({"path": "later.txt", "content": "carried out"});
+        let id = h.app.store.park_approval(&sid, "write_file", &args.to_string(), "write later.txt", "write later.txt", crate::permissions::Effect::WorkspaceWrite.label(), false, "stretch").unwrap();
+        let approve = format!("/approvals/{id}");
+        if crate::risk_notice::required() {
+            let refused = h.send("POST", &approve, json!({"action": "approve"})).await;
+            assert_eq!(refused.status, 428);
+            assert_eq!(refused.json().await, json!({"error": "risk_notice_not_accepted"}));
+            let err = h.app.run_parked(id).await.expect_err("refused directly too");
+            assert!(err.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some(), "{err:#}");
+            // Nothing was done, and the request is still waiting: it was not claimed.
+            assert!(!h.app.workspace.join("later.txt").exists());
+            let waiting = h.app.store.pending_approvals().unwrap();
+            assert_eq!(waiting.iter().map(|a| (a.id, a.status.as_str())).collect::<Vec<_>>(), vec![(id, "new")]);
+            crate::risk_notice::accept_current(&h.app.store).unwrap();
+        }
+        // Accepted (or not needed here): the same request is carried out, once.
+        h.json("POST", &approve, json!({"action": "approve"})).await;
+        assert_eq!(std::fs::read_to_string(h.app.workspace.join("later.txt")).unwrap(), "carried out");
+        assert!(h.app.store.pending_approvals().unwrap().is_empty());
+        assert_eq!(h.send("POST", &approve, json!({"action": "approve"})).await.status, 400, "and only once");
     }
 
     #[tokio::test]

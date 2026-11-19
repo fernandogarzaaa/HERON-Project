@@ -278,6 +278,8 @@ fn ensure_risk_notice(app: &App) -> Result<()> {
 
 async fn turn(app: &App, agent: &Agent, session: &mut Session, input: &str) -> Result<String> {
     let sink = terminal_sink();
+    // What another Heron on this home granted or revoked since the last turn applies to this one.
+    app.reload_rules();
     let result = tokio::select! {
         r = agent.run_turn(session, input, &sink) => r,
         _ = tokio::signal::ctrl_c() => {
@@ -640,14 +642,7 @@ async fn main() {
 
 async fn real_main() -> Result<()> {
     let cli = Cli::parse();
-    let mut cfg = Config::load()?;
-    if let Some(m) = &cli.mode {
-        Mode::parse(m)?;
-        cfg.permissions.mode = m.clone();
-    }
-    if let Some(m) = &cli.model {
-        cfg.llm.model = m.clone();
-    }
+    let mut cfg = Config::load()?.with_cli_overrides(cli.mode.as_deref(), cli.model.as_deref())?;
     let command = cli.command.unwrap_or(Cmd::Chat { cont: false, session: None });
 
     match &command {
