@@ -1104,15 +1104,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "703f4b0e4613469fbee9ce1143f69850",
+      "base_branch": "feat/heron-v1",
+      "claim_token": "71d3fcd2409041229fd711c92c49f5ce",
+      "claimed_at": "2026-11-19T17:33:17.641020+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-19T17:33:17.641020+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [],
@@ -1132,11 +1132,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Sync feat head into U3o base",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/heron-v1",
       "branch": null,
       "path": null
     }
