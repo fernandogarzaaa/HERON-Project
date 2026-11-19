@@ -3692,10 +3692,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "606e4d4c3d262f817f6ec53a297088ed13a1c0ef",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "aaa74f9883e60b2d46f1acfe372afd42d3c9449e",
+        "result_commit": "da01387456da090c90015c749ef251277865e8b8",
+        "shipped_at": "2026-11-19T00:32:37.829258+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Apply U2s's topology and U2c's Tier 1 results; delete the losing topology code",
-    "version": 22,
+    "version": 23,
     "worktree": {
       "base_branch": "skein/U2w__integrate-base",
       "base_commit": "606e4d4c3d262f817f6ec53a297088ed13a1c0ef",
