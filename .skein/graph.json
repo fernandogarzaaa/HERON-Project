@@ -7590,6 +7590,59 @@
       "path": null
     }
   },
+  "U3r": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3q",
+      "SYNC26"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U3r",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- replaces_cannot_carry_an_outside_echo_into_confirmed_memory unconfirmed_save_next_to_outside_content_says_so recall_lists_unconfirmed_matches_marked same_words_keeps_meaningful_symbols confirmed_memories_cannot_be_crowded_out unconfirmed_near_repeats_do_not_pile_up agent_or_auto_paraphrase_cannot_upgrade_an_outside_memory",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md items 35n, 35l, 35i, 35j.",
+      "goal": "Implement spec item 35n ('Fixes from U3p's review'). Read 35n, 35l (with its Decisions bullet), 35i and 35j first. Line numbers are from U3p's result 3cd5266 and may have moved (U3q changed src/**).\nM1 (demonstrated, pre-existing): in src/memory.rs the save path does `target = replaces.or(best)` (around line 232), so when `replaces` names any confirmed id the similarity scan is skipped, and the fallthrough (around 267-268) creates a new confirmed row holding text that echoes an outside row and retires the user's memory. Reachable through the `remember` tool (`remember({content: <outside text>, replaces: <confirmed id>})`) and through the learner. Fix: run the similarity scan even when `replaces` is set; if it matches an unconfirmed outside row (OUTSIDE_SOURCES) and the source doesn't vouch (only user and onboarding vouch), handle the save exactly as for that row (a separate unconfirmed row, nothing retired). Test replaces_cannot_carry_an_outside_echo_into_confirmed_memory covering both remember and the learner.\nM2 (demonstrated, introduced by U3p): a model-written save in a clean session that is close to an outside row lands unconfirmed (memory.rs around 244-255) but src/tools/personal.rs (around line 41) still replies \"remembered\", and recall can't find it. Keep the protection, make it visible: the save returns an outcome that says it was kept unconfirmed; `remember` replies that the memory was saved unconfirmed because something similar came from outside, and that the user can confirm it in Memories; the learner reports it as waiting for confirmation, not learned (memory.rs around 391); `recall` adds a line saying how many unconfirmed memories also match and that `recall_unconfirmed` shows them, WITHOUT their text, so a plain recall doesn't taint the session. Tests unconfirmed_save_next_to_outside_content_says_so, recall_lists_unconfirmed_matches_marked (asserts the count line, that no unconfirmed text appears, and that the session is not tainted by recall).\nL1: same_words (memory.rs around 128-131) treats C++/C, F#/F, 20%/20 as equal and replies \"updated\". Ignore only case, surrounding whitespace and one trailing full stop; a restatement that changes nothing replies that nothing changed. Test same_words_keeps_meaningful_symbols.\nL2: the learner's known list (memory.rs around 359, searches 30 then filters) and the agent's possibly-relevant memories (src/agent.rs around 378, searches 12 then filters) can be crowded out by unconfirmed rows. Select confirmed memories in the query itself. Test confirmed_memories_cannot_be_crowded_out (both call sites, with more unconfirmed near matches than the old limits).\nL3: a model save that nearly repeats one of its own unconfirmed rows adds another row each time. Update that unconfirmed row instead (it stays unconfirmed, keeps its outside source). Test unconfirmed_near_repeats_do_not_pile_up.\nEach new test must fail with its fix removed (check, then restore). Keep agent_or_auto_paraphrase_cannot_upgrade_an_outside_memory and every other existing test and assertion passing unchanged. Deterministic, no wall-clock sleeps. Kill any test process you start that hangs. No macos/ changes: the app's Memories list already shows unconfirmed memories with Confirm."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fixes from U3p's review (35n)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U4a": {
     "attempts": [
       {
