@@ -7069,10 +7069,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "5d81a0f5dc7e8dff5747337ad5e7c28afed38c5e",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "db93ed3ada62c8fb32baf86c0bcee6f52c7f5f2b",
+        "result_commit": "c454dbc14232408cf80f4ad8645d2957bc7b66da",
+        "shipped_at": "2026-11-19T04:38:07.691897+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Integrate parents of U7c",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "5d81a0f5dc7e8dff5747337ad5e7c28afed38c5e",
       "branch": "skein/U7c__integrate-base",
