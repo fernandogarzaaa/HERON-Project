@@ -4884,7 +4884,7 @@
       "claim_token": "579d676cf8674e99a45a2ae40c8459eb",
       "claimed_at": "2026-11-19T00:42:03.845001+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:42:34.097897+00:00",
+      "last_heartbeat": "2026-11-19T00:43:04.115214+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4912,7 +4912,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3g's review: stale settings save, startup window, unreadable config fails closed, never across cores",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "skein/U3h__integrate-base",
       "base_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
@@ -5687,9 +5687,9 @@
     "retry_at": "2026-11-19T00:45:01.054296+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "blocked",
     "title": "Scrolling only where content overflows; risk-notice box sized to content; overflow snapshots",
-    "version": 36,
+    "version": 37,
     "worktree": {
       "base_branch": "skein/U4c__integrate-base",
       "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
