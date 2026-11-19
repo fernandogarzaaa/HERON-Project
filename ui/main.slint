@@ -27,6 +27,7 @@ import { OnboardingView } from "views/onboarding.slint";
 import { SettingsView, ToolItem, McpLine, ConnectorLine } from "views/settings.slint";
 import { SourceItem } from "components/source_card.slint";
 import { SessionRow, MemoryRow, TaskRow, ScheduleRow, RunStepRow, InboxRow, SuggestionRow, SimpleRow, AuditRow, UsageDayRow, ModelRow } from "views/common.slint";
+import { WrapText } from "components/wrap_text.slint";
 
 // About dialog. A separate exported Dialog component: a Dialog nested in
 // MainWindow stays embedded in the parent window instead of opening a
@@ -52,10 +53,9 @@ export component AboutDialog inherits Dialog {
             text: "Version " + root.app-version;
             color: Theme.ink;
         }
-        Text {
+        WrapText {
             text: "A local-first, private, proactive personal AI agent.";
             color: Theme.ink;
-            wrap: word-wrap;
         }
         AboutSlint { }
     }
@@ -502,10 +502,9 @@ export component MainWindow inherits Window {
                 opacity: root.current-view == "chat" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
 
-                if root.error-message != "" : Text {
+                if root.error-message != "" : WrapText {
                     text: root.error-message;
                     color: Theme.danger;
-                    wrap: word-wrap;
                 }
 
                 // The Chat lane's view. It owns the header, thread,

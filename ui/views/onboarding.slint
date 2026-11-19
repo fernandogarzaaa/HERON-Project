@@ -19,6 +19,7 @@ import { Button } from "../components/button.slint";
 import { Theme } from "../components/theme.slint";
 import { SectionTitle, LabeledInput, ChoiceCard, StepIndicator } from "../components/atoms.slint";
 import { SourceCard, SourceItem } from "../components/source_card.slint";
+import { WrapText } from "../components/wrap_text.slint";
 
 export component OnboardingView inherits Rectangle {
     // Flow state, owned by the Rust side.
@@ -84,11 +85,10 @@ export component OnboardingView inherits Rectangle {
 
 
             Text { text: "Help Heron get to know you"; font-size: 30px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
-            Text {
+            WrapText {
                 text: "The more Heron knows about you and your world, the more it can do without being told. Everything you connect is read-only and is indexed on this computer. Nothing is sent to your AI model until you press “Learn from it”.";
                 font-size: 15px;
                 color: Theme.muted;
-                wrap: word-wrap;
             }
 
             StepIndicator {
@@ -104,7 +104,7 @@ export component OnboardingView inherits Rectangle {
                 padding: 0px;
                 spacing: 14px;
                 SectionTitle { label: "Connect an AI model"; }
-                Text { text: model_status; color: Theme.ink; wrap: word-wrap; }
+                WrapText { text: model_status; color: Theme.ink; }
                 HorizontalBox {
                     alignment: start;
                     padding: 0px;
@@ -130,7 +130,7 @@ export component OnboardingView inherits Rectangle {
                 padding: 0px;
                 spacing: 14px;
                 SectionTitle { label: "Tell Heron about yourself"; }
-                Text { text: "A few sentences are enough. You can change or remove any of it later under Memory."; color: Theme.muted; wrap: word-wrap; }
+                WrapText { text: "A few sentences are enough. You can change or remove any of it later under Memory."; color: Theme.muted; }
                 LabeledInput { label: "Your name"; value <=> about_name; }
                 LabeledInput { label: "What you do"; hint: "e.g. I run a small design studio"; value <=> about_work; }
                 LabeledInput { label: "What you want help with most"; hint: "e.g. keeping on top of client work and invoices"; value <=> about_goals; }
@@ -146,7 +146,7 @@ export component OnboardingView inherits Rectangle {
                     Button { reduce-motion: root.reduce-motion; text: "Back"; clicked => { root.goto_step(0); } }
                     Button { reduce-motion: root.reduce-motion; primary: true; text: "Save and continue"; enabled: !busy; clicked => { root.save_about(); } }
                     Button { reduce-motion: root.reduce-motion; text: "Skip for now"; enabled: !busy; clicked => { root.goto_step(2); } }
-                    if about_message != "": Text {
+                    if about_message != "": WrapText {
                         text: about_message;
                         color: Theme.ok;
                         font-weight: 600;
@@ -159,7 +159,7 @@ export component OnboardingView inherits Rectangle {
                 padding: 0px;
                 spacing: 14px;
                 SectionTitle { label: "Connect your world"; }
-                Text { text: "Each connection lets Heron look things up for you. Connect as many or as few as you like. You can skip this and come back later."; color: Theme.muted; wrap: word-wrap; }
+                WrapText { text: "Each connection lets Heron look things up for you. Connect as many or as few as you like. You can skip this and come back later."; color: Theme.muted; }
                 for item[idx] in sources: SourceCard {
                     item: item;
                     doc_path <=> root.doc_path;
@@ -173,11 +173,10 @@ export component OnboardingView inherits Rectangle {
                     disconnect(kind) => { root.disconnect_source(kind); }
                     pick_folder => { root.pick_folder_requested(); }
                 }
-                Text {
+                WrapText {
                     text: "Other apps: Heron can use any app that offers an MCP connector, such as Slack, Notion, GitHub or Google Drive. Add the connector to the settings file in your Heron folder and its tools appear here after a restart.";
                     font-size: 14px;
                     color: Theme.muted;
-                    wrap: word-wrap;
                 }
                 HorizontalBox {
                     alignment: start;
@@ -193,7 +192,7 @@ export component OnboardingView inherits Rectangle {
                 padding: 0px;
                 spacing: 14px;
                 SectionTitle { label: "Decide how much Heron does on its own"; }
-                Text { text: "You can change this at any time under Awareness."; color: Theme.muted; wrap: word-wrap; }
+                WrapText { text: "You can change this at any time under Awareness."; color: Theme.muted; }
                 ChoiceCard {
                     title: "Only when I ask";
                     detail: "Heron stays aware but waits for you.";
@@ -225,7 +224,7 @@ export component OnboardingView inherits Rectangle {
                 if confirm-takeover: Rectangle {
                     background: Theme.danger-soft; border-color: Theme.danger; border-width: 1px; border-radius: 10px;
                     VerticalBox {
-                        Text { text: "Take over means Heron does the work itself in your working folder. Continue?"; wrap: word-wrap; }
+                        WrapText { text: "Take over means Heron does the work itself in your working folder. Continue?"; }
                         HorizontalBox {
                             alignment: start;
                             padding: 0px;

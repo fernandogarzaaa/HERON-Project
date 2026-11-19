@@ -8,6 +8,7 @@ import { LineEdit } from "../components/line_edit.slint";
 import { Button } from "../components/button.slint";
 import { MemoryRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, KindTag, RowCard } from "common.slint";
 import { Theme } from "../components/theme.slint";
+import { WrapText } from "../components/wrap_text.slint";
 
 export component MemoryView inherits Rectangle {
     in property <[MemoryRow]> rows;
@@ -63,7 +64,7 @@ export component MemoryView inherits Rectangle {
                 text <=> root.search-text;
                 edited(text) => { root.search-changed(text); }
             }
-            if root.save-error != "": Text { text: root.save-error; color: Theme.danger; wrap: word-wrap; }
+            if root.save-error != "": WrapText { text: root.save-error; color: Theme.danger; }
             if root.empty-text != "": EmptyNote { body: root.empty-text; }
             for row in root.rows: RowCard {
                 reduce-motion: root.reduce-motion;
@@ -75,11 +76,10 @@ export component MemoryView inherits Rectangle {
                         padding: 0px;
                         spacing: 6px;
                         KindTag { label: row.kind-label; }
-                        Text {
+                        WrapText {
                             text: row.content;
                             font-size: 15px;
                             color: Theme.ink;
-                            wrap: TextWrap.word-wrap;
                             horizontal-stretch: 1;
                         }
                     }

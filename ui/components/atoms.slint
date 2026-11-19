@@ -4,6 +4,7 @@
 import { HorizontalBox, VerticalBox } from "std-widgets.slint";
 import { LineEdit } from "line_edit.slint";
 import { Theme } from "theme.slint";
+import { WrapText } from "wrap_text.slint";
 
 // A small section heading. Serif, like the web UI headings.
 export component SectionTitle inherits Text {
@@ -53,7 +54,7 @@ export component ChoiceCard inherits Rectangle {
         padding: 10px;
         spacing: 2px;
         Text { text: title; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
-        Text { text: detail; font-size: 14px; color: Theme.muted; wrap: word-wrap; }
+        WrapText { text: detail; font-size: 14px; color: Theme.muted; }
     }
     touch := TouchArea { clicked => { root.clicked(); } }
 }

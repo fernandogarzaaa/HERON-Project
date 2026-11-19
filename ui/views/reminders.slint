@@ -8,6 +8,7 @@ import { LineEdit } from "../components/line_edit.slint";
 import { Button } from "../components/button.slint";
 import { ScheduleRow, RunStepRow, InboxRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
 import { Theme } from "../components/theme.slint";
+import { WrapText } from "../components/wrap_text.slint";
 
 export component RemindersView inherits Rectangle {
     in property <[ScheduleRow]> schedules;
@@ -66,11 +67,10 @@ export component RemindersView inherits Rectangle {
                 placeholder-text: "tomorrow 9:00";
                 text <=> root.new-when;
             }
-            Text {
+            WrapText {
                 text: "A time: “in 30m”, “tomorrow 9:00”, “daily 08:00”, “every 2h”. Or an event: “when notes/*.md changes”, “when a file changes in Drafts”, “when an email arrives from Maria”.";
                 font-size: 13px;
                 color: Theme.muted;
-                wrap: TextWrap.word-wrap;
             }
             Text {
                 text: "While it runs, Heron may";
@@ -107,11 +107,10 @@ export component RemindersView inherits Rectangle {
                     clicked => { root.fill-inbox-watch(); }
                 }
             }
-            if root.form-error != "": Text {
+            if root.form-error != "": WrapText {
                 text: root.form-error;
                 font-size: 14px;
                 color: Theme.danger;
-                wrap: TextWrap.word-wrap;
             }
             Spacer { height: 16px; }
             Text {
@@ -128,19 +127,17 @@ export component RemindersView inherits Rectangle {
                     width: parent.width;
                     padding: 10px;
                     spacing: 4px;
-                    Text {
+                    WrapText {
                         text: row.title;
                         font-size: 15px;
                         color: Theme.ink;
-                        wrap: TextWrap.word-wrap;
                     }
                     RowMeta { body: row.meta; }
-                    if row.has-outline: Text {
+                    if row.has-outline: WrapText {
                         text: row.outline;
                         font-size: 12px;
                         font-family: "SF Mono";
                         color: Theme.ink;
-                        wrap: TextWrap.word-wrap;
                     }
                     HorizontalBox {
                         padding: 0px;
@@ -168,18 +165,16 @@ export component RemindersView inherits Rectangle {
                 }
             }
             Spacer { height: 8px; }
-            if root.last-run-title != "": Text {
+            if root.last-run-title != "": WrapText {
                 text: root.last-run-title;
                 font-size: 15px;
                 font-weight: 600;
                 color: Theme.ink;
-                wrap: TextWrap.word-wrap;
             }
-            for step in root.last-run-steps: Text {
+            for step in root.last-run-steps: WrapText {
                 text: step.text;
                 font-size: 13px;
                 color: step.failed ? Theme.danger : Theme.ink;
-                wrap: TextWrap.word-wrap;
             }
             Spacer { height: 16px; }
             Text {
@@ -196,17 +191,17 @@ export component RemindersView inherits Rectangle {
                     width: parent.width;
                     padding: 10px;
                     spacing: 4px;
-                    Text {
+                    WrapText {
                         text: item.title;
                         font-size: 15px;
                         font-weight: 600;
                         color: Theme.ink;
-                        wrap: TextWrap.word-wrap;
                     }
                     StyledText {
                         text: item.body;
                         default-font-size: 14px;
                         default-color: Theme.ink;
+                        min-width: 0px;
                     }
                     RowMeta { body: item.meta; }
                 }

@@ -10,6 +10,7 @@ import { VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { Button } from "button.slint";
 import { Theme } from "theme.slint";
 import { LabeledInput } from "atoms.slint";
+import { WrapText } from "wrap_text.slint";
 
 export struct SourceItem {
     kind: string,
@@ -40,16 +41,15 @@ export component SourceCard inherits Rectangle {
     VerticalBox {
         padding: 14px;
         spacing: 8px;
-        Text { text: item.title; font-size: 16px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
-        Text { text: item.status; font-size: 14px; color: Theme.muted; wrap: word-wrap; }
+        WrapText { text: item.title; font-size: 16px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
+        WrapText { text: item.status; font-size: 14px; color: Theme.muted; }
         if item.kind == "documents": VerticalBox {
             padding: 0px;
             spacing: 8px;
-            Text {
+            WrapText {
                 text: doc_path == "" ? "No folder chosen yet." : doc_path;
                 font-size: 14px;
                 color: Theme.muted;
-                wrap: word-wrap;
             }
             HorizontalBox {
                 padding: 0px;
@@ -95,11 +95,10 @@ export component SourceCard inherits Rectangle {
                 clicked => { root.disconnect(item.kind); }
             }
         }
-        if message != "": Text {
+        if message != "": WrapText {
             text: message;
             font-size: 14px;
             color: Theme.danger;
-            wrap: word-wrap;
         }
     }
 }

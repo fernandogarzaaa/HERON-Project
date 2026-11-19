@@ -8,6 +8,7 @@ import { Button } from "../components/button.slint";
 import { SuggestionRow, SimpleRow, MemoryRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
 import { Theme } from "../components/theme.slint";
 import { ChoiceChip } from "../components/atoms.slint";
+import { WrapText } from "../components/wrap_text.slint";
 
 export component AwarenessView inherits Rectangle {
     in property <bool> paused: false;
@@ -56,22 +57,20 @@ export component AwarenessView inherits Rectangle {
                 checked: root.paused;
                 toggled => { root.set-paused(self.checked); }
             }
-            Text {
+            WrapText {
                 text: "Reminders, watches, suggestions and background checks all stop until you switch this off. From your phone, send /pause or /resume.";
                 font-size: 14px;
                 color: Theme.muted;
-                wrap: TextWrap.word-wrap;
             }
             CheckBox {
                 text: "Watch my folder in the background";
                 checked: root.watching;
                 toggled => { root.set-watching(self.checked); }
             }
-            if root.workspace != "": Text {
+            if root.workspace != "": WrapText {
                 text: "Watching " + root.workspace;
                 font-size: 14px;
                 color: Theme.muted;
-                wrap: TextWrap.word-wrap;
             }
             CheckBox {
                 text: "Think about what it notices";
@@ -104,10 +103,9 @@ export component AwarenessView inherits Rectangle {
                 VerticalBox {
                     padding: 12px;
                     spacing: 8px;
-                    Text {
+                    WrapText {
                         text: "Take over lets Heron create and edit files in your working folder without asking first. Continue?";
                         color: Theme.ink;
-                        wrap: TextWrap.word-wrap;
                     }
                     HorizontalBox {
                         alignment: start;
@@ -117,11 +115,10 @@ export component AwarenessView inherits Rectangle {
                     }
                 }
             }
-            if root.proactive-note != "": Text {
+            if root.proactive-note != "": WrapText {
                 text: root.proactive-note;
                 font-size: 13px;
                 color: Theme.muted;
-                wrap: TextWrap.word-wrap;
             }
             Spacer { height: 16px; }
             Text {
@@ -138,24 +135,21 @@ export component AwarenessView inherits Rectangle {
                     width: parent.width;
                     padding: 12px;
                     spacing: 4px;
-                    Text {
+                    WrapText {
                         text: s.title;
                         font-size: 16px;
                         font-weight: 600;
                         color: Theme.ink;
-                        wrap: TextWrap.word-wrap;
                     }
-                    if s.why != "": Text {
+                    if s.why != "": WrapText {
                         text: s.why;
                         font-size: 14px;
                         color: Theme.muted;
-                        wrap: TextWrap.word-wrap;
                     }
-                    if s.result != "": Text {
+                    if s.result != "": WrapText {
                         text: s.result;
                         font-size: 14px;
                         color: Theme.ink;
-                        wrap: TextWrap.word-wrap;
                     }
                     HorizontalBox {
                         alignment: start;
@@ -188,7 +182,7 @@ export component AwarenessView inherits Rectangle {
             for row in root.right-now: HorizontalBox {
                 padding: 0px;
                 spacing: 12px;
-                Text { text: row.text; font-size: 15px; color: Theme.ink; wrap: TextWrap.word-wrap; horizontal-stretch: 1; }
+                WrapText { text: row.text; font-size: 15px; color: Theme.ink; horizontal-stretch: 1; }
                 if row.meta != "": RowMeta { body: row.meta; }
             }
             Spacer { height: 16px; }
@@ -210,7 +204,7 @@ export component AwarenessView inherits Rectangle {
                         padding: 0px;
                         horizontal-stretch: 1;
                         spacing: 2px;
-                        Text { text: row.content; font-size: 15px; color: Theme.ink; wrap: TextWrap.word-wrap; }
+                        WrapText { text: row.content; font-size: 15px; color: Theme.ink; }
                         RowMeta { body: row.meta; }
                     }
                     Button { reduce-motion: root.reduce-motion;
@@ -231,7 +225,7 @@ export component AwarenessView inherits Rectangle {
             for row in root.journal: HorizontalBox {
                 padding: 0px;
                 spacing: 12px;
-                Text { text: row.text; font-size: 15px; color: Theme.ink; wrap: TextWrap.word-wrap; horizontal-stretch: 1; }
+                WrapText { text: row.text; font-size: 15px; color: Theme.ink; horizontal-stretch: 1; }
                 RowMeta { body: row.meta; }
             }
             HorizontalBox {
@@ -250,10 +244,9 @@ export component AwarenessView inherits Rectangle {
                 VerticalBox {
                     padding: 12px;
                     spacing: 8px;
-                    Text {
+                    WrapText {
                         text: "Forget all observations and conclusions? Information you told Heron directly is kept.";
                         color: Theme.ink;
-                        wrap: TextWrap.word-wrap;
                     }
                     HorizontalBox {
                         alignment: start;

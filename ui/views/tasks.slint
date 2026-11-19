@@ -8,6 +8,7 @@ import { LineEdit } from "../components/line_edit.slint";
 import { Button } from "../components/button.slint";
 import { TaskRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, RowCard } from "common.slint";
 import { Theme } from "../components/theme.slint";
+import { WrapText } from "../components/wrap_text.slint";
 
 export component TasksView inherits Rectangle {
     in property <[TaskRow]> rows;
@@ -47,7 +48,7 @@ export component TasksView inherits Rectangle {
                     clicked => { root.add-task(root.new-title); }
                 }
             }
-            if root.save-error != "": Text { text: root.save-error; color: Theme.danger; wrap: word-wrap; }
+            if root.save-error != "": WrapText { text: root.save-error; color: Theme.danger; }
             if root.empty-text != "": EmptyNote { body: root.empty-text; }
             for row in root.rows: RowCard {
                 reduce-motion: root.reduce-motion;
@@ -63,11 +64,10 @@ export component TasksView inherits Rectangle {
                         padding: 0px;
                         horizontal-stretch: 1;
                         spacing: 2px;
-                        Text {
+                        WrapText {
                             text: row.title;
                             font-size: 15px;
                             color: row.done ? Theme.muted : Theme.ink;
-                            wrap: TextWrap.word-wrap;
                             animate color { duration: root.reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
                         }
                         if row.meta != "": RowMeta { body: row.meta; }

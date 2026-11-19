@@ -89,7 +89,7 @@ fn chat_message(i: usize) -> crate::ChatMsg {
         Vec::new()
     };
     crate::ChatMsg {
-        role: if i % 2 == 0 { "user".into() } else { "assistant".into() },
+        role: if i.is_multiple_of(2) { "user".into() } else { "assistant".into() },
         text: text.clone().into(),
         body: StyledText::from_plain_text(&text),
         steps: model(steps),
@@ -409,7 +409,7 @@ fn chat_thread_stays_on_the_newest_message_until_scrolled_up() {
     ui.set_thread_version(3);
     let pixels = render(&window, width, height);
     snapshot("heron-chat-scrolled-up", width, height, &pixels);
-    assert!(thread_margin_is_clear(&ui, width as u32, &pixels), "message text is drawn outside its bubble");
+    assert!(thread_margin_is_clear(&ui, width, &pixels), "message text is drawn outside its bubble");
     assert_eq!(ui.get_debug_chat_scroll_y(), reading_at, "a new message does not move a reader who scrolled up");
 
     scroll_thread(&window, -100_000.0);

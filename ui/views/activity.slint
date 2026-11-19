@@ -6,6 +6,7 @@ import { ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { PageScroll } from "../components/page_scroll.slint";
 import { AuditRow, SectionTitle, SectionIntro, EmptyNote, RowCard } from "common.slint";
 import { Theme } from "../components/theme.slint";
+import { WrapText } from "../components/wrap_text.slint";
 
 export component ActivityView inherits Rectangle {
     in property <[AuditRow]> rows;
@@ -28,11 +29,10 @@ export component ActivityView inherits Rectangle {
             spacing: 14px;
             SectionTitle { title: "Activity log"; }
             SectionIntro { body: "Every action Heron took or was refused, newest first. Passwords and keys are blanked out before anything is logged."; }
-            if root.seal-text != "": Text {
+            if root.seal-text != "": WrapText {
                 text: root.seal-text;
                 font-size: 14px;
                 color: root.seal-danger ? Theme.danger : Theme.muted;
-                wrap: TextWrap.word-wrap;
             }
             if root.empty-text != "": EmptyNote { body: root.empty-text; }
             if root.rows.length > 0: HorizontalBox {
@@ -56,7 +56,7 @@ export component ActivityView inherits Rectangle {
                     spacing: 10px;
                     Text { text: row.when; font-size: 14px; color: Theme.ink; width: 110px; }
                     Text { text: row.action; font-size: 14px; color: Theme.ink; width: 140px; wrap: TextWrap.word-wrap; }
-                    Text { text: row.details; font-size: 14px; font-family: "SF Mono"; color: Theme.ink; horizontal-stretch: 1; wrap: TextWrap.word-wrap; }
+                    WrapText { text: row.details; font-size: 14px; font-family: "SF Mono"; color: Theme.ink; horizontal-stretch: 1; }
                     Text { text: row.outcome; font-size: 14px; color: row.denied ? Theme.danger : Theme.ink; width: 130px; wrap: TextWrap.word-wrap; }
                 }
             }

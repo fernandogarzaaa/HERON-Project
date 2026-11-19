@@ -1,0 +1,10 @@
+// Text that wraps at word boundaries and breaks a word only when the word
+// alone is wider than the line. Slint's own word-wrap Text never gets
+// narrower than its longest word, so one long URL, path or hash in a
+// message, tool output or log row made the whole window wider and taller
+// than the screen. Use this for any text that shows runtime content.
+
+export component WrapText inherits Text {
+    wrap: word-wrap;
+    min-width: 0px;
+}

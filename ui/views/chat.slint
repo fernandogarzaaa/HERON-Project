@@ -29,6 +29,7 @@ import { Theme } from "../components/theme.slint";
 import { ActionButton } from "../components/action_button.slint";
 import { ChoiceChip } from "../components/atoms.slint";
 import { ChatMsg, MessageView } from "../components/message.slint";
+import { WrapText } from "../components/wrap_text.slint";
 
 component ModeButton inherits ChoiceChip {
     in property <string> mode;
@@ -152,7 +153,7 @@ component StarterCard inherits TouchArea {
         HorizontalBox {
             spacing: 10px;
             Rectangle { width: 4px; background: Theme.talon; border-radius: 2px; }
-            Text { text: prompt; font-size: 14px; color: Theme.ink; wrap: word-wrap; }
+            WrapText { text: prompt; font-size: 14px; color: Theme.ink; }
         }
     }
     keyboard := FocusScope {
@@ -191,7 +192,7 @@ component EmptyStateView inherits VerticalBox {
         VerticalLayout {
             padding: 14px;
             spacing: 12px;
-            Text { text: "Heron needs an AI model before it can reply. Add an API key, or point it at a model running on this computer."; color: Theme.talon-ink; wrap: word-wrap; }
+            WrapText { text: "Heron needs an AI model before it can reply. Add an API key, or point it at a model running on this computer."; color: Theme.talon-ink; }
             HorizontalLayout {
                 alignment: start;
                 spacing: 8px;
@@ -206,7 +207,7 @@ component EmptyStateView inherits VerticalBox {
         VerticalLayout {
             padding: 14px;
             spacing: 12px;
-            Text { text: "Demo mode: replies are canned, but the actions are real, so you can try approvals, memory and reminders. Connect a model for real answers."; color: Theme.talon-ink; wrap: word-wrap; }
+            WrapText { text: "Demo mode: replies are canned, but the actions are real, so you can try approvals, memory and reminders. Connect a model for real answers."; color: Theme.talon-ink; }
             HorizontalLayout {
                 alignment: start;
                 ActionButton { width: 156px; label: "Connect a model"; kind: "primary"; reduce-motion: reduce-motion; clicked => { root.open-settings(); } }
@@ -219,15 +220,15 @@ component EmptyStateView inherits VerticalBox {
         VerticalLayout {
             padding: 14px;
             spacing: 12px;
-            Text { text: "Heron is paused: it starts nothing on its own until you resume it. You can still ask it for things here."; color: Theme.ink; wrap: word-wrap; }
+            WrapText { text: "Heron is paused: it starts nothing on its own until you resume it. You can still ask it for things here."; color: Theme.ink; }
             HorizontalLayout {
                 alignment: start;
                 ActionButton { width: 112px; label: "Resume"; kind: "primary"; reduce-motion: reduce-motion; clicked => { root.resume(); } }
             }
         }
     }
-    Text { text: "What should we get done?"; color: Theme.ink; font-size: 30px; font-weight: 600; font-family: Theme.heading-font; wrap: word-wrap; vertical-stretch: 0; }
-    Text { text: "Heron works in " + workspace-short + ". It can read and write files there, run commands, search the web, remember what matters to you, and remind you of things."; color: Theme.muted; wrap: word-wrap; vertical-stretch: 0; }
+    WrapText { text: "What should we get done?"; color: Theme.ink; font-size: 30px; font-weight: 600; font-family: Theme.heading-font; vertical-stretch: 0; }
+    WrapText { text: "Heron works in " + workspace-short + ". It can read and write files there, run commands, search the web, remember what matters to you, and remind you of things."; color: Theme.muted; vertical-stretch: 0; }
     for starter in starters: StarterCard {
         prompt: starter;
         reduce-motion: reduce-motion;
@@ -282,7 +283,7 @@ export component ChatView inherits FocusScope {
     out property <length> thread-height: thread-scroll.visible-height;
     property <bool> show-latest: !follow;
     changed thread-version => {
-        if (root.follow) { thread-scroll.content-y = thread-box.height > thread-scroll.height ? thread-scroll.height - thread-box.height : 0px; }
+        if (root.follow) { thread-scroll.content-y = -thread-scroll.overflow-y; }
     }
 
     // Cmd/Ctrl+N starts a new conversation. Esc stops a running reply.
@@ -330,7 +331,8 @@ export component ChatView inherits FocusScope {
             vertical-stretch: 0;
             HorizontalBox {
                 alignment: space-between;
-                Text { text: title; font-size: 20px; font-weight: 600; font-family: Theme.heading-font; wrap: word-wrap; horizontal-stretch: 1; }
+                // One line: a long title must not push the thread off the window.
+                Text { text: title; font-size: 20px; font-weight: 600; font-family: Theme.heading-font; overflow: elide; horizontal-stretch: 1; }
                 if can-undo: Button { reduce-motion: root.reduce-motion; text: "Undo last file change"; clicked => { root.undo(); } }
             }
             HorizontalBox {
@@ -353,7 +355,7 @@ export component ChatView inherits FocusScope {
             VerticalLayout {
                 padding: 14px;
                 spacing: 12px;
-                Text { text: "Unrestricted means Heron changes files and runs commands without asking. Continue?"; color: Theme.ink; wrap: word-wrap; }
+                WrapText { text: "Unrestricted means Heron changes files and runs commands without asking. Continue?"; color: Theme.ink; }
                 HorizontalLayout {
                     alignment: start;
                     spacing: 8px;
@@ -371,7 +373,7 @@ export component ChatView inherits FocusScope {
             // This fires for user scrolling, not a layout-height change.
             // That preserves follow-mode across large streaming deltas.
             scrolled() => {
-                root.follow = thread-scroll.content-y <= thread-scroll.height - thread-box.height + 240px;
+                root.follow = thread-scroll.content-y <= -thread-scroll.overflow-y + 240px;
             }
             thread-box := VerticalBox {
                 width: parent.width;
@@ -401,7 +403,7 @@ export component ChatView inherits FocusScope {
             height: 40px;
             vertical-stretch: 0;
             alignment: center;
-            ActionButton { label: "↓ Newest message"; kind: "primary"; pill: true; reduce-motion: reduce-motion; clicked => { root.follow = true; thread-scroll.content-y = thread-box.height > thread-scroll.height ? thread-scroll.height - thread-box.height : 0px; } }
+            ActionButton { label: "↓ Newest message"; kind: "primary"; pill: true; reduce-motion: reduce-motion; clicked => { root.follow = true; thread-scroll.content-y = -thread-scroll.overflow-y; } }
         }
 
     }
