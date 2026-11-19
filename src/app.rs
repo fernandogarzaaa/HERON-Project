@@ -164,11 +164,9 @@ impl App {
     pub async fn assemble(cfg: Config, workspace: PathBuf, store: Store, llm: Arc<dyn Llm>) -> Result<App> {
         // What this one last read of `config.toml` is what its policy is built from below, not a read
         // made after startup's waits: a rule revoked meanwhile is then taken out at the first reload.
-        // Settings not read from the file fall back to the file as it is now.
-        let config_rules = cfg.loaded_rules.clone().unwrap_or_else(|| match read_config_rules(&cfg.home) {
-            ConfigFile::Rules(rules) => rules,
-            ConfigFile::Missing | ConfigFile::Unreadable(_) => SavedRules::default(),
-        });
+        // Settings not read from the file (no file yet, or built in memory) start from no rules, as
+        // the default policy does, so a rule another Heron writes while this one starts is taken in.
+        let config_rules = cfg.loaded_rules.clone().unwrap_or_default();
         std::fs::create_dir_all(&workspace).with_context(|| format!("creating workspace {}", workspace.display()))?;
         let workspace = dunce::canonicalize(&workspace)?;
         let llm = Arc::new(SwappableLlm::new(llm));
@@ -302,6 +300,56 @@ impl App {
         Ok(true)
     }
 
+    /// The user's standing choice for one tool, "ask", "allow" or "never" (see
+    /// [`Policy::set_tool_setting`]), saved in `config.toml` and then made live here.
+    ///
+    /// Under the config lock, the file's current rules are taken in first, so this one's view of
+    /// them is not stale, and the rule for the tool is then written into or out of both lists as the
+    /// choice says, whatever this one held in memory: a "never" re-sent after another Heron cleared
+    /// it is saved, not lost as "no change". The policy changes only once the save has succeeded,
+    /// so a save that fails (`config.toml` cannot be parsed) changes nothing.
+    pub fn set_tool_setting(&self, tool: &str, setting: &str) -> Result<()> {
+        Policy::check_tool_setting(tool, setting)?;
+        let rule = format!("{tool}:*");
+        {
+            // Lock order: `rules_seen`, `config_seen`, then the file lock.
+            let saved_rules = self.rules_seen.lock().unwrap_or_else(|e| e.into_inner());
+            let mut seen = self.config_seen.lock().unwrap_or_else(|e| e.into_inner());
+            let home = self.cfg().home.clone();
+            let _lock = self.cfg().lock_file()?;
+            if home.join("config.toml").exists() {
+                // Fails with nothing changed, not even what a reload would take in.
+                Config::read_saved(&home)?;
+            }
+            self.take_config_rules_held(&mut seen, &saved_rules);
+            let before = self.cfg();
+            let mut new = (*before).clone();
+            new.permissions.allow.retain(|r| *r != rule);
+            new.permissions.deny.retain(|r| *r != rule);
+            match setting {
+                "allow" => new.permissions.allow.push(rule.clone()),
+                "never" => new.permissions.deny.push(rule.clone()),
+                _ => {}
+            }
+            new.save_changes_held(&before, &[], &[("permissions.allow", &rule, setting == "allow"), ("permissions.deny", &rule, setting == "never")])?;
+            note_own_changes(&mut seen.rules.allow, &before.permissions.allow, &new.permissions.allow);
+            note_own_changes(&mut seen.rules.deny, &before.permissions.deny, &new.permissions.deny);
+            // The file now holds the rule exactly as chosen, whatever this one held before.
+            let rules = &mut seen.rules;
+            for (list, present) in [(&mut rules.allow, setting == "allow"), (&mut rules.deny, setting == "never")] {
+                list.retain(|r| *r != rule);
+                if present {
+                    list.push(rule.clone());
+                }
+            }
+            new.revision = before.revision + 1;
+            *self.cfg.write().unwrap() = Arc::new(new);
+        }
+        self.policy.set_tool_setting(tool, setting)?;
+        self.persist_rules();
+        Ok(())
+    }
+
     /// Re-read the API key (after it was changed) without touching other settings.
     pub fn reload_llm(&self) -> Result<()> {
         self.llm.swap(crate::llm::build_with_store(&self.cfg(), Some(&self.store))?);
@@ -399,10 +447,17 @@ impl App {
     ///
     /// This fails closed. A missing file holds no rules, so the allow rules that came from it are
     /// gone. A file that cannot be read or parsed drops every allow rule that came from it until it
-    /// can, and says so in the log and in [`App::config_unreadable`]. Either way its deny rules are
-    /// kept: a refusal is never lifted because the file is gone or broken.
+    /// can, and says so in the log and in [`App::config_unreadable`]. Either way its "never" (deny)
+    /// rules stay in force: a refusal is never lifted because the file is gone or broken. A save that
+    /// recreates a missing file writes the deny rules this one still holds (see
+    /// [`Config::save_changes_held`]), so the reload after it does not drop them either.
     fn take_config_rules(&self, saved_rules: &[String]) {
         let mut seen = self.config_seen.lock().unwrap_or_else(|e| e.into_inner());
+        self.take_config_rules_held(&mut seen, saved_rules);
+    }
+
+    /// [`App::take_config_rules`], with `config_seen` already locked.
+    fn take_config_rules_held(&self, seen: &mut ConfigSeen, saved_rules: &[String]) {
         let disk = match read_config_rules(&self.cfg().home) {
             ConfigFile::Rules(rules) => {
                 if seen.unreadable.take().is_some() {

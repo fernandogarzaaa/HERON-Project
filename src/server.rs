@@ -1150,19 +1150,8 @@ async fn set_tool(State(st): S, Path(name): Path<String>, Json(b): Json<Value>) 
         return Err(ApiError(StatusCode::NOT_FOUND, "Unknown tool.".into()));
     }
     let setting = b.get("setting").and_then(|s| s.as_str()).unwrap_or("ask");
-    st.app.policy.set_tool_setting(&name, setting)?;
-    // Keep the choice across restarts: per-tool rules live in the settings file.
-    let rule = format!("{name}:*");
-    st.app.update_config(ConfigChange::edit(|cfg| {
-        cfg.permissions.allow.retain(|r| *r != rule);
-        cfg.permissions.deny.retain(|r| *r != rule);
-        match setting {
-            "allow" => cfg.permissions.allow.push(rule.clone()),
-            "never" => cfg.permissions.deny.push(rule.clone()),
-            _ => {}
-        }
-    }))?;
-    st.app.persist_rules();
+    // Saved first (per-tool rules live in the settings file), and made live only once saved.
+    st.app.set_tool_setting(&name, setting)?;
     Ok(Json(json!({"name": name, "setting": st.app.policy.tool_setting(&name)})))
 }
 
@@ -2206,6 +2195,16 @@ mod tests {
         request.await.status
     }
 
+    /// Removes one secret of a test's own temporary home (its Keychain entry is named after that
+    /// home) when dropped, so a failed assertion or a panic does not leave it behind.
+    struct ForgetSecret(Config, &'static str);
+
+    impl Drop for ForgetSecret {
+        fn drop(&mut self) {
+            let _ = self.0.store_secret(self.1, "");
+        }
+    }
+
     #[tokio::test]
     async fn settings_save_does_not_bring_back_a_revoked_rule() {
         let dir = tempfile::tempdir().unwrap();
@@ -2216,6 +2215,8 @@ mod tests {
         saved.save().unwrap();
         let ws = dir.path().join("ws");
         let (a, b) = two_cores_from_saved_settings(&home, &ws).await;
+        // The mail sign-in below saves a password under this home; it goes however the test ends.
+        let _forget = ForgetSecret((*a.cfg()).clone(), "email_password");
         let (ha, hb) = (serve_app(tempfile::tempdir().unwrap(), a.clone()), serve_app(tempfile::tempdir().unwrap(), b.clone()));
         let on_disk = || Config::read_saved(&home).unwrap();
         let has = |app: &App, rule: &str| app.policy.allow_rules().iter().any(|r| r == rule);
@@ -2413,6 +2414,184 @@ mod tests {
         assert!(!b.policy.deny_rules().contains(&"web_fetch:*".to_string()), "{:?}", b.policy.deny_rules());
         assert_eq!(decide(&b), crate::permissions::Verdict::Allow);
         assert_eq!(b.cfg().permissions.deny, vec!["shell:*"]);
+    }
+
+    #[tokio::test]
+    async fn tool_setting_on_a_stale_core_is_saved() {
+        // (what both cores start with, what B sets, what A sets next without having reloaded). In
+        // each, A's own edit changes nothing against what it holds in memory.
+        for (start, by_b, by_a) in [("never", "ask", "never"), ("allow", "ask", "allow"), ("ask", "never", "ask")] {
+            let dir = tempfile::tempdir().unwrap();
+            let home = dir.path().join("home");
+            let mut saved = Config { home: home.clone(), ..Default::default() };
+            saved.agent.auto_memory = false;
+            // A rule of another tool, which neither save may lose.
+            saved.permissions.deny = vec!["shell:*".into()];
+            match start {
+                "never" => saved.permissions.deny.push("web_fetch:*".into()),
+                "allow" => saved.permissions.allow.push("web_fetch:*".into()),
+                _ => {}
+            }
+            saved.save().unwrap();
+            let ws = dir.path().join("ws");
+            let (a, b) = two_cores_from_saved_settings(&home, &ws).await;
+            let (ha, hb) = (serve_app(tempfile::tempdir().unwrap(), a.clone()), serve_app(tempfile::tempdir().unwrap(), b.clone()));
+            let on_disk = || Config::read_saved(&home).unwrap().permissions;
+            let rule = "web_fetch:*".to_string();
+            for app in [&a, &b] {
+                assert_eq!(app.policy.tool_setting("web_fetch"), start);
+            }
+
+            assert_eq!(hb.json("POST", "/tools/web_fetch", json!({"setting": by_b})).await["setting"], by_b, "{start}");
+            assert_eq!((on_disk().allow.contains(&rule), on_disk().deny.contains(&rule)), (by_b == "allow", by_b == "never"), "{start}");
+            // A has not looked yet: it still holds what both started with.
+            assert_eq!(a.policy.tool_setting("web_fetch"), start, "{start}: A is stale");
+
+            assert_eq!(ha.json("POST", "/tools/web_fetch", json!({"setting": by_a})).await["setting"], by_a, "{start}");
+            assert_eq!(a.policy.tool_setting("web_fetch"), by_a, "{start}");
+            let disk = on_disk();
+            assert_eq!((disk.allow.contains(&rule), disk.deny.contains(&rule)), (by_a == "allow", by_a == "never"), "{start}: {disk:?}");
+            assert!(disk.deny.contains(&"shell:*".to_string()), "{start}: {disk:?}");
+            // Neither core's next reload undoes it, and a core started afterwards reports it.
+            for app in [&a, &b] {
+                app.reload_rules();
+                assert_eq!(app.policy.tool_setting("web_fetch"), by_a, "{start}");
+                assert_eq!(app.policy.tool_setting("shell"), "never", "{start}");
+            }
+            let decide = |app: &App| crate::permissions::decide_for(&app.policy, "web_fetch", "https://example.com/", crate::permissions::Effect::NetworkRead, false);
+            if by_a == "never" {
+                a.policy.set_mode(Mode::Yolo);
+                assert!(matches!(decide(&a), crate::permissions::Verdict::Deny(_)), "{start}: {:?}", decide(&a));
+            }
+            let (fresh, _) = two_cores_from_saved_settings(&home, &ws).await;
+            assert_eq!(fresh.policy.tool_setting("web_fetch"), by_a, "{start}");
+            let listed = hb.json("GET", "/tools", Value::Null).await;
+            assert_eq!(listed.as_array().unwrap().iter().find(|t| t["name"] == "web_fetch").unwrap()["setting"], by_a, "{start}");
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_tool_setting_save_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.deny = vec!["shell:*".into()];
+        saved.save().unwrap();
+        let cfg = Config::read_saved(&home).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        crate::risk_notice::accept_current(&store).unwrap();
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), store, scripted(vec![])).await.unwrap());
+        let h = serve_app(dir, app.clone());
+        let config = home.join("config.toml");
+        let broken = "[permissions\ndeny = [\"shell:*\"\n";
+        std::fs::write(&config, broken).unwrap();
+        let saved_rules = || app.store.kv_get("allow_rules").unwrap_or_default();
+        let state = || (app.policy.allow_rules(), app.policy.deny_rules(), app.cfg().permissions.allow.clone(), app.cfg().permissions.deny.clone());
+        let before = state();
+
+        // (tool, its setting, what is asked for): from "ask", and from "never".
+        for (tool, from, to) in [("web_fetch", "ask", "allow"), ("web_fetch", "ask", "never"), ("shell", "never", "ask"), ("shell", "never", "allow")] {
+            let refused = h.send("POST", &format!("/tools/{tool}"), json!({"setting": to})).await;
+            assert_eq!(refused.status, 400, "{tool} {to}");
+            let message = refused.json().await["error"].as_str().unwrap_or_default().to_string();
+            assert!(message.contains("config.toml"), "{tool} {to}: {message}");
+            assert_eq!(app.policy.tool_setting(tool), from, "{tool} {to}: the refused choice is not live");
+            assert_eq!(state(), before, "{tool} {to}");
+            assert_eq!(std::fs::read_to_string(&config).unwrap(), broken);
+            // Nor does a later save of the "always" answers write it.
+            app.persist_rules();
+            assert!(!saved_rules().contains(&format!("{tool}:*")), "{tool} {to}: {}", saved_rules());
+            assert_eq!(app.policy.tool_setting(tool), from, "{tool} {to}");
+        }
+        // Once the file is repaired, the same choice goes through.
+        saved.save().unwrap();
+        assert_eq!(h.json("POST", "/tools/web_fetch", json!({"setting": "never"})).await["setting"], "never");
+        assert_eq!(Config::read_saved(&home).unwrap().permissions.deny, vec!["shell:*", "web_fetch:*"]);
+    }
+
+    #[tokio::test]
+    async fn first_run_core_takes_in_rules_written_during_startup() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        // There is no config.toml yet: the new core starts from the defaults.
+        let mut cfg = Config::read_saved(&home).unwrap();
+        assert!(cfg.loaded_rules.is_none());
+        cfg.agent.auto_memory = false;
+        cfg.ensure_home().unwrap();
+        // Before its startup ends, another core writes the first config.toml.
+        let mut other = Config { home: home.clone(), ..Default::default() };
+        other.permissions.allow = vec!["shell:git *".into()];
+        other.permissions.deny = vec!["web_fetch:*".into()];
+        other.save().unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        crate::risk_notice::accept_current(&store).unwrap();
+        let b = App::assemble(cfg, dir.path().join("ws"), store, scripted(vec![])).await.unwrap();
+        assert_eq!(b.policy.tool_setting("web_fetch"), "ask", "built from the defaults it read");
+
+        // Its first reload takes in what the other wrote.
+        b.reload_rules();
+        assert_eq!(b.policy.tool_setting("web_fetch"), "never");
+        assert!(b.policy.allow_rules().contains(&"shell:git *".to_string()), "{:?}", b.policy.allow_rules());
+        assert_eq!((b.cfg().permissions.allow.clone(), b.cfg().permissions.deny.clone()), (vec!["shell:git *".to_string()], vec!["web_fetch:*".to_string()]));
+        let verdict = crate::permissions::decide_for(&b.policy, "shell", "git push", crate::permissions::Effect::ProcessExec, false);
+        assert_eq!(verdict, crate::permissions::Verdict::Allow);
+    }
+
+    #[tokio::test]
+    async fn never_survives_a_missing_config_and_the_next_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.allow = vec!["shell:git *".into()];
+        saved.permissions.deny = vec!["web_fetch:*".into()];
+        saved.save().unwrap();
+        let cfg = Config::read_saved(&home).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        crate::risk_notice::accept_current(&store).unwrap();
+        let app = App::assemble(cfg, dir.path().join("ws"), store, scripted(vec![])).await.unwrap();
+        let config = home.join("config.toml");
+        let fetch = |app: &App| crate::permissions::decide_for(&app.policy, "web_fetch", "https://example.com/", crate::permissions::Effect::NetworkRead, false);
+        let git = |app: &App| crate::permissions::decide_for(&app.policy, "shell", "git push", crate::permissions::Effect::ProcessExec, false);
+        app.policy.set_mode(Mode::Yolo);
+        assert!(matches!(fetch(&app), crate::permissions::Verdict::Deny(_)));
+
+        // Missing: the "always allow" rule from the file is gone, the "never" stays.
+        std::fs::remove_file(&config).unwrap();
+        app.reload_rules();
+        app.policy.set_mode(Mode::Ask);
+        assert_eq!(git(&app), crate::permissions::Verdict::Ask);
+        app.policy.set_mode(Mode::Yolo);
+        assert!(matches!(fetch(&app), crate::permissions::Verdict::Deny(_)), "{:?}", fetch(&app));
+
+        // A save that recreates the file writes the "never" this core still holds, and not the
+        // dropped "always allow".
+        app.update_config(ConfigChange::edit(|c| c.agent.name = "Wren".into())).unwrap();
+        let disk = Config::read_saved(&home).unwrap();
+        assert_eq!(disk.permissions.deny, vec!["web_fetch:*"], "the recreated file dropped the never");
+        assert!(disk.permissions.allow.is_empty(), "{:?}", disk.permissions.allow);
+        assert_eq!(disk.agent.name, "Wren");
+        // So the next reload keeps it, and a core started afterwards refuses it too.
+        app.reload_rules();
+        assert!(matches!(fetch(&app), crate::permissions::Verdict::Deny(_)), "{:?}", fetch(&app));
+        assert_eq!(app.cfg().permissions.deny, vec!["web_fetch:*"]);
+        let fresh_cfg = Config::read_saved(&home).unwrap();
+        let fresh = App::assemble(fresh_cfg.clone(), dir.path().join("ws"), Store::open(&fresh_cfg.db_path()).unwrap(), scripted(vec![])).await.unwrap();
+        assert_eq!(fresh.policy.tool_setting("web_fetch"), "never");
+
+        // Unparseable: the "never" stays in force too.
+        std::fs::write(&config, "[permissions\ndeny = [\n").unwrap();
+        app.reload_rules();
+        assert!(matches!(fetch(&app), crate::permissions::Verdict::Deny(_)), "{:?}", fetch(&app));
+
+        // Missing again, the user sets it back to "ask": the recreated file does not bring it back.
+        std::fs::remove_file(&config).unwrap();
+        app.reload_rules();
+        app.set_tool_setting("web_fetch", "ask").unwrap();
+        assert!(Config::read_saved(&home).unwrap().permissions.deny.is_empty());
+        app.reload_rules();
+        assert_eq!(app.policy.tool_setting("web_fetch"), "ask");
     }
 
     #[tokio::test]
