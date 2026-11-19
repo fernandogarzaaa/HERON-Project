@@ -1,0 +1,16 @@
+[
+  {
+    "args": "{\"path\":\"later.txt\",\"content\":\"later\"}",
+    "detail": "later.txt",
+    "id": 1,
+    "origin": "user",
+    "result": null,
+    "risk": "write",
+    "session_id": "d7b37882d0ad",
+    "status": "new",
+    "summary": "Write later.txt",
+    "tainted": false,
+    "tool": "write_file",
+    "ts": 1795043277
+  }
+]
