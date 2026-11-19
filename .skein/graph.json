@@ -5508,10 +5508,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "73e4ca9063f40d644aeab44f7383633758e37bc6",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "56f2feafb4678b0fa36eddc8d6c08050749e3c0a",
+        "result_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
+        "shipped_at": "2026-11-19T00:32:39.670278+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Integrate parents of U4c",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "73e4ca9063f40d644aeab44f7383633758e37bc6",
       "branch": "skein/U4c__integrate-base",
