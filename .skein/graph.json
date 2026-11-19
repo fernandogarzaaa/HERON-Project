@@ -6353,10 +6353,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "aea4f44b061112438ac2c8c9f02ce12821fe2b34",
+        "result_commit": "8879a8df1ef209e79497077acd7951d92568d372",
+        "shipped_at": "2026-11-19T01:07:34.571429+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Integrate parents of U7",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7",
       "branch": "skein/U7__integrate-base",
