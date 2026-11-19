@@ -389,7 +389,7 @@ pub fn providers() -> Vec<CliSpec> {
         CliSpec { id: "codex-cli", display_name: "Codex (ChatGPT subscription)", binary: "codex", login_command: "codex login", install_hint: "npm install -g @openai/codex", auth_kind: "ChatGPT Plus/Pro/Team subscription", cost_note: "Draws on the ChatGPT plan. A stray OPENAI_API_KEY would flip billing to metered API; Heron removes it from the child env.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CODEX_HOME"), config_dirs: &["~/.codex"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (0, 169, 0), below: (1, 0, 0) }), input: PromptInput::Stdin, output: OutputKind::JsonLines },
         CliSpec { id: "cursor-cli", display_name: "Cursor (subscription)", binary: "cursor-agent", login_command: "agent login", install_hint: "curl https://cursor.com/install -fsS | bash", auth_kind: "Cursor subscription", cost_note: "Draws on the Cursor plan's usage pool.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cursor"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
         CliSpec { id: "grok-cli", display_name: "Grok Build (subscription)", binary: "grok", login_command: "grok login", install_hint: "brew install --cask grok-build (macOS) or the Grok Build installer", auth_kind: "Grok Build subscription", cost_note: "Draws on the Grok plan.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.grok"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cache/opencode", "~/.config/opencode", "~/.local/share/opencode", "~/.local/state/opencode"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (2, 1, 4), below: (3, 0, 0) }), input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cache/opencode", "~/.config/opencode", "~/.local/share/opencode", "~/.local/state/opencode", "~/.opencode"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (2, 1, 4), below: (3, 0, 0) }), input: PromptInput::Arg, output: OutputKind::JsonLines },
         CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini", "~/.antigravity"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonSingle },
         CliSpec { id: "cline-cli", display_name: "Cline (router, free models)", binary: "cline", login_command: "cline auth <provider>", install_hint: "npm install -g cline", auth_kind: "Whatever Cline is configured with: cline / openai-codex / oca OAuth, API keys, Ollama", cost_note: "Free when routed to a free or local model. One-shot defaults to yolo, so this provider needs cli_allow_agent_tools = true.", experimental: true, needs_allow_agent_tools: true, config_dir_env: None, config_dirs: &["~/.cline"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
         CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.copilot", "~/.config/github-copilot"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonLines },
@@ -3847,11 +3847,17 @@ mod tests {
             let want = if rec["credential_store"] == "macos-keychain" { CredentialStore::MacosKeychain } else { CredentialStore::HomeFolder };
             assert_eq!(spec.credential_store, want, "{}: credential_store follows the record", spec.id);
 
-            // The folders: every one the registry names was recorded, and every recorded path is under
-            // one of them or is a parent folder of one (`~/.cache` above `~/.cache/opencode`).
+            // The folders: every one the registry names was recorded or is a named extra, and every
+            // recorded path is under one of them or is a parent folder of one (`~/.cache` above
+            // `~/.cache/opencode`). An extra is a folder an older release of the CLI made, which the
+            // fresh-`HOME` check did not create; it stays Refused (item 22).
+            let extras: &[&str] = if spec.id == "opencode-cli" { &["~/.opencode"] } else { &[] };
+            for extra in extras {
+                assert!(spec.config_dirs.contains(extra), "{}: the extra folder {extra} must stay in config_dirs", spec.id);
+            }
             let recorded: Vec<String> = rec["config_dirs"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
             for d in spec.config_dirs {
-                assert!(recorded.iter().any(|r| r == d), "{}: {d} was not recorded", spec.id);
+                assert!(recorded.iter().any(|r| r == d) || extras.contains(d), "{}: {d} was not recorded", spec.id);
             }
             for r in &recorded {
                 let covered = spec.config_dirs.iter().any(|d| r == d || r.starts_with(&format!("{d}/")));
@@ -3930,6 +3936,42 @@ mod tests {
             ensure().await.unwrap();
             assert_eq!(llm.audit_identity(), ("codex-cli".to_string(), "2.2.0".to_string()));
         }
+    }
+
+    /// CUJ 5, through the turn: a Tier 1 CLI whose `--version` is outside the registry entry's own
+    /// range is refused before it is sent a prompt, and runs once that exact version is accepted.
+    /// The range is the registry's (`llm.spec.supported` is not touched), and the fake answers
+    /// `--version` itself (its script says "version"), so `with_version_answer` adds no in-range
+    /// answer. Without the `ensure_version` call in `turn_in` the first turn would succeed.
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn turn_on_an_untested_registry_version_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        // Any prompt run prints a finished reply; a refused turn never gets that far.
+        let script = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"3.4.0 (Claude Code)\"\n  exit 0\nfi\ncat > /dev/null\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"the prompt ran\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}'\n";
+        let bin = fake_bin(dir.path(), "claude", script);
+        let mut cfg = test_cfg(dir.path(), "claude-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        // Where the CLI must run sandboxed (macOS) and Seatbelt cannot start, no turn runs at all.
+        if crate::sandbox::required() && !cli_seatbelt(&cfg) {
+            return;
+        }
+        let store = crate::store::Store::in_memory().unwrap();
+        let llm = CliLlm::from_config(std::sync::Arc::new(cfg), Some(store.clone())).unwrap();
+        let range = llm.spec.supported.expect("claude-cli is Tier 1 and has a range in the registry");
+        assert!(!range.contains((3, 4, 0)), "the fake's version must be outside the registry's own range");
+
+        let err = llm.chat(hi(), &|_| {}).await.expect_err("an untested version must not run a turn");
+        let untested = err.downcast_ref::<CliVersionUntested>().unwrap_or_else(|| panic!("not a CliVersionUntested: {err:#}"));
+        assert_eq!((untested.id.as_str(), untested.found.as_str()), ("claude-cli", "3.4.0"));
+
+        // Accepting another version does not help: the acceptance is for exactly one version.
+        store.kv_set(&version_ok_key("claude-cli"), "3.4.1").unwrap();
+        assert!(llm.chat(hi(), &|_| {}).await.unwrap_err().downcast_ref::<CliVersionUntested>().is_some());
+
+        store.kv_set(&version_ok_key("claude-cli"), "3.4.0").unwrap();
+        let reply = llm.chat(hi(), &|_| {}).await.expect("the accepted version runs the same turn");
+        assert_eq!(reply.message.text(), "the prompt ran");
     }
 
     /// `--version` on the turn path runs as the turn does: allowlisted environment, run folder,
