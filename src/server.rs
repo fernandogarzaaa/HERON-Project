@@ -2,7 +2,8 @@
 //! Loopback-only by default; every API call requires the per-launch token.
 
 use crate::agent::Session;
-use crate::app::App;
+use crate::app::{App, ConfigChange};
+use crate::config::Config;
 use crate::events::Item;
 use crate::permissions::{Approval, ApprovalRequest, Approver, Mode};
 use anyhow::Result;
@@ -311,7 +312,29 @@ async fn get_settings(State(st): S) -> ApiResult {
 }
 
 async fn set_settings(State(st): S, Json(body): Json<Value>) -> ApiResult {
-    let mut cfg = (*st.app.cfg()).clone();
+    // Every value is checked first, on a copy, so a bad one changes nothing, the API key included.
+    apply_settings(&body, &mut (*st.app.cfg()).clone())?;
+    let text = |k: &str| body.get(k).and_then(|v| v.as_str()).map(|s| s.trim().to_string());
+    if let Some(key) = text("api_key").filter(|k| !k.is_empty()) {
+        st.app.cfg().store_api_key(&key)?;
+    }
+    // Applied to the settings as they are when they are saved, never to a copy held across an await.
+    let mut restart_browser = false;
+    st.app.update_config(ConfigChange::try_edit(|cfg| {
+        restart_browser = body.get("browser_visible").and_then(|v| v.as_bool()).is_some_and(|v| v != cfg.agent.browser_visible);
+        apply_settings(&body, cfg).map_err(|e| anyhow::anyhow!(e.1))
+    }))?;
+    if let Some(v) = text("mode") {
+        st.app.policy.set_mode(Mode::parse(&v)?);
+    }
+    if restart_browser {
+        crate::browser::shutdown().await; // the next use starts it the new way
+    }
+    get_settings(State(st)).await
+}
+
+/// Set in `cfg` what a `POST /api/settings` body asks for, or say what in it is wrong.
+fn apply_settings(body: &Value, cfg: &mut Config) -> std::result::Result<(), ApiError> {
     let text = |k: &str| body.get(k).and_then(|v| v.as_str()).map(|s| s.trim().to_string());
     if let Some(v) = text("name").filter(|v| !v.is_empty()) {
         cfg.agent.name = v;
@@ -380,17 +403,14 @@ async fn set_settings(State(st): S, Json(body): Json<Value>) -> ApiResult {
         cfg.permissions.daemon_mode = v;
     }
     if let Some(v) = text("mode") {
-        st.app.policy.set_mode(Mode::parse(&v)?);
+        Mode::parse(&v)?;
         cfg.permissions.mode = v;
     }
     if let Some(v) = body.get("auto_memory").and_then(|v| v.as_bool()) {
         cfg.agent.auto_memory = v;
     }
     if let Some(v) = body.get("browser_visible").and_then(|v| v.as_bool()) {
-        if v != cfg.agent.browser_visible {
-            cfg.agent.browser_visible = v;
-            crate::browser::shutdown().await; // the next use starts it the new way
-        }
+        cfg.agent.browser_visible = v;
     }
     if let Some(v) = body.get("neural_memory").and_then(|v| v.as_bool()) {
         cfg.agent.neural_memory = v && crate::embed::neural_built_in();
@@ -398,11 +418,7 @@ async fn set_settings(State(st): S, Json(body): Json<Value>) -> ApiResult {
     if let Some(v) = text("workspace").filter(|v| !v.is_empty()) {
         cfg.agent.workspace = v;
     }
-    if let Some(key) = text("api_key").filter(|k| !k.is_empty()) {
-        cfg.store_api_key(&key)?;
-    }
-    st.app.update_config(cfg)?;
-    get_settings(State(st)).await
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -414,9 +430,7 @@ async fn set_mode(State(st): S, Json(b): Json<ModeBody>) -> ApiResult {
     let mode = Mode::parse(&b.mode)?;
     // The config file stays the one source of truth, so the mode survives a restart. It is the
     // user's explicit choice, so it is written even when `--mode` already set the same mode.
-    let mut cfg = (*st.app.cfg()).clone();
-    cfg.permissions.mode = mode.name().to_string();
-    st.app.update_config_choosing(cfg, &["permissions.mode"])?;
+    st.app.update_config_choosing(ConfigChange::edit(|c| c.permissions.mode = mode.name().to_string()), &["permissions.mode"])?;
     st.app.policy.set_mode(mode);
     Ok(Json(json!({"mode": st.app.policy.mode().name()})))
 }
@@ -744,12 +758,18 @@ async fn accept_provider_version(State(st): S, Path(id): Path<String>, Json(b): 
     Ok(Json(json!({"id": id, "version_accepted": version})))
 }
 
-/// Every standing allow rule: folder reads (`read:`) and tool rules.
-async fn list_grants(State(st): S) -> ApiResult {
+/// Every standing allow rule: folder reads (`read:`) and tool rules. While `config.toml` cannot be
+/// read, none of its rules are listed (they do not apply), and the `x-heron-notice` header says why;
+/// the body stays the plain list, so a client that does not know the header is unaffected.
+async fn list_grants(State(st): S) -> std::result::Result<Response, ApiError> {
     // Including what another Heron on this home granted or revoked since this one last looked.
     st.app.reload_rules();
     let grants: Vec<Value> = st.app.policy.allow_rules().into_iter().map(|rule| json!({"kind": if rule.starts_with("read:") { "read" } else { "tool" }, "rule": rule})).collect();
-    Ok(Json(json!(grants)))
+    let mut response = Json(json!(grants)).into_response();
+    if st.app.config_unreadable().is_some() {
+        response.headers_mut().insert("x-heron-notice", header::HeaderValue::from_static(crate::app::CONFIG_UNREADABLE_NOTICE));
+    }
+    Ok(response)
 }
 
 #[derive(Deserialize)]
@@ -956,20 +976,21 @@ async fn get_awareness(State(st): S) -> ApiResult {
 }
 
 async fn set_awareness(State(st): S, Json(b): Json<Value>) -> ApiResult {
-    let mut cfg = (*st.app.cfg()).clone();
-    if let Some(v) = b.get("enabled").and_then(|v| v.as_bool()) {
-        cfg.agent.ambient_context = v;
+    let proactive = b.get("proactive").and_then(|v| v.as_str());
+    if proactive.is_some_and(|v| !["off", "suggest", "prepare", "takeover"].contains(&v)) {
+        return Err(bad("Unknown proactivity level."));
     }
-    if let Some(v) = b.get("reflect").and_then(|v| v.as_bool()) {
-        cfg.agent.reflect = v;
-    }
-    if let Some(v) = b.get("proactive").and_then(|v| v.as_str()) {
-        if !["off", "suggest", "prepare", "takeover"].contains(&v) {
-            return Err(bad("Unknown proactivity level."));
+    st.app.update_config(ConfigChange::edit(|cfg| {
+        if let Some(v) = b.get("enabled").and_then(|v| v.as_bool()) {
+            cfg.agent.ambient_context = v;
         }
-        cfg.agent.proactive = v.to_string();
-    }
-    st.app.update_config(cfg)?;
+        if let Some(v) = b.get("reflect").and_then(|v| v.as_bool()) {
+            cfg.agent.reflect = v;
+        }
+        if let Some(v) = proactive {
+            cfg.agent.proactive = v.to_string();
+        }
+    }))?;
     get_awareness(State(st)).await
 }
 
@@ -1057,14 +1078,12 @@ async fn get_persona(State(st): S) -> ApiResult {
 }
 
 async fn set_persona(State(st): S, Json(b): Json<Value>) -> ApiResult {
-    let mut cfg = (*st.app.cfg()).clone();
     if let Some(text) = b.get("text").and_then(|t| t.as_str()) {
-        crate::persona::save(&cfg, text)?;
+        crate::persona::save(&st.app.cfg(), text)?;
     }
     if let Some(name) = b.get("name").and_then(|n| n.as_str()).map(str::trim).filter(|n| !n.is_empty() && n.chars().count() <= 40) {
-        if name != cfg.agent.name {
-            cfg.agent.name = name.to_string();
-            st.app.update_config(cfg)?;
+        if name != st.app.cfg().agent.name {
+            st.app.update_config(ConfigChange::edit(|c| c.agent.name = name.to_string()))?;
         }
     }
     get_persona(State(st)).await
@@ -1133,16 +1152,16 @@ async fn set_tool(State(st): S, Path(name): Path<String>, Json(b): Json<Value>) 
     let setting = b.get("setting").and_then(|s| s.as_str()).unwrap_or("ask");
     st.app.policy.set_tool_setting(&name, setting)?;
     // Keep the choice across restarts: per-tool rules live in the settings file.
-    let mut cfg = (*st.app.cfg()).clone();
     let rule = format!("{name}:*");
-    cfg.permissions.allow.retain(|r| *r != rule);
-    cfg.permissions.deny.retain(|r| *r != rule);
-    match setting {
-        "allow" => cfg.permissions.allow.push(rule),
-        "never" => cfg.permissions.deny.push(rule),
-        _ => {}
-    }
-    st.app.update_config(cfg)?;
+    st.app.update_config(ConfigChange::edit(|cfg| {
+        cfg.permissions.allow.retain(|r| *r != rule);
+        cfg.permissions.deny.retain(|r| *r != rule);
+        match setting {
+            "allow" => cfg.permissions.allow.push(rule.clone()),
+            "never" => cfg.permissions.deny.push(rule.clone()),
+            _ => {}
+        }
+    }))?;
     st.app.persist_rules();
     Ok(Json(json!({"name": name, "setting": st.app.policy.tool_setting(&name)})))
 }
@@ -1195,24 +1214,24 @@ async fn get_usage(State(st): S) -> ApiResult {
 
 /// Change the limits and whether simple requests go to the cheaper model.
 async fn set_usage(State(st): S, Json(b): Json<Value>) -> ApiResult {
-    let mut cfg = (*st.app.cfg()).clone();
     let tokens = |v: &Value| v.as_u64().or_else(|| v.as_str().and_then(|s| s.replace([',', ' ', '_'], "").parse().ok()));
-    if let Some(v) = b.get("daily_token_limit").and_then(tokens) {
-        cfg.agent.daily_token_limit = v;
-    }
-    if let Some(v) = b.get("monthly_token_limit").and_then(tokens) {
-        cfg.agent.monthly_token_limit = v;
-    }
-    if let Some(v) = b.get("background_tokens_per_day").and_then(tokens) {
-        cfg.agent.background_tokens_per_day = v;
-    }
-    if let Some(v) = b.get("routing").and_then(|v| v.as_bool()) {
-        cfg.agent.routing = if v { "auto".into() } else { "off".into() };
-    }
-    if let Some(v) = b.get("fast_model").and_then(|v| v.as_str()) {
-        cfg.llm.fast_model = v.trim().to_string();
-    }
-    st.app.update_config(cfg)?;
+    st.app.update_config(ConfigChange::edit(|cfg| {
+        if let Some(v) = b.get("daily_token_limit").and_then(tokens) {
+            cfg.agent.daily_token_limit = v;
+        }
+        if let Some(v) = b.get("monthly_token_limit").and_then(tokens) {
+            cfg.agent.monthly_token_limit = v;
+        }
+        if let Some(v) = b.get("background_tokens_per_day").and_then(tokens) {
+            cfg.agent.background_tokens_per_day = v;
+        }
+        if let Some(v) = b.get("routing").and_then(|v| v.as_bool()) {
+            cfg.agent.routing = if v { "auto".into() } else { "off".into() };
+        }
+        if let Some(v) = b.get("fast_model").and_then(|v| v.as_str()) {
+            cfg.llm.fast_model = v.trim().to_string();
+        }
+    }))?;
     get_usage(State(st)).await
 }
 
@@ -1422,7 +1441,9 @@ async fn get_sources(State(st): S) -> ApiResult {
 async fn connect_source(State(st): S, Path(name): Path<String>, Json(b): Json<Value>) -> ApiResult {
     let text = |k: &str| b.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|v| !v.is_empty());
     let app = &st.app;
-    let mut cfg = (*app.cfg()).clone();
+    // Secrets are kept by the Heron folder, not in the settings. Every settings change below is
+    // applied to the settings as they are when it is saved, never to a copy taken before an await.
+    let cfg = app.cfg();
     let result = match name.as_str() {
         "about" => {
             let about: crate::sources::About = serde_json::from_value(b.clone())?;
@@ -1439,10 +1460,11 @@ async fn connect_source(State(st): S, Path(name): Path<String>, Json(b): Json<Va
                 return Err(bad("That folder holds keys, passwords or Heron's own data, so Heron will not index it."));
             }
             let folder = folder.to_string_lossy().to_string();
-            if !cfg.sources.folders.contains(&folder) {
-                cfg.sources.folders.push(folder);
-            }
-            app.update_config(cfg)?;
+            app.update_config(ConfigChange::edit(|c| {
+                if !c.sources.folders.contains(&folder) {
+                    c.sources.folders.push(folder.clone());
+                }
+            }))?;
             json!({"indexed": crate::sources::sync_documents(app).await?})
         }
         "calendar" => {
@@ -1469,9 +1491,9 @@ async fn connect_source(State(st): S, Path(name): Path<String>, Json(b): Json<Va
             let tls = b.get("tls").and_then(|t| t.as_bool()).unwrap_or(true);
             // Prove the sign-in works before saving anything.
             crate::mail::fetch_recent(host, port, tls, username, password, 1).await?;
-            cfg.sources.email = Some(crate::config::EmailConfig { host: host.to_string(), port, username: username.to_string(), tls });
             cfg.store_secret("email_password", password)?;
-            app.update_config(cfg)?;
+            let email = crate::config::EmailConfig { host: host.to_string(), port, username: username.to_string(), tls };
+            app.update_config(ConfigChange::edit(|c| c.sources.email = Some(email)))?;
             json!({"indexed": crate::sources::sync_email(app).await?})
         }
         _ => return Err(ApiError(StatusCode::NOT_FOUND, "Unknown source.".into())),
@@ -1496,7 +1518,7 @@ async fn disconnect_source(State(st): S, Path(name): Path<String>) -> ApiResult 
                              "microsoft_email" | "microsoft_calendar") {
         return Err(bad("Disconnect Google or Microsoft under Settings > Google and Microsoft accounts to remove its data."));
     }
-    let mut cfg = (*st.app.cfg()).clone();
+    let cfg = st.app.cfg();
     // OAuth consent covers both mail and calendar. Do not silently claim that
     // clicking a legacy source's Disconnect button revoked an OAuth account.
     if (name == "email" || name == "calendar") &&
@@ -1504,18 +1526,16 @@ async fn disconnect_source(State(st): S, Path(name): Path<String>) -> ApiResult 
         return Err(bad("An OAuth account is still connected. Disconnect Google or Microsoft under Settings > Google and Microsoft accounts first."));
     }
     match name.as_str() {
-        "email" => {
-            cfg.sources.email = None;
-            cfg.store_secret("email_password", "")?;
-        }
-        "calendar" => {
-            cfg.sources.calendars.clear();
-            cfg.store_secret("calendar_links", "")?;
-        }
-        "documents" => cfg.sources.folders.clear(),
+        "email" => cfg.store_secret("email_password", "")?,
+        "calendar" => cfg.store_secret("calendar_links", "")?,
         _ => {}
     }
-    st.app.update_config(cfg)?;
+    st.app.update_config(ConfigChange::edit(|c| match name.as_str() {
+        "email" => c.sources.email = None,
+        "calendar" => c.sources.calendars.clear(),
+        "documents" => c.sources.folders.clear(),
+        _ => {}
+    }))?;
     let items = st.app.store.clear_knowledge(&name)?;
     let memories = st.app.store.delete_memories_by_source(&name)?;
     Ok(Json(json!({"removed_items": items, "removed_memories": memories})))
@@ -1614,9 +1634,10 @@ mod tests {
         ScriptedLlm::tool_call("write_file", json!({"path": path, "content": content}))
     }
 
-    /// A response: its status, and the body still to be read.
+    /// A response: its status, its headers (names in lower case), and the body still to be read.
     struct Reply {
         status: u16,
+        headers: Vec<(String, String)>,
         body: BufReader<DuplexStream>,
     }
 
@@ -1646,14 +1667,18 @@ mod tests {
             let mut status_line = String::new();
             tokio::time::timeout(Duration::from_secs(20), reader.read_line(&mut status_line)).await.expect("no response").unwrap();
             let status = status_line.split_whitespace().nth(1).and_then(|c| c.parse().ok()).unwrap_or_else(|| panic!("bad status line {status_line:?}"));
+            let mut headers = vec![];
             loop {
                 let mut line = String::new();
                 reader.read_line(&mut line).await.unwrap();
                 if line.trim().is_empty() {
                     break;
                 }
+                if let Some((name, value)) = line.split_once(':') {
+                    headers.push((name.trim().to_lowercase(), value.trim().to_string()));
+                }
             }
-            Reply { status, body: reader }
+            Reply { status, headers, body: reader }
         }
 
         /// A request that must succeed, and its JSON body.
@@ -2123,6 +2148,271 @@ mod tests {
         assert!(app.revoke_grant("shell:git *").unwrap());
         assert!(!app.policy.allow_rules().iter().any(|r| r == "shell:git *"));
         assert!(Config::read_saved(&home).unwrap().permissions.allow.is_empty());
+    }
+
+    /// A mail server on this computer with an empty inbox. Its first sign-in waits: `parked` fires
+    /// when that sign-in arrives, and it is answered once `release` is sent.
+    async fn mail_server_that_parks_a_sign_in() -> (u16, oneshot::Receiver<()>, oneshot::Sender<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (parked_tx, parked) = oneshot::channel();
+        let (release, released) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            let mut gate = Some((parked_tx, released));
+            while let Ok((sock, _)) = listener.accept().await {
+                let mut s = BufReader::new(sock);
+                if s.get_mut().write_all(b"* OK IMAP4rev1 ready\r\n").await.is_err() {
+                    continue;
+                }
+                loop {
+                    let mut line = String::new();
+                    if s.read_line(&mut line).await.unwrap_or(0) == 0 {
+                        break;
+                    }
+                    let Some((tag, cmd)) = line.trim_end().split_once(' ') else { break };
+                    let (tag, cmd) = (tag.to_string(), cmd.to_string());
+                    let reply = if cmd.starts_with("LOGIN") {
+                        if let Some((parked, released)) = gate.take() {
+                            let _ = parked.send(());
+                            let _ = released.await;
+                        }
+                        format!("{tag} OK logged in\r\n")
+                    } else if cmd.starts_with("EXAMINE") {
+                        format!("* FLAGS (\\Seen)\r\n* 0 EXISTS\r\n* 0 RECENT\r\n{tag} OK [READ-ONLY] done\r\n")
+                    } else {
+                        format!("* BYE\r\n{tag} OK bye\r\n")
+                    };
+                    if s.get_mut().write_all(reply.as_bytes()).await.is_err() || cmd.starts_with("LOGOUT") {
+                        break;
+                    }
+                }
+            }
+        });
+        (port, parked, release)
+    }
+
+    /// `POST /api/sources/email` on `h`, with `meanwhile` run while the handler waits for the mail
+    /// server to answer its sign-in check. Returns the response's status.
+    async fn connect_mail_while(h: &Harness, meanwhile: impl std::future::Future<Output = ()>) -> u16 {
+        let (port, parked, release) = mail_server_that_parks_a_sign_in().await;
+        let request = h.send("POST", "/sources/email", json!({"host": "127.0.0.1", "port": port, "tls": false, "username": "me@example.com", "password": "app pass"}));
+        tokio::pin!(request);
+        tokio::select! {
+            reply = &mut request => panic!("answered before the sign-in was checked: {}", reply.status),
+            got = parked => got.unwrap(),
+        }
+        meanwhile.await;
+        release.send(()).unwrap();
+        request.await.status
+    }
+
+    #[tokio::test]
+    async fn settings_save_does_not_bring_back_a_revoked_rule() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.allow = vec!["shell:git *".into(), "shell:make *".into()];
+        saved.save().unwrap();
+        let ws = dir.path().join("ws");
+        let (a, b) = two_cores_from_saved_settings(&home, &ws).await;
+        let (ha, hb) = (serve_app(tempfile::tempdir().unwrap(), a.clone()), serve_app(tempfile::tempdir().unwrap(), b.clone()));
+        let on_disk = || Config::read_saved(&home).unwrap();
+        let has = |app: &App, rule: &str| app.policy.allow_rules().iter().any(|r| r == rule);
+
+        // One core: a rule is revoked on A while A's settings handler waits for the mail login.
+        let status = connect_mail_while(&ha, async {
+            ha.json("DELETE", "/grants", json!({"rule": "shell:git *"})).await;
+        })
+        .await;
+        assert_eq!(status, 200);
+        let disk = on_disk();
+        assert_eq!(disk.permissions.allow, vec!["shell:make *"], "the save brought the revoked rule back");
+        assert_eq!(disk.sources.email.as_ref().map(|e| e.username.as_str()), Some("me@example.com"), "the change itself was saved");
+        assert!(!has(&a, "shell:git *"), "{:?}", a.policy.allow_rules());
+        assert_eq!(a.cfg().permissions.allow, vec!["shell:make *"]);
+
+        // Two cores: B revokes the other while A's handler waits, and A takes that in (a turn of its
+        // own starts) before the handler saves.
+        let status = connect_mail_while(&ha, async {
+            hb.json("DELETE", "/grants", json!({"rule": "shell:make *"})).await;
+            a.reload_rules();
+            assert!(!has(&a, "shell:make *"), "{:?}", a.policy.allow_rules());
+        })
+        .await;
+        assert_eq!(status, 200);
+        assert!(on_disk().permissions.allow.is_empty(), "the save brought the revoked rule back: {:?}", on_disk().permissions.allow);
+        for app in [&a, &b] {
+            app.reload_rules();
+            assert!(!has(app, "shell:git *") && !has(app, "shell:make *"), "{:?}", app.policy.allow_rules());
+            assert!(app.cfg().permissions.allow.is_empty(), "{:?}", app.cfg().permissions.allow);
+        }
+        let (fresh, _) = two_cores_from_saved_settings(&home, &ws).await;
+        assert!(fresh.policy.allow_rules().is_empty(), "{:?}", fresh.policy.allow_rules());
+
+        // A whole copy of the settings taken before a revoke is refused rather than saved over it.
+        a.update_config(ConfigChange::edit(|c| c.permissions.allow.push("shell:ls *".into()))).unwrap();
+        let mut copy = (*a.cfg()).clone();
+        assert!(a.revoke_grant("shell:ls *").unwrap());
+        copy.agent.name = "Wren".into();
+        assert!(a.update_config(copy).is_err());
+        let disk = on_disk();
+        assert!(disk.permissions.allow.is_empty() && disk.agent.name != "Wren", "{:?} {}", disk.permissions.allow, disk.agent.name);
+        a.cfg().store_secret("email_password", "").unwrap();
+    }
+
+    #[tokio::test]
+    async fn new_core_drops_a_rule_revoked_while_it_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.allow = vec!["shell:git *".into(), "shell:make *".into()];
+        saved.save().unwrap();
+        let ws = dir.path().join("ws");
+        let (a, _) = two_cores_from_saved_settings(&home, &ws).await;
+        let has = |app: &App, rule: &str| app.policy.allow_rules().iter().any(|r| r == rule);
+
+        // A new core reads its settings as it starts. Before its startup ends (it waits on its
+        // connected apps there), the running core revokes one of them.
+        let cfg = Config::read_saved(&home).unwrap();
+        assert!(a.revoke_grant("shell:git *").unwrap());
+        assert_eq!(Config::read_saved(&home).unwrap().permissions.allow, vec!["shell:make *"]);
+        let store = Store::open(&cfg.db_path()).unwrap();
+        crate::risk_notice::accept_current(&store).unwrap();
+        let b = App::assemble(cfg, ws, store, scripted(vec![])).await.unwrap();
+        assert!(has(&b, "shell:git *"), "built from the settings it read: {:?}", b.policy.allow_rules());
+
+        // Its first reload (the start of its first turn) takes the revoke in.
+        b.reload_rules();
+        assert!(!has(&b, "shell:git *"), "{:?}", b.policy.allow_rules());
+        assert!(has(&b, "shell:make *"));
+        assert_eq!(b.cfg().permissions.allow, vec!["shell:make *"]);
+        let verdict = crate::permissions::decide_for(&b.policy, "shell", "git push", crate::permissions::Effect::ProcessExec, false);
+        assert_eq!(verdict, crate::permissions::Verdict::Ask);
+        // Nor does a save of its own write it back.
+        b.update_config(ConfigChange::edit(|c| c.agent.name = "Wren".into())).unwrap();
+        assert_eq!(Config::read_saved(&home).unwrap().permissions.allow, vec!["shell:make *"]);
+    }
+
+    #[tokio::test]
+    async fn unreadable_config_drops_its_rules_on_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.allow = vec!["shell:git *".into(), "shell:make *".into()];
+        saved.permissions.deny = vec!["web_fetch:*".into()];
+        saved.save().unwrap();
+        let cfg = Config::read_saved(&home).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        crate::risk_notice::accept_current(&store).unwrap();
+        store.kv_set("allow_rules", &json!(["shell:ls *"]).to_string()).unwrap();
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), store, scripted(vec![])).await.unwrap());
+        let h = serve_app(dir, app.clone());
+        let config = home.join("config.toml");
+        let rules = || app.policy.allow_rules().into_iter().collect::<std::collections::BTreeSet<_>>();
+        let set = |r: &[&str]| r.iter().map(|s| s.to_string()).collect::<std::collections::BTreeSet<_>>();
+        let grants = || async {
+            let reply = h.send("GET", "/grants", Value::Null).await;
+            assert_eq!(reply.status, 200);
+            let notice = reply.headers.iter().find(|(n, _)| n == "x-heron-notice").map(|(_, v)| v.clone());
+            let listed: Vec<String> = reply.json().await.as_array().unwrap().iter().map(|g| g["rule"].as_str().unwrap().to_string()).collect();
+            (listed, notice)
+        };
+        let fetch = |app: &App| crate::permissions::decide_for(&app.policy, "web_fetch", "https://example.com/", crate::permissions::Effect::NetworkRead, false);
+        let git = |app: &App| crate::permissions::decide_for(&app.policy, "shell", "git push", crate::permissions::Effect::ProcessExec, false);
+        assert_eq!(rules(), set(&["shell:git *", "shell:make *", "shell:ls *"]));
+        assert_eq!(git(&app), crate::permissions::Verdict::Allow);
+        assert_eq!(grants().await.1, None);
+
+        // Unparseable: every rule that came from the file is dropped, and GET /api/grants says why.
+        // The saved "always" answer stays, and so does the file's "never".
+        std::fs::write(&config, "[permissions\nallow = [\"shell:git *\"\n").unwrap();
+        let (listed, notice) = grants().await;
+        assert_eq!(listed, vec!["shell:ls *"]);
+        assert_eq!(notice.as_deref(), Some(crate::app::CONFIG_UNREADABLE_NOTICE));
+        assert!(app.config_unreadable().unwrap().contains("config.toml"), "{:?}", app.config_unreadable());
+        assert_eq!(rules(), set(&["shell:ls *"]));
+        assert!(app.cfg().permissions.allow.is_empty(), "{:?}", app.cfg().permissions.allow);
+        assert_eq!(git(&app), crate::permissions::Verdict::Ask);
+        assert!(matches!(fetch(&app), crate::permissions::Verdict::Deny(_)), "{:?}", fetch(&app));
+        // Still broken at the next reload: nothing comes back.
+        app.reload_rules();
+        assert_eq!(rules(), set(&["shell:ls *"]));
+
+        // Parseable again: its rules apply again, and the note is gone.
+        saved.save().unwrap();
+        let (listed, notice) = grants().await;
+        assert_eq!(listed.into_iter().collect::<std::collections::BTreeSet<_>>(), set(&["shell:git *", "shell:make *", "shell:ls *"]));
+        assert_eq!(notice, None);
+        assert_eq!(app.config_unreadable(), None);
+        assert_eq!(app.cfg().permissions.allow, vec!["shell:git *", "shell:make *"]);
+        assert_eq!(git(&app), crate::permissions::Verdict::Allow);
+
+        // Missing: its rules are gone. The saved answer and the "never" stay.
+        std::fs::remove_file(&config).unwrap();
+        app.reload_rules();
+        assert_eq!(rules(), set(&["shell:ls *"]));
+        assert!(app.cfg().permissions.allow.is_empty(), "{:?}", app.cfg().permissions.allow);
+        assert_eq!(git(&app), crate::permissions::Verdict::Ask);
+        assert!(matches!(fetch(&app), crate::permissions::Verdict::Deny(_)), "{:?}", fetch(&app));
+        assert_eq!(grants().await, (vec!["shell:ls *".to_string()], None));
+    }
+
+    #[tokio::test]
+    async fn never_on_one_core_holds_on_another() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.save().unwrap();
+        let ws = dir.path().join("ws");
+        let core = |llm: Arc<dyn Llm>| {
+            let (home, ws) = (home.clone(), ws.clone());
+            async move {
+                let cfg = Config::read_saved(&home).unwrap();
+                let store = Store::open(&cfg.db_path()).unwrap();
+                crate::risk_notice::accept_current(&store).unwrap();
+                Arc::new(App::assemble(cfg, ws, store, llm).await.unwrap())
+            }
+        };
+        let fetch = ScriptedLlm::tool_call("web_fetch", json!({"url": "https://example.com/"}));
+        let a = core(scripted(vec![])).await;
+        let b = core(scripted(vec![fetch, Message::assistant("Done.")])).await;
+        // B runs in Yolo mode: what it is not told to refuse, it runs unasked.
+        b.policy.set_mode(Mode::Yolo);
+        let decide = |app: &App| crate::permissions::decide_for(&app.policy, "web_fetch", "https://example.com/", crate::permissions::Effect::NetworkRead, false);
+        assert_eq!(decide(&b), crate::permissions::Verdict::Allow);
+        let (ha, hb) = (serve_app(tempfile::tempdir().unwrap(), a.clone()), serve_app(tempfile::tempdir().unwrap(), b.clone()));
+
+        // "Never" is set on A. B's next turn refuses the tool before it runs.
+        assert_eq!(ha.json("POST", "/tools/web_fetch", json!({"setting": "never"})).await["setting"], "never");
+        assert_eq!(Config::read_saved(&home).unwrap().permissions.deny, vec!["web_fetch:*"]);
+        let events = hb.chat(json!({"message": "fetch it"})).await.all().await;
+        let end = find(&events, "tool_end");
+        assert_eq!((end["name"].as_str(), end["ok"].as_bool()), (Some("web_fetch"), Some(false)), "{events:?}");
+        assert!(end["preview"].as_str().unwrap().contains("switched this ability off"), "{end}");
+        assert!(b.policy.deny_rules().contains(&"web_fetch:*".to_string()), "{:?}", b.policy.deny_rules());
+        assert!(matches!(decide(&b), crate::permissions::Verdict::Deny(_)));
+        assert_eq!(b.cfg().permissions.deny, vec!["web_fetch:*"]);
+        assert_eq!(hb.json("GET", "/tools", Value::Null).await.as_array().unwrap().iter().find(|t| t["name"] == "web_fetch").unwrap()["setting"], "never");
+        // An unattended run on B starts from the same rules.
+        b.reload_rules();
+        assert!(b.policy.deny_rules().contains(&"web_fetch:*".to_string()));
+
+        // A save of B's own keeps A's choice in the file.
+        hb.json("POST", "/tools/shell", json!({"setting": "never"})).await;
+        assert_eq!(Config::read_saved(&home).unwrap().permissions.deny, vec!["web_fetch:*", "shell:*"]);
+        a.reload_rules();
+        assert!(a.policy.deny_rules().contains(&"shell:*".to_string()), "{:?}", a.policy.deny_rules());
+
+        // Set back to "ask" on A, B follows at its next reload.
+        ha.json("POST", "/tools/web_fetch", json!({"setting": "ask"})).await;
+        b.reload_rules();
+        assert!(!b.policy.deny_rules().contains(&"web_fetch:*".to_string()), "{:?}", b.policy.deny_rules());
+        assert_eq!(decide(&b), crate::permissions::Verdict::Allow);
+        assert_eq!(b.cfg().permissions.deny, vec!["shell:*"]);
     }
 
     #[tokio::test]
