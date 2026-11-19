@@ -13,7 +13,6 @@ import { VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { ActionButton } from "action_button.slint";
 import { WrapText } from "wrap_text.slint";
-import { PageScroll } from "page_scroll.slint";
 
 // One inline approval card.
 export struct ApprovalRow {
@@ -50,15 +49,15 @@ export component ApprovalCardView inherits VerticalBox {
                 border-top-left-radius: 10px; border-bottom-left-radius: 10px;
             }
             VerticalBox {
-                WrapText { text: card.title; font-size: 16px; font-weight: 600; color: Theme.ink; }
-                if card.warning != "": WrapText { text: card.warning; font-size: 14px; font-weight: 600; color: Theme.danger; }
-                // A long command or persona would push the buttons far
-                // below the question, so the detail scrolls on its own.
+                Text { text: card.title; font-size: 16px; font-weight: 600; color: Theme.ink; wrap: word-wrap; }
+                if card.warning != "": Text { text: card.warning; font-size: 14px; font-weight: 600; color: Theme.danger; wrap: word-wrap; }
                 if card.detail != "": Rectangle {
                     background: Theme.surface; border-color: Theme.line; border-width: 1px; border-radius: 6px;
-                    height: min(240px, detail-text.preferred-height + 4px);
-                    PageScroll {
-                        detail-text := WrapText { width: parent.width; text: card.detail; font-family: "monospace"; font-size: 13px; color: Theme.ink; }
+                    // In a layout, not straight in the Rectangle: a Text placed
+                    // directly in a Rectangle does not wrap to its width.
+                    VerticalLayout {
+                        padding: 8px;
+                        WrapText { text: card.detail; font-family: "monospace"; font-size: 13px; color: Theme.ink; }
                     }
                 }
                 // Two rows: four buttons on one row ran past the thread

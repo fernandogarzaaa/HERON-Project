@@ -13,7 +13,6 @@
 
 import { CheckBox, ComboBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { Theme } from "../components/theme.slint";
-import { WrapText } from "../components/wrap_text.slint";
 
 export struct SessionRow {
     id: string,
@@ -106,21 +105,23 @@ export component SectionTitle inherits Text {
     color: Theme.ink;
 }
 
-export component SectionIntro inherits WrapText {
+export component SectionIntro inherits Text {
     in property <string> body;
     text: body;
     font-size: 16px;
     color: Theme.muted;
+    wrap: TextWrap.word-wrap;
 }
 
-export component RowMeta inherits WrapText {
+export component RowMeta inherits Text {
     in property <string> body;
     text: body;
     font-size: 13px;
     color: Theme.muted;
+    wrap: TextWrap.word-wrap;
 }
 
-export component EmptyNote inherits WrapText {
+export component EmptyNote inherits Text {
     in property <string> body;
     text: body;
     font-size: 15px;

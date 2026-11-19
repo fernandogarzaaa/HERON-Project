@@ -15,7 +15,6 @@ import { LineEdit } from "../components/line_edit.slint";
 import { Button } from "../components/button.slint";
 import { UsageDayRow, ModelRow, SimpleRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
 import { Theme } from "../components/theme.slint";
-import { WrapText } from "../components/wrap_text.slint";
 
 export component UsageTile inherits Rectangle {
     in property <string> title;
@@ -31,8 +30,8 @@ export component UsageTile inherits Rectangle {
         padding: 14px;
         spacing: 4px;
         Text { text: root.title; font-size: 13px; font-weight: 600; color: Theme.muted; }
-        WrapText { text: root.big; font-size: 24px; font-weight: 600; color: Theme.ink; }
-        WrapText { text: root.small; font-size: 13px; color: Theme.muted; }
+        Text { text: root.big; font-size: 24px; font-weight: 600; color: Theme.ink; wrap: TextWrap.word-wrap; }
+        Text { text: root.small; font-size: 13px; color: Theme.muted; wrap: TextWrap.word-wrap; }
         if root.frac >= 0: Rectangle {
             height: 8px;
             border-radius: 4px;
@@ -99,10 +98,11 @@ export component UsageView inherits Rectangle {
             spacing: 14px;
             SectionTitle { title: "Usage"; }
             SectionIntro { body: "How many tokens Heron has used, how many are left of the limits you set, and where this month is heading. Tokens are what your AI model provider counts and charges for."; }
-            if root.level-note != "": WrapText {
+            if root.level-note != "": Text {
                 text: root.level-note;
                 font-size: 14px;
                 color: Theme.muted;
+                wrap: TextWrap.word-wrap;
             }
             HorizontalBox {
                 padding: 0px;
@@ -150,7 +150,7 @@ export component UsageView inherits Rectangle {
                     padding: 0px;
                     spacing: 10px;
                     Text { text: row.text; font-size: 14px; color: Theme.ink; width: 110px; }
-                    WrapText { text: row.meta; font-size: 14px; color: Theme.ink; horizontal-stretch: 1; }
+                    Text { text: row.meta; font-size: 14px; color: Theme.ink; horizontal-stretch: 1; }
                 }
             }
             Text { text: "This month by model"; font-size: 19px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
@@ -174,7 +174,7 @@ export component UsageView inherits Rectangle {
                     width: parent.width;
                     padding: 10px;
                     spacing: 10px;
-                    WrapText { text: row.model; font-size: 14px; font-family: "SF Mono"; color: Theme.ink; horizontal-stretch: 1; }
+                    Text { text: row.model; font-size: 14px; font-family: "SF Mono"; color: Theme.ink; horizontal-stretch: 1; wrap: TextWrap.word-wrap; }
                     Text { text: row.sent; font-size: 14px; color: Theme.ink; width: 100px; }
                     Text { text: row.written; font-size: 14px; color: Theme.ink; width: 110px; }
                     Text { text: row.calls; font-size: 14px; color: Theme.ink; width: 70px; }
@@ -235,10 +235,11 @@ export component UsageView inherits Rectangle {
                 }
                 Text { text: "Saved"; font-size: 14px; color: Theme.ok; visible: root.saved-visible; vertical-alignment: center; }
             }
-            if root.save-error != "": WrapText {
+            if root.save-error != "": Text {
                 text: root.save-error;
                 font-size: 14px;
                 color: Theme.danger;
+                wrap: TextWrap.word-wrap;
             }
             Spacer { height: 10px; }
         }

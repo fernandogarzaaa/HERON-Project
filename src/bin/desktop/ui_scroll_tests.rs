@@ -1,7 +1,9 @@
-//! Long content must wrap and scroll in every view. Each test fills the
-//! window with fixture text: prose that wraps, plus long unbroken strings
-//! (a URL, a path, a hash) like the ones tool output, approvals and the
-//! activity log carry. No user or account data is rendered.
+//! Realistic content must wrap and scroll, not clip. The fixture is the
+//! kind of text Heron really shows: ordinary sentences, plus the
+//! unbroken strings that turn up in normal use (a pasted link, a file
+//! path, a line of JSON tool output, all about 100 characters). Lists
+//! hold as many rows as a few weeks of use would. Every string is made
+//! up; no user or account data is rendered.
 
 use crate::window_layout_tests::{write_bmp, HeadlessPlatform};
 use crate::MainWindow;
@@ -15,14 +17,17 @@ const VIEWS: [&str; 9] = [
 ];
 
 fn prose(label: &str) -> String {
-    format!(
-        "{label}. This fixture sentence is long on purpose, so it has to wrap across several lines \
-         in the narrowest supported window instead of running past the right edge."
-    )
+    format!("{label}. Checked the release notes and the open issues before the planning call on Thursday.")
 }
 
+/// Unbroken strings of the length people paste and tools print.
+const LINK: &str = "https://github.com/example-org/example-repo/blob/main/src/connectors/calendar/sync.rs#L120-L148";
+const DOC: &str = "https://docs.google.com/document/d/1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1uV2wX3yZ4aB5c/edit?usp=sharing";
+const PATH: &str = "~/Documents/Projects/example-repo/target/release/build/example-sys-1a2b3c4d5e6f7a8b/out/bindings.rs";
+const JSON: &str = r#"{"id":"evt_1a2b3c","htmlLink":"https://www.google.com/calendar/event?eid=MWEyYjNjNGQ1ZTZmN2E4YjljMGQ"}"#;
+
 fn unbroken(label: &str) -> String {
-    format!("https://example.com/{label}/{}", "a1b2c3d4e5f6".repeat(30))
+    [LINK, DOC, PATH, JSON][label.len() % 4].to_string()
 }
 
 fn both(label: &str) -> SharedString {
@@ -61,24 +66,24 @@ fn snapshot(name: &str, width: u32, height: u32, pixels: &[PremultipliedRgbaColo
 }
 
 fn chat_message(i: usize) -> crate::ChatMsg {
-    let text = format!("{} {}", prose(&format!("Message {i}")), unbroken("reply"));
+    let text = format!("{} {}", prose(&format!("Message {i}")), [LINK, DOC][i % 2]);
     let steps = vec![crate::ToolStep {
         id: format!("step-{i}").into(),
         name: "shell".into(),
-        label: prose(&format!("Ran a command for message {i}")).into(),
-        summary: unbroken("summary").into(),
+        label: format!("Read {PATH}").into(),
+        summary: PATH.into(),
         risk: "low".into(),
         state: "ok".into(),
-        preview: format!("{}\n{}", unbroken("output"), "output line\n".repeat(20)).into(),
+        preview: format!("{JSON}\n{}", "  warning: unused variable `config` in src/connectors/calendar/sync.rs\n".repeat(12)).into(),
         expanded: true,
     }];
     let approvals = if i % 10 == 3 {
         vec![crate::ApprovalRow {
             id: format!("approval-{i}").into(),
             tool: "shell".into(),
-            title: both("Run this command?"),
-            warning: both("Risk notice"),
-            detail: format!("{}\n{}", unbroken("command"), "echo one line of a long script\n".repeat(40)).into(),
+            title: "Run this command?".into(),
+            warning: "This command can change files outside the workspace.".into(),
+            detail: format!("cd {PATH} && \\\n{}", "  cargo build --release --features desktop --bins\n".repeat(8)).into(),
             danger: true,
             can_session: true,
             can_always: true,
@@ -94,8 +99,12 @@ fn chat_message(i: usize) -> crate::ChatMsg {
         body: StyledText::from_plain_text(&text),
         steps: model(steps),
         approvals: model(approvals),
-        notes: model(vec![both("Note")]),
-        failure: if i % 7 == 6 { both("Failure") } else { SharedString::new() },
+        notes: model(vec![format!("Saved to {PATH}").into()]),
+        failure: if i % 7 == 6 {
+            format!("error sending request for url ({DOC}): connection closed before message completed").into()
+        } else {
+            SharedString::new()
+        },
         complete: true,
         live: false,
     }
@@ -105,17 +114,22 @@ fn chat_message(i: usize) -> crate::ChatMsg {
 /// gets prose and an unbroken string, every list gets enough rows to
 /// overflow the window.
 fn fill_with_long_content(ui: &MainWindow) {
-    ui.set_session_title(both("Session title"));
-    ui.set_workspace_short(unbroken("workspace").into());
-    ui.set_workspace_full(unbroken("workspace").into());
-    ui.set_starters(model((0..6).map(|i| both(&format!("Starter {i}"))).collect()));
-    ui.set_sidebar_footer_text(both("Footer"));
-    ui.set_backend_status(both("Status"));
+    // The core titles a session with the first 60 characters of its first message.
+    ui.set_session_title(format!("Summarise {LINK}").chars().take(60).collect::<String>().into());
+    ui.set_workspace_short("example-repo".into());
+    ui.set_workspace_full("~/Documents/Projects/example-repo".into());
+    ui.set_starters(model((0..6).map(|i| prose(&format!("Starter {i}")).into()).collect()));
+    ui.set_sidebar_footer_text("Model: claude-sonnet-5-5 · Ask first".into());
+    ui.set_backend_status(
+        "Connected, but the server state could not be read: error sending request for url \
+         (http://127.0.0.1:7878/api/state): connection refused"
+            .into(),
+    );
     ui.set_sidebar_sessions(model(
         (0..40)
             .map(|i| crate::SessionRow {
                 id: format!("s{i}").into(),
-                title: both(&format!("Conversation {i}")),
+                title: format!("{i}: summarise {LINK}").chars().take(60).collect::<String>().into(),
                 updated: "today".into(),
                 messages: 3,
                 current: i == 0,
@@ -170,7 +184,7 @@ fn fill_with_long_content(ui: &MainWindow) {
     ));
     ui.set_reminders_form_error(both("Form error"));
 
-    ui.set_awareness_workspace(unbroken("workspace").into());
+    ui.set_awareness_workspace("~/Documents/Projects/example-repo".into());
     ui.set_awareness_proactive_note(both("Proactive note"));
     ui.set_awareness_suggestions(model(
         (0..15)
@@ -195,23 +209,23 @@ fn fill_with_long_content(ui: &MainWindow) {
         (0..60)
             .map(|i| crate::AuditRow {
                 when: "today".into(),
-                action: both(&format!("Action {i}")),
-                details: both("Details"),
-                outcome: both("Outcome"),
+                action: format!("read_file #{i}").into(),
+                details: format!(r#"{{"path":"{PATH}"}}"#).into(),
+                outcome: "Allowed: read only, inside the workspace".into(),
                 denied: i % 4 == 0,
             })
             .collect(),
     ));
 
-    ui.set_usage_level_note(both("Level"));
-    ui.set_usage_pace_note(both("Pace"));
-    ui.set_usage_bg_note(both("Background"));
-    ui.set_usage_fast_note(both("Fast"));
-    ui.set_usage_save_error(both("Save error"));
+    ui.set_usage_level_note(prose("Level").into());
+    ui.set_usage_pace_note(prose("Pace").into());
+    ui.set_usage_bg_note(prose("Background").into());
+    ui.set_usage_fast_note(prose("Fast").into());
+    ui.set_usage_save_error("Could not save: error sending request for url (http://127.0.0.1:7878/api/usage/limits)".into());
     ui.set_usage_models(model(
         (0..30)
             .map(|i| crate::ModelRow {
-                model: unbroken(&format!("model-{i}")).into(),
+                model: ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"][i % 3].into(),
                 sent: "1,000".into(),
                 written: "2,000".into(),
                 calls: "3".into(),
@@ -219,53 +233,55 @@ fn fill_with_long_content(ui: &MainWindow) {
             .collect(),
     ));
     ui.set_usage_daily_visible(true);
-    ui.set_usage_daily_rows(model(simple));
+    ui.set_usage_daily_rows(model(
+        (0..15).map(|i| crate::SimpleRow { text: format!("Nov {i}").into(), meta: "12,400 tokens".into() }).collect(),
+    ));
 
     // Step 2 lists the sources, the longest onboarding step.
     ui.set_onboarding_current_step(2);
     ui.set_onboarding_model_status(both("Model status"));
-    ui.set_onboarding_about_message(both("About"));
+    ui.set_onboarding_about_message(prose("About").into());
     ui.set_onboarding_source_message(both("Source"));
     ui.set_onboarding_sources(model(
         ["documents", "calendar", "email"]
             .into_iter()
             .map(|kind| crate::SourceItem {
                 kind: kind.into(),
-                title: both(kind),
-                status: both("Status"),
+                title: kind.into(),
+                status: format!("Learning from {PATH}").into(),
                 connected: true,
                 learn_enabled: true,
             })
             .collect(),
     ));
 
-    ui.set_settings_key_note(both("Key"));
-    ui.set_settings_sandbox_note(both("Sandbox"));
-    ui.set_settings_browser_note(both("Browser"));
-    ui.set_settings_mcp_note(both("Apps"));
+    ui.set_settings_key_note(prose("Key").into());
+    ui.set_settings_sandbox_note(format!("Files outside {PATH} need approval.").into());
+    ui.set_settings_browser_note(prose("Browser").into());
+    ui.set_settings_mcp_note(prose("Apps").into());
     ui.set_settings_oauth_status(both("Accounts"));
-    ui.set_settings_connector_vault_note(both("Vault"));
+    ui.set_settings_connector_vault_note(prose("Vault").into());
     ui.set_settings_connector_feedback(both("Connector"));
-    ui.set_settings_telegram_status(both("Telegram"));
-    ui.set_settings_saved_message(both("Saved"));
+    ui.set_settings_telegram_status(prose("Telegram").into());
+    ui.set_settings_saved_message(prose("Saved").into());
     ui.set_settings_error_message(both("Error"));
-    ui.set_settings_backup_message(both("Backup"));
+    ui.set_settings_backup_message("Saved in the backups folder as heron-backup-2026-11-19T09-14-03.tar.gz".into());
     ui.set_settings_tools(model(
         (0..20)
-            .map(|i| crate::ToolItem { name: unbroken(&format!("tool-{i}")).into(), about: both("About"), setting: 0 })
+            .map(|i| crate::ToolItem { name: format!("read_file_{i}").into(), about: prose("About").into(), setting: 0 })
             .collect(),
     ));
     ui.set_settings_mcp_lines(model(
         (0..10)
-            .map(|i| crate::McpLine { text: both(&format!("App {i}")), name: unbroken("app").into(), changed: true })
+            .map(|i| crate::McpLine { text: format!("github-{i}: npx -y @modelcontextprotocol/server-github").into(), name: format!("github-{i}").into(), changed: true })
             .collect(),
     ));
     ui.set_settings_connector_lines(model(
         (0..10)
             .map(|i| crate::ConnectorLine {
                 id: format!("c{i}").into(),
-                label: both(&format!("Connector {i}")),
-                detail: both("Detail"),
+                label: format!("Example CRM {i}").into(),
+                detail: format!("Token endpoint {DOC}").into(),
                 custom: true,
                 has_credential: true,
             })
@@ -335,6 +351,10 @@ fn long_content_wraps_and_scrolls_in_every_view() {
                     failures.push(format!("{view} ({width}x{height}): long content fits, expected it to scroll"));
                 }
                 if view != "chat" {
+                    // Twice: the first render settles wrapped heights, so
+                    // the first jump can aim past the real end.
+                    ui.invoke_debug_scroll_view_to_end();
+                    render(&window, width, height);
                     ui.invoke_debug_scroll_view_to_end();
                     let pixels = render(&window, width, height);
                     snapshot(&format!("heron-long-{view}-end"), width, height, &pixels);
