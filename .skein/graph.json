@@ -5481,7 +5481,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Scrolling only where content overflows; risk-notice box sized to content; overflow snapshots",
-    "version": 31,
+    "version": 32,
     "worktree": {
       "base_branch": "skein/U4c__integrate-base",
       "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
