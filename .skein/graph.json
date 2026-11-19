@@ -11104,11 +11104,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Full gate on the final branch",
-    "version": 30,
+    "version": 31,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "4ae08905b90e43c8f2c1e8d8483d5933b26da68f",
+      "branch": "skein/verify",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/verify"
     }
   },
   "verify__integrate": {
