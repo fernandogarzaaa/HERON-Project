@@ -4884,7 +4884,7 @@
       "claim_token": "579d676cf8674e99a45a2ae40c8459eb",
       "claimed_at": "2026-11-19T00:42:03.845001+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:48:04.349181+00:00",
+      "last_heartbeat": "2026-11-19T00:48:34.366582+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4912,7 +4912,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3g's review: stale settings save, startup window, unreadable config fails closed, never across cores",
-    "version": 16,
+    "version": 17,
     "worktree": {
       "base_branch": "skein/U3h__integrate-base",
       "base_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
