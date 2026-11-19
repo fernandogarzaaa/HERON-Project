@@ -292,6 +292,12 @@ public enum CoreWire {
         return try decode([DTO].self, data).map { Grant(rule: $0.rule, kind: $0.kind) }
     }
 
+    /// `GET /api/nevers`: `[{"rule", "tool", "in_file"}]`.
+    public static func nevers(_ data: Data) throws -> [NeverRule] {
+        struct DTO: Decodable { var rule: String; var tool: String; var inFile: Bool }
+        return try decode([DTO].self, data).map { NeverRule(rule: $0.rule, tool: $0.tool, inFile: $0.inFile) }
+    }
+
     /// `GET /api/settings`, plus the three routes the Connections tab needs (`/api/sources`, `/api/awareness`,
     /// `/api/telegram`). Those are optional: when one is unavailable its part stays at the empty default.
     public static func settings(_ data: Data, sources: Data? = nil, awareness: Data? = nil, telegram: Data? = nil) throws -> CoreSettings {

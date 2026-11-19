@@ -49,6 +49,12 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
         with { $0.sessions[id] = session }
     }
 
+    /// Replaces the "never" list with `PreviewDemo.longNevers`, so the Permissions page can show a list that overflows.
+    public func seedLongNevers() { with { $0.nevers = PreviewDemo.longNevers } }
+
+    /// Makes the next `removeNever` fail with `error`, as a core that can't write `config.toml` would.
+    public func failNextNeverRemoval(with error: CoreError) { with { $0.neverRemovalFailure = error } }
+
     /// Adds a short conversation whose reply holds very long tool output (`PreviewDemo.longToolOutput`).
     public func seedLongToolOutputConversation(id: String = "s-tool") {
         let session = PreviewDemo.toolOutputSession(id: id, now: now)
@@ -319,6 +325,16 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
         try with { d in
             guard d.grants.contains(where: { $0.rule == rule }) else { throw CoreError.notFound }
             d.grants.removeAll { $0.rule == rule }
+        }
+    }
+
+    public func nevers() async throws -> [NeverRule] { with { $0.nevers } }
+
+    public func removeNever(rule: String) async throws {
+        try with { d in
+            if let failure = d.neverRemovalFailure { d.neverRemovalFailure = nil; throw failure }
+            guard d.nevers.contains(where: { $0.rule == rule }) else { throw CoreError.notFound }
+            d.nevers.removeAll { $0.rule == rule }
         }
     }
 

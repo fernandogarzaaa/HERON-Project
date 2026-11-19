@@ -398,6 +398,87 @@ final class ScreenStoreTests: XCTestCase {
 
     // MARK: Settings
 
+    // MARK: Settings: the Never list (heron-v1.md item 35h)
+
+    func testNeverListLoadsWithSettings() async throws {
+        let store = SettingsStore(client: try await makeClient())
+        await store.load()
+        XCTAssertEqual(store.nevers.map(\.rule), ["web_fetch:*", "shell:*sudo*", "send_email:*@competitor.example"])
+        XCTAssertNil(store.neverError)
+    }
+
+    func testRemoveAsksFirstAndChangesNothingUntilConfirmed() async throws {
+        let client = try await makeClient()
+        let store = SettingsStore(client: client)
+        await store.load()
+        store.askToRemoveNever(store.nevers[1])
+        XCTAssertEqual(store.pendingNeverRemoval?.rule, "shell:*sudo*")
+        let held = try await client.nevers()
+        XCTAssertEqual(held.count, 3, "asking removes nothing")
+        store.cancelNeverRemoval()
+        XCTAssertNil(store.pendingNeverRemoval)
+        await store.confirmNeverRemoval()
+        let stillHeld = try await client.nevers()
+        XCTAssertEqual(stillHeld.count, 3, "confirming with nothing pending removes nothing")
+    }
+
+    func testConfirmedRemovalDeletesThenRefreshesFromTheCore() async throws {
+        let client = try await makeClient()
+        let store = SettingsStore(client: client)
+        await store.load()
+        // Another core process already removed a rule; the refresh must show that too, not only this removal.
+        try await client.removeNever(rule: "web_fetch:*")
+        store.askToRemoveNever(store.nevers[1])
+        await store.confirmNeverRemoval()
+        XCTAssertEqual(store.nevers.map(\.rule), ["send_email:*@competitor.example"])
+        XCTAssertNil(store.pendingNeverRemoval)
+        XCTAssertNil(store.neverError)
+        XCTAssertFalse(store.isRemovingNever)
+    }
+
+    func testFailedRemovalShowsTheErrorInlineAndKeepsTheRule() async throws {
+        let client = try await makeClient()
+        let store = SettingsStore(client: client)
+        await store.load()
+        client.failNextNeverRemoval(with: .failed("Heron couldn't update config.toml, so the rule is still in force."))
+        store.askToRemoveNever(store.nevers[0])
+        await store.confirmNeverRemoval()
+        XCTAssertEqual(store.neverError, "Heron couldn't update config.toml, so the rule is still in force.")
+        XCTAssertEqual(store.nevers.count, 3)
+        XCTAssertFalse(store.isRemovingNever)
+        // The next removal clears the error.
+        store.askToRemoveNever(store.nevers[0])
+        await store.confirmNeverRemoval()
+        XCTAssertNil(store.neverError)
+        XCTAssertEqual(store.nevers.count, 2)
+    }
+
+    func testRemovingARuleAlreadyGoneSaysSoAndRefreshes() async throws {
+        let client = try await makeClient()
+        let store = SettingsStore(client: client)
+        await store.load()
+        let stale = store.nevers[0]
+        try await client.removeNever(rule: stale.rule)
+        store.askToRemoveNever(stale)
+        await store.confirmNeverRemoval()
+        XCTAssertEqual(store.neverError, "That item no longer exists.")
+        XCTAssertFalse(store.nevers.contains(stale), "the list was refreshed")
+    }
+
+    func testNeverCopyNamesWhatHeronWillBeAllowedToDo() {
+        func sentence(_ rule: String, _ tool: String) -> String { NeverCopy.allowedSentence(NeverRule(rule: rule, tool: tool, inFile: true)) }
+        XCTAssertEqual(sentence("web_fetch:*", "web_fetch"), "Heron will be allowed to fetch web pages again.")
+        XCTAssertEqual(sentence("shell:*sudo*", "shell"), "Heron will be allowed to run commands where it matches “*sudo*”.")
+        XCTAssertEqual(sentence("*", "*"), "Heron will be allowed to use any tool again.")
+        XCTAssertEqual(sentence("*sudo*", "*"), "Heron will be allowed to do what the rule “*sudo*” refused.")
+        XCTAssertEqual(sentence("frobnicate:*", "frobnicate"), "Heron will be allowed to use frobnicate again.")
+    }
+
+    func testARuleOutsideConfigTomlSaysItIsKeptByHeronOnly() {
+        XCTAssertEqual(NeverCopy.whereItLives(NeverRule(rule: "a:*", tool: "a", inFile: true)), "In config.toml")
+        XCTAssertTrue(NeverCopy.whereItLives(NeverRule(rule: "a:*", tool: "a", inFile: false)).hasPrefix("Kept by Heron only"))
+    }
+
     func testSettingsShowsSandboxGrantsProvidersAndNotices() async throws {
         let client = try await makeClient()
         let store = SettingsStore(client: client)

@@ -30,6 +30,7 @@ final class ModelDecodingTests: XCTestCase {
             "approvals.json": { _ = try CoreWire.parkedApprovals($0) },
             "audit.json": { _ = try CoreWire.audit($0) },
             "grants.json": { _ = try CoreWire.grants($0) },
+            "nevers.json": { _ = try CoreWire.nevers($0) },
             "persona.json": { _ = try CoreWire.persona($0) },
             "providers.json": { _ = try CoreWire.providers($0, settings: nil) },
             "risk-notice.json": { _ = try CoreWire.riskNotice($0) },
@@ -145,6 +146,15 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(log.entries[0].result, "wrote 75 bytes to plan.md")
         XCTAssertTrue(log.entries[0].isChange)
         XCTAssertFalse(log.entries[0].isRefused)
+    }
+
+    func testNeversCarryTheRuleItsToolAndWhereItLives() throws {
+        let nevers = try CoreWire.nevers(try Fixtures.data("nevers.json"))
+        XCTAssertEqual(nevers, [NeverRule(rule: "web_fetch:*", tool: "web_fetch", inFile: true)])
+        // `in_file` false (kept by Heron only) must decode as false, not default to true.
+        let kvOnly = try CoreWire.nevers(Data(#"[{"rule":"shell:*sudo*","tool":"shell","in_file":false}]"#.utf8))
+        XCTAssertEqual(kvOnly, [NeverRule(rule: "shell:*sudo*", tool: "shell", inFile: false)])
+        XCTAssertEqual(try CoreWire.nevers(Data("[]".utf8)), [])
     }
 
     func testGrantsPersonaAndToday() throws {
