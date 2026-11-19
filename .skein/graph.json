@@ -7611,10 +7611,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "fd5f950459c28a46a1bd8cc3490e15ce6ee8e8ff",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "57b740d2216849068d17f838104c91199cfa941b",
+        "result_commit": "5157a943992fd5656bb3efe0d496570aa6186d0f",
+        "shipped_at": "2026-11-19T17:24:33.905929+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Mac app: the Never list with Remove (35h)",
-    "version": 17,
+    "version": 18,
     "worktree": {
       "base_branch": "skein/U4d__integrate-base",
       "base_commit": "fd5f950459c28a46a1bd8cc3490e15ce6ee8e8ff",
