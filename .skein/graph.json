@@ -4506,15 +4506,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "3580df88c5f44ea282027e59271c76db",
+      "base_branch": "skein/U3g__integrate__integrate-base",
+      "claim_token": "1050b1d61ecc425db902beed15746bd3",
+      "claimed_at": "2026-11-19T00:07:59.489610+00:00",
+      "holder": "skein-auto-merge",
+      "last_heartbeat": "2026-11-19T00:07:59.489610+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "skein-auto-merge"
     },
     "depends_on": [
       "U2x",
@@ -4537,11 +4537,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Integrate parents of U3g",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3g__integrate__integrate-base",
       "branch": null,
       "path": null
     }
