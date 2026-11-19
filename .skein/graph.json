@@ -6088,7 +6088,7 @@
       "completion": "bash packaging/macos/make-upgrade-fixture.sh --if-missing && bash packaging/macos/build-app.sh --unsigned && test -f dist/Heron-macos-universal.dmg && test -x dist/Heron.app/Contents/MacOS/heron-cli && bash packaging/macos/upgrade-test.sh",
       "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
       "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit U7 (items 44-46), plus every spec section those items link to. Read the Preconditions and Work units table too.",
-      "goal": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test"
+      "goal": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test\n\nHOW TO RUN SWIFT: your sandbox exempts a Bash call only when the whole command is exactly 'swift build ...' or 'swift test ...': no '2>&1', pipes, &&, cd, env prefixes or --disable-sandbox. Anything else runs sandboxed and SwiftPM fails there."
     },
     "max_retries": 3,
     "rejected_count": 0,
@@ -6099,7 +6099,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test",
-    "version": 9,
+    "version": 10,
     "worktree": {
       "base_branch": null,
       "branch": null,
