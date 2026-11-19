@@ -6408,9 +6408,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "G3 NEW-1: tainted learning stays unconfirmed (35i)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3m__integrate-base",
       "branch": null,
       "path": null
     }
