@@ -5765,10 +5765,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "706c98f2d440a02e194a241e52e2894118d9477e",
+        "result_commit": "f7db6019dcbe0d3d875e8289cb89ca2eedd8b088",
+        "shipped_at": "2026-11-19T00:32:38.759347+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "README research-preview banner, platform text, phone row, mode-table change",
-    "version": 16,
+    "version": 17,
     "worktree": {
       "base_branch": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
       "base_commit": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
