@@ -5277,10 +5277,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "b2760052fc73b6517ca2df020c7189c42667a669",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "608233f2279443a590682335c4adba1c794eb48a",
+        "result_commit": "73e4ca9063f40d644aeab44f7383633758e37bc6",
+        "shipped_at": "2026-11-19T00:32:37.998825+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Core API client against the recorded fixtures",
-    "version": 57,
+    "version": 58,
     "worktree": {
       "base_branch": "skein/U4b__integrate-base",
       "base_commit": "b2760052fc73b6517ca2df020c7189c42667a669",
