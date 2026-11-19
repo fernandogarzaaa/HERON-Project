@@ -3897,10 +3897,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "032f9f9eb069471239cba5e9dabc84197de7bc09",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "ea0917454a7a081d01f76132045df72330055220",
+        "result_commit": "405ae4ebe680451f517a5e47be9a27e1dca7f2ef",
+        "shipped_at": "2026-11-19T00:32:38.552515+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U2w's review: untested-version turn test, ~/.opencode Refused, doctor store",
-    "version": 13,
+    "version": 14,
     "worktree": {
       "base_branch": "skein/U2x__integrate-base",
       "base_commit": "032f9f9eb069471239cba5e9dabc84197de7bc09",
