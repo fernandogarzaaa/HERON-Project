@@ -7972,15 +7972,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "d8e228b582ff4114a929fd6a0a730104",
+      "base_branch": "skein/U3s__integrate-base",
+      "claim_token": "8b827e8a6110420eaa4c5bd5e56dd8ad",
+      "claimed_at": "2026-11-19T19:37:47.412860+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T19:37:47.412860+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U3r",
@@ -8003,9 +8003,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fixes from the U3q and U3r reviews (35o)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U3s__integrate-base",
       "branch": null,
