@@ -4458,15 +4458,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "0727143a47e94b22a9a5e2b637cfa048",
+      "base_branch": "skein/U3g__integrate-base",
+      "claim_token": "d32de5eb183c4087a511e08e09c14b27",
+      "claimed_at": "2026-11-19T00:07:59.784438+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T00:07:59.784438+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U2x",
@@ -4489,9 +4489,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fixes from U3f's review: config.toml revoke across cores, job read_file, dropped gateway run_end, explicit choices saved, atomic revoke",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U3g__integrate-base",
       "branch": null,
