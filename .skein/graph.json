@@ -936,7 +936,16 @@
     }
   },
   "SYNC21": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "5f53263e1d2746a892a8669716adacca",
+        "ended_at": "2026-11-19T16:48:23.793991+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-19T16:48:14.296473+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -948,19 +957,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "5f53263e1d2746a892a8669716adacca",
-      "base_branch": "feat/heron-v1",
-      "claim_token": "939875499f534fbb981311a20f66abc1",
-      "claimed_at": "2026-11-19T16:48:14.296473+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T16:48:14.296473+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -q learned_items_from_a_tainted_session_stay_unconfirmed docs/designs/heron-v1.md",
+        "duration_ms": 222,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC21_20261119T164823472900_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC21_20261119T164823700724_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I made no changes and ran nothing, per the constraints. The completion check (`grep -q learned_items_from_a_tainted_session_stay_unconfirmed docs/designs/heron-v1.md`) has not been run, so the supervisor will need to run it to confirm.",
     "id": "SYNC21",
     "integration_for": null,
     "intent": {
@@ -972,13 +993,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "5f53263e1d2746a892a8669716adacca",
+      "base_commit": "84e4adedad11745642d04c7a1e536d60df4c3f22",
+      "changed_files": [],
+      "commit": "84e4adedad11745642d04c7a1e536d60df4c3f22",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Sync feat head into U3m base",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "84e4adedad11745642d04c7a1e536d60df4c3f22",
@@ -6167,7 +6194,7 @@
       "claim_token": "8ee4d2b5299b431f9dc906c776b45e77",
       "claimed_at": "2026-11-19T16:43:16.414029+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T16:47:47.440357+00:00",
+      "last_heartbeat": "2026-11-19T16:48:17.510373+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -6195,7 +6222,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3k's review (35h core, owner decision)",
-    "version": 13,
+    "version": 14,
     "worktree": {
       "base_branch": "skein/U3l__integrate-base",
       "base_commit": "a6af321dd4f99a212b1cf933c9320b990fb0ee40",
