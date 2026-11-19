@@ -33,7 +33,9 @@ names="$(printf '%s\n' "$listing" | sed -n 's/: test$//p' | sed 's/.*:://')"
 
 status=0
 for wanted in "$@"; do
-  if ! printf '%s\n' "$names" | grep -Fxq -- "$wanted"; then
+  # A here-string, not a pipe: under pipefail, `printf | grep -q` fails at random when grep
+  # exits at the first match and printf's next write gets SIGPIPE, reporting a listed test as missing.
+  if ! grep -Fxq -- "$wanted" <<<"$names"; then
     echo "require-tests: no test named '$wanted' in the selection (${selection[*]-})" >&2
     status=1
   fi
