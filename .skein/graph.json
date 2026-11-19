@@ -6285,29 +6285,44 @@
     }
   },
   "U7__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "a287c97e7ac648bdb200f6d57456edf5",
+        "ended_at": "2026-11-19T01:07:08.465224+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-19T01:07:08.124586+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "a287c97e7ac648bdb200f6d57456edf5",
-      "base_branch": "skein/U7__integrate__integrate-base",
-      "claim_token": "21b6ed9a2c9948578c1d2122475abea5",
-      "claimed_at": "2026-11-19T01:07:08.124586+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-19T01:07:08.124586+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U4c",
       "U3h"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge d1bfed2fde88a633abe82238f282be5a902853db",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7', 'd1bfed2fde88a633abe82238f282be5a902853db'] into skein/U7__integrate-base.",
     "id": "U7__integrate",
     "integration_for": "U7",
     "intent": {
@@ -6319,16 +6334,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7",
+      "changed_files": [],
+      "commit": "8879a8df1ef209e79497077acd7951d92568d372",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of U7",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/U7__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "fd872efff8c945fcaae71e24c4ce5ab53a5ac8f7",
+      "branch": "skein/U7__integrate-base",
       "path": null
     }
   },
