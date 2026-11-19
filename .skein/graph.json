@@ -588,11 +588,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Sync feat head into U7c base",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/heron-v1",
-      "branch": null,
-      "path": null
+      "base_commit": "954359ebee1ae1efef2e5fc62a687d761649552b",
+      "branch": "skein/SYNC17",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC17"
     }
   },
   "SYNC2": {
