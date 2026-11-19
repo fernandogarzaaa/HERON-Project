@@ -5172,15 +5172,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "142f6eb292f049ebaf93ccb04c6c0d76",
+      "base_branch": "skein/U3i__integrate-base",
+      "claim_token": "bc8e18af5e184e75b294fad799db70b3",
+      "claimed_at": "2026-11-19T01:23:36.300961+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T01:23:36.300961+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U3h",
@@ -5203,9 +5203,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fixes from U3h's review (35e)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U3i__integrate-base",
       "branch": null,
