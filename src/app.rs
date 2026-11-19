@@ -50,37 +50,44 @@ pub struct App {
     /// The saved "always allow" list as this program last read or wrote it (see
     /// [`App::persist_rules`]).
     rules_seen: Mutex<Vec<String>>,
-    /// The standing rules in `config.toml` as this program last read or wrote them (see
-    /// [`App::reload_rules`]). It is the config lock too: `cfg` is only ever replaced while it is held.
-    /// Always locked after `rules_seen`, never before it.
+    /// The standing rules in `config.toml` as this program last read or wrote them, and the "never"
+    /// rules as it last knew them (see [`App::reload_rules`]). It is the config lock too: `cfg` is
+    /// only ever replaced while it is held. Always locked after `rules_seen`, never before it.
     config_seen: Mutex<ConfigSeen>,
     #[cfg(test)]
     pub(crate) test_hooks: TestHooks,
 }
 
-/// What this program knows of the standing rules in `config.toml`.
+/// What this program knows of the standing rules.
+///
+/// Every "never" rule is kept in `heron.db` (kv `deny_rules`) as well as in `config.toml`, and the
+/// rules in force are both together: a file that is deleted, recreated (by another Heron or `heron
+/// init`) or edited by hand can add a "never" but never lift one. Only Heron lifts one, when the
+/// tool is set to Ask or Allow ([`App::set_tool_setting`]), which takes it out of both in one step
+/// under the file lock. Each save writes the saved "never" rules into the file's list, so the file
+/// shows them again; never this one's copy in memory, which may hold one lifted meanwhile.
 #[derive(Default)]
 struct ConfigSeen {
-    rules: SavedRules,
+    /// `permissions.allow` in `config.toml` as this one last read or wrote it.
+    allow: Vec<String>,
     /// Why `config.toml` could not be read at the last reload, while it still cannot.
     unreadable: Option<String>,
-    /// The last read found `config.toml` missing or unreadable, so the "never" rules as this one
-    /// knew them were kept. The next read that finds the file takes in its "never" rules as
-    /// additions only: a file recreated meanwhile (by a Heron that never saw them) lifts nothing.
-    deny_unsure: bool,
-    /// Since `deny_unsure` was set, nothing has been saved: the next save writes back the "never"
-    /// rules this one holds, so the file and the other Heron programs have them again.
-    deny_write_back: bool,
+    /// Every "never" rule, saved or in the file, as this one last knew them. A rule leaves the
+    /// policy only once it has left both.
+    nevers: Vec<String>,
+    /// The "never" rules in force that `config.toml`, readable at the last reload, did not list.
+    not_in_file: Vec<String>,
 }
 
 /// Points where a test can step in, to force an interleaving of two requests on one core.
 #[cfg(test)]
 #[derive(Default)]
 pub(crate) struct TestHooks {
-    /// Run once, by the next tool-setting change or revoke, after its save and before its policy
-    /// change.
+    /// Run once, by the next tool-setting change, revoke or mode change, after its save and before
+    /// its policy change.
     pub(crate) after_save: Mutex<Option<Box<dyn FnOnce() + Send>>>,
-    /// Run whenever a caller finds the saved-rules lock held and is about to wait for it.
+    /// Run whenever a caller finds the saved-rules lock or the config lock held and is about to
+    /// wait for it.
     pub(crate) waiting: Mutex<Option<Box<dyn Fn() + Send>>>,
 }
 
@@ -103,7 +110,11 @@ impl TestHooks {
 /// A change to the settings. [`App::update_config`] applies it to the settings as they are when it
 /// saves, under the config lock, so nothing another handler or another Heron changed meanwhile is
 /// undone by it.
-pub struct ConfigChange<'a>(Box<dyn Edit + 'a>);
+pub struct ConfigChange<'a> {
+    edit: Box<dyn Edit + 'a>,
+    /// The permission mode to make live once the change is saved, under the same lock.
+    mode: Option<Mode>,
+}
 
 /// What a [`ConfigChange`] does to the settings.
 trait Edit: FnOnce(&mut Config) -> Result<()> {}
@@ -112,15 +123,22 @@ impl<F: FnOnce(&mut Config) -> Result<()>> Edit for F {}
 
 impl<'a> ConfigChange<'a> {
     pub fn edit(f: impl FnOnce(&mut Config) + 'a) -> Self {
-        ConfigChange(Box::new(move |c| {
+        Self::try_edit(move |c| {
             f(c);
             Ok(())
-        }))
+        })
     }
 
     /// A change that may refuse: its error is returned and nothing is saved.
     pub fn try_edit(f: impl FnOnce(&mut Config) -> Result<()> + 'a) -> Self {
-        ConfigChange(Box::new(f))
+        ConfigChange { edit: Box::new(f), mode: None }
+    }
+
+    /// Also make `mode` the live permission mode, once the change is saved and before the config
+    /// lock is let go, so two changes of mode end with the policy saying what the file says.
+    pub fn setting_mode(mut self, mode: Option<Mode>) -> Self {
+        self.mode = mode;
+        self
     }
 }
 
@@ -129,20 +147,37 @@ impl<'a> ConfigChange<'a> {
 /// refused with nothing changed, as saving it whole could bring back what was taken out meanwhile.
 impl From<Config> for ConfigChange<'_> {
     fn from(copy: Config) -> Self {
-        ConfigChange(Box::new(move |current| {
+        ConfigChange::try_edit(move |current| {
             anyhow::ensure!(copy.revision == current.revision, "the settings changed while this change was being made, so it was not saved; try again");
             *current = copy;
             Ok(())
-        }))
+        })
     }
 }
 
 /// What `GET /api/grants` says (in the `x-heron-notice` header) while `config.toml` cannot be read.
 pub const CONFIG_UNREADABLE_NOTICE: &str = "config.toml cannot be read, so none of the \"always allow\" rules in it apply until it can";
 
+/// What `GET /api/grants` says (in the `x-heron-notice` header) while `config.toml` does not list a
+/// "never" rule that is still in force. The log names the rule.
+pub const NEVER_NOT_IN_CONFIG_NOTICE: &str = "config.toml does not list every \"never\" rule in force. Heron still refuses those tools; set a tool to Ask or Allow in Heron to lift its \"never\"";
+
 /// The saved "always allow" list.
 fn parse_rules(saved: Option<&str>) -> Vec<String> {
     saved.and_then(|s| serde_json::from_str::<Vec<String>>(s).ok()).unwrap_or_default()
+}
+
+/// The saved "never" list: empty when there is none yet, `None` when it cannot be understood (which
+/// must never read as "no never rules").
+fn parse_nevers(saved: Option<&str>) -> Option<Vec<String>> {
+    match saved {
+        None => Some(vec![]),
+        Some(s) => serde_json::from_str::<Vec<String>>(s).ok(),
+    }
+}
+
+fn rules_json(rules: &[String]) -> String {
+    serde_json::to_string(rules).unwrap_or_else(|_| "[]".into())
 }
 
 /// `<home>/config.toml` as the standing rules see it now.
@@ -179,12 +214,11 @@ fn list_diff(old: &[String], new: &[String]) -> (Vec<String>, Vec<String>) {
     (old.iter().filter(|r| !new.contains(r)).cloned().collect(), new.iter().filter(|r| !old.contains(r)).cloned().collect())
 }
 
-/// The "never" rules a save of `cfg` owes the file (see `ConfigSeen::deny_write_back`).
-fn deny_write_back(seen: &ConfigSeen, cfg: &Config) -> Vec<String> {
-    if seen.deny_write_back {
-        cfg.permissions.deny.clone()
-    } else {
-        vec![]
+/// `rule` in `list` when `present`, out of it otherwise.
+fn set_member(list: &mut Vec<String>, rule: &str, present: bool) {
+    list.retain(|r| r != rule);
+    if present {
+        list.push(rule.to_string());
     }
 }
 
@@ -193,20 +227,14 @@ fn members(deny: &[String]) -> Vec<(&'static str, &str, bool)> {
     deny.iter().map(|r| ("permissions.deny", r.as_str(), true)).collect()
 }
 
-/// After a save that wrote back `written`: the file holds them now, and nothing more is owed.
-fn note_written_back(seen: &mut ConfigSeen, written: Vec<String>) {
-    seen.deny_write_back = false;
-    for r in written {
-        if !seen.rules.deny.contains(&r) {
-            seen.rules.deny.push(r);
-        }
-    }
-}
-
 /// What the inbox says about a job that was running when Heron stopped.
 const INTERRUPTED_JOB_NOTICE: &str = "Heron stopped while this job was running, so it is not known whether it finished. It was not run again. Check what it was meant to do, and use \"Run now\" under Reminders if it should be repeated.";
 
 const RULES_KEY: &str = "allow_rules";
+
+/// Every "never" rule, kept in `heron.db` so that no change to `config.toml` alone lifts one (see
+/// [`ConfigSeen`]). Written only under the config file lock.
+const DENY_KEY: &str = "deny_rules";
 
 /// Require the model to provide a finite, explicit confidence in [0,1].
 /// Missing confidence is not consent to execute background work.
@@ -235,11 +263,25 @@ impl App {
 
     /// Build with an explicit store and model (tests, embedding).
     pub async fn assemble(cfg: Config, workspace: PathBuf, store: Store, llm: Arc<dyn Llm>) -> Result<App> {
+        let mut cfg = cfg;
         // What this one last read of `config.toml` is what its policy is built from below, not a read
         // made after startup's waits: a rule revoked meanwhile is then taken out at the first reload.
         // Settings not read from the file (no file yet, or built in memory) start from no rules, as
         // the default policy does, so a rule another Heron writes while this one starts is taken in.
         let config_rules = cfg.loaded_rules.clone().unwrap_or_default();
+        // The "never" rules saved in heron.db. On the first run that keeps them there, they start as
+        // the file's. Only when the key is missing: a rule lifted while this one started is not put
+        // back from its earlier read of the file.
+        let saved_nevers = store.kv_update(DENY_KEY, |saved| saved.unwrap_or_else(|| rules_json(&config_rules.deny))).ok().and_then(|s| parse_nevers(Some(&s))).unwrap_or_default();
+        // A saved one the file lacked is in force too. One the file had is left as these settings
+        // have it, which the caller may have changed in memory.
+        for r in saved_nevers.iter().filter(|r| !config_rules.deny.contains(r)) {
+            if !cfg.permissions.deny.contains(r) {
+                cfg.permissions.deny.push(r.clone());
+            }
+        }
+        let mut nevers = config_rules.deny.clone();
+        nevers.extend(saved_nevers.into_iter().filter(|r| !config_rules.deny.contains(r)));
         std::fs::create_dir_all(&workspace).with_context(|| format!("creating workspace {}", workspace.display()))?;
         let workspace = dunce::canonicalize(&workspace)?;
         let llm = Arc::new(SwappableLlm::new(llm));
@@ -288,7 +330,7 @@ impl App {
         let policy = Arc::new(policy);
         // Tool calls read their standing `read:` rules from this live policy (see `ToolCtx::read_grants`).
         store.set_live_policy(&policy);
-        let config_seen = Mutex::new(ConfigSeen { rules: config_rules, ..Default::default() });
+        let config_seen = Mutex::new(ConfigSeen { allow: config_rules.allow, nevers, ..Default::default() });
         Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy, workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default(), events: EventBus::new(), rules_seen: Mutex::new(saved), config_seen, #[cfg(test)] test_hooks: Default::default() })
     }
 
@@ -316,10 +358,10 @@ impl App {
     /// meanwhile. With `rebuild_llm`, the model client is rebuilt from the new settings and swapped.
     fn save_config(&self, change: ConfigChange<'_>, chosen: &[&str], rebuild_llm: bool) -> Result<()> {
         {
-            let mut seen = self.config_seen.lock().unwrap_or_else(|e| e.into_inner());
+            let mut seen = self.lock_config_seen();
             let before = self.cfg();
             let mut new = (*before).clone();
-            (change.0)(&mut new)?;
+            (change.edit)(&mut new)?;
             // Build the replacement client first. A provider the new settings
             // cannot run (Cline/Goose without cli_allow_agent_tools, Custom
             // CLI without a command) must be rejected before anything is
@@ -330,27 +372,77 @@ impl App {
             // set in it, so an override from the command line (`--mode`, `--model`) stays out of it,
             // and of a list only this one's additions and removals are applied.
             let _lock = new.lock_file()?;
-            let write_back = deny_write_back(&seen, &new);
-            new.save_changes_held(&before, chosen, &members(&write_back))?;
+            // The "never" rules saved in heron.db go into the file (one it recreates included), read
+            // now under the lock: not this one's copy, which may hold one lifted on another Heron.
+            // When they cannot be read, none is written, and none is lifted either.
+            let nevers = self.saved_nevers().unwrap_or_default();
+            // Nor does a change of settings lift one: only a tool setting does.
+            let dropped: Vec<String> = before.permissions.deny.iter().filter(|r| nevers.contains(r) && !new.permissions.deny.contains(r)).cloned().collect();
+            new.permissions.deny.extend(dropped);
+            new.save_changes_held(&before, chosen, &members(&nevers))?;
             // This one's own changes to the standing rules are in the file now; what else changed
             // there is taken in below.
-            note_own_changes(&mut seen.rules.allow, &before.permissions.allow, &new.permissions.allow);
-            note_own_changes(&mut seen.rules.deny, &before.permissions.deny, &new.permissions.deny);
-            note_written_back(&mut seen, write_back);
+            note_own_changes(&mut seen.allow, &before.permissions.allow, &new.permissions.allow);
+            seen.not_in_file.retain(|r| !nevers.contains(r));
             if let Some(llm) = llm {
                 self.llm.swap(llm);
             }
             new.revision = before.revision + 1;
             *self.cfg.write().unwrap() = Arc::new(new);
+            // Made live before the lock is let go, so a second change of mode cannot save between
+            // this one's save and this.
+            if let Some(mode) = change.mode {
+                #[cfg(test)]
+                self.test_hooks.after_save();
+                self.policy.set_mode(mode);
+            }
         }
         self.reload_rules();
         Ok(())
     }
 
+    /// Choose the permission mode: saved in `config.toml` (written even when `--mode` already set
+    /// the same one, as it is the user's choice) and made live under the same lock.
+    pub fn set_mode(&self, mode: Mode) -> Result<()> {
+        self.update_config_choosing(ConfigChange::edit(|c| c.permissions.mode = mode.name().to_string()).setting_mode(Some(mode)), &["permissions.mode"])
+    }
+
     /// Why `config.toml` could not be read at the last reload, while it still cannot. Until it can,
     /// none of its "always allow" rules apply here.
     pub fn config_unreadable(&self) -> Option<String> {
-        self.config_seen.lock().unwrap_or_else(|e| e.into_inner()).unreadable.clone()
+        self.lock_config_seen().unreadable.clone()
+    }
+
+    /// What `GET /api/grants` says in its `x-heron-notice` header after the last reload, if anything:
+    /// that `config.toml` cannot be read, or that it does not list a "never" rule still in force.
+    pub fn config_notice(&self) -> Option<&'static str> {
+        let seen = self.lock_config_seen();
+        if seen.unreadable.is_some() {
+            Some(CONFIG_UNREADABLE_NOTICE)
+        } else if !seen.not_in_file.is_empty() {
+            Some(NEVER_NOT_IN_CONFIG_NOTICE)
+        } else {
+            None
+        }
+    }
+
+    /// The "never" rules saved in heron.db. An error, never an empty list, when they cannot be read.
+    fn saved_nevers(&self) -> Result<Vec<String>> {
+        parse_nevers(self.store.kv_read(DENY_KEY)?.as_deref()).context("the \"never\" rules saved in heron.db cannot be read")
+    }
+
+    /// Change the "never" rules saved in heron.db and return them as written. Called with the config
+    /// file lock held, as every write of them is.
+    fn change_saved_nevers(&self, change: impl FnOnce(&mut Vec<String>)) -> Result<Vec<String>> {
+        let written = self.store.kv_update(DENY_KEY, |saved| match parse_nevers(saved.as_deref()) {
+            Some(mut rules) => {
+                change(&mut rules);
+                rules_json(&rules)
+            }
+            // Left as it is: what cannot be read is not replaced by a list missing what it held.
+            None => saved.unwrap_or_default(),
+        })?;
+        parse_nevers(Some(&written)).context("the \"never\" rules saved in heron.db cannot be read")
     }
 
     /// Revoke a standing rule everywhere it lives: the settings file, the policy and the saved
@@ -363,13 +455,13 @@ impl App {
     pub fn revoke_grant(&self, rule: &str) -> Result<bool> {
         // Lock order: `rules_seen`, `config_seen`, the file lock, then `cfg`.
         let mut saved_rules = self.lock_rules_seen();
-        let mut seen = self.config_seen.lock().unwrap_or_else(|e| e.into_inner());
+        let mut seen = self.lock_config_seen();
         let home = self.cfg().home.clone();
         let _lock = self.cfg().lock_file()?;
         if home.join("config.toml").exists() {
             Config::read_saved(&home)?;
         }
-        self.take_config_rules_held(&mut seen, &saved_rules);
+        self.take_config_rules_held(&mut seen, &saved_rules, true);
         let cfg = self.cfg();
         self.take_saved_rules(&mut saved_rules, parse_rules(self.store.kv_get(RULES_KEY).as_deref()), &cfg);
         let held = self.policy.allow_rules().iter().any(|r| r == rule);
@@ -381,13 +473,14 @@ impl App {
             let before = cfg;
             let mut new = (*before).clone();
             new.permissions.allow.retain(|r| r != rule);
-            let write_back = deny_write_back(&seen, &new);
-            let mut changes = members(&write_back);
+            // The saved "never" rules go into the file too, as with every save.
+            let nevers = self.saved_nevers().unwrap_or_default();
+            let mut changes = members(&nevers);
             changes.push(("permissions.allow", rule, false));
             new.save_changes_held(&before, &[], &changes)?;
-            note_own_changes(&mut seen.rules.allow, &before.permissions.allow, &new.permissions.allow);
-            seen.rules.allow.retain(|r| r != rule);
-            note_written_back(&mut seen, write_back);
+            note_own_changes(&mut seen.allow, &before.permissions.allow, &new.permissions.allow);
+            seen.allow.retain(|r| r != rule);
+            seen.not_in_file.retain(|r| !nevers.contains(r));
             new.revision = before.revision + 1;
             *self.cfg.write().unwrap() = Arc::new(new);
             #[cfg(test)]
@@ -409,44 +502,41 @@ impl App {
     /// locks are let go, as do the saved "always" answers, so a second request on this one (another
     /// setting for the tool, a revoke) is applied after this one, never between its save and its
     /// policy change.
+    ///
+    /// This is the one way a "never" is lifted: "ask" or "allow" takes the rule out of the file and
+    /// out of the "never" rules saved in heron.db, under the same lock (see [`ConfigSeen`]).
     pub fn set_tool_setting(&self, tool: &str, setting: &str) -> Result<()> {
         Policy::check_tool_setting(tool, setting)?;
         let rule = format!("{tool}:*");
+        let never = setting == "never";
         // Lock order: `rules_seen`, `config_seen`, the file lock, then `cfg`.
         let mut saved_rules = self.lock_rules_seen();
-        let mut seen = self.config_seen.lock().unwrap_or_else(|e| e.into_inner());
+        let mut seen = self.lock_config_seen();
         let home = self.cfg().home.clone();
         let _lock = self.cfg().lock_file()?;
         if home.join("config.toml").exists() {
             // Fails with nothing changed, not even what a reload would take in.
             Config::read_saved(&home)?;
         }
-        self.take_config_rules_held(&mut seen, &saved_rules);
+        self.take_config_rules_held(&mut seen, &saved_rules, true);
         let before = self.cfg();
         let mut new = (*before).clone();
-        new.permissions.allow.retain(|r| *r != rule);
-        new.permissions.deny.retain(|r| *r != rule);
-        match setting {
-            "allow" => new.permissions.allow.push(rule.clone()),
-            "never" => new.permissions.deny.push(rule.clone()),
-            _ => {}
-        }
-        // The "never" rules owed to the file go first, so the choice for this tool has the last word.
-        let write_back = deny_write_back(&seen, &new);
-        let mut changes = members(&write_back);
-        changes.extend([("permissions.allow", rule.as_str(), setting == "allow"), ("permissions.deny", rule.as_str(), setting == "never")]);
+        set_member(&mut new.permissions.allow, &rule, setting == "allow");
+        set_member(&mut new.permissions.deny, &rule, never);
+        // The saved "never" rules go into the file first, so the choice for this tool has the last
+        // word.
+        let nevers = self.saved_nevers().unwrap_or_default();
+        let mut changes = members(&nevers);
+        changes.extend([("permissions.allow", rule.as_str(), setting == "allow"), ("permissions.deny", rule.as_str(), never)]);
         new.save_changes_held(&before, &[], &changes)?;
-        note_own_changes(&mut seen.rules.allow, &before.permissions.allow, &new.permissions.allow);
-        note_own_changes(&mut seen.rules.deny, &before.permissions.deny, &new.permissions.deny);
-        note_written_back(&mut seen, write_back);
-        // The file now holds the rule exactly as chosen, whatever this one held before.
-        let rules = &mut seen.rules;
-        for (list, present) in [(&mut rules.allow, setting == "allow"), (&mut rules.deny, setting == "never")] {
-            list.retain(|r| *r != rule);
-            if present {
-                list.push(rule.clone());
-            }
-        }
+        // Then in heron.db. Should that fail, the file has the choice and heron.db does not: a "never"
+        // is taken into heron.db from the file at the next reload, and a lifted one stays in force.
+        self.change_saved_nevers(|rules| set_member(rules, &rule, never))?;
+        note_own_changes(&mut seen.allow, &before.permissions.allow, &new.permissions.allow);
+        // The file and heron.db now hold the rule exactly as chosen, whatever this one held before.
+        set_member(&mut seen.allow, &rule, setting == "allow");
+        set_member(&mut seen.nevers, &rule, never);
+        seen.not_in_file.retain(|r| *r != rule && !nevers.contains(r));
         new.revision = before.revision + 1;
         *self.cfg.write().unwrap() = Arc::new(new);
         #[cfg(test)]
@@ -551,6 +641,18 @@ impl App {
         self.rules_seen.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Lock `config_seen`, after `rules_seen` when both are taken.
+    fn lock_config_seen(&self) -> std::sync::MutexGuard<'_, ConfigSeen> {
+        // A test learns that a second request is waiting for the first, which holds the lock.
+        #[cfg(test)]
+        match self.config_seen.try_lock() {
+            Ok(held) => return held,
+            Err(std::sync::TryLockError::Poisoned(e)) => return e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => self.test_hooks.waiting(),
+        }
+        self.config_seen.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Take in the rules other Heron programs on this home added or revoked since this one last read
     /// them: in the saved list, and in `permissions.allow` and `permissions.deny` in `config.toml`.
     /// Called at the start of every turn and every unattended run, before anything is decided, so a
@@ -564,61 +666,79 @@ impl App {
         self.take_saved_rules(&mut seen, parse_rules(self.store.kv_get(RULES_KEY).as_deref()), &cfg);
     }
 
-    /// Bring this one's settings and policy from the standing rules as this one last knew
-    /// `config.toml` to what the file holds now. Rules the file never held (set in memory only) are
-    /// left alone. A rule gone from the file's allow list stays in the policy while `saved_rules` (the
-    /// saved "always" answers) still holds it.
+    /// Bring this one's settings and policy from the standing rules as this one last knew them to
+    /// what `config.toml` and the "never" rules saved in heron.db hold now. Rules neither ever held
+    /// (set in memory only) are left alone. A rule gone from the file's allow list stays in the
+    /// policy while `saved_rules` (the saved "always" answers) still holds it.
     ///
-    /// This fails closed. A missing file holds no rules, so the allow rules that came from it are
-    /// gone. A file that cannot be read or parsed drops every allow rule that came from it until it
-    /// can, and says so in the log and in [`App::config_unreadable`]. Either way its "never" (deny)
-    /// rules stay in force: a refusal is never lifted because the file is gone or broken. A save that
-    /// recreates a missing file writes the deny rules this one still holds (see
-    /// [`Config::save_changes_held`]), so the reload after it does not drop them either.
+    /// The allow rules fail closed. A missing file holds no rules, so the allow rules that came from
+    /// it are gone. A file that cannot be read or parsed drops every allow rule that came from it
+    /// until it can, and says so in the log and in [`App::config_unreadable`].
     ///
-    /// Nor is a refusal lifted by a file another Heron recreated while it was gone: the first read
-    /// that finds the file again takes in its deny rules as additions only, and this one's next save
-    /// writes back the ones it holds. A deny rule is lifted only by a read that follows a read in
-    /// which the rule was there.
+    /// The "never" rules in force are those saved in heron.db and those in the file, together, and a
+    /// "never" the file has that heron.db lacks is saved there. So a file that is missing, broken,
+    /// recreated (by another Heron or `heron init`) or edited by hand can add one but never lift one
+    /// (see [`ConfigSeen`]). One the readable file does not list is named in the log and in
+    /// [`App::config_notice`]. If heron.db cannot be read, the ones this one holds stay.
     fn take_config_rules(&self, saved_rules: &[String]) {
-        let mut seen = self.config_seen.lock().unwrap_or_else(|e| e.into_inner());
-        self.take_config_rules_held(&mut seen, saved_rules);
+        let mut seen = self.lock_config_seen();
+        // Under the file lock, so a read of the file made before another Heron lifts a "never" (from
+        // heron.db and the file in one step) cannot save it in heron.db again after.
+        let lock = self.cfg().lock_file_if_home().unwrap_or_else(|e| {
+            eprintln!("heron: {e:#}. The \"never\" rules in config.toml apply, but are not saved in heron.db until it can be locked.");
+            None
+        });
+        self.take_config_rules_held(&mut seen, saved_rules, lock.is_some());
     }
 
-    /// [`App::take_config_rules`], with `config_seen` already locked.
-    fn take_config_rules_held(&self, seen: &mut ConfigSeen, saved_rules: &[String]) {
-        let mut additions_only = false;
-        let disk = match read_config_rules(&self.cfg().home) {
+    /// [`App::take_config_rules`], with `config_seen` already locked, and the file lock too when
+    /// `locked` (only then is a "never" from the file saved in heron.db).
+    fn take_config_rules_held(&self, seen: &mut ConfigSeen, saved_rules: &[String], locked: bool) {
+        let (disk_allow, file_deny) = match read_config_rules(&self.cfg().home) {
             ConfigFile::Rules(rules) => {
                 if seen.unreadable.take().is_some() {
                     eprintln!("heron: config.toml can be read again; its rules apply again.");
                 }
-                additions_only = std::mem::take(&mut seen.deny_unsure);
-                rules
+                (rules.allow, Some(rules.deny))
             }
             ConfigFile::Missing => {
                 seen.unreadable = None;
-                (seen.deny_unsure, seen.deny_write_back) = (true, true);
-                SavedRules { allow: vec![], deny: seen.rules.deny.clone() }
+                (vec![], None)
             }
             ConfigFile::Unreadable(why) => {
                 if seen.unreadable.as_deref() != Some(why.as_str()) {
                     eprintln!("heron: {why}. Until it can be read, none of the \"always allow\" rules in it apply; its \"never\" rules still do.");
                 }
                 seen.unreadable = Some(why);
-                (seen.deny_unsure, seen.deny_write_back) = (true, true);
-                SavedRules { allow: vec![], deny: seen.rules.deny.clone() }
+                (vec![], None)
             }
         };
-        if seen.rules == disk {
-            return;
+        let readable = file_deny.is_some();
+        let file_deny = file_deny.unwrap_or_default();
+        let saved = match self.saved_nevers() {
+            Ok(saved) if locked && file_deny.iter().any(|r| !saved.contains(r)) => self.change_saved_nevers(|rules| rules.extend(file_deny.iter().filter(|r| !saved.contains(r)).cloned())),
+            other => other,
+        };
+        let mut nevers = saved.unwrap_or_else(|e| {
+            eprintln!("heron: {e:#}. The \"never\" rules in force here stay as they are.");
+            seen.nevers.clone()
+        });
+        for r in &file_deny {
+            if !nevers.contains(r) {
+                nevers.push(r.clone());
+            }
         }
-        let (allow_gone, allow_new) = list_diff(&seen.rules.allow, &disk.allow);
-        let (mut deny_gone, deny_new) = list_diff(&seen.rules.deny, &disk.deny);
-        if additions_only {
-            // What this one knew of the file may be older than the file: its "never" rules stay
-            // (and are owed to the file, see `deny_write_back`), and from here on it knows the file.
-            deny_gone.clear();
+        let not_in_file: Vec<String> = if readable { nevers.iter().filter(|r| !file_deny.contains(r)).cloned().collect() } else { vec![] };
+        for r in not_in_file.iter().filter(|r| !seen.not_in_file.contains(r)) {
+            eprintln!("heron: config.toml does not list the \"never\" rule {r}, which is still in force. Only Heron lifts it: set that tool to Ask or Allow.");
+        }
+        seen.not_in_file = not_in_file;
+        let (allow_gone, allow_new) = list_diff(&seen.allow, &disk_allow);
+        let (deny_gone, deny_new) = list_diff(&seen.nevers, &nevers);
+        seen.allow = disk_allow;
+        seen.nevers = nevers;
+        if allow_gone.is_empty() && allow_new.is_empty() && deny_gone.is_empty() && deny_new.is_empty() {
+            return;
         }
         {
             let mut slot = self.cfg.write().unwrap();
@@ -648,7 +768,6 @@ impl App {
             // A deny rule that is not a valid glob was never loaded at startup either.
             let _ = self.policy.add_deny(r);
         }
-        seen.rules = disk;
     }
 
     /// Bring the policy from `seen` (the saved list as this one knows it) to `saved`. Rules this one
