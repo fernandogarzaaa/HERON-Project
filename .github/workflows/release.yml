@@ -65,15 +65,79 @@ jobs:
   macos:
     needs: source
     runs-on: macos-latest
+    outputs:
+      signed: ${{ steps.mode.outputs.signed }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.source.outputs.target }}
       - run: rustup update stable && rustup default stable
       - run: cargo test --locked
-      - run: ./packaging/macos/build-app.sh
+      - name: Choose signed or unsigned build
+        id: mode
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$MACOS_CERT_P12" ]]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::MACOS_CERT_P12 is empty, so this macOS build is unsigned and not notarized."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Import the Developer ID certificate
+        if: steps.mode.outputs.signed == 'true'
+        env:
+          KEYCHAIN_PATH: ${{ runner.temp }}/heron-signing.keychain-db
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          keychain_password=$(uuidgen)
+          cert="$RUNNER_TEMP/developer-id.p12"
+          printf '%s' "$MACOS_CERT_P12" | base64 --decode > "$cert"
+          security create-keychain -p "$keychain_password" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$keychain_password" "$KEYCHAIN_PATH"
+          security import "$cert" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$KEYCHAIN_PATH"
+          existing=$(security list-keychains -d user | tr -d '"')
+          # shellcheck disable=SC2086
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $existing
+          rm -f "$cert"
+          # The App Store Connect key that notarytool reads through ASC_KEY_PATH.
+          printf '%s' "$ASC_KEY_P8" | base64 --decode > "$ASC_KEY_PATH"
+      - name: Build the app, signed and notarized
+        if: steps.mode.outputs.signed == 'true'
+        env:
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: bash packaging/macos/build-app.sh --sign
+      - name: Build the app, unsigned
+        if: steps.mode.outputs.signed != 'true'
+        run: bash packaging/macos/build-app.sh --unsigned
+      - name: Delete the signing keychain and the App Store Connect key
+        if: always()
+        env:
+          KEYCHAIN_PATH: ${{ runner.temp }}/heron-signing.keychain-db
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+        shell: bash
+        run: |
+          security delete-keychain "$KEYCHAIN_PATH" || true
+          rm -f "$ASC_KEY_PATH" "$RUNNER_TEMP/developer-id.p12"
       - name: Verify the macOS app signature
         run: codesign --verify --deep --strict dist/Heron.app
+      - name: Verify the notarization tickets
+        if: steps.mode.outputs.signed == 'true'
+        run: |
+          xcrun stapler validate dist/Heron.app
+          xcrun stapler validate dist/Heron-macos-universal.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos
@@ -151,6 +215,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.source.outputs.tag }}
           RELEASE_TARGET: ${{ needs.source.outputs.target }}
+          MACOS_SIGNED: ${{ needs.macos.outputs.signed }}
         shell: bash
         run: |
           set -euo pipefail
@@ -161,4 +226,7 @@ jobs:
           notes=$(mktemp)
           awk -v header="## ${RELEASE_TAG#v} " '/^## / { showing = (index($0, header) == 1) } showing { print }' CHANGELOG.md > "$notes"
           test -s "$notes" || { echo "Missing release notes"; exit 1; }
-          gh release create "$RELEASE_TAG" release-files/* --target "$RELEASE_TARGET" --title "Heron $RELEASE_TAG (beta)" --notes-file "$notes" --prerelease
+          if [[ "$MACOS_SIGNED" != "true" ]]; then
+            printf '\n**Note:** the macOS app in this release is unsigned and not notarized. Open it with right-click, then Open.\n' >> "$notes"
+          fi
+          gh release create "$RELEASE_TAG" release-files/* --target "$RELEASE_TARGET" --title "Heron $RELEASE_TAG (Research preview)" --notes-file "$notes" --prerelease

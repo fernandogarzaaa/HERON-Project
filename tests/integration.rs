@@ -563,6 +563,8 @@ async fn browser_reads_pages_follows_links_and_fills_in_forms() {
     ]));
     let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap());
     assert!(app.tools.names().iter().any(|n| n == "browser_open"), "browser tools are offered when a browser exists");
+    // A turn does not start before the risk notice is accepted.
+    heron::risk_notice::accept_current(&app.store).unwrap();
 
     // Nobody is there to approve anything.
     let agent = app.agent(Arc::new(heron::permissions::DenyAll));

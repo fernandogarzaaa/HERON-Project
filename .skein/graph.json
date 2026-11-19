@@ -468,6 +468,84 @@
     }
   },
   "SYNC16": {
+    "attempts": [
+      {
+        "attempt_id": "426a1eb96c974af2bae5c5b6ab608712",
+        "ended_at": "2026-11-19T01:23:35.326909+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T01:23:27.314737+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "grep -q tool_setting_on_a_stale_core_is_saved docs/designs/heron-v1.md",
+        "duration_ms": 221,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC16_20261119T012335001446_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC16_20261119T012335223925_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: done",
+    "id": "SYNC16",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q tool_setting_on_a_stale_core_is_saved docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3i's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "426a1eb96c974af2bae5c5b6ab608712",
+      "base_commit": "e92d54c60dec19b11196529a0768cf294efafdbc",
+      "changed_files": [],
+      "commit": "e92d54c60dec19b11196529a0768cf294efafdbc",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Sync feat head into U3i base",
+    "version": 4,
+    "worktree": {
+      "base_branch": "feat/heron-v1",
+      "base_commit": "e92d54c60dec19b11196529a0768cf294efafdbc",
+      "branch": "skein/SYNC16",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC16"
+    }
+  },
+  "SYNC17": {
     "attempts": [],
     "attempts_used": 0,
     "backend": "claude_build_rust",
@@ -480,26 +558,26 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "426a1eb96c974af2bae5c5b6ab608712",
+      "attempt_id": "d32596f9df2d410cbc206e44343ddc22",
       "base_branch": "feat/heron-v1",
-      "claim_token": "97abf53ca7c541c2815c49515957a892",
-      "claimed_at": "2026-11-19T01:23:27.314737+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T01:23:27.314737+00:00",
+      "claim_token": "ba7e0ecc17cf431faad15a66d6fab284",
+      "claimed_at": "2026-11-19T04:05:36.710991+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-19T04:05:36.710991+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [],
     "handoff_note": null,
-    "id": "SYNC16",
+    "id": "SYNC17",
     "integration_for": null,
     "intent": {
-      "completion": "grep -q tool_setting_on_a_stale_core_is_saved docs/designs/heron-v1.md",
+      "completion": "grep -q 'Work unit U7c' docs/designs/heron-v1.md",
       "constraints": "Do not read, write or run anything.",
       "context": "No spec work.",
-      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3i's base. Reply 'done' and stop."
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U7c's base. Reply 'done' and stop."
     },
     "max_retries": 0,
     "rejected_count": 0,
@@ -509,7 +587,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "claimed",
-    "title": "Sync feat head into U3i base",
+    "title": "Sync feat head into U7c base",
     "version": 2,
     "worktree": {
       "base_branch": "feat/heron-v1",
@@ -5132,8 +5210,41 @@
     }
   },
   "U3i": {
-    "attempts": [],
-    "attempts_used": 0,
+    "attempts": [
+      {
+        "attempt_id": "142f6eb292f049ebaf93ccb04c6c0d76",
+        "ended_at": "2026-11-19T01:34:11.394655+00:00",
+        "error": "completion command failed (adapter exit=1); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-19T01:23:36.300961+00:00"
+      },
+      {
+        "attempt_id": "6e06caff8dc245d3945f44aaa77bd1fc",
+        "ended_at": "2026-11-19T01:38:54.686380+00:00",
+        "error": "completion command failed (adapter exit=1); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-19T01:35:19.602625+00:00"
+      },
+      {
+        "attempt_id": "8bcf4e5e7e444a9287564598ce76f74c",
+        "ended_at": "2026-11-19T01:44:32.660206+00:00",
+        "error": "completion command failed (adapter exit=1); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-19T01:40:52.999081+00:00"
+      },
+      {
+        "attempt_id": "7c974a941e454a6493d133a390252ac7",
+        "ended_at": "2026-11-19T01:52:50.732994+00:00",
+        "error": "completion command failed (adapter exit=1); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-19T01:49:16.748233+00:00"
+      }
+    ],
+    "attempts_used": 3,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -5142,6 +5253,76 @@
     "blast_radius": [
       "src/**"
     ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": "ff537d0abc9c47e19d40ad449f5d02d8",
+      "base_branch": "skein/U3i__integrate-base",
+      "claim_token": "22ae7c75e1a449689ff807ec85978a57",
+      "claimed_at": "2026-11-19T03:52:28.180755+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T04:05:29.123625+00:00",
+      "node_version": 58,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
+    },
+    "depends_on": [
+      "U3h",
+      "SYNC16"
+    ],
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- tool_setting_on_a_stale_core_is_saved failed_tool_setting_save_changes_nothing first_run_core_takes_in_rules_written_during_startup never_survives_a_missing_config_and_the_next_save mcp_serve_reloads_rules_before_each_call settings_save_does_not_bring_back_a_revoked_rule",
+        "duration_ms": 26264,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3i_20261119T015224457740_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3i_20261119T015250723648_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=1); see evidence",
+    "id": "U3i",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- tool_setting_on_a_stale_core_is_saved failed_tool_setting_save_changes_nothing first_run_core_takes_in_rules_written_during_startup never_survives_a_missing_config_and_the_next_save mcp_serve_reloads_rules_before_each_call settings_save_does_not_bring_back_a_revoked_rule",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md items 35e, 35d, 35c, 35b, and section 3 'Another core already running'.",
+      "goal": "Fix what an independent review of U3h found, as the spec's item 35e ('Fixes from U3h's review') says. Line numbers below are from U3h's result d1bfed2.\n(1) Medium, demonstrated: set_tool (server.rs:1153-1163) edits A's in-memory deny/allow lists by retain-then-push, and save_config diffs against in-memory `before` (app.rs:261,265). If another core already cleared the rule on disk and this core hasn't reloaded, the diff is empty, nothing is written, and the reload in the same save (app.rs:452 remove_deny) drops the deny from this core too. Fix: under the config lock, take in the file's current rules first, then apply the change, and always write the edited rule's membership in both lists (like `chosen` does for mode/model). Test tool_setting_on_a_stale_core_is_saved: two Apps on one home, both start with web_fetch:* as never; B sets ask; A (not reloaded) sets never; assert A's policy denies, the file's deny list holds web_fetch:*, B denies after reload, and a fresh core reports never. Also cover allow and ask.\n(2) Low, demonstrated: set_tool changes the live policy before the save (server.rs:1153), so with an unparseable config.toml it returns 400 but the grant is live, and the next persist_rules (app.rs:364) writes it to kv. Fix: save first, change the policy only after the save succeeds. Test failed_tool_setting_save_changes_nothing: break config.toml, POST allow, assert error, policy unchanged, then call persist_rules and assert kv has no such rule; same for never on an ask request.\n(3) Low, demonstrated: with no config.toml at startup, `seen` falls back to the file as it is at assemble time (app.rs:168-171) while the policy came from defaults, so a rule another core wrote in between is never taken in. Fix: fall back to SavedRules::default(). Test first_run_core_takes_in_rules_written_during_startup.\n(4) Amends 35d: never (deny) rules stay in force while config.toml is missing or unparseable (app.rs:413-422 already keeps them), and a save that recreates the file writes the deny rules this core still holds, so the next reload doesn't drop them (today the recreated defaults file drops it: reviewer probe showed deny=[] after one save). Allow rules still drop. Fix the code comment to match. Test never_survives_a_missing_config_and_the_next_save.\n(5) heron mcp-serve (main.rs:823-827 -> mcp.rs:235,271) decides with &app.policy and never reloads. Call reload_rules before each tool call. Test mcp_serve_reloads_rules_before_each_call: a rule revoked or set to never on another App is honoured by the serve path's next call.\n(6) settings_save_does_not_bring_back_a_revoked_rule removes its Keychain entry (service Heron, account email_password@<hash of its temp home>, written server.rs:1494, deleted :2261) only as its last statement. Put the delete in a Drop guard so a failed assert or panic still removes it. Touch only that test's own entry.\nKeep every existing test and assertion. Each new test must fail with its fix removed; check that by reasoning or by temporarily reverting, then restore. Reads under /private/tmp count as local reads in this codebase, so put any folder that must need a grant under a HomeTemp-style folder, as existing tests do."
+    },
+    "max_retries": 6,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "in_progress",
+    "title": "Fixes from U3h's review (35e)",
+    "version": 86,
+    "worktree": {
+      "base_branch": "skein/U3i__integrate-base",
+      "base_commit": "e037c700161e793ef6cb91e3be92b8148dd9a9c8",
+      "branch": "skein/U3i",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3i"
+    }
+  },
+  "U3i__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "0f75e10d05894cdf848ebdb8aeb07630",
+        "ended_at": "2026-11-19T01:23:36.193261+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-19T01:23:35.756502+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
     "change_policy": "warn",
     "claim": {
       "attempt_id": null,
@@ -5158,29 +5339,50 @@
       "U3h",
       "SYNC16"
     ],
-    "evidence": [],
-    "handoff_note": null,
-    "id": "U3i",
-    "integration_for": null,
+    "evidence": [
+      {
+        "command": "git merge e92d54c60dec19b11196529a0768cf294efafdbc",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['d1bfed2fde88a633abe82238f282be5a902853db', 'e92d54c60dec19b11196529a0768cf294efafdbc'] into skein/U3i__integrate-base.",
+    "id": "U3i__integrate",
+    "integration_for": "U3i",
     "intent": {
-      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- tool_setting_on_a_stale_core_is_saved failed_tool_setting_save_changes_nothing first_run_core_takes_in_rules_written_during_startup never_survives_a_missing_config_and_the_next_save mcp_serve_reloads_rules_before_each_call settings_save_does_not_bring_back_a_revoked_rule",
-      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
-      "context": "Spec: docs/designs/heron-v1.md items 35e, 35d, 35c, 35b, and section 3 'Another core already running'.",
-      "goal": "Fix what an independent review of U3h found, as the spec's item 35e ('Fixes from U3h's review') says. Line numbers below are from U3h's result d1bfed2.\n(1) Medium, demonstrated: set_tool (server.rs:1153-1163) edits A's in-memory deny/allow lists by retain-then-push, and save_config diffs against in-memory `before` (app.rs:261,265). If another core already cleared the rule on disk and this core hasn't reloaded, the diff is empty, nothing is written, and the reload in the same save (app.rs:452 remove_deny) drops the deny from this core too. Fix: under the config lock, take in the file's current rules first, then apply the change, and always write the edited rule's membership in both lists (like `chosen` does for mode/model). Test tool_setting_on_a_stale_core_is_saved: two Apps on one home, both start with web_fetch:* as never; B sets ask; A (not reloaded) sets never; assert A's policy denies, the file's deny list holds web_fetch:*, B denies after reload, and a fresh core reports never. Also cover allow and ask.\n(2) Low, demonstrated: set_tool changes the live policy before the save (server.rs:1153), so with an unparseable config.toml it returns 400 but the grant is live, and the next persist_rules (app.rs:364) writes it to kv. Fix: save first, change the policy only after the save succeeds. Test failed_tool_setting_save_changes_nothing: break config.toml, POST allow, assert error, policy unchanged, then call persist_rules and assert kv has no such rule; same for never on an ask request.\n(3) Low, demonstrated: with no config.toml at startup, `seen` falls back to the file as it is at assemble time (app.rs:168-171) while the policy came from defaults, so a rule another core wrote in between is never taken in. Fix: fall back to SavedRules::default(). Test first_run_core_takes_in_rules_written_during_startup.\n(4) Amends 35d: never (deny) rules stay in force while config.toml is missing or unparseable (app.rs:413-422 already keeps them), and a save that recreates the file writes the deny rules this core still holds, so the next reload doesn't drop them (today the recreated defaults file drops it: reviewer probe showed deny=[] after one save). Allow rules still drop. Fix the code comment to match. Test never_survives_a_missing_config_and_the_next_save.\n(5) heron mcp-serve (main.rs:823-827 -> mcp.rs:235,271) decides with &app.policy and never reloads. Call reload_rules before each tool call. Test mcp_serve_reloads_rules_before_each_call: a rule revoked or set to never on another App is honoured by the serve path's next call.\n(6) settings_save_does_not_bring_back_a_revoked_rule removes its Keychain entry (service Heron, account email_password@<hash of its temp home>, written server.rs:1494, deleted :2261) only as its last statement. Put the delete in a Drop guard so a failed assert or panic still removes it. Touch only that test's own entry.\nKeep every existing test and assertion. Each new test must fail with its fix removed; check that by reasoning or by temporarily reverting, then restore. Reads under /private/tmp count as local reads in this codebase, so put any folder that must need a grant under a HomeTemp-style folder, as existing tests do."
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U3h', 'SYNC16'] into one base branch for U3i."
     },
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "d1bfed2fde88a633abe82238f282be5a902853db",
+      "changed_files": [],
+      "commit": "e037c700161e793ef6cb91e3be92b8148dd9a9c8",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
-    "status": "unclaimed",
-    "title": "Fixes from U3h's review (35e)",
-    "version": 1,
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "d1bfed2fde88a633abe82238f282be5a902853db",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "a5f8e1d0e8aac863216613ed52589deee208ee52",
+        "result_commit": "e037c700161e793ef6cb91e3be92b8148dd9a9c8",
+        "shipped_at": "2026-11-19T03:56:22.786912+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
+    "title": "Integrate parents of U3i",
+    "version": 4,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
+      "base_branch": "d1bfed2fde88a633abe82238f282be5a902853db",
+      "branch": "skein/U3i__integrate-base",
       "path": null
     }
   },
@@ -6561,6 +6763,14 @@
         "holder": "agent-1",
         "outcome": "released",
         "started_at": "2026-11-19T01:17:25.692990+00:00"
+      },
+      {
+        "attempt_id": "e11dc32b945d4a2a94952dcada6ba85c",
+        "ended_at": "2026-11-19T03:55:19.728308+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-19T03:54:08.558193+00:00"
       }
     ],
     "attempts_used": 0,
@@ -6587,8 +6797,20 @@
     "depends_on": [
       "U7"
     ],
-    "evidence": [],
-    "handoff_note": "[release note] released by agent-1",
+    "evidence": [
+      {
+        "command": "actionlint .github/workflows/release.yml .github/workflows/ci.yml",
+        "duration_ms": 214,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U7b_20261119T035519401774_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U7b_20261119T035519617287_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run `skein status` to confirm the node moved to done.",
     "id": "U7b",
     "integration_for": null,
     "intent": {
@@ -6600,18 +6822,100 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "e11dc32b945d4a2a94952dcada6ba85c",
+      "base_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
+      "changed_files": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml"
+      ],
+      "commit": "d3aad305fc4b233e447ebd347cc60436cea104d7",
+      "diff_stats": {
+        ".github/workflows/ci.yml": {
+          "added": 18,
+          "deleted": 4
+        },
+        ".github/workflows/release.yml": {
+          "added": 70,
+          "deleted": 2
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
-    "status": "blocked",
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "76165ba5490b418ec01791e54db6c5e638432518",
+        "result_commit": "d3aad305fc4b233e447ebd347cc60436cea104d7",
+        "shipped_at": "2026-11-19T03:56:22.051721+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
     "title": "Release and CI workflow changes",
-    "version": 5,
+    "version": 12,
     "worktree": {
       "base_branch": "54bcccc119df0616e988ea48d255b8a633b66843",
       "base_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
       "branch": "skein/U7b",
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U7b"
+    }
+  },
+  "U7c": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**",
+      "tests/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3i",
+      "SYNC17"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U7c",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && HERON_TEST_BROWSER=1 cargo test --locked --test integration browser_reads_pages_follows_links_and_fills_in_forms",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 47b 'Work unit U7c', Q11 (platforms), and section 3's read tiers and user roots.",
+      "goal": "Fix what GitHub CI found on feat/heron-v1, as the spec's item 47b ('Work unit U7c') says. You cannot run Windows here (no Windows target is installed); reason from the code and the CI evidence below, and be exact.\n\nA. Windows doesn't compile the tests (CI run 44455041430 on 9f372b1):\n  error[E0432]: unresolved import `crate::tools::shell::tests` at src/server.rs:2420 (`use crate::tools::shell::tests::{q, seatbelt, AskTierDir};`; that module is `#[cfg(all(test, unix))]` at src/tools/shell.rs:206-207)\n  error[E0433]: cannot find `unix` in `os` at src/server.rs:2432 and :2448 (`std::os::unix::fs::symlink`)\n  Line numbers are from 9f372b1; U3i may have moved them. Gate each such test with #[cfg(unix)], or #[cfg(target_os = \"macos\")] if it relies on Seatbelt. Also check the rest of src/** and tests/** for other test code that uses Unix-only APIs without a cfg (U3i's new tests included), since CI stops at the first compile errors.\n  There were also 3 warnings on Windows, e.g. unused variable `attempt` at src/cli_llm.rs:786 and an unused binding near src/tools/fs.rs:1672; fix them where they come from cfg differences.\n\nB. Tests that failed on Windows in the earlier run 44422569585 (PR #60 merged onto old base 0354407; they may still fail once A compiles). Line numbers are from that old base:\n  permissions::tests::firmlink_alias_grants_are_too_broad (panic permissions.rs:1857)\n  permissions::tests::firmlink_alias_is_classified_like_its_target (:1772, assertion left == right)\n  permissions::tests::path_sandbox (:1564, left == right)\n  permissions::tests::read_roots_come_from_the_config_and_the_registry (:1963)\n  sandbox::tests::cli_profile_is_narrower_and_opens_only_its_own_config (sandbox.rs:641)\n  sandbox::tests::git_config_files_are_the_excludes_attributes_and_include_paths (:576)\n  sandbox::tests::own_config_dirs_take_the_configured_folder_only_for_its_provider_and_never_a_broad_one (:769)\n  sandbox::tests::secrets_and_refused_ancestors_are_write_denied_in_both_profiles (:796)\n  sandbox::tests::shell_grants_come_from_standing_rules_and_this_conversation (:742, \"a too-broad rule and another conversation's grant are left out\")\n  sandbox::tests::shell_profile_has_the_designed_order (:600)\n  sandbox::tests::shell_profile_refuses_every_registry_config_folder (:713)\n  tools::fs::tier_tests::exact_grant_on_walk_root_opens_no_subtree (fs.rs:1639, \"the fixture must be in the Ask tier\")\n  tools::fs::tier_tests::kernel_prefix_paths_are_refused (:1778)\n  tools::fs::tier_tests::volume_id_paths_are_refused (:1713, \"read_file /.vol/16777232/2/Users/me/.codex/config.toml in ReadOnly\")\n  tools::fs::tier_tests::walkers_never_read_uncovered_ask_tier_entries (:1570, \"the fixture must be in the Ask tier\")\n  tools::fs::tier_tests::walkers_skip_refused_and_secret_paths (:1521, \"the fixture must be in the Ask tier\")\n  For each: gate with #[cfg(target_os = \"macos\")] ONLY if what it checks is macOS-only by design (Seatbelt profiles, /.vol and other kernel lookup prefixes, firmlinks, the macOS user roots $HOME,/Users,/Volumes as the spec defines them). If the code under test runs on Windows (path decisions, read roots, shell grants, walker tiers), find why it fails there: a Unix-only path in the fixture (e.g. a '/...' path that isn't absolute on Windows, or a temp folder outside the Windows user roots so the fixture isn't in the Ask tier) is fixed in the test; a real Windows bug is fixed in the code. Never hide a real Windows bug behind a gate, and never weaken a macOS assertion. In your handoff, list every test you touched with its decision (gated / fixture fixed / code fixed) and a one-line reason.\n\nC. macOS CI (and this Mac with HERON_TEST_BROWSER=1): tests/integration.rs browser_reads_pages_follows_links_and_fills_in_forms fails at :570 with \"Heron's risk notice has not been accepted yet\". Accept it in the test's setup with heron::risk_notice::accept_current(&app.store).unwrap(), as the other chatting tests in that file do (e.g. :868). Reproduced locally by the orchestrator.\n\nKeep every existing assertion on macOS. Your check runs the full local suite including the browser test."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fixes from CI on all three OSes (47b)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
     }
   },
   "Ut": {
@@ -6822,7 +7126,8 @@
       "U3g",
       "U4c",
       "U3h",
-      "U3i"
+      "U3i",
+      "U7c"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -6843,7 +7148,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Full gate on the final branch",
-    "version": 10,
+    "version": 11,
     "worktree": {
       "base_branch": null,
       "branch": null,

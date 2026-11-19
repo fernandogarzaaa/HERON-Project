@@ -2594,6 +2594,7 @@ mod tests {
         assert_eq!(app.policy.tool_setting("web_fetch"), "ask");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn revoked_config_grant_closes_for_a_run_in_progress() {
         use crate::tools::shell::tests::{q, seatbelt, AskTierDir};
