@@ -5246,15 +5246,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "aa7f8b3565c8413ebcfdae9fa796eb0b",
+      "base_branch": "skein/U4c__integrate-base",
+      "claim_token": "50ec8a0cbdb54e23888c8ded429d4376",
+      "claimed_at": "2026-11-19T00:28:43.578128+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-19T00:28:43.578128+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "U4b",
@@ -5277,9 +5277,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Scrolling only where content overflows; risk-notice box sized to content; overflow snapshots",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U4c__integrate-base",
       "branch": null,
