@@ -5670,10 +5670,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "5d81a0f5dc7e8dff5747337ad5e7c28afed38c5e",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "2661ccdd400cc2cced0eca8e33705047698acc8a",
+        "result_commit": "5f3d64e610966d87ee40632e5d7130291cbbce03",
+        "shipped_at": "2026-11-19T05:08:44.816473+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Integrate parents of U3j",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "5d81a0f5dc7e8dff5747337ad5e7c28afed38c5e",
       "branch": "skein/U3j__integrate-base",
