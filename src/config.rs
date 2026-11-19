@@ -542,23 +542,17 @@ impl Config {
     /// save, so a lock on it would not outlive the save. A second handle on it blocks even within one
     /// program, so whoever holds it calls [`Config::save_changes_held`], not `save_changes`.
     pub(crate) fn lock_file(&self) -> Result<std::fs::File> {
-        self.ensure_home()?;
-        let path = self.home.join("config.lock");
-        let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).with_context(|| format!("opening {}", path.display()))?;
-        file.lock().with_context(|| format!("locking {}", path.display()))?;
+        let file = self.open_lock_file()?;
+        file.lock().with_context(|| format!("locking {}", self.home.join("config.lock").display()))?;
         Ok(file)
     }
 
-    /// [`Config::lock_file`], without making the home folder: `None` when there is none yet (and so
-    /// no `config.toml` either).
-    pub(crate) fn lock_file_if_home(&self) -> Result<Option<std::fs::File>> {
-        if !self.home.is_dir() {
-            return Ok(None);
-        }
+    /// The file [`Config::lock_file`] locks, opened (and the home folder made) but not yet locked,
+    /// for a caller that waits for it in its own way.
+    pub(crate) fn open_lock_file(&self) -> Result<std::fs::File> {
+        self.ensure_home()?;
         let path = self.home.join("config.lock");
-        let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).with_context(|| format!("opening {}", path.display()))?;
-        file.lock().with_context(|| format!("locking {}", path.display()))?;
-        Ok(Some(file))
+        std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).with_context(|| format!("opening {}", path.display()))
     }
 
     pub fn api_key(&self) -> Option<String> {
