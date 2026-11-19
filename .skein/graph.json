@@ -2444,10 +2444,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "b7f14fb4505f0a2d2d6319d2f13fddac38c46c5a",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "e78230992a4e3ffba4a9d9c2ef5b8d257b6bb36c",
+        "result_commit": "d818528cc3a630024fff43f0aa2fc5fa6abb8210",
+        "shipped_at": "2026-11-19T00:32:37.495451+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U1h's review: kernel-prefix working folder, parked walk taint",
-    "version": 14,
+    "version": 15,
     "worktree": {
       "base_branch": "skein/U1i__integrate-base",
       "base_commit": "b7f14fb4505f0a2d2d6319d2f13fddac38c46c5a",
