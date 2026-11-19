@@ -5863,11 +5863,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from U3j's review (35g, owner decision)",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U3k__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "476f1dbf9ac54d6d48d90a21fec154b4784bee44",
+      "branch": "skein/U3k",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3k"
     }
   },
   "U3k__integrate": {
