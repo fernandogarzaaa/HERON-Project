@@ -5279,11 +5279,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Scrolling only where content overflows; risk-notice box sized to content; overflow snapshots",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U4c__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
+      "branch": "skein/U4c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U4c"
     }
   },
   "U4c__integrate": {
