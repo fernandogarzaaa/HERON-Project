@@ -8005,9 +8005,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from the U3q and U3r reviews (35o)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3s__integrate-base",
       "branch": null,
       "path": null
     }
