@@ -4912,9 +4912,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from U3g's review: stale settings save, startup window, unreadable config fails closed, never across cores",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3h__integrate-base",
       "branch": null,
       "path": null
     }
