@@ -3,6 +3,7 @@
 // each view keeps its own file and its own component.
 
 import { CheckBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { PageScroll } from "../components/page_scroll.slint";
 import { LineEdit } from "../components/line_edit.slint";
 import { Button } from "../components/button.slint";
 import { TaskRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, RowCard } from "common.slint";
@@ -18,7 +19,11 @@ export component TasksView inherits Rectangle {
     callback set-task-done(int, bool);
     callback delete-task(int);
 
-    ScrollView {
+    out property <length> overflow-x: scroll.overflow-x;
+    out property <length> overflow-y: scroll.overflow-y;
+    public function scroll-to-end() { scroll.content-y = -scroll.overflow-y; }
+
+    scroll := PageScroll {
         width: parent.width;
         height: parent.height;
         VerticalBox {

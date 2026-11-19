@@ -14,6 +14,7 @@
 // into doc_path. There is no typed path input.
 
 import { TextEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { PageScroll } from "../components/page_scroll.slint";
 import { Button } from "../components/button.slint";
 import { Theme } from "../components/theme.slint";
 import { SectionTitle, LabeledInput, ChoiceCard, StepIndicator } from "../components/atoms.slint";
@@ -68,7 +69,11 @@ export component OnboardingView inherits Rectangle {
     out property <length> content-height: scroll.content-height;
 
     // The steps are longer than a small window, so the view scrolls.
-    scroll := ScrollView {
+    out property <length> overflow-x: scroll.overflow-x;
+    out property <length> overflow-y: scroll.overflow-y;
+    public function scroll-to-end() { scroll.content-y = -scroll.overflow-y; }
+
+    scroll := PageScroll {
         width: parent.width;
         height: parent.height;
         VerticalBox {

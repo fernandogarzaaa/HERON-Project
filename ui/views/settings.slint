@@ -3,9 +3,11 @@
 // interface.
 
 import { TextEdit, ComboBox, CheckBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { PageScroll } from "../components/page_scroll.slint";
 import { Button } from "../components/button.slint";
 import { Theme } from "../components/theme.slint";
 import { SectionTitle, LabeledInput, ChoiceCard } from "../components/atoms.slint";
+import { WrapText } from "../components/wrap_text.slint";
 
 export struct ToolItem {
     name: string,
@@ -48,11 +50,10 @@ component PersonaEditor inherits VerticalBox {
     LabeledInput { label: "What to call it"; value <=> agent_name; }
     Text { text: "Character"; font-size: 14px; font-weight: 600; color: Theme.ink; }
     TextEdit { text <=> persona_text; min-height: 260px; }
-    Text {
+    WrapText {
         text: "This is how Heron behaves and speaks. Edit it here, or just tell Heron in a conversation (“be more casual”, “shorter answers”) and it will propose the change for you to approve.";
         font-size: 13px;
         color: Theme.muted;
-        wrap: word-wrap;
     }
     HorizontalBox {
         alignment: start;
@@ -64,7 +65,7 @@ component PersonaEditor inherits VerticalBox {
             enabled: !busy;
             clicked => { root.reset(); }
         }
-        if message != "": Text {
+        if message != "": WrapText {
             text: message;
             color: Theme.ok;
             font-weight: 600;
@@ -165,7 +166,11 @@ export component SettingsView inherits Rectangle {
 
     // Settings is longer than any window. Without a scroll region the
     // later sections and the Save button sit below the window edge.
-    scroll := ScrollView {
+    out property <length> overflow-x: scroll.overflow-x;
+    out property <length> overflow-y: scroll.overflow-y;
+    public function scroll-to-end() { scroll.content-y = -scroll.overflow-y; }
+
+    scroll := PageScroll {
         width: parent.width;
         height: parent.height;
         VerticalBox {
@@ -175,11 +180,10 @@ export component SettingsView inherits Rectangle {
             alignment: start;
 
             Text { text: "Settings"; font-size: 30px; font-family: Theme.heading-font; font-weight: 600; color: Theme.ink; }
-            Text {
+            WrapText {
                 text: "Heron runs on this computer. The only thing that leaves it is what you send to the AI model you choose here.";
                 font-size: 15px;
                 color: Theme.muted;
-                wrap: word-wrap;
             }
 
             // AI model.
@@ -188,28 +192,34 @@ export component SettingsView inherits Rectangle {
                 spacing: 14px;
                 SectionTitle { label: "AI model"; }
                 LabeledInput { label: "Service address"; value <=> base_url; }
+                // Two rows: all four on one row ran past the page at the
+                // window's minimum width with Linux and Windows fonts.
                 HorizontalBox {
                     alignment: start;
                     padding: 0px;
                     spacing: 6px;
                     Button { reduce-motion: root.reduce-motion; text: "OpenRouter"; clicked => { root.apply_preset("openrouter"); } }
                     Button { reduce-motion: root.reduce-motion; text: "OpenAI"; clicked => { root.apply_preset("openai"); } }
+                }
+                HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 6px;
                     Button { reduce-motion: root.reduce-motion; text: "Ollama on this computer"; clicked => { root.apply_preset("ollama"); } }
                     Button { reduce-motion: root.reduce-motion; text: "Demo, no key needed"; clicked => { root.apply_preset("demo"); } }
                 }
                 LabeledInput { label: "Model"; value <=> model; }
                 Text { text: "Provider"; font-size: 14px; font-weight: 600; color: Theme.ink; }
                 ComboBox { model: provider_labels; current-index <=> provider_index; }
-                Text {
+                WrapText {
                     text: "Or run on a subscription you already pay for, through that CLI. Heron never reads the CLI's login; sign in in the CLI itself first. Run heron providers to check install and login status.";
                     font-size: 13px;
                     color: Theme.muted;
-                    wrap: word-wrap;
                 }
                 LabeledInput { label: "CLI command"; hint: "empty = resolve the provider's binary"; value <=> cli_command; }
                 LabeledInput { label: "CLI model"; hint: "empty = the CLI's subscription default"; value <=> cli_model; }
                 LabeledInput { label: "API key"; hint: key_placeholder; password: true; value <=> api_key; }
-                Text { text: key_note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+                WrapText { text: key_note; font-size: 13px; color: Theme.muted; }
                 LabeledInput { label: "Backup models"; hint: "none"; value <=> fallback_models; }
                 LabeledInput { label: "Model for background work"; hint: "same as main model"; value <=> fast_model; }
             }
@@ -260,7 +270,7 @@ export component SettingsView inherits Rectangle {
                 if confirm-yolo: Rectangle {
                     background: Theme.danger-soft; border-color: Theme.danger; border-width: 1px; border-radius: 10px;
                     VerticalBox {
-                        Text { text: "Unrestricted means Heron changes files and runs commands without asking. Continue?"; wrap: word-wrap; }
+                        WrapText { text: "Unrestricted means Heron changes files and runs commands without asking. Continue?"; }
                         HorizontalBox {
                             alignment: start;
                             padding: 0px;
@@ -275,13 +285,13 @@ export component SettingsView inherits Rectangle {
                     current-index: daemon_mode == "auto" ? 1 : 0;
                     selected(index) => { root.daemon_mode = index == 1 ? "auto" : "readonly"; }
                 }
-                Text { text: sandbox_note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+                WrapText { text: sandbox_note; font-size: 13px; color: Theme.muted; }
                 CheckBox {
                     text: "Show the browser while Heron uses it";
                     checked <=> browser_visible;
                     enabled: browser_available;
                 }
-                Text { text: browser_note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+                WrapText { text: browser_note; font-size: 13px; color: Theme.muted; }
             }
 
             // Per-tool permissions.
@@ -289,17 +299,16 @@ export component SettingsView inherits Rectangle {
                 padding: 0px;
                 spacing: 14px;
                 SectionTitle { label: "Each ability, one by one"; }
-                Text {
+                WrapText {
                     text: "“Ask as usual” follows the choice above. “Never ask” lets Heron use it freely, though risky uses still ask. “Never allow” switches it off.";
                     font-size: 13px;
                     color: Theme.muted;
-                    wrap: word-wrap;
                 }
                 for tool[idx] in tools: HorizontalBox {
                     padding: 0px;
                     spacing: 8px;
                     Text { text: tool.name; width: 200px; color: Theme.ink; }
-                    Text { text: tool.about; horizontal-stretch: 1; color: Theme.ink; wrap: word-wrap; }
+                    WrapText { text: tool.about; horizontal-stretch: 1; color: Theme.ink; }
                     ComboBox {
                         model: tool_settings;
                         current-index: tool.setting;
@@ -321,21 +330,19 @@ export component SettingsView inherits Rectangle {
                     alignment: start;
                     padding: 0px;
                     spacing: 8px;
-                    Text {
+                    WrapText {
                         text: line.text;
                         horizontal-stretch: 1;
                         color: line.changed ? Theme.danger : Theme.ink;
-                        wrap: word-wrap;
                     }
                     if line.changed: Button { reduce-motion: root.reduce-motion;
                         text: "Accept the changed tools";
                         clicked => { root.accept_mcp(line.name); }
                     }
                 }
-                if mcp_note != "": Text {
+                if mcp_note != "": WrapText {
                     text: mcp_note;
                     color: Theme.ok;
-                    wrap: word-wrap;
                 }
             }
 
@@ -344,10 +351,9 @@ export component SettingsView inherits Rectangle {
                 padding: 0px;
                 spacing: 14px;
                 SectionTitle { label: "Connector Hub"; }
-                Text {
+                WrapText {
                     text: "Explore supported protocols and potential services. Catalog entries are not connected accounts. Custom connectors are saved inactive until a reviewed adapter is available.";
                     color: Theme.muted;
-                    wrap: word-wrap;
                 }
                 HorizontalBox {
                     padding: 0px;
@@ -358,20 +364,18 @@ export component SettingsView inherits Rectangle {
                         clicked => { root.refresh-connectors(); }
                     }
                 }
-                if root.connector-vault-note != "": Text {
+                if root.connector-vault-note != "": WrapText {
                     text: root.connector-vault-note;
                     color: Theme.muted;
-                    wrap: word-wrap;
                 }
                 for c in root.connector-lines: HorizontalBox {
                     alignment: start;
                     padding: 0px;
                     spacing: 8px;
-                    Text {
+                    WrapText {
                         text: c.label;
                         color: Theme.ink;
                         horizontal-stretch: 1;
-                        wrap: word-wrap;
                     }
                     Text { text: c.detail; color: Theme.muted; width: 180px; wrap: word-wrap; }
                     if c.custom: Button { reduce-motion: root.reduce-motion;
@@ -393,7 +397,7 @@ export component SettingsView inherits Rectangle {
                         clicked => { root.add-connector(root.connector-new-id, root.connector-new-name, root.connector-new-endpoint); }
                     }
                 }
-                Text { text: "Vault: API keys are never displayed to the model or saved in connector metadata. Only custom connector IDs can receive keys. Linux currently requires a secure vault backend before API keys can be saved."; wrap: word-wrap; color: Theme.muted; }
+                WrapText { text: "Vault: API keys are never displayed to the model or saved in connector metadata. Only custom connector IDs can receive keys. Linux currently requires a secure vault backend before API keys can be saved."; color: Theme.muted; }
                 LabeledInput { label: "Custom connector ID"; value <=> root.connector-key-id; }
                 LabeledInput { label: "API key (stored in the OS vault)"; password: true; value <=> root.connector-api-key; }
                 HorizontalBox {
@@ -411,10 +415,9 @@ export component SettingsView inherits Rectangle {
                         clicked => { root.remove-connector-key(root.connector-key-id); }
                     }
                 }
-                if root.connector-feedback != "": Text {
+                if root.connector-feedback != "": WrapText {
                     text: root.connector-feedback;
                     color: Theme.muted;
-                    wrap: word-wrap;
                 }
             }
 
@@ -424,11 +427,10 @@ export component SettingsView inherits Rectangle {
                 padding: 0px;
                 spacing: 14px;
                 SectionTitle { label: "Google and Microsoft accounts"; }
-                Text {
+                WrapText {
                     text: "Connect email and calendar read-only in your browser. A distributor-registered app connects with one click; enter your own public client ID only if needed. HERON never sees your account password. Synced content stays locally indexed, but may be sent to your chosen AI model when you ask HERON about it.";
                     color: Theme.muted;
                     font-size: 13px;
-                    wrap: word-wrap;
                 }
                 Text { text: google-connected ? "Google: connected" : "Google: not connected"; color: google-connected ? Theme.ok : Theme.muted; }
                 LabeledInput { label: "Google OAuth desktop client ID"; hint: "Public client ID (not a secret)"; value <=> google-client-id; }
@@ -479,12 +481,11 @@ export component SettingsView inherits Rectangle {
                     alignment: start;
                     Button { reduce-motion: root.reduce-motion; text: "Refresh account status"; enabled: !busy; clicked => { root.refresh-oauth(); } }
                 }
-                if oauth-status != "": Text { text: oauth-status; color: Theme.ink; wrap: word-wrap; }
-                Text {
+                if oauth-status != "": WrapText { text: oauth-status; color: Theme.ink; }
+                WrapText {
                     text: "Disconnect removes local access tokens and indexed account data; it does not revoke consent at Google or Microsoft. Revoke access in your provider's account security settings if needed.";
                     font-size: 12px;
                     color: Theme.muted;
-                    wrap: word-wrap;
                 }
             }
 
@@ -493,7 +494,7 @@ export component SettingsView inherits Rectangle {
                 padding: 0px;
                 spacing: 14px;
                 SectionTitle { label: "Use Heron from your phone"; }
-                if telegram_status != "": Text { text: telegram_status; color: Theme.ink; wrap: word-wrap; }
+                if telegram_status != "": WrapText { text: telegram_status; color: Theme.ink; }
                 if !telegram_configured: HorizontalBox {
                     padding: 0px;
                     spacing: 8px;
@@ -526,23 +527,22 @@ export component SettingsView inherits Rectangle {
                     checked <=> neural_memory;
                 }
                 LabeledInput { label: "Working folder"; value <=> workspace; }
-                Text { text: "Conversations, memory and settings are stored in " + home + "."; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+                WrapText { text: "Conversations, memory and settings are stored in " + home + "."; font-size: 13px; color: Theme.muted; }
                 HorizontalBox {
                     alignment: start;
                     padding: 0px;
                     spacing: 8px;
                     Button { reduce-motion: root.reduce-motion; text: "Save a copy of my data"; enabled: !busy; clicked => { root.make_backup(); } }
-                    if backup_message != "": Text {
+                    if backup_message != "": WrapText {
                         text: backup_message;
                         color: Theme.ok;
                         font-weight: 600;
                     }
                 }
-                Text {
+                WrapText {
                     text: "A copy holds your conversations, memory, tasks, reminders, automations and activity log. Heron also saves one by itself before it upgrades your data. To go back to a copy, close Heron and run heron restore with the file’s name.";
                     font-size: 13px;
                     color: Theme.muted;
-                    wrap: word-wrap;
                 }
             }
 
@@ -552,15 +552,14 @@ export component SettingsView inherits Rectangle {
                 padding: 0px;
                 spacing: 10px;
                 Button { reduce-motion: root.reduce-motion; primary: true; text: "Save settings"; enabled: !busy; clicked => { root.save_settings(); } }
-                if saved_message != "": Text {
+                if saved_message != "": WrapText {
                     text: saved_message;
                     color: Theme.ok;
                     font-weight: 600;
                 }
-                if error_message != "": Text {
+                if error_message != "": WrapText {
                     text: error_message;
                     color: Theme.danger;
-                    wrap: word-wrap;
                 }
             }
         }
