@@ -5639,10 +5639,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "5f3d64e610966d87ee40632e5d7130291cbbce03",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "096653bd2a3fb7108f25063107302fadf6ffe197",
+        "result_commit": "6e93e5d61e812e6f40785e9a0e1f0e57dfe246d8",
+        "shipped_at": "2026-11-19T05:30:12.584662+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U3i's review (35f)",
-    "version": 47,
+    "version": 48,
     "worktree": {
       "base_branch": "skein/U3j__integrate-base",
       "base_commit": "5f3d64e610966d87ee40632e5d7130291cbbce03",
@@ -7642,7 +7652,7 @@
       "goal": "Full gate on the final branch scripts/verify-v1.sh exports HERON_REQUIRE_SEATBELT=1 on macOS before running cargo tests, so a skipped Seatbelt test fails the gate (spec 'Skips fail in the gate')."
     },
     "max_retries": 1,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -7650,7 +7660,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Full gate on the final branch",
-    "version": 13,
+    "version": 14,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "branch": null,
