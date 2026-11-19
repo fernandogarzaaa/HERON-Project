@@ -324,15 +324,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "351c280646cb4abd97bca37ea188d33e",
+      "base_branch": "feat/heron-v1",
+      "claim_token": "0cc601136cc3405b91e910c676ba4c58",
+      "claimed_at": "2026-11-19T00:28:36.354870+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-19T00:28:36.354870+00:00",
+      "node_version": 3,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [],
@@ -352,11 +352,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Sync: capture the feat/heron-v1 head for U4c",
-    "version": 3,
+    "version": 4,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/heron-v1",
       "branch": null,
       "path": null
     }
@@ -4513,7 +4513,7 @@
       "claim_token": "d32de5eb183c4087a511e08e09c14b27",
       "claimed_at": "2026-11-19T00:07:59.784438+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:27:01.097419+00:00",
+      "last_heartbeat": "2026-11-19T00:28:31.189816+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4541,7 +4541,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3f's review: config.toml revoke across cores, job read_file, dropped gateway run_end, explicit choices saved, atomic revoke",
-    "version": 42,
+    "version": 45,
     "worktree": {
       "base_branch": "skein/U3g__integrate-base",
       "base_commit": "19384e891d51f18541cde83bd23ada0397b7f645",
