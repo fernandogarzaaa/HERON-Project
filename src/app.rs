@@ -499,11 +499,17 @@ fn peek_permissions(path: &std::path::Path) -> Result<SavedPermissions> {
 /// The kv entries a restore takes from the current database whatever the copy holds, as an SQL
 /// condition on `k`: the folders each conversation was given (`grants:<session>`), the MCP servers'
 /// accepted tool lists (`mcp_pin:<server>`), and the user's safety switches: the notice that "never"
-/// rules may have been lost (`deny_rules_damaged`), the global pause (`paused`) and the Telegram chat
-/// and its lock. Like the "always" answers, these decide what may run, so a switch changed since the
-/// copy was made does not go back: present now, it is copied over; absent now, it is removed from the
-/// copy.
-const KEPT_KV: &str = "k GLOB 'grants:*' OR k GLOB 'mcp_pin:*' OR k IN ('deny_rules_damaged', 'paused', 'telegram_chat', 'telegram_locked')";
+/// rules may have been lost (`deny_rules_damaged`), the global pause (`paused`), the Telegram pairing
+/// (`telegram_chat`, `telegram_code`, `telegram_wrong`, `telegram_session`) and its lock
+/// (`telegram_locked`). Like the "always" answers, these decide what may run, so a value changed since
+/// the copy was made does not go back: present now, it is copied over; absent now, it is removed from
+/// the copy. The three in [`STRICTER_KV`] are the exception: the copy's own value counts as well, so a
+/// restore never loosens them (see [`write_current_into`]).
+const KEPT_KV: &str = "k GLOB 'grants:*' OR k GLOB 'mcp_pin:*' OR k IN ('deny_rules_damaged', 'paused', 'telegram_chat', 'telegram_code', 'telegram_wrong', 'telegram_session', 'telegram_locked')";
+
+/// The entries of [`KEPT_KV`] that take the stricter of the current database's value and the copy's:
+/// the pause, the pairing lock and the record of damaged "never" rules.
+const STRICTER_KV: [&str; 3] = ["paused", "telegram_locked", "deny_rules_damaged"];
 
 /// What a schedule may do when it runs: its name, when, what it is asked, the tools it was given
 /// and its automation. A restored schedule runs on its own only when one just like it is enabled now.
@@ -592,7 +598,9 @@ fn clear_stale_restores_if_idle(cfg: &Config) {
 /// permissions as they are. The "never" rules are the current database's plus the copy's: a restore
 /// can add one but never lift one, even from a copy made before they were kept in heron.db. The
 /// "always" answers, the folders given to each conversation and the MCP servers' accepted tool lists
-/// are the current database's only, so one taken back since the copy was made does not come back. A
+/// are the current database's only, so one taken back since the copy was made does not come back,
+/// and neither does an old Telegram pairing. The pause, the pairing lock and the record of damaged
+/// "never" rules are the stricter of the two: on if either is, both records kept. A
 /// schedule runs on its own after the restore only when one just like it is enabled in the current
 /// database; every other one comes back paused, to run once the user resumes it.
 ///
@@ -661,9 +669,40 @@ fn write_current_into(work: &std::path::Path, current: &CurrentState, allow: &st
     set(DENY_KEY, &written)?;
     set(DENY_LAST_GOOD_KEY, &written)?;
     set(RULES_KEY, allow)?;
+    // What the copy holds of the entries that never loosen, read before they are cleared (a value
+    // that is not text reads lossily: it still counts as there).
+    let copy_text = |k: &str| -> Result<Option<String>> {
+        use rusqlite::types::Value;
+        let value: Option<Value> = tx.query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional()?;
+        Ok(value.map(|v| match v {
+            Value::Text(t) => t,
+            Value::Blob(b) => String::from_utf8_lossy(&b).into_owned(),
+            Value::Integer(i) => i.to_string(),
+            Value::Real(f) => f.to_string(),
+            Value::Null => String::new(),
+        }))
+    };
+    let copy_stricter = STRICTER_KV.iter().map(|k| Ok((*k, copy_text(k)?))).collect::<Result<Vec<(&str, Option<String>)>>>()?;
     tx.execute(&format!("DELETE FROM kv WHERE {KEPT_KV}"), [])?;
-    for (k, v) in &current.kept_kv {
+    for (k, v) in current.kept_kv.iter().filter(|(k, _)| !STRICTER_KV.contains(&k.as_str())) {
         set(k, v)?;
+    }
+    for (k, theirs) in copy_stricter {
+        let now = current.kept_kv.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
+        let on = |v: &Option<String>| v.as_deref() == Some("1");
+        let stricter = match k {
+            // Switched on if either is.
+            "paused" | "telegram_locked" if on(&now) || on(&theirs) => Some("1".to_string()),
+            // The records of both, the current one first, as repeated damage is kept.
+            "deny_rules_damaged" => match (now, theirs) {
+                (Some(now), Some(theirs)) => Some(format!("{now}\n{theirs}")),
+                (now, theirs) => now.or(theirs),
+            },
+            _ => now,
+        };
+        if let Some(v) = stricter {
+            set(k, &v)?;
+        }
     }
     for (id, key) in job_keys(&tx, true)? {
         if !current.enabled_jobs.contains(&key) {
@@ -2811,7 +2850,7 @@ mod tests {
         assert_eq!(store.kv_get("paused").as_deref(), Some("1"));
         assert_eq!(store.kv_get("telegram_chat").as_deref(), Some("42"));
         assert_eq!(store.kv_get("telegram_locked").as_deref(), Some("1"));
-        assert_eq!(store.kv_get("deny_rules_damaged").as_deref(), Some("[\"shell:*\"]"));
+        assert_eq!(store.kv_get("deny_rules_damaged").as_deref(), Some("[\"shell:*\"]\n[\"old\"]"));
         assert_eq!(store.kv_get("not_a_switch").as_deref(), Some("from the copy"), "only the safety switches are taken from now");
         drop(store);
 
@@ -2820,10 +2859,96 @@ mod tests {
         current_with(&cfg, &[]);
         restore_keeping_nevers(&cfg, &copy).unwrap();
         let store = Store::open(&cfg.db_path()).unwrap();
-        for k in ["paused", "telegram_chat", "telegram_locked", "deny_rules_damaged"] {
+        for k in ["paused", "telegram_chat", "telegram_locked"] {
             assert_eq!(store.kv_get(k), None, "{k} came back from the copy");
         }
+        assert_eq!(store.kv_get("deny_rules_damaged").as_deref(), Some("[\"old\"]"));
         assert_eq!(store.kv_get("not_a_switch").as_deref(), Some("from the copy"));
+    }
+
+    /// A restore never loosens a safety switch: with no current database (the recovery the
+    /// damaged-database message prescribes, or a fresh install) the copy's own switches stay, and
+    /// with one, a switch that is off now does not undo the copy's.
+    #[test]
+    fn restore_without_a_current_database_keeps_the_copys_safety_switches() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let copy = copy_with(dir.path(), "old", &[("paused", "1"), ("telegram_locked", "1"), ("deny_rules_damaged", "[\"old\"]")]);
+        assert!(!cfg.db_path().exists(), "no heron.db at all");
+        restore_keeping_nevers(&cfg, &copy).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert_eq!(store.kv_get("paused").as_deref(), Some("1"), "the copy's pause stays");
+        assert_eq!(store.kv_get("telegram_locked").as_deref(), Some("1"), "the copy's lock stays");
+        assert_eq!(store.kv_get("deny_rules_damaged").as_deref(), Some("[\"old\"]"), "the copy's damaged record stays");
+        drop(store);
+
+        // A current database whose switches are off while the copy's are on: switched on if either
+        // is, and both damaged records kept.
+        std::fs::remove_file(cfg.db_path()).unwrap();
+        current_with(&cfg, &[("paused", "0"), ("telegram_locked", ""), ("deny_rules_damaged", "[\"now\"]")]);
+        restore_keeping_nevers(&cfg, &copy).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert_eq!(store.kv_get("paused").as_deref(), Some("1"));
+        assert_eq!(store.kv_get("telegram_locked").as_deref(), Some("1"));
+        assert_eq!(store.kv_get("deny_rules_damaged").as_deref(), Some("[\"now\"]\n[\"old\"]"));
+        drop(store);
+
+        // The other way round: on now, off in the copy, and no record in the copy.
+        std::fs::remove_file(cfg.db_path()).unwrap();
+        let quiet = copy_with(dir.path(), "quiet", &[("paused", "0"), ("telegram_locked", "")]);
+        current_with(&cfg, &[("paused", "1"), ("telegram_locked", "1"), ("deny_rules_damaged", "[\"now\"]")]);
+        restore_keeping_nevers(&cfg, &quiet).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert_eq!(store.kv_get("paused").as_deref(), Some("1"));
+        assert_eq!(store.kv_get("telegram_locked").as_deref(), Some("1"));
+        assert_eq!(store.kv_get("deny_rules_damaged").as_deref(), Some("[\"now\"]"));
+    }
+
+    /// The Telegram pairing is the current database's whole: an old copy brings back neither a code
+    /// that was replaced when a stranger was unpaired (which would pair again) nor the previous
+    /// owner's conversation.
+    #[test]
+    fn restore_never_brings_back_an_old_telegram_pairing() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let copy = copy_with(
+            dir.path(),
+            "old",
+            &[("telegram_chat", "666"), ("telegram_code", "OLDCODE"), ("telegram_wrong", "2"), ("telegram_session", "s-stranger")],
+        );
+
+        // Just unpaired: no chat, a new code, a fresh count.
+        current_with(&cfg, &[("telegram_chat", ""), ("telegram_code", "NEWCODE"), ("telegram_wrong", "4"), ("telegram_session", "")]);
+        restore_keeping_nevers(&cfg, &copy).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert_eq!(store.kv_get("telegram_chat").as_deref(), Some(""), "still unpaired");
+        assert_eq!(store.kv_get("telegram_code").as_deref(), Some("NEWCODE"), "the code replaced since does not come back");
+        assert_eq!(store.kv_get("telegram_wrong").as_deref(), Some("4"));
+        assert_eq!(store.kv_get("telegram_session").as_deref(), Some(""));
+        drop(store);
+
+        // Paired with someone else now: that chat, with its own conversation.
+        std::fs::remove_file(cfg.db_path()).unwrap();
+        current_with(&cfg, &[("telegram_chat", "42"), ("telegram_code", "CODE42"), ("telegram_session", "s-user")]);
+        restore_keeping_nevers(&cfg, &copy).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert_eq!(store.kv_get("telegram_chat").as_deref(), Some("42"));
+        assert_eq!(store.kv_get("telegram_session").as_deref(), Some("s-user"), "the stranger's conversation does not come back");
+        assert_eq!(store.kv_get("telegram_code").as_deref(), Some("CODE42"));
+        assert_eq!(store.kv_get("telegram_wrong"), None, "a count the copy had does not come back");
+        drop(store);
+
+        // Nothing there now: removed from the copy, so Heron makes a new code before anyone can
+        // pair (`telegram::pairing_code`), not the copy's.
+        std::fs::remove_file(cfg.db_path()).unwrap();
+        current_with(&cfg, &[]);
+        restore_keeping_nevers(&cfg, &copy).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        for k in ["telegram_chat", "telegram_code", "telegram_wrong", "telegram_session"] {
+            assert_eq!(store.kv_get(k), None, "{k} came back from the copy");
+        }
     }
 
     #[test]
@@ -3568,14 +3693,19 @@ mod tests {
         let app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
         crate::risk_notice::accept_current(&app.store).unwrap();
         // A file in the user's own folders outside the working folder (the Ask tier), reached through
-        // a link in the working folder.
-        let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
-        std::fs::create_dir_all(&target).unwrap();
-        let outside = tempfile::Builder::new().prefix("heron-ask-tier-test").tempdir_in(target).unwrap();
-        let asked = dunce::canonicalize(outside.path()).unwrap().join("asked");
+        // a link in the working folder. Where it goes depends on where the checkout is: in the build
+        // folder when that is in the user's own folders, in the home folder when the checkout is in a
+        // temp folder, where reads never ask.
+        let outside = crate::tools::shell::tests::AskTierDir::new(&app.cfg(), &app.workspace);
+        let asked = outside.path().join("asked");
         std::fs::create_dir_all(&asked).unwrap();
         std::fs::write(asked.join("diary.txt"), "PARKED-WALK-TOKEN").unwrap();
-        std::os::unix::fs::symlink(asked.join("diary.txt"), app.workspace.join("granted-link.txt")).unwrap();
+        assert_eq!(
+            crate::permissions::classify_path(&asked.join("diary.txt"), &app.workspace, &app.cfg(), false),
+            crate::permissions::Effect::OutsideRead,
+            "the test file {} is not in the Ask tier, so a read of it never asks and this test says nothing about taint",
+            asked.join("diary.txt").display()
+        );        std::os::unix::fs::symlink(asked.join("diary.txt"), app.workspace.join("granted-link.txt")).unwrap();
         for (tool, args, reaches) in [("search_files", json!({"pattern": "PARKED-WALK-TOKEN"}), "granted-link.txt:1:"), ("find_files", json!({"glob": "*link*"}), "granted-link.txt")] {
             // One conversation per tool, so the first walk's taint does not reach the second.
             let session = Session::create(&app.store, "job").unwrap();
