@@ -5205,9 +5205,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from U3h's review (35e)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3i__integrate-base",
       "branch": null,
       "path": null
     }
