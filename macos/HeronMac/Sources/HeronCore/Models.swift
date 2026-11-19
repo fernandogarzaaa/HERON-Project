@@ -227,14 +227,18 @@ public enum ParkedAction: String, Sendable, Equatable { case approve, dismiss }
 public struct CalendarEvent: Sendable, Equatable, Identifiable {
     public var id: String
     public var title: String
-    public var start: Date
+    /// Nil when the core's text for the time isn't a date ("tomorrow 10:00"); then `whenText` is what to show.
+    public var start: Date?
     public var place: String?
+    /// The time as the core served it (`GET /api/today` sends `"Title — When: tomorrow 10:00"` lines, not dates).
+    public var whenText: String
 
-    public init(id: String, title: String, start: Date, place: String?) {
+    public init(id: String, title: String, start: Date?, place: String?, whenText: String = "") {
         self.id = id
         self.title = title
         self.start = start
         self.place = place
+        self.whenText = whenText
     }
 }
 

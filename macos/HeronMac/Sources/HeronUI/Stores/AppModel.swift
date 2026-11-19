@@ -90,7 +90,8 @@ public final class AppModel {
 
     public var agentName: String { persona.persona?.name ?? state?.name ?? "Heron" }
     public var paused: Bool { state?.paused ?? today.summary?.paused ?? false }
-    public var showsAnotherHeronBanner: Bool { !client.endpoint.backgroundOwner && !dismissedAnotherHeronBanner }
+    /// `client.endpoint` isn't observable and is only the real endpoint once the core has answered, so the banner waits for `hasBootstrapped`.
+    public var showsAnotherHeronBanner: Bool { hasBootstrapped && !client.endpoint.backgroundOwner && !dismissedAnotherHeronBanner }
 
     /// Items waiting for the user: live approvals (including the open conversation's), parked ones, and unread suggestions are separate.
     public var waitingCount: Int { approvals.waitingCount + (chat.liveApproval == nil ? 0 : 1) }

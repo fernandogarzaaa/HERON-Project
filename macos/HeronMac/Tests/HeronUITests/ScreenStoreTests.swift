@@ -578,8 +578,15 @@ final class ScreenStoreTests: XCTestCase {
 
     func testAnotherHeronBannerFollowsTheEndpointLine() async throws {
         let owner = AppModel(client: try await makeClient(backgroundOwner: true))
-        XCTAssertFalse(owner.showsAnotherHeronBanner)
         let other = AppModel(client: try await makeClient(backgroundOwner: false))
+        // No banner until the endpoint is known: before bootstrap neither model shows it.
+        XCTAssertFalse(owner.showsAnotherHeronBanner)
+        XCTAssertFalse(other.showsAnotherHeronBanner, "the endpoint line isn't known before bootstrap")
+        await owner.bootstrap()
+        await other.bootstrap()
+        owner.stopEvents()
+        other.stopEvents()
+        XCTAssertFalse(owner.showsAnotherHeronBanner, "this app owns the background core")
         XCTAssertTrue(other.showsAnotherHeronBanner)
         other.dismissedAnotherHeronBanner = true
         XCTAssertFalse(other.showsAnotherHeronBanner)

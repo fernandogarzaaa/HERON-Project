@@ -29,7 +29,7 @@
 
 ### Approvals
 
-*   **The `approval` event as specified has no taint flag or outside source.** The visual doc's violet line needs both, so `ApprovalRequest` carries `tainted` and `outsideSource`, which the client supplies (the stub sets them). U4b should derive them from the session's taint state; this is a gap between §4's event table and the visual doc, not a divergence.
+*   **The `approval` event carries `tainted`, but no outside source (U4b update).** The core's `approval` event has a `tainted` flag (`src/server.rs`, recorded in `events-approval.jsonl`), so `CoreClient` decodes it. It sends no name for the outside source, so `outsideSource` stays nil on a live approval and the sheet uses its generic wording. Showing the source needs a core change, which U4b may not make.
 *   **"High risk" is the core's `high()` set plus `external` and `egress`.** The visual doc says high risk means "sends, deletes, spends, can't be undone"; the core's `high()` does not include external writes or network egress, but a sent email can't be undone.
 *   **The primary button on a high-risk sheet is named from the tool ("Send", "Delete", "Pay") and falls back to "Do it".** The doc forbids a bare "Allow" there and names no fallback.
 *   **Impact lines come from the effect label.** The doc shows examples only; the lines in `ApprovalCopy.impact` are plain-word summaries per label, and say "you can undo it" only for writes, where the core offers `/api/undo`.
@@ -69,3 +69,38 @@
 *   **Snapshots render at 1x with scroll views drawn flat, avatars still and the default blue accent.** `ImageRenderer` can't draw a `ScrollView`, has no clock, and `Color.accentColor` follows the user's system setting, which would make the references machine-dependent.
 *   **References are named `<name>.macos<major>.png`.** A missing reference is recorded and fails once; a reference for another macOS major version skips the comparison, as item 41 says.
 *   **Which screens have a snapshot:** the approval sheet (clean with all scopes, tainted with none, high risk) and the risk notice (sandbox on and off), in light and dark Dusk. Other screens get none, as item 41 says.
+
+## Choices U4b made (the core API client)
+
+### Where U4a's protocol or models had to change
+
+*   **`CalendarEvent.start` is optional, and the event has a `whenText`.** `GET /api/today` serves each event as one text line, `"Title — When: tomorrow 10:00"` (`sources::upcoming`), not as fields. A date is made only when the text is an ISO 8601 time; otherwise the served words are shown (`Fmt.time(of:)`). The alternative, inventing a date from free text, would show a wrong time. Three view lines changed (Today, the menu bar's "Next"), and nothing else.
+*   **`showsAnotherHeronBanner` waits for `hasBootstrapped`.** `client.endpoint` isn't observable, and for the runtime client it is only the real endpoint once the core has answered. Without the wait the banner could be decided from the placeholder and never re-read.
+
+### Wire shapes that differ from the models
+
+*   **Usage rows are the per-model month totals, labelled "This month".** `GET /api/usage` serves per-day token totals and per-model month totals as arrays of arrays. The Usage tab shows tokens in and out per row; only the model rows have both.
+*   **Chat history is folded.** `GET /api/sessions/{id}` returns the model's raw transcript (assistant messages with `tool_calls`, then `tool` messages). Tool results become the steps of the assistant message that called them (failed when the result starts with "Error"), and an assistant turn split by tool calls shows as one message. The step's sentence is the tool name in words plus its first argument ("write file · plan.md"), since the transcript has no summary. The core serves no per-step duration or untrusted flag, so those stay empty.
+*   **The core serves no `tainted` for a session, no row id for audit entries, and no progress or completion time for tasks.** `SessionDetail.tainted` is false unless the core starts sending it, audit entries are numbered by position, and the "14 of 22 receipts" line and "Done this week" use what U4a already does without them. A held schedule has no served reason, so `heldReason` is nil.
+*   **Provider rows join two routes.** `GET /api/providers` has the installed state and versions; the login command, the auth kind and which provider is in use come from `GET /api/settings`. A null `in_range` (no tested range yet) reads as not in range. A null `logged_in` (the core can't check) reads as signed in, because the core reports a sign-in problem itself when a run starts, and "signed out" would tell the user to log in to a CLI that may be fine. The tested range reads "2.0.0 to below 3.0.0".
+*   **Settings join four routes.** `connections` come from `GET /api/sources`, `awareness` from `/api/awareness` and `phoneConnected` from `/api/telegram`. If one of those fails the page still loads, with an empty list or false.
+
+### Gaps in the core, surfaced rather than hidden
+
+*   **A single schedule can't be paused or resumed.** `POST /api/schedules/{id}` accepts only `may`. `setScheduleEnabled` throws a plain-words error instead of sending a request the core answers with 400. Pause and Resume on a schedule row therefore do nothing visible until the core grows the route (the store ignores the error, as U4a wrote it). A follow-up for the core, not this unit.
+*   **`/api/chat` has no title field.** `sendMessage(title:)` is accepted and not sent, so "Prep my day" is titled by the core from the message, not "Prep · Tue 18 Nov".
+
+### The core process and the runtime client
+
+*   **One client that follows the core.** `ManagedCoreClient` forwards to a `CoreClient` for the current endpoint. A restart gives the core a new port and token, and the stores were built before either was known. A call made while the core starts waits for the endpoint (failing instead would make `bootstrap()` read a failed `state()` as "onboarded" and skip first run); once the core has stopped for good, calls fail with the core's last output.
+*   **A restart shows as `resync`.** The new core numbers events from 1 again, so the old position is ahead of its bus and the bus answers `resync`; the app reloads. After a `resync` the stream reconnects with no `since`, because asking again with the old one would be answered with `resync` for ever.
+*   **Two exits within 60 seconds stop the core; exits further apart restart it each time.** The spec says "restarts once, stops after a second exit within 60 seconds"; a sliding window is the reading under which a core that runs for a week and crashes isn't treated as a crash loop. "Restart Heron's core" on the card clears the history.
+*   **A core that prints no endpoint within 20 seconds is terminated** and counts as an exit, so a hung start ends at the "core stopped" card.
+*   **Stdout and stderr are read to the end for as long as the core runs.** A pipe nobody reads fills and blocks the core. The last lines are kept and shown on the card.
+*   **`HERON_CLI_PATH` points a development build at another core binary, and `HERON_PREVIEW=1` runs on `PreviewCoreClient`.** `swift run Heron` has no `Contents/MacOS/heron-cli`; without these a development build could only show the "core stopped" card. Neither is read in a release build's normal path.
+
+### Tests
+
+*   **Decoding tests assert values, and the fixture folder is enumerated.** A new recording with no decoder in `ModelDecodingTests` fails the suite.
+*   **Routes with no recording (memories, tasks, schedules, inbox, suggestions, usage, sources) are tested against JSON copied from the core's serde structs.** They are unverified against a live core until Ut records them.
+*   **No test opens a port.** `EventStream` takes an injected connection, `CoreClient` is tested through a `URLProtocol` stub, and `CoreProcess` through a fake core script with an injected clock.
