@@ -7446,7 +7446,16 @@
     }
   },
   "U4d": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "ee1f6a59d07347ec95051e97faf8f2b6",
+        "ended_at": "2026-11-19T17:24:08.689135+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-19T17:17:42.044900+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -7458,22 +7467,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "ee1f6a59d07347ec95051e97faf8f2b6",
-      "base_branch": "skein/U4d__integrate-base",
-      "claim_token": "452056a9e66641c8b65ceb9323bb6e64",
-      "claimed_at": "2026-11-19T17:17:42.044900+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T17:22:42.931355+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3l",
       "U4c"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac",
+        "duration_ms": 35599,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4d_20261119T172332577884_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4d_20261119T172408178727_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I also appended the choices above to `macos/HeronMac/DESIGN-CHOICES.md`. I didn't run testteeth: it supports Python, TypeScript/JavaScript and Rust, and this change is Swift.",
     "id": "U4d",
     "integration_for": null,
     "intent": {
@@ -7485,13 +7506,115 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "ee1f6a59d07347ec95051e97faf8f2b6",
+      "base_commit": "fd5f950459c28a46a1bd8cc3490e15ce6ee8e8ff",
+      "changed_files": [
+        "macos/HeronMac/DESIGN-CHOICES.md",
+        "macos/HeronMac/Sources/HeronCore/CoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/CoreClientProtocol.swift",
+        "macos/HeronMac/Sources/HeronCore/ManagedCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/Models.swift",
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/PreviewData.swift",
+        "macos/HeronMac/Sources/HeronCore/Wire.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/SettingsAndFirstRunStores.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/RootView.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/SettingsView.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/CoreClientTests.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/ModelDecodingTests.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/PreviewCoreClientTests.swift",
+        "macos/HeronMac/Tests/HeronUITests/ScreenStoreTests.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/NeverViews.swift",
+        "macos/HeronMac/Tests/HeronUITests/NeverSnapshotTests.swift",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/never-confirm-dark.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/never-confirm-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/never-error-dark.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/never-error-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/never-long-dark.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/never-long-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/never-long-rows-light.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/never-short-dark.macos27.png",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/never-short-light.macos27.png"
+      ],
+      "commit": "5157a943992fd5656bb3efe0d496570aa6186d0f",
+      "diff_stats": {
+        "macos/HeronMac/DESIGN-CHOICES.md": {
+          "added": 10,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/CoreClient.swift": {
+          "added": 2,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/CoreClientProtocol.swift": {
+          "added": 4,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronCore/ManagedCoreClient.swift": {
+          "added": 2,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/Models.swift": {
+          "added": 17,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift": {
+          "added": 16,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewData.swift": {
+          "added": 15,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/Wire.swift": {
+          "added": 6,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/SettingsAndFirstRunStores.swift": {
+          "added": 33,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/NeverViews.swift": {
+          "added": 127,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/RootView.swift": {
+          "added": 3,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/SettingsView.swift": {
+          "added": 3,
+          "deleted": 1
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/CoreClientTests.swift": {
+          "added": 27,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/ModelDecodingTests.swift": {
+          "added": 10,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/PreviewCoreClientTests.swift": {
+          "added": 24,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronUITests/NeverSnapshotTests.swift": {
+          "added": 105,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronUITests/ScreenStoreTests.swift": {
+          "added": 81,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Mac app: the Never list with Remove (35h)",
-    "version": 14,
+    "version": 17,
     "worktree": {
       "base_branch": "skein/U4d__integrate-base",
       "base_commit": "fd5f950459c28a46a1bd8cc3490e15ce6ee8e8ff",
