@@ -7658,9 +7658,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 14,
+    "version": 15,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "branch": null,
