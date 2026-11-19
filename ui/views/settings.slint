@@ -3,6 +3,7 @@
 // interface.
 
 import { TextEdit, ComboBox, CheckBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { PageScroll } from "../components/page_scroll.slint";
 import { Button } from "../components/button.slint";
 import { Theme } from "../components/theme.slint";
 import { SectionTitle, LabeledInput, ChoiceCard } from "../components/atoms.slint";
@@ -165,7 +166,11 @@ export component SettingsView inherits Rectangle {
 
     // Settings is longer than any window. Without a scroll region the
     // later sections and the Save button sit below the window edge.
-    scroll := ScrollView {
+    out property <length> overflow-x: scroll.overflow-x;
+    out property <length> overflow-y: scroll.overflow-y;
+    public function scroll-to-end() { scroll.content-y = -scroll.overflow-y; }
+
+    scroll := PageScroll {
         width: parent.width;
         height: parent.height;
         VerticalBox {

@@ -22,7 +22,8 @@
 // Stop buttons already cover both actions if a key guess is wrong.
 // Slint =1.18.1, per ~/workspace/HERON-Slint-Plan.md.
 
-import { TextEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { TextEdit, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { PageScroll } from "../components/page_scroll.slint";
 import { Button } from "../components/button.slint";
 import { Theme } from "../components/theme.slint";
 import { ActionButton } from "../components/action_button.slint";
@@ -271,6 +272,14 @@ export component ChatView inherits FocusScope {
     // Otherwise a large streamed delta disables following before the
     // thread-version handler can move the viewport to the new bottom.
     in-out property <bool> follow: true;
+    out property <length> thread-overflow-x: thread-scroll.overflow-x;
+    out property <length> thread-overflow-y: thread-scroll.overflow-y;
+    out property <length> thread-scroll-y: thread-scroll.content-y;
+    // Where the thread sits in the window, so a test can check that no
+    // message text is drawn in the thread's left margin.
+    out property <length> thread-x: thread-scroll.absolute-position.x;
+    out property <length> thread-y: thread-scroll.absolute-position.y;
+    out property <length> thread-height: thread-scroll.visible-height;
     property <bool> show-latest: !follow;
     changed thread-version => {
         if (root.follow) { thread-scroll.content-y = thread-box.height > thread-scroll.height ? thread-scroll.height - thread-box.height : 0px; }
@@ -355,7 +364,7 @@ export component ChatView inherits FocusScope {
         }
 
         // Thread.
-        thread-scroll := ScrollView {
+        thread-scroll := PageScroll {
             preferred-height: 240px;
             min-height: 0px;
             vertical-stretch: 1;

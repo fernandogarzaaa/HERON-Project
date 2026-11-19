@@ -2,7 +2,8 @@
 // the views only through its own forwarded properties and callbacks, so
 // each view keeps its own file and its own component.
 
-import { ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { PageScroll } from "../components/page_scroll.slint";
 import { Button } from "../components/button.slint";
 import { SessionRow, Spacer } from "common.slint";
 import { NavItem } from "../components/atoms.slint";
@@ -22,6 +23,8 @@ export component Sidebar inherits Rectangle {
     // the connection state. The Shell posts it from its state poll.
     in property <string> status-text: "";
     in property <[SessionRow]> sessions;
+    out property <length> sessions-overflow-x: sessions-scroll.overflow-x;
+    out property <length> sessions-overflow-y: sessions-scroll.overflow-y;
     callback navigate(string);
     callback open-session(string);
     callback new-conversation();
@@ -71,7 +74,7 @@ export component Sidebar inherits Rectangle {
         // The session list scrolls independently. Without this bounded
         // region many sessions push the model/status footer off-screen
         // at the window's minimum height.
-        ScrollView {
+        sessions-scroll := PageScroll {
             vertical-stretch: 1;
             vertical-scrollbar-policy: as-needed;
             VerticalBox {

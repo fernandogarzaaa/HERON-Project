@@ -93,6 +93,44 @@ export component MainWindow inherits Window {
     out property <length> debug-onboarding-content-height: onboarding-view.content-height;
     in-out property <length> debug-settings-scroll-y <=> settings-view.scroll-y;
     out property <length> debug-settings-overflow: settings-view.overflow;
+    // How far the current view's scroll region runs past its visible
+    // area. Horizontal overflow means some text did not wrap.
+    out property <length> debug-view-overflow-x:
+        root.current-view == "awareness" ? awareness-view.overflow-x :
+        root.current-view == "memory" ? memory-view.overflow-x :
+        root.current-view == "tasks" ? tasks-view.overflow-x :
+        root.current-view == "reminders" ? reminders-view.overflow-x :
+        root.current-view == "usage" ? usage-view.overflow-x :
+        root.current-view == "activity" ? activity-view.overflow-x :
+        root.current-view == "onboarding" ? onboarding-view.overflow-x :
+        root.current-view == "settings" ? settings-view.overflow-x :
+        chat-view.thread-overflow-x;
+    out property <length> debug-view-overflow-y:
+        root.current-view == "awareness" ? awareness-view.overflow-y :
+        root.current-view == "memory" ? memory-view.overflow-y :
+        root.current-view == "tasks" ? tasks-view.overflow-y :
+        root.current-view == "reminders" ? reminders-view.overflow-y :
+        root.current-view == "usage" ? usage-view.overflow-y :
+        root.current-view == "activity" ? activity-view.overflow-y :
+        root.current-view == "onboarding" ? onboarding-view.overflow-y :
+        root.current-view == "settings" ? settings-view.overflow-y :
+        chat-view.thread-overflow-y;
+    out property <length> debug-chat-scroll-y: chat-view.thread-scroll-y;
+    out property <length> debug-chat-thread-x: chat-view.thread-x;
+    out property <length> debug-chat-thread-y: chat-view.thread-y;
+    out property <length> debug-chat-thread-height: chat-view.thread-height;
+    out property <length> debug-sessions-overflow-x: sidebar.sessions-overflow-x;
+    out property <length> debug-sessions-overflow-y: sidebar.sessions-overflow-y;
+    public function debug-scroll-view-to-end() {
+        if (root.current-view == "awareness") { awareness-view.scroll-to-end(); }
+        if (root.current-view == "memory") { memory-view.scroll-to-end(); }
+        if (root.current-view == "tasks") { tasks-view.scroll-to-end(); }
+        if (root.current-view == "reminders") { reminders-view.scroll-to-end(); }
+        if (root.current-view == "usage") { usage-view.scroll-to-end(); }
+        if (root.current-view == "activity") { activity-view.scroll-to-end(); }
+        if (root.current-view == "onboarding") { onboarding-view.scroll-to-end(); }
+        if (root.current-view == "settings") { settings-view.scroll-to-end(); }
+    }
     // Current conversation id, owned by Rust. Empty means "no session yet";
     // the server creates one lazily on the first message sent.
     in-out property <string> session-id: "";
@@ -412,7 +450,7 @@ export component MainWindow inherits Window {
         // in src/bin/desktop/views_slint.rs drives it through the
         // forwarded sidebar-* properties and callbacks. The status line
         // under the footer is the Shell's backend status.
-        Sidebar {
+        sidebar := Sidebar {
             width: 240px;
             reduce-motion: root.sidebar-reduce-motion;
             current-view: root.sidebar-current-view;
@@ -473,7 +511,10 @@ export component MainWindow inherits Window {
                 // The Chat lane's view. It owns the header, thread,
                 // composer, empty state, and approval cards; Rust owns
                 // the state machine behind it (see src/bin/desktop/).
-                if root.error-message == "" : ChatView {
+                // Hidden, not removed, when the backend failed: the tests
+                // read the thread's scroll geometry through this id.
+                chat-view := ChatView {
+                    visible: root.error-message == "";
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
                     composer-top-inset: root.composer-top-inset;
@@ -562,7 +603,7 @@ export component MainWindow inherits Window {
                 visible: root.current-view == "awareness";
                 opacity: root.current-view == "awareness" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                AwarenessView {
+                awareness-view := AwarenessView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
                     reduce-motion: root.awareness-reduce-motion;
@@ -596,7 +637,7 @@ export component MainWindow inherits Window {
                 visible: root.current-view == "memory";
                 opacity: root.current-view == "memory" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                MemoryView {
+                memory-view := MemoryView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
                     reduce-motion: root.memory-reduce-motion;
@@ -618,7 +659,7 @@ export component MainWindow inherits Window {
                 visible: root.current-view == "tasks";
                 opacity: root.current-view == "tasks" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                TasksView {
+                tasks-view := TasksView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
                     reduce-motion: root.tasks-reduce-motion;
@@ -637,7 +678,7 @@ export component MainWindow inherits Window {
                 visible: root.current-view == "reminders";
                 opacity: root.current-view == "reminders" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                RemindersView {
+                reminders-view := RemindersView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
                     reduce-motion: root.reminders-reduce-motion;
@@ -668,7 +709,7 @@ export component MainWindow inherits Window {
                 visible: root.current-view == "usage";
                 opacity: root.current-view == "usage" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                UsageView {
+                usage-view := UsageView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
                     reduce-motion: root.usage-reduce-motion;
@@ -715,7 +756,7 @@ export component MainWindow inherits Window {
                 visible: root.current-view == "activity";
                 opacity: root.current-view == "activity" ? 1 : 0;
                 animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                ActivityView {
+                activity-view := ActivityView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
                     reduce-motion: root.activity-reduce-motion;
