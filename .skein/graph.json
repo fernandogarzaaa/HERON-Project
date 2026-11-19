@@ -8745,7 +8745,16 @@
     }
   },
   "U3v": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "27713dcb01a14bf8b974c1b5cafb6f53",
+        "ended_at": "2026-11-19T20:55:31.922146+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T20:51:14.827721+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -8757,22 +8766,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "27713dcb01a14bf8b974c1b5cafb6f53",
-      "base_branch": "skein/U3v__integrate-base",
-      "claim_token": "b640cc32b8bf493a93d7731c03cf33d3",
-      "claimed_at": "2026-11-19T20:51:14.827721+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T20:51:14.827721+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3u",
       "SYNC30"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- a_near_echo_of_an_in_space_outside_row_stays_unconfirmed a_user_restating_an_outside_row_keeps_one_confirmed_version an_exact_echo_of_an_in_space_outside_row_stays_unconfirmed a_near_echo_of_a_stale_outside_row_stays_unconfirmed restore_keeps_pause_telegram_lock_and_damaged_nevers_from_now",
+        "duration_ms": 33524,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3v_20261119T205458230730_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3v_20261119T205531757688_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U3v",
     "integration_for": null,
     "intent": {
@@ -8784,13 +8805,31 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "27713dcb01a14bf8b974c1b5cafb6f53",
+      "base_commit": "a096de351842999370d1288dc32472cb006e2d6e",
+      "changed_files": [
+        "src/app.rs",
+        "src/memory.rs"
+      ],
+      "commit": "dfa85c3393b6860c21fbd194d1a1ff9571834e59",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 1,
+          "deleted": 0
+        },
+        "src/memory.rs": {
+          "added": 76,
+          "deleted": 6
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Fixes from the U3u review (35r)",
-    "version": 4,
+    "version": 13,
     "worktree": {
       "base_branch": "skein/U3v__integrate-base",
       "base_commit": "a096de351842999370d1288dc32472cb006e2d6e",
