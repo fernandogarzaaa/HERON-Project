@@ -4879,15 +4879,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "af7c84881ec7450a83df2bd32a07be29",
+      "base_branch": "skein/U3h__integrate-base",
+      "claim_token": "579d676cf8674e99a45a2ae40c8459eb",
+      "claimed_at": "2026-11-19T00:42:03.845001+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T00:42:03.845001+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U3g",
@@ -4910,9 +4910,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fixes from U3g's review: stale settings save, startup window, unreadable config fails closed, never across cores",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U3h__integrate-base",
       "branch": null,
