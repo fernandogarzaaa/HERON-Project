@@ -480,6 +480,10 @@ impl Llm for SwappableLlm {
         Ok(resp)
     }
     async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        // Embeddings send memory text to the provider: gated like chat.
+        if let Some(store) = self.1.get() {
+            crate::risk_notice::check(store)?;
+        }
         self.current().embed(texts).await
     }
     fn audit_identity(&self) -> (String, String) {

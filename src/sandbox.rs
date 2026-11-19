@@ -71,8 +71,7 @@ pub enum Profile<'a> {
     /// A shell command. `grants` are the folders and single paths the user granted for reading.
     Shell { grants: Vec<ReadGrant> },
     /// A CLI provider child. `binary_dir` is the install folder of its binary. `extra_read` holds the
-    /// interpreter's folder when the binary is a script, and in debug builds the folder of Heron's own
-    /// executable when the hybrid topology is on.
+    /// interpreter's folder when the binary is a script.
     Cli { spec: &'a CliSpec, binary_dir: PathBuf, extra_read: Vec<PathBuf> },
 }
 
@@ -485,12 +484,23 @@ impl ReadGrant {
 /// What the user granted for reading: the standing `read:` rules, plus the `read:` and `read=:` grants
 /// of one conversation when `session_id` is given. Too-broad folders and relative paths are left out.
 pub fn read_grants(cfg: &Config, store: &crate::store::Store, session_id: Option<&str>) -> Vec<ReadGrant> {
+    read_grants_from(standing_rules(cfg, store), store, session_id)
+}
+
+/// The standing rules: those in the settings, and the saved "always" answers as they are now.
+pub fn standing_rules(cfg: &Config, store: &crate::store::Store) -> Vec<String> {
     let mut rules: Vec<String> = cfg.permissions.allow.clone();
-    let keys = std::iter::once("allow_rules".to_string()).chain(session_id.map(|s| format!("grants:{s}")));
-    for key in keys {
-        if let Some(saved) = store.kv_get(&key) {
-            rules.extend(serde_json::from_str::<Vec<String>>(&saved).unwrap_or_default());
-        }
+    if let Some(saved) = store.kv_get("allow_rules") {
+        rules.extend(serde_json::from_str::<Vec<String>>(&saved).unwrap_or_default());
+    }
+    rules
+}
+
+/// [`read_grants`], with the standing rules given.
+pub fn read_grants_from(standing: Vec<String>, store: &crate::store::Store, session_id: Option<&str>) -> Vec<ReadGrant> {
+    let mut rules = standing;
+    if let Some(saved) = session_id.and_then(|s| store.kv_get(&format!("grants:{s}"))) {
+        rules.extend(serde_json::from_str::<Vec<String>>(&saved).unwrap_or_default());
     }
     let mut out: Vec<ReadGrant> = vec![];
     for rule in rules {

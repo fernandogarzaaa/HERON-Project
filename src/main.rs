@@ -91,14 +91,7 @@ enum Cmd {
     /// Show how many tokens have been used, what is left and where the month is heading
     Usage,
     /// Serve Heron's memory and tasks to other apps over MCP (stdio)
-    McpServe {
-        /// Advertise the tools listed in --schemas and refuse every call (used inside a CLI's sandbox).
-        #[arg(long)]
-        refuse_all: bool,
-        /// JSON array of {name, description, inputSchema} for --refuse-all.
-        #[arg(long)]
-        schemas: Option<PathBuf>,
-    },
+    McpServe,
     /// Save a complete copy of Heron's data (conversations, memory, reminders, automations, activity log)
     Backup {
         /// Where to write the copy (default: the `backups` folder inside Heron's home). Must not exist yet.
@@ -285,6 +278,8 @@ fn ensure_risk_notice(app: &App) -> Result<()> {
 
 async fn turn(app: &App, agent: &Agent, session: &mut Session, input: &str) -> Result<String> {
     let sink = terminal_sink();
+    // What another Heron on this home granted or revoked since the last turn applies to this one.
+    app.reload_rules();
     let result = tokio::select! {
         r = agent.run_turn(session, input, &sink) => r,
         _ = tokio::signal::ctrl_c() => {
@@ -544,8 +539,11 @@ async fn doctor(cfg: &Config) -> Result<()> {
     println!("{} home        {}", ok(cfg.ensure_home().is_ok()), cfg.home.display());
     let config_path = cfg.home.join("config.toml");
     println!("{} config      {}", ok(true), if config_path.exists() { config_path.display().to_string() } else { "defaults (run `heron init` to create a config file)".into() });
+    // Kept for the model call below, so a CLI version the user accepted is honoured here too.
+    let mut doctor_store = None;
     match heron::store::Store::open(&cfg.db_path()) {
         Ok(store) => {
+            doctor_store = Some(store.clone());
             let format = store.schema_version().unwrap_or(-1);
             match store.integrity() {
                 Ok(problems) if problems.is_empty() => println!("{} database    {} (data format {format}, checked: sound)", ok(true), cfg.db_path().display()),
@@ -600,7 +598,7 @@ async fn doctor(cfg: &Config) -> Result<()> {
     let mut quick = cfg.clone();
     quick.llm.max_retries = 0;
     quick.llm.request_timeout_secs = 30;
-    let llm = heron::llm::build(&quick)?;
+    let llm = heron::llm::build_with_store(&quick, doctor_store.as_ref())?;
     match llm.chat(ChatRequest { messages: vec![Message::user("Reply with the single word: ok")], tools: vec![], model: None, max_tokens: Some(16) }, &|_| {}).await {
         Ok(r) => println!("{} model call  replied \"{}\"", ok(true), heron::util::preview(r.message.text(), 40)),
         Err(e) => println!("{} model call  {}", ok(false), heron::util::preview(&format!("{e:#}"), 300)),
@@ -647,21 +645,7 @@ async fn main() {
 
 async fn real_main() -> Result<()> {
     let cli = Cli::parse();
-    // The refuse-all server runs inside a CLI's sandbox, where Heron's home is Refused: it returns
-    // before the config is loaded or the database opened.
-    if let Some(Cmd::McpServe { refuse_all: true, schemas }) = &cli.command {
-        let Some(schemas) = schemas else { bail!("--refuse-all needs --schemas <file>") };
-        let schemas = heron::mcp::read_refuse_all_schemas(schemas)?;
-        return heron::mcp::serve_refuse_all(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &schemas).await;
-    }
-    let mut cfg = Config::load()?;
-    if let Some(m) = &cli.mode {
-        Mode::parse(m)?;
-        cfg.permissions.mode = m.clone();
-    }
-    if let Some(m) = &cli.model {
-        cfg.llm.model = m.clone();
-    }
+    let mut cfg = Config::load()?.with_cli_overrides(cli.mode.as_deref(), cli.model.as_deref())?;
     let command = cli.command.unwrap_or(Cmd::Chat { cont: false, session: None });
 
     match &command {
@@ -702,13 +686,13 @@ async fn real_main() -> Result<()> {
         _ => {}
     }
 
-    let uses_app_folder = matches!(command, Cmd::Serve { .. } | Cmd::Daemon | Cmd::McpServe { .. });
+    let uses_app_folder = matches!(command, Cmd::Serve { .. } | Cmd::Daemon | Cmd::McpServe);
     let workspace = match cli.workspace {
         Some(w) => w,
         None if uses_app_folder && !cfg.agent.workspace.is_empty() => cfg.app_workspace(),
         None => std::env::current_dir().context("cannot determine current directory")?,
     };
-    if matches!(command, Cmd::McpServe { .. }) {
+    if matches!(command, Cmd::McpServe) {
         cfg.mcp.servers.clear(); // acting as a server: do not spawn our own MCP clients
     }
     let app = Arc::new(App::build(cfg, workspace).await?);
@@ -836,7 +820,7 @@ async fn real_main() -> Result<()> {
             }
             Ok(())
         }
-        Cmd::McpServe { .. } => {
+        Cmd::McpServe => {
             let agent = app.agent(Arc::new(DenyAll));
             // One session id per connection, so each program's calls are told apart in the log.
             let ctx = agent.tool_ctx(&format!("mcp-{}", uuid::Uuid::new_v4().simple()));

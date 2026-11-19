@@ -48,6 +48,8 @@ pub struct Store {
     conn: Arc<Mutex<Connection>>,
     /// Where the database file is; `None` for one that lives only in memory.
     path: Option<PathBuf>,
+    /// The live permission policy of the app that owns this store (see [`Store::live_policy`]).
+    live_policy: Arc<std::sync::RwLock<std::sync::Weak<crate::permissions::Policy>>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -585,7 +587,7 @@ impl Store {
                 migrate(&mut conn, STEPS)?;
             }
         }
-        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: Some(path.to_path_buf()) })
+        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: Some(path.to_path_buf()), live_policy: Default::default() })
     }
 
     #[cfg(test)]
@@ -598,7 +600,7 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(PRAGMAS)?;
         migrate(&mut conn, STEPS)?;
-        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: None })
+        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: None, live_policy: Default::default() })
     }
 
     /// The data format of the open database.
@@ -690,6 +692,18 @@ impl Store {
         db.execute_batch("PRAGMA optimize;")?;
         db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).optional()?;
         Ok(())
+    }
+
+    /// The live permission policy of the app that owns this store, while that app exists. A tool
+    /// call reads its standing `read:` rules from here rather than from its settings snapshot, so a
+    /// rule revoked during a run is gone for the run's next command.
+    pub fn live_policy(&self) -> Option<Arc<crate::permissions::Policy>> {
+        self.live_policy.read().unwrap_or_else(|e| e.into_inner()).upgrade()
+    }
+
+    /// Make `policy` the one [`Store::live_policy`] returns, for this store and its clones.
+    pub(crate) fn set_live_policy(&self, policy: &Arc<crate::permissions::Policy>) {
+        *self.live_policy.write().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(policy);
     }
 
     fn db(&self) -> MutexGuard<'_, Connection> {
@@ -1589,6 +1603,19 @@ impl Store {
     pub fn kv_set(&self, k: &str, v: &str) -> Result<()> {
         self.db().execute("INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", params![k, v])?;
         Ok(())
+    }
+
+    /// Read a value and write what `change` makes of it, holding the database's write lock from the
+    /// read to the write, so another program on the same database cannot write in between. Returns
+    /// what was written.
+    pub fn kv_update(&self, k: &str, change: impl FnOnce(Option<String>) -> String) -> Result<String> {
+        let mut db = self.db();
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let old: Option<String> = tx.query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional()?;
+        let new = change(old);
+        tx.execute("INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", params![k, new])?;
+        tx.commit()?;
+        Ok(new)
     }
 }
 

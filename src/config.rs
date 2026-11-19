@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -17,6 +17,23 @@ pub struct Config {
     pub telegram: TelegramConfig,
     #[serde(skip)]
     pub home: PathBuf,
+    /// The standing rules as [`Config::read_saved`] read them from `config.toml`; None when these
+    /// settings were not read from the file (built in memory, or no file yet). A core starts from
+    /// these as what it last read there, so a rule revoked while it starts is taken out at its first
+    /// reload.
+    #[serde(skip)]
+    pub loaded_rules: Option<SavedRules>,
+    /// Which settings `App` held when this copy was taken from it. A whole copy is saved only while
+    /// that is still current (see `App::update_config`).
+    #[serde(skip)]
+    pub revision: u64,
+}
+
+/// `permissions.allow` and `permissions.deny` as they are in `config.toml`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SavedRules {
+    pub allow: Vec<String>,
+    pub deny: Vec<String>,
 }
 
 /// Messaging gateway. The bot token itself is kept with the other secrets.
@@ -251,6 +268,8 @@ impl Default for Config {
             sources: SourcesConfig::default(),
             telegram: TelegramConfig::default(),
             home: default_home(),
+            loaded_rules: None,
+            revision: 0,
         }
     }
 }
@@ -324,6 +343,75 @@ impl Default for ServerConfig {
     }
 }
 
+/// Set in `saved` every value that differs between `old` and `new`, leaving the rest of `saved` alone.
+/// Tables are compared key by key. A list is written whole when `saved` still holds `old`; otherwise
+/// only the items `new` adds to or removes from `old` are applied to `saved`. Any other value (a
+/// string, a number) is changed as a whole.
+fn apply_changes(saved: &mut toml::Value, old: &toml::Value, new: &toml::Value) {
+    use toml::Value;
+    if old == new {
+        return;
+    }
+    if let (Value::Array(old_items), Value::Array(new_items), Value::Array(saved_items)) = (old, new, &mut *saved) {
+        // Another Heron on this home may have changed the list since this one read it: apply only
+        // what this one added and removed, so its stale copy of the rest is never written back.
+        if old != &Value::Array(saved_items.clone()) {
+            saved_items.retain(|v| !(old_items.contains(v) && !new_items.contains(v)));
+            for v in new_items.iter().filter(|v| !old_items.contains(v)) {
+                if !saved_items.contains(v) {
+                    saved_items.push(v.clone());
+                }
+            }
+            return;
+        }
+    }
+    let (Value::Table(old), Value::Table(new)) = (old, new) else {
+        *saved = new.clone();
+        return;
+    };
+    if !saved.is_table() {
+        *saved = Value::Table(Default::default());
+    }
+    let Value::Table(saved) = saved else { return };
+    for key in old.keys().chain(new.keys().filter(|k| !old.contains_key(*k))) {
+        match (old.get(key), new.get(key)) {
+            (Some(o), Some(n)) => match saved.get_mut(key) {
+                Some(s) => apply_changes(s, o, n),
+                None if o != n => {
+                    saved.insert(key.clone(), n.clone());
+                }
+                None => {}
+            },
+            (None, Some(n)) => {
+                saved.insert(key.clone(), n.clone());
+            }
+            (Some(_), None) => {
+                saved.remove(key);
+            }
+            (None, None) => {}
+        }
+    }
+}
+
+/// The value at a dotted path (`"permissions.mode"`) in a table of settings.
+fn toml_get<'a>(value: &'a toml::Value, path: &str) -> Option<&'a toml::Value> {
+    path.split('.').try_fold(value, |v, key| v.get(key))
+}
+
+/// Set the value at a dotted path, creating the tables on the way.
+fn toml_set(value: &mut toml::Value, path: &str, new: toml::Value) {
+    let mut keys: Vec<&str> = path.split('.').collect();
+    let Some(last) = keys.pop() else { return };
+    let mut at = value;
+    for key in keys {
+        let Some(table) = at.as_table_mut() else { return };
+        at = table.entry(key).or_insert_with(|| toml::Value::Table(Default::default()));
+    }
+    if let Some(table) = at.as_table_mut() {
+        table.insert(last.to_string(), new);
+    }
+}
+
 pub fn default_home() -> PathBuf {
     if let Ok(h) = std::env::var("HERON_HOME") {
         return PathBuf::from(h);
@@ -334,29 +422,7 @@ pub fn default_home() -> PathBuf {
 impl Config {
     /// Load config from `$HERON_HOME/config.toml` (defaults if absent), then apply env overrides.
     pub fn load() -> Result<Config> {
-        let home = default_home();
-        let path = home.join("config.toml");
-        let mut cfg: Config = if path.exists() {
-            let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-            toml::from_str(&text).with_context(|| {
-                let previous = home.join("config.toml.previous");
-                if previous.exists() {
-                    format!("parsing {} (the settings from before the last save are in {}; copy that file over it to go back)", path.display(), previous.display())
-                } else {
-                    format!("parsing {}", path.display())
-                }
-            })?
-        } else {
-            let mut c = Config::default();
-            // Sensible auto-detection when there is no config file yet.
-            if std::env::var("OPENROUTER_API_KEY").is_err() && std::env::var("OPENAI_API_KEY").is_ok() {
-                c.llm.base_url = "https://api.openai.com/v1".into();
-                c.llm.api_key_env = "OPENAI_API_KEY".into();
-                c.llm.model = "gpt-5.5".into();
-            }
-            c
-        };
-        cfg.home = home;
+        let mut cfg = Self::read_saved(&default_home())?;
         if let Ok(v) = std::env::var("HERON_MODEL") {
             cfg.llm.model = v;
         }
@@ -376,6 +442,86 @@ impl Config {
             cfg.permissions.mode = v;
         }
         Ok(cfg)
+    }
+
+    /// The settings as saved in `<home>/config.toml` (defaults if absent), without the overrides from
+    /// the environment or the command line.
+    pub fn read_saved(home: &Path) -> Result<Config> {
+        let home = home.to_path_buf();
+        let path = home.join("config.toml");
+        let mut cfg: Config = if path.exists() {
+            let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            let mut cfg: Config = toml::from_str(&text).with_context(|| {
+                let previous = home.join("config.toml.previous");
+                if previous.exists() {
+                    format!("parsing {} (the settings from before the last save are in {}; copy that file over it to go back)", path.display(), previous.display())
+                } else {
+                    format!("parsing {}", path.display())
+                }
+            })?;
+            cfg.loaded_rules = Some(SavedRules { allow: cfg.permissions.allow.clone(), deny: cfg.permissions.deny.clone() });
+            cfg
+        } else {
+            let mut c = Config::default();
+            // Sensible auto-detection when there is no config file yet.
+            if std::env::var("OPENROUTER_API_KEY").is_err() && std::env::var("OPENAI_API_KEY").is_ok() {
+                c.llm.base_url = "https://api.openai.com/v1".into();
+                c.llm.api_key_env = "OPENAI_API_KEY".into();
+                c.llm.model = "gpt-5.5".into();
+            }
+            c
+        };
+        cfg.home = home;
+        Ok(cfg)
+    }
+
+    /// Apply `heron --mode` and `--model`. They hold for this run only: [`Config::save_changes`]
+    /// never writes them.
+    pub fn with_cli_overrides(mut self, mode: Option<&str>, model: Option<&str>) -> Result<Config> {
+        if let Some(m) = mode {
+            crate::permissions::Mode::parse(m)?;
+            self.permissions.mode = m.to_string();
+        }
+        if let Some(m) = model {
+            self.llm.model = m.to_string();
+        }
+        Ok(self)
+    }
+
+    /// Save the settings that differ between `before` and `self`, and only those: the file is read
+    /// again and each changed field is set in it. A value that came from the command line or the
+    /// environment (`--mode yolo`, `--model`, `HERON_MODEL`) is in both and is never written.
+    ///
+    /// `chosen` names fields the user set explicitly (`"permissions.mode"`): they are written as they
+    /// are in `self` even when `before` already held the same value, as it does under an override.
+    /// A list field is merged (see [`apply_changes`]), so this never writes back a whole list that
+    /// another Heron on this home has changed since. The file is read and written under
+    /// [`Config::lock_file`]. Returns the settings as written.
+    pub fn save_changes(&self, before: &Config, chosen: &[&str]) -> Result<Config> {
+        let (old, new) = (toml::Value::try_from(before)?, toml::Value::try_from(self)?);
+        let _lock = self.lock_file()?;
+        let mut saved = toml::Value::try_from(Self::read_saved(&self.home)?)?;
+        apply_changes(&mut saved, &old, &new);
+        for path in chosen {
+            if let Some(value) = toml_get(&new, path) {
+                toml_set(&mut saved, path, value.clone());
+            }
+        }
+        let mut merged: Config = saved.try_into().context("the changed settings could not be combined with the saved ones; nothing was saved")?;
+        merged.home = self.home.clone();
+        merged.write_file()?;
+        Ok(merged)
+    }
+
+    /// Hold the lock that every Heron on this home takes to read-and-write `config.toml`, until the
+    /// returned file is dropped. It is a file of its own: `config.toml` is replaced by a rename on each
+    /// save, so a lock on it would not outlive the save.
+    fn lock_file(&self) -> Result<std::fs::File> {
+        self.ensure_home()?;
+        let path = self.home.join("config.lock");
+        let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).with_context(|| format!("opening {}", path.display()))?;
+        file.lock().with_context(|| format!("locking {}", path.display()))?;
+        Ok(file)
     }
 
     pub fn api_key(&self) -> Option<String> {
@@ -530,6 +676,12 @@ impl Config {
     /// with. The settings that were there are kept as `config.toml.previous`, so one bad save can be
     /// taken back by hand. Nothing is written unless it reads back as valid settings.
     pub fn save(&self) -> Result<()> {
+        let _lock = self.lock_file()?;
+        self.write_file()
+    }
+
+    /// [`Config::save`], with the lock already held.
+    fn write_file(&self) -> Result<()> {
         use std::io::Write;
         self.ensure_home()?;
         let path = self.home.join("config.toml");
@@ -794,6 +946,49 @@ mod tests {
         assert_eq!(parsed.llm.model, d.llm.model);
         assert_eq!(parsed.permissions.mode, "ask");
         assert_eq!(parsed.server.port, 7878);
+    }
+
+    #[test]
+    fn a_saved_list_takes_only_this_ones_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut first = Config { home: dir.path().join("home"), ..Default::default() };
+        first.permissions.allow = vec!["shell:git *".into(), "shell:make *".into()];
+        first.save().unwrap();
+        let on_disk = || Config::read_saved(&first.home).unwrap();
+        // Two Herons read the same settings. One removes a rule.
+        let stale = first.clone();
+        let mut a = first.clone();
+        a.permissions.allow = vec!["shell:make *".into()];
+        a.save_changes(&first, &[]).unwrap();
+        // The other never read that change. It removes the second rule from its old copy: the first
+        // stays removed, and only its own removal is applied.
+        let mut b = stale.clone();
+        b.permissions.allow = vec!["shell:git *".into()];
+        let written = b.save_changes(&stale, &[]).unwrap();
+        assert!(on_disk().permissions.allow.is_empty(), "{:?}", on_disk().permissions.allow);
+        assert_eq!(written.permissions.allow, on_disk().permissions.allow);
+        // What it adds from its old copy is added to what is there.
+        let mut c = b.clone();
+        c.permissions.allow.push("shell:ls *".into());
+        c.save_changes(&b, &[]).unwrap();
+        assert_eq!(on_disk().permissions.allow, vec!["shell:ls *".to_string()]);
+
+        // When nobody else changed it, a list is written as given, order included.
+        let before = on_disk();
+        let mut d = before.clone();
+        d.permissions.deny = vec!["write_file:*".into(), "shell:*".into()];
+        d.save_changes(&before, &[]).unwrap();
+        let mut e = d.clone();
+        e.permissions.deny = vec!["shell:*".into(), "write_file:*".into()];
+        e.save_changes(&d, &[]).unwrap();
+        assert_eq!(on_disk().permissions.deny, vec!["shell:*".to_string(), "write_file:*".to_string()]);
+
+        // A field named as chosen is written even when it is unchanged in memory.
+        let held = on_disk().with_cli_overrides(Some("yolo"), None).unwrap();
+        held.save_changes(&held, &[]).unwrap();
+        assert_eq!(on_disk().permissions.mode, "ask", "an override is not written");
+        held.save_changes(&held, &["permissions.mode"]).unwrap();
+        assert_eq!(on_disk().permissions.mode, "yolo", "a choice is");
     }
 
     #[test]

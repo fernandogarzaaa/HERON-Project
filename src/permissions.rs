@@ -178,6 +178,8 @@ pub struct Policy {
     /// Allow rules that were found but not loaded (a `read:` folder that is too broad), kept so
     /// Settings can say why they do nothing.
     rejected: RwLock<Vec<String>>,
+    /// Allow rules that are standing rules held by another, live policy (see [`Policy::with_standing`]).
+    standing: Vec<String>,
 }
 
 /// The four tools that read files. Their "always" answer is a folder grant, never the whole tool.
@@ -225,7 +227,16 @@ fn unloadable(rule: &str) -> Option<&'static str> {
 impl Policy {
     pub fn new(mode: Mode, allow: &[String], deny: &[String]) -> Self {
         let (rejected, kept): (Vec<String>, Vec<String>) = allow.iter().cloned().partition(|r| unloadable(r).is_some());
-        Policy { mode: RwLock::new(mode), allow: RwLock::new(compile(&kept)), deny: RwLock::new(compile(deny)), rejected: RwLock::new(rejected) }
+        Policy { mode: RwLock::new(mode), allow: RwLock::new(compile(&kept)), deny: RwLock::new(compile(deny)), rejected: RwLock::new(rejected), standing: vec![] }
+    }
+
+    /// The same policy, for a run that started from a snapshot of the settings (a scheduled job):
+    /// `standing` are its rules that come from the settings. Each opens a read only while the live
+    /// policy of the app that owns the store (`ToolCtx::store`) still holds it, so a rule revoked
+    /// while the run is going no longer opens its next read.
+    pub fn with_standing(mut self, standing: &[String]) -> Self {
+        self.standing = standing.to_vec();
+        self
     }
 
     pub fn mode(&self) -> Mode {
@@ -308,6 +319,24 @@ impl Policy {
         allow.len() != before
     }
 
+    /// Add a deny rule. A rule that is not a valid glob is refused.
+    pub fn add_deny(&self, rule: &str) -> Result<()> {
+        let (rule, matcher) = compile_rule(rule).ok_or_else(|| anyhow!("'{rule}' is not a valid rule"))?;
+        let mut deny = self.deny.write().unwrap();
+        if !deny.iter().any(|(r, _)| *r == rule) {
+            deny.push((rule, matcher));
+        }
+        Ok(())
+    }
+
+    /// Remove a deny rule. True if it was there.
+    pub fn remove_deny(&self, rule: &str) -> bool {
+        let mut deny = self.deny.write().unwrap();
+        let before = deny.len();
+        deny.retain(|(r, _)| r != rule);
+        deny.len() != before
+    }
+
     pub fn allow_rules(&self) -> Vec<String> {
         self.allow.read().unwrap().iter().map(|(r, _)| r.clone()).collect()
     }
@@ -361,10 +390,17 @@ impl Policy {
             return Verdict::Allow;
         }
         // 8. Standing rules. A read outside the working folder is opened only by a folder grant that
-        //    covers it; tool-wide rules (`read_file:*`, `*`) never open one.
+        //    covers it; tool-wide rules (`read_file:*`, `*`) never open one. A standing rule this
+        //    policy took from the settings counts only while the live policy still holds it.
+        let live: Option<Vec<String>> = if effect == Effect::OutsideRead && !self.standing.is_empty() {
+            ctx.store.live_policy().filter(|p| !std::ptr::eq(Arc::as_ptr(p), self)).map(|p| p.allow_rules())
+        } else {
+            None
+        };
+        let revoked = |rule: &str| live.as_ref().is_some_and(|live| self.standing.iter().any(|s| s == rule) && !live.iter().any(|l| l == rule));
         let allow = self.allow.read().unwrap();
         let allowed = if effect == Effect::OutsideRead {
-            read_target.is_some_and(|target| allow.iter().any(|(rule, _)| read_rule_covers(rule, target)))
+            read_target.is_some_and(|target| allow.iter().any(|(rule, _)| !revoked(rule) && read_rule_covers(rule, target)))
         } else {
             !effect.high() && allow.iter().any(|(rule, g)| !rule.starts_with("read:") && allow_rule_covers(rule, g, tool, summary, &key))
         };
@@ -1109,9 +1145,14 @@ impl std::fmt::Display for WorkspaceRefused {
 
 impl std::error::Error for WorkspaceRefused {}
 
-/// A session may not work inside Heron's own home, a CLI's login folder or a personal store.
+/// A session may not work inside Heron's own home, a CLI's login folder or a personal store, nor behind
+/// a name that can't be resolved to where it really is (`/.nofollow<path>`, see [`unresolvable`]): such
+/// a name would not look like the Refused location it leads to.
 /// A working folder that only contains one (the home folder, say) is fine: Refused still wins inside it.
 pub fn check_workspace(workspace: &Path, cfg: &Config) -> std::result::Result<(), WorkspaceRefused> {
+    if unresolvable(workspace) {
+        return Err(WorkspaceRefused { path: workspace.to_path_buf() });
+    }
     let roots = ReadRoots::of(cfg);
     for p in [workspace.to_path_buf(), canonical_existing(workspace)] {
         if let Some(r) = roots.refused(&p) {
@@ -1769,6 +1810,50 @@ mod tests {
         let err = app.agent(Arc::new(DenyAll)).run_turn(&mut session, "list the files here", &crate::agent::null_sink()).await.unwrap_err();
         let text = err.to_string();
         assert!(text.starts_with("the working folder is inside ") && text.ends_with("heron-home, which Heron never reads"), "{text}");
+        assert!(llm.requests.lock().unwrap().is_empty(), "the model was asked before the working folder was checked");
+    }
+
+    /// `/.nofollow<path>`, `/.resolve/<flags><path>` and `/.vol/<device>/<inode>` name `<path>` to the
+    /// kernel, but `realpath` fails on them or returns them unchanged, so a working folder written that
+    /// way would not look like the Refused location it is. Such a folder never starts a turn.
+    #[tokio::test]
+    async fn working_folder_behind_kernel_prefix_is_refused() {
+        let ws = tempfile::tempdir().unwrap();
+        let w = dunce::canonicalize(ws.path()).unwrap();
+        let home = dirs::home_dir().unwrap();
+        let cfg = Config { home: w.join("heron-home"), ..Default::default() };
+        let by = |prefix: &str, p: &Path| PathBuf::from(format!("{prefix}{}", p.display()));
+        let mut behind = vec![];
+        for target in [cfg.home.clone(), cfg.home.join("skills"), home.join(".claude/projects"), w.clone(), w.join("project")] {
+            behind.extend([by("/.nofollow", &target), by("/.NoFollow", &target), by("/.resolve/0", &target), by("/System/Volumes/Data/.nofollow", &target), by("/.nofollow/../.nofollow", &target)]);
+        }
+        behind.extend([PathBuf::from("/.vol/1/2"), PathBuf::from("/.nofollow"), PathBuf::from("/.resolve")]);
+        for path in &behind {
+            let err = check_workspace(path, &cfg).expect_err(&path.display().to_string());
+            assert!(err.to_string().starts_with("the working folder is inside "), "{} gave {err}", path.display());
+        }
+        // A name that only looks like a prefix is an ordinary folder.
+        check_workspace(&w.join(".nofollow-not-a-prefix"), &cfg).unwrap();
+        check_workspace(&w, &cfg).unwrap();
+        // A link whose target is behind a prefix is refused by its canonical form.
+        #[cfg(unix)]
+        {
+            let link = w.join("by-prefix");
+            std::os::unix::fs::symlink(by("/.nofollow", &cfg.home), &link).unwrap();
+            assert!(check_workspace(&link, &cfg).is_err(), "a link into /.nofollow");
+        }
+
+        // The whole path: a turn whose working folder is behind a prefix stops with the error before
+        // the model is asked anything.
+        let mut cfg = cfg;
+        cfg.agent.auto_memory = false;
+        let llm = Arc::new(crate::llm::ScriptedLlm::new(vec![crate::llm::Message::assistant("this reply must never be produced")]));
+        let mut app = crate::app::App::assemble(cfg.clone(), w.join("ws"), crate::store::Store::in_memory().unwrap(), llm.clone()).await.unwrap();
+        // `assemble` creates and canonicalizes the folder, which a prefixed name can't survive.
+        app.workspace = by("/.nofollow", &cfg.home);
+        let mut session = crate::agent::Session::create(&app.store, "prefixed working folder").unwrap();
+        let err = app.agent(Arc::new(DenyAll)).run_turn(&mut session, "list the files here", &crate::agent::null_sink()).await.unwrap_err();
+        assert!(err.downcast_ref::<WorkspaceRefused>().is_some(), "{err:#}");
         assert!(llm.requests.lock().unwrap().is_empty(), "the model was asked before the working folder was checked");
     }
 

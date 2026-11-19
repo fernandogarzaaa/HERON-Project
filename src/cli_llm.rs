@@ -385,16 +385,16 @@ impl CliSpec {
 /// generic escape hatch for anything else (Crush, Amp, Kimi, Droid, `llm`).
 pub fn providers() -> Vec<CliSpec> {
     vec![
-        CliSpec { id: "claude-cli", display_name: "Claude Code (subscription)", binary: "claude", login_command: "claude auth login", install_hint: "npm install -g @anthropic-ai/claude-code", auth_kind: "Claude Pro/Max subscription", cost_note: "Draws on the plan's usage window; Agent SDK use drains it faster than the CLI directly.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CLAUDE_CONFIG_DIR"), config_dirs: &["~/.claude", "~/.claude.json"], credential_store: CredentialStore::MacosKeychain, supported: None, input: PromptInput::Stdin, output: OutputKind::ClaudeStreamJson },
-        CliSpec { id: "codex-cli", display_name: "Codex (ChatGPT subscription)", binary: "codex", login_command: "codex login", install_hint: "npm install -g @openai/codex", auth_kind: "ChatGPT Plus/Pro/Team subscription", cost_note: "Draws on the ChatGPT plan. A stray OPENAI_API_KEY would flip billing to metered API; Heron removes it from the child env.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CODEX_HOME"), config_dirs: &["~/.codex"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Stdin, output: OutputKind::JsonLines },
-        CliSpec { id: "cursor-cli", display_name: "Cursor (subscription)", binary: "cursor-agent", login_command: "agent login", install_hint: "curl https://cursor.com/install -fsS | bash", auth_kind: "Cursor subscription", cost_note: "Draws on the Cursor plan's usage pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cursor"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "claude-cli", display_name: "Claude Code (subscription)", binary: "claude", login_command: "claude auth login", install_hint: "npm install -g @anthropic-ai/claude-code", auth_kind: "Claude Pro/Max subscription", cost_note: "Draws on the plan's usage window; Agent SDK use drains it faster than the CLI directly.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CLAUDE_CONFIG_DIR"), config_dirs: &["~/.claude", "~/.claude.json"], credential_store: CredentialStore::MacosKeychain, supported: Some(VersionRange { min: (2, 1, 327), below: (3, 0, 0) }), input: PromptInput::Stdin, output: OutputKind::ClaudeStreamJson },
+        CliSpec { id: "codex-cli", display_name: "Codex (ChatGPT subscription)", binary: "codex", login_command: "codex login", install_hint: "npm install -g @openai/codex", auth_kind: "ChatGPT Plus/Pro/Team subscription", cost_note: "Draws on the ChatGPT plan. A stray OPENAI_API_KEY would flip billing to metered API; Heron removes it from the child env.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CODEX_HOME"), config_dirs: &["~/.codex"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (0, 169, 0), below: (1, 0, 0) }), input: PromptInput::Stdin, output: OutputKind::JsonLines },
+        CliSpec { id: "cursor-cli", display_name: "Cursor (subscription)", binary: "cursor-agent", login_command: "agent login", install_hint: "curl https://cursor.com/install -fsS | bash", auth_kind: "Cursor subscription", cost_note: "Draws on the Cursor plan's usage pool.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cursor"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
         CliSpec { id: "grok-cli", display_name: "Grok Build (subscription)", binary: "grok", login_command: "grok login", install_hint: "brew install --cask grok-build (macOS) or the Grok Build installer", auth_kind: "Grok Build subscription", cost_note: "Draws on the Grok plan.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.grok"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.opencode", "~/.config/opencode", "~/.local/share/opencode", "~/.local/state/opencode"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
-        CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini", "~/.antigravity"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonSingle },
+        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cache/opencode", "~/.config/opencode", "~/.local/share/opencode", "~/.local/state/opencode", "~/.opencode"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (2, 1, 4), below: (3, 0, 0) }), input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini", "~/.antigravity"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonSingle },
         CliSpec { id: "cline-cli", display_name: "Cline (router, free models)", binary: "cline", login_command: "cline auth <provider>", install_hint: "npm install -g cline", auth_kind: "Whatever Cline is configured with: cline / openai-codex / oca OAuth, API keys, Ollama", cost_note: "Free when routed to a free or local model. One-shot defaults to yolo, so this provider needs cli_allow_agent_tools = true.", experimental: true, needs_allow_agent_tools: true, config_dir_env: None, config_dirs: &["~/.cline"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
-        CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.copilot", "~/.config/github-copilot"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonLines },
-        CliSpec { id: "qwen-cli", display_name: "Qwen Code (paid key or local)", binary: "qwen", login_command: "qwen (then /auth)", install_hint: "npm install -g @qwen-code/qwen-code", auth_kind: "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.", cost_note: "Free with a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.qwen"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
-        CliSpec { id: "gemini-cli", display_name: "Gemini CLI (API key)", binary: "gemini", login_command: "gemini (then pick Gemini API Key)", install_hint: "npm install -g @google/gemini-cli", auth_kind: "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.", cost_note: "Free tier on the API key; otherwise Google's pricing.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
+        CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.copilot", "~/.config/github-copilot"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonLines },
+        CliSpec { id: "qwen-cli", display_name: "Qwen Code (paid key or local)", binary: "qwen", login_command: "qwen (then /auth)", install_hint: "npm install -g @qwen-code/qwen-code", auth_kind: "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.", cost_note: "Free with a local model; otherwise the upstream's price.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.qwen"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
+        CliSpec { id: "gemini-cli", display_name: "Gemini CLI (API key)", binary: "gemini", login_command: "gemini (then pick Gemini API Key)", install_hint: "npm install -g @google/gemini-cli", auth_kind: "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.", cost_note: "Free tier on the API key; otherwise Google's pricing.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
         CliSpec { id: "pi-cli", display_name: "Pi (ACP agent)", binary: "pi", login_command: "pi (then sign in)", install_hint: "Install Pi from https://github.com/badlogic/pi", auth_kind: "Pi's own providers", cost_note: "Whatever Pi is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.pi"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
         CliSpec { id: "fx-cli", display_name: "fx (ACP agent)", binary: "fx", login_command: "fx login", install_hint: "Install fx from its releases", auth_kind: "fx's own providers", cost_note: "Whatever fx is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.fx"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
         CliSpec { id: "kiro-cli", display_name: "Kiro (ACP agent)", binary: "kiro-cli", login_command: "kiro-cli (then sign in)", install_hint: "Install Kiro CLI", auth_kind: "Kiro's own providers", cost_note: "Whatever Kiro is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.kiro"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
@@ -1325,12 +1325,6 @@ pub fn api_key_vars(id: &str) -> &'static [&'static str] {
     }
 }
 
-/// The topology switch of the measurement spike, compiled into debug builds only.
-#[cfg(debug_assertions)]
-fn hybrid_topology(spec: &CliSpec) -> bool {
-    spec.id == "claude-cli" && std::env::var("HERON_CLI_TOPOLOGY").is_ok_and(|v| v.eq_ignore_ascii_case("hybrid"))
-}
-
 impl CliLlm {
     pub fn from_config(cfg: std::sync::Arc<Config>, store: Option<crate::store::Store>) -> Result<Self> {
         let id = cfg.llm.provider.trim();
@@ -2057,20 +2051,8 @@ impl CliLlm {
             .as_deref()
             .filter(|m| !m.trim().is_empty())
             .unwrap_or(self.model.as_str());
-        #[allow(unused_mut)]
-        let (path, mut args) = self.argv(&prompt, model)?;
-        #[allow(unused_mut)]
-        let (binary_dir, mut extra_read) = self.binary_dirs(&path);
-        #[cfg(debug_assertions)]
-        if hybrid_topology(&self.spec) {
-            let mcp_config = write_hybrid_files(&run_dir, &req)?;
-            if let Some(dir) = std::env::current_exe().ok().and_then(|e| dunce::canonicalize(e).ok()).and_then(|e| e.parent().map(Path::to_path_buf)) {
-                extra_read.push(dir);
-            }
-            // Built-in tools stay off (`--tools ""`) and the turn is already held to one
-            // (`--max-turns 1` is in the base argv).
-            args.extend(["--mcp-config".to_string(), mcp_config.to_string_lossy().into_owned(), "--strict-mcp-config".to_string()]);
-        }
+        let (path, args) = self.argv(&prompt, model)?;
+        let (binary_dir, extra_read) = self.binary_dirs(&path);
         let profile = crate::sandbox::Profile::Cli { spec: &self.spec, binary_dir, extra_read };
         let sandbox = crate::sandbox::wrap(&self.cfg, &run_dir, &profile);
         if sandbox.is_none() && crate::sandbox::required() {
@@ -2332,28 +2314,6 @@ fn script_interpreter(real: &Path) -> Option<PathBuf> {
     }
 }
 
-/// The two files of the hybrid topology, written into the run folder: `tools.json`, the turn's tools
-/// as MCP schemas, and `mcp.json`, naming one server, `heron`, which is this executable running
-/// `mcp-serve --refuse-all`. Returns the `mcp.json` path.
-#[cfg(debug_assertions)]
-fn write_hybrid_files(run_dir: &Path, req: &ChatRequest) -> Result<PathBuf> {
-    let tools: Vec<Value> = req
-        .tools
-        .iter()
-        .filter_map(|t| {
-            let f = t.get("function")?;
-            Some(serde_json::json!({"name": f.get("name")?, "description": f.get("description").cloned().unwrap_or(Value::String(String::new())), "inputSchema": f.get("parameters").cloned().unwrap_or_else(|| serde_json::json!({"type": "object", "properties": {}}))}))
-        })
-        .collect();
-    let schemas = run_dir.join("tools.json");
-    std::fs::write(&schemas, serde_json::to_string(&tools)?)?;
-    let exe = std::env::current_exe()?;
-    let config = serde_json::json!({"mcpServers": {"heron": {"command": exe, "args": ["mcp-serve", "--refuse-all", "--schemas", schemas]}}});
-    let file = run_dir.join("mcp.json");
-    std::fs::write(&file, serde_json::to_string(&config)?)?;
-    Ok(file)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2366,12 +2326,34 @@ mod tests {
     /// because Windows cannot execute a `#!/bin/sh` script and fails with "not
     /// a valid Win32 application". The parsing logic they cover is
     /// platform-independent.
+    /// A Tier 1 binary has a version range (U2w), so a turn reads its `--version` first, as it does
+    /// with the real CLI. The fake answers with a version inside the range, unless the script handles
+    /// `version` itself (the tests of the version check do), so a script that ignores its arguments
+    /// is not asked to be a version printer.
+    fn with_version_answer(name: &str, script: &str) -> String {
+        let answer = match name {
+            "claude" => "2.1.327 (Claude Code)",
+            "codex" => "codex-cli 0.169.0",
+            "opencode" => "opencode v2.1.4",
+            _ => return script.to_string(),
+        };
+        if script.contains("version") {
+            return script.to_string();
+        }
+        match script.split_once('\n') {
+            Some((shebang, rest)) if shebang.starts_with("#!") => {
+                format!("{shebang}\nif [ \"$1\" = \"--version\" ]; then echo '{answer}'; exit 0; fi\n{rest}")
+            }
+            _ => script.to_string(),
+        }
+    }
+
     fn fake_bin(dir: &std::path::Path, name: &str, script: &str) -> PathBuf {
         let dir = dir.join("bin");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(name);
         let mut f = std::fs::File::create(&path).unwrap();
-        f.write_all(script.as_bytes()).unwrap();
+        f.write_all(with_version_answer(name, script).as_bytes()).unwrap();
         // Flush before returning: exec of a still-open file fails with
         // "Text file busy" on some filesystems.
         f.sync_all().unwrap();
@@ -3258,7 +3240,9 @@ mod tests {
         // a probe does (`run_contained`, inside the CLI's sandbox where
         // there is one), so it records its pid in its run folder: `TMPDIR`.
         let dir = tempfile::tempdir().unwrap();
-        let bin = fake_bin(dir.path(), "claude", "#!/bin/sh\necho $$ > \"$TMPDIR/probe.pid\"\nsleep 30\n");
+        // Not named `claude`: a fake with a Tier 1 name answers `--version` at once (`fake_bin`), and
+        // this one has to hang on it.
+        let bin = fake_bin(dir.path(), "hanging-probe", "#!/bin/sh\necho $$ > \"$TMPDIR/probe.pid\"\nsleep 30\n");
         let mut cfg = test_cfg(dir.path(), "claude-cli");
         cfg.llm.cli_command = bin.to_string_lossy().to_string();
         let llm = CliLlm::for_probe(&cfg, &spec_for("claude-cli").unwrap());
@@ -3818,6 +3802,77 @@ mod tests {
         assert_ne!(PathBuf::from(again), cwd);
     }
 
+    /// U2w: the registry is the recorded containment results (`eval/containment/*.json`) applied.
+    /// A candidate is Tier 1 when it passed, its folders are confirmed, and (gemini-cli) antigravity-cli
+    /// did not pass. Tier 1 gets a range from the recorded version and is not experimental; every other
+    /// entry has no range and is experimental.
+    #[test]
+    fn tier1_candidates_have_ranges() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("eval/containment");
+        let record = |id: &str| -> Value {
+            let text = std::fs::read_to_string(dir.join(format!("{id}.json"))).unwrap_or_else(|e| panic!("no containment record for {id}: {e}"));
+            serde_json::from_str(&text).unwrap()
+        };
+        let status = |id: &str| record(id)["status"].as_str().unwrap_or("").to_string();
+        let candidates = ["claude-cli", "codex-cli", "gemini-cli", "antigravity-cli", "cline-cli", "opencode-cli"];
+        let mut tier1 = vec![];
+        for id in candidates {
+            let rec = record(id);
+            let folders_ok = rec["config_dirs_confirmed"] == true && rec["config_dirs"].as_array().is_some_and(|d| !d.is_empty());
+            let gemini_blocked = id == "gemini-cli" && status("antigravity-cli") == "passed";
+            if status(id) == "passed" && folders_ok && !gemini_blocked {
+                tier1.push(id);
+            }
+        }
+        assert!(tier1.contains(&"claude-cli"), "claude-cli is the default provider and must be Tier 1: {tier1:?}");
+
+        for spec in providers() {
+            if !tier1.contains(&spec.id) {
+                assert!(spec.supported.is_none(), "{} is not Tier 1 and must have no range", spec.id);
+                assert!(spec.experimental, "{} has no range, so it must be experimental", spec.id);
+                continue;
+            }
+            let rec = record(spec.id);
+            let min = extract_version(rec["version_output"].as_str().unwrap()).expect("the recorded --version output has a version");
+            assert_eq!(Some(min), extract_version(rec["version"].as_str().unwrap()), "{}: version and version_output agree", spec.id);
+            let range = spec.supported.unwrap_or_else(|| panic!("{} is Tier 1 and needs a range", spec.id));
+            assert_eq!(range.min, min, "{}: the lower bound is the version that passed", spec.id);
+            assert_eq!(range.below, (min.0 + 1, 0, 0), "{}: the upper bound is the next major version", spec.id);
+            assert!(range.contains(min), "{}: the recorded version is inside its own range", spec.id);
+            assert!(!range.contains(range.below), "{}: the upper bound is exclusive", spec.id);
+            if min.2 > 0 {
+                assert!(!range.contains((min.0, min.1, min.2 - 1)), "{}: the lower bound is inclusive and tight", spec.id);
+            }
+            assert!(!spec.experimental, "{} is Tier 1 and must not be experimental", spec.id);
+            let want = if rec["credential_store"] == "macos-keychain" { CredentialStore::MacosKeychain } else { CredentialStore::HomeFolder };
+            assert_eq!(spec.credential_store, want, "{}: credential_store follows the record", spec.id);
+
+            // The folders: every one the registry names was recorded or is a named extra, and every
+            // recorded path is under one of them or is a parent folder of one (`~/.cache` above
+            // `~/.cache/opencode`). An extra is a folder an older release of the CLI made, which the
+            // fresh-`HOME` check did not create; it stays Refused (item 22).
+            let extras: &[&str] = if spec.id == "opencode-cli" { &["~/.opencode"] } else { &[] };
+            for extra in extras {
+                assert!(spec.config_dirs.contains(extra), "{}: the extra folder {extra} must stay in config_dirs", spec.id);
+            }
+            let recorded: Vec<String> = rec["config_dirs"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+            for d in spec.config_dirs {
+                assert!(recorded.iter().any(|r| r == d) || extras.contains(d), "{}: {d} was not recorded", spec.id);
+            }
+            for r in &recorded {
+                let covered = spec.config_dirs.iter().any(|d| r == d || r.starts_with(&format!("{d}/")));
+                let parent = spec.config_dirs.iter().any(|d| d.starts_with(&format!("{r}/")));
+                assert!(covered || parent, "{}: recorded path {r} is not in config_dirs", spec.id);
+            }
+        }
+
+        // A candidate that did not pass has no range, whatever else is true of it.
+        for id in ["gemini-cli", "antigravity-cli", "cline-cli"] {
+            let spec = spec_for(id).unwrap();
+            assert!(spec.supported.is_none() && spec.experimental, "{id} did not pass its containment check");
+        }
+    }
+
     #[test]
     fn version_extraction_reads_first_semver() {
         assert_eq!(extract_version("2.1.327 (Claude Code)"), Some((2, 1, 327)));
@@ -3845,7 +3900,9 @@ mod tests {
         assert!(check_version(&spec, "codex-cli 3.0.2", Some("3.0.1")).is_err(), "asked again when the version changes");
         assert_eq!(check_version(&spec, "\n  weird build\nmore", None).unwrap_err().found, "weird build", "no version: the first line");
         assert_eq!(check_version(&spec, "weird build", Some("weird build")), Ok(()));
-        assert_eq!(check_version(&spec_for("codex-cli").unwrap(), "codex-cli 9.9.9", None), Ok(()), "no range pinned: no prompt");
+        assert!(spec_for("cursor-cli").unwrap().supported.is_none(), "cursor-cli is not Tier 1");
+        assert_eq!(check_version(&spec_for("cursor-cli").unwrap(), "cursor 9.9.9", None), Ok(()), "no range pinned: no prompt");
+        assert!(check_version(&spec_for("codex-cli").unwrap(), "codex-cli 9.9.9", None).is_err(), "Tier 1 codex-cli has a range: 9.9.9 is outside it");
         // Through the provider: the version is read from the CLI and the acceptance from the store.
         #[cfg(not(windows))]
         {
@@ -3879,6 +3936,42 @@ mod tests {
             ensure().await.unwrap();
             assert_eq!(llm.audit_identity(), ("codex-cli".to_string(), "2.2.0".to_string()));
         }
+    }
+
+    /// CUJ 5, through the turn: a Tier 1 CLI whose `--version` is outside the registry entry's own
+    /// range is refused before it is sent a prompt, and runs once that exact version is accepted.
+    /// The range is the registry's (`llm.spec.supported` is not touched), and the fake answers
+    /// `--version` itself (its script says "version"), so `with_version_answer` adds no in-range
+    /// answer. Without the `ensure_version` call in `turn_in` the first turn would succeed.
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn turn_on_an_untested_registry_version_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        // Any prompt run prints a finished reply; a refused turn never gets that far.
+        let script = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"3.4.0 (Claude Code)\"\n  exit 0\nfi\ncat > /dev/null\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"the prompt ran\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}'\n";
+        let bin = fake_bin(dir.path(), "claude", script);
+        let mut cfg = test_cfg(dir.path(), "claude-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        // Where the CLI must run sandboxed (macOS) and Seatbelt cannot start, no turn runs at all.
+        if crate::sandbox::required() && !cli_seatbelt(&cfg) {
+            return;
+        }
+        let store = crate::store::Store::in_memory().unwrap();
+        let llm = CliLlm::from_config(std::sync::Arc::new(cfg), Some(store.clone())).unwrap();
+        let range = llm.spec.supported.expect("claude-cli is Tier 1 and has a range in the registry");
+        assert!(!range.contains((3, 4, 0)), "the fake's version must be outside the registry's own range");
+
+        let err = llm.chat(hi(), &|_| {}).await.expect_err("an untested version must not run a turn");
+        let untested = err.downcast_ref::<CliVersionUntested>().unwrap_or_else(|| panic!("not a CliVersionUntested: {err:#}"));
+        assert_eq!((untested.id.as_str(), untested.found.as_str()), ("claude-cli", "3.4.0"));
+
+        // Accepting another version does not help: the acceptance is for exactly one version.
+        store.kv_set(&version_ok_key("claude-cli"), "3.4.1").unwrap();
+        assert!(llm.chat(hi(), &|_| {}).await.unwrap_err().downcast_ref::<CliVersionUntested>().is_some());
+
+        store.kv_set(&version_ok_key("claude-cli"), "3.4.0").unwrap();
+        let reply = llm.chat(hi(), &|_| {}).await.expect("the accepted version runs the same turn");
+        assert_eq!(reply.message.text(), "the prompt ran");
     }
 
     /// `--version` on the turn path runs as the turn does: allowlisted environment, run folder,

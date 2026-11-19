@@ -737,9 +737,9 @@ fn path_forms(p: PathBuf) -> Vec<PathBuf> {
 impl WalkScope {
     fn new(root: &Path, root_effect: Effect, ctx: &ToolCtx) -> WalkScope {
         use crate::sandbox::ReadGrant;
-        let tainted = ctx.tainted.load(std::sync::atomic::Ordering::SeqCst);
         // A conversation grant stops applying once outside content is present, as it does for a read.
-        let grants = crate::sandbox::read_grants(&ctx.cfg, &ctx.store, (!tainted).then_some(ctx.session_id.as_str()));
+        // Standing rules come from the run's live policy: one revoked mid-run no longer opens files.
+        let grants = ctx.read_grants();
         let (mut folders, mut exact) = (vec![], vec![]);
         for grant in grants {
             match grant {
