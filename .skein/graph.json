@@ -7431,15 +7431,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "b2ab925d49dd4e72b2843672dd8467ed",
+      "base_branch": "skein/U3q__integrate-base",
+      "claim_token": "40f68c6d26bd4c09af3a9099c8f6f710",
+      "claimed_at": "2026-11-19T18:27:23.926306+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T18:27:23.926306+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U3p",
@@ -7462,9 +7462,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fixes from U3o's review (35m)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U3q__integrate-base",
       "branch": null,
