@@ -5590,10 +5590,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "da01387456da090c90015c749ef251277865e8b8",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "3298e2ab01c7495359bf976b152bd3e1f6926429",
+        "result_commit": "f49606d0b671f8518a309efa3ac8511c21f3a6f4",
+        "shipped_at": "2026-11-19T00:32:38.359224+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "CLI provider guide, Mac getting-started guide, release checklist",
-    "version": 25,
+    "version": 26,
     "worktree": {
       "base_branch": "skein/U6__integrate-base",
       "base_commit": "da01387456da090c90015c749ef251277865e8b8",
