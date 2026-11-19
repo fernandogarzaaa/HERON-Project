@@ -8066,10 +8066,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "8f70e57a33e5ab451eccea78a3f20f75be5c1036",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "727c83f4c1ebf6607acc8a712eef83f53341e14c",
+        "result_commit": "5142e1e68691b8dfb925ab6d185d6a68bd275881",
+        "shipped_at": "2026-11-19T19:48:24.541634+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from the U3q and U3r reviews (35o)",
-    "version": 25,
+    "version": 26,
     "worktree": {
       "base_branch": "skein/U3s__integrate-base",
       "base_commit": "8f70e57a33e5ab451eccea78a3f20f75be5c1036",
