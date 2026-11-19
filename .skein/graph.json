@@ -858,6 +858,84 @@
     }
   },
   "SYNC20": {
+    "attempts": [
+      {
+        "attempt_id": "86212347a0c347a785ba8e88fdd9df81",
+        "ended_at": "2026-11-19T16:43:15.105293+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T16:43:06.650295+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "grep -q every_never_is_listed_with_where_it_lives docs/designs/heron-v1.md",
+        "duration_ms": 221,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC20_20261119T164314745366_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC20_20261119T164314968786_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: done",
+    "id": "SYNC20",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q every_never_is_listed_with_where_it_lives docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3l's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "86212347a0c347a785ba8e88fdd9df81",
+      "base_commit": "e504de30fdf0b008268608690b93c0b74baa25b8",
+      "changed_files": [],
+      "commit": "e504de30fdf0b008268608690b93c0b74baa25b8",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Sync feat head into U3l base",
+    "version": 4,
+    "worktree": {
+      "base_branch": "feat/heron-v1",
+      "base_commit": "e504de30fdf0b008268608690b93c0b74baa25b8",
+      "branch": "skein/SYNC20",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC20"
+    }
+  },
+  "SYNC21": {
     "attempts": [],
     "attempts_used": 0,
     "backend": "claude_build_rust",
@@ -870,26 +948,26 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "86212347a0c347a785ba8e88fdd9df81",
+      "attempt_id": "5f53263e1d2746a892a8669716adacca",
       "base_branch": "feat/heron-v1",
-      "claim_token": "69bd6999f2114f29bf9c47042cd941be",
-      "claimed_at": "2026-11-19T16:43:06.650295+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T16:43:06.650295+00:00",
+      "claim_token": "939875499f534fbb981311a20f66abc1",
+      "claimed_at": "2026-11-19T16:48:14.296473+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-19T16:48:14.296473+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [],
     "handoff_note": null,
-    "id": "SYNC20",
+    "id": "SYNC21",
     "integration_for": null,
     "intent": {
-      "completion": "grep -q every_never_is_listed_with_where_it_lives docs/designs/heron-v1.md",
+      "completion": "grep -q learned_items_from_a_tainted_session_stay_unconfirmed docs/designs/heron-v1.md",
       "constraints": "Do not read, write or run anything.",
       "context": "No spec work.",
-      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3l's base. Reply 'done' and stop."
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3m's base. Reply 'done' and stop."
     },
     "max_retries": 0,
     "rejected_count": 0,
@@ -899,7 +977,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "claimed",
-    "title": "Sync feat head into U3l base",
+    "title": "Sync feat head into U3m base",
     "version": 2,
     "worktree": {
       "base_branch": "feat/heron-v1",
@@ -6083,15 +6161,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "4f9d9990ae4f4b67a4cb2c0555c3ff03",
+      "base_branch": "skein/U3l__integrate-base",
+      "claim_token": "8ee4d2b5299b431f9dc906c776b45e77",
+      "claimed_at": "2026-11-19T16:43:16.414029+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T16:47:47.440357+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U3k",
@@ -6114,8 +6192,130 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "in_progress",
     "title": "Fixes from U3k's review (35h core, owner decision)",
+    "version": 13,
+    "worktree": {
+      "base_branch": "skein/U3l__integrate-base",
+      "base_commit": "a6af321dd4f99a212b1cf933c9320b990fb0ee40",
+      "branch": "skein/U3l",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3l"
+    }
+  },
+  "U3l__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "9e3d6bd20468418bad635e1a7c7a0582",
+        "ended_at": "2026-11-19T16:43:16.248010+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-19T16:43:15.610936+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3k",
+      "SYNC20"
+    ],
+    "evidence": [
+      {
+        "command": "git merge e504de30fdf0b008268608690b93c0b74baa25b8",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['b195b36ffc3ba4a2d4e9d482ed1975199a2754b2', 'e504de30fdf0b008268608690b93c0b74baa25b8'] into skein/U3l__integrate-base.",
+    "id": "U3l__integrate",
+    "integration_for": "U3l",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U3k', 'SYNC20'] into one base branch for U3l."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "b195b36ffc3ba4a2d4e9d482ed1975199a2754b2",
+      "changed_files": [],
+      "commit": "a6af321dd4f99a212b1cf933c9320b990fb0ee40",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Integrate parents of U3l",
+    "version": 3,
+    "worktree": {
+      "base_branch": "b195b36ffc3ba4a2d4e9d482ed1975199a2754b2",
+      "branch": "skein/U3l__integrate-base",
+      "path": null
+    }
+  },
+  "U3m": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3l",
+      "SYNC21"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U3m",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- m8_forwarded_telegram_message_taints learned_items_from_a_tainted_session_stay_unconfirmed",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 35i, the M-8 row of 'Security findings in scope', and docs/designs/reviews/g3-rerun.md (NEW-1).",
+      "goal": "Implement spec item 35i (NEW-1 from the independent G3 rerun; full evidence in docs/designs/reviews/g3-rerun.md, search NEW-1). Line numbers are from 16cfc8d and may have moved.\nA forwarded Telegram message can become a confirmed core memory: auto-memory (on by default) learns from the wrapped forwarded text, and the learner saves learned items with source \"auto\" (telegram.rs:572, agent.rs:817-826, memory.rs:342), so they are confirmed core memories that later appear in a clean session's system prompt as trusted facts. Only the learner prompt's instruction prevents it.\nFix: when the session is tainted, save every learned item as outside content (unconfirmed, the same way untrusted memories are saved elsewhere; see how memory.rs distinguishes confirmed vs outside), whatever the learner returns, on every path that runs the learner (Telegram, the app's chat in server.rs, the terminal turn, unattended runs). A clean session's learning stays as it is.\nTests: extend m8_forwarded_telegram_message_taints with an auto_memory = true case (scripted learner returns a fact from the forwarded text) asserting the item is saved unconfirmed and is absent from memory.core(); add learned_items_from_a_tainted_session_stay_unconfirmed for the app's chat path, plus a clean-session control that stays confirmed. Each must fail with the fix removed (check, then restore). Keep every existing test and assertion."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "G3 NEW-1: tainted learning stays unconfirmed (35i)",
     "version": 1,
     "worktree": {
       "base_branch": null,
@@ -8079,7 +8279,8 @@
       "U3j",
       "U3k",
       "U3l",
-      "U4d"
+      "U4d",
+      "U3m"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -8100,7 +8301,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 18,
+    "version": 19,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "branch": null,
