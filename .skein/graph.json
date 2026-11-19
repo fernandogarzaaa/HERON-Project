@@ -4665,15 +4665,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "1194ed56bcf841169ce0e694cf9f7d10",
+      "base_branch": "skein/U4b__integrate-base",
+      "claim_token": "c5051871828d45c58fd3eeb1df451a8a",
+      "claimed_at": "2026-11-19T00:02:29.163606+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-19T00:02:29.163606+00:00",
+      "node_version": 3,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "U4a",
@@ -4696,9 +4696,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Core API client against the recorded fixtures",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U4b__integrate-base",
       "branch": null,
