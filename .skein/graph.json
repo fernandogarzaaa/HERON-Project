@@ -7708,7 +7708,7 @@
       "claim_token": "b757d079b32442aba1d998c63c4de5c4",
       "claimed_at": "2026-11-19T19:06:58.938470+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T19:07:29.291905+00:00",
+      "last_heartbeat": "2026-11-19T19:11:59.625972+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -7736,7 +7736,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3p's review (35n)",
-    "version": 5,
+    "version": 14,
     "worktree": {
       "base_branch": "skein/U3r__integrate-base",
       "base_commit": "e31c656439b3ce3c70dd932a1972cfea74884740",
