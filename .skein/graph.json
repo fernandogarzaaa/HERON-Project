@@ -8508,15 +8508,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "9b8c120fe8694af4a5e9dab9b6097dde",
+      "base_branch": "skein/U3u__integrate-base",
+      "claim_token": "2f7ba6848b23469487a09442d1e149e9",
+      "claimed_at": "2026-11-19T20:39:17.495655+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T20:39:17.495655+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U3t",
@@ -8539,9 +8539,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fixes from the U3t review (35q)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U3u__integrate-base",
       "branch": null,
