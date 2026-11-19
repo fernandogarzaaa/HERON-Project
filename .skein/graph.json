@@ -5270,9 +5270,17 @@
         "holder": "agent-1",
         "outcome": "failed",
         "started_at": "2026-11-19T01:49:16.748233+00:00"
+      },
+      {
+        "attempt_id": "ff537d0abc9c47e19d40ad449f5d02d8",
+        "ended_at": "2026-11-19T04:21:47.873175+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-19T03:52:28.180755+00:00"
       }
     ],
-    "attempts_used": 3,
+    "attempts_used": 4,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -5283,15 +5291,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "ff537d0abc9c47e19d40ad449f5d02d8",
-      "base_branch": "skein/U3i__integrate-base",
-      "claim_token": "22ae7c75e1a449689ff807ec85978a57",
-      "claimed_at": "2026-11-19T03:52:28.180755+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T04:05:29.123625+00:00",
-      "node_version": 58,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3h",
@@ -5300,17 +5308,17 @@
     "evidence": [
       {
         "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- tool_setting_on_a_stale_core_is_saved failed_tool_setting_save_changes_nothing first_run_core_takes_in_rules_written_during_startup never_survives_a_missing_config_and_the_next_save mcp_serve_reloads_rules_before_each_call settings_save_does_not_bring_back_a_revoked_rule",
-        "duration_ms": 26264,
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3i_20261119T015224457740_0.log"
+        "duration_ms": 12519,
+        "exit_code": 101,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3i_20261119T042135329155_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3i_20261119T015250723648_adapter.log"
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3i_20261119T042147853185_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=1); see evidence",
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "U3i",
     "integration_for": null,
     "intent": {
@@ -5323,12 +5331,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-19T04:36:21.500595+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "unclaimed",
     "title": "Fixes from U3h's review (35e)",
-    "version": 86,
+    "version": 119,
     "worktree": {
       "base_branch": "skein/U3i__integrate-base",
       "base_commit": "e037c700161e793ef6cb91e3be92b8148dd9a9c8",
