@@ -6176,7 +6176,16 @@
     }
   },
   "U3l": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "4f9d9990ae4f4b67a4cb2c0555c3ff03",
+        "ended_at": "2026-11-19T17:16:54.148719+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T16:43:16.414029+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -6189,22 +6198,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "4f9d9990ae4f4b67a4cb2c0555c3ff03",
-      "base_branch": "skein/U3l__integrate-base",
-      "claim_token": "8ee4d2b5299b431f9dc906c776b45e77",
-      "claimed_at": "2026-11-19T16:43:16.414029+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T16:48:17.510373+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3k",
       "SYNC20"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- every_never_is_listed_with_where_it_lives removing_a_never_lifts_it_on_every_core removing_a_never_needs_the_token a_bare_star_never_can_be_removed failed_kv_write_changes_nothing unreadable_saved_nevers_stop_the_core restore_keeps_current_nevers missing_config_notice_names_enforced_nevers reload_gives_up_on_a_held_lock_and_keeps_its_rules concurrent_mode_changes_end_as_the_file_says && test -f tests/fixtures/api/nevers.json",
+        "duration_ms": 48738,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3l_20261119T171605228499_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3l_20261119T171653970971_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U3l",
     "integration_for": null,
     "intent": {
@@ -6216,13 +6237,56 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "4f9d9990ae4f4b67a4cb2c0555c3ff03",
+      "base_commit": "a6af321dd4f99a212b1cf933c9320b990fb0ee40",
+      "changed_files": [
+        "src/app.rs",
+        "src/config.rs",
+        "src/main.rs",
+        "src/server.rs",
+        "src/store.rs",
+        "tests/integration.rs",
+        "tests/fixtures/api/nevers.json"
+      ],
+      "commit": "fd5f950459c28a46a1bd8cc3490e15ce6ee8e8ff",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 414,
+          "deleted": 36
+        },
+        "src/config.rs": {
+          "added": 7,
+          "deleted": 13
+        },
+        "src/main.rs": {
+          "added": 9,
+          "deleted": 1
+        },
+        "src/server.rs": {
+          "added": 368,
+          "deleted": 18
+        },
+        "src/store.rs": {
+          "added": 10,
+          "deleted": 0
+        },
+        "tests/fixtures/api/nevers.json": {
+          "added": 7,
+          "deleted": 0
+        },
+        "tests/integration.rs": {
+          "added": 4,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Fixes from U3k's review (35h core, owner decision)",
-    "version": 14,
+    "version": 72,
     "worktree": {
       "base_branch": "skein/U3l__integrate-base",
       "base_commit": "a6af321dd4f99a212b1cf933c9320b990fb0ee40",
