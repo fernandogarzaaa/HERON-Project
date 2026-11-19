@@ -4698,9 +4698,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Core API client against the recorded fixtures",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U4b__integrate-base",
       "branch": null,
       "path": null
     }
