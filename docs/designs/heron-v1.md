@@ -1874,6 +1874,17 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
         *   `bash packaging/macos/build-app.sh --unsigned`;
         *   `bash packaging/macos/upgrade-test.sh`.
 
+#### Work unit U7c: fixes from CI on all three OSes (2026-11-19)
+
+The skein gate runs only on this Mac, so it can't see Windows or Linux. CI now also runs on pushes to `feat/heron-v1` (commit 9f372b1, `ci: run CI on pushes to feat/heron-v1`). Its first run, 44455041430 on 9f372b1: Ubuntu passed, Windows didn't compile the tests, and one macOS integration test failed. The earlier run 44422569585 (PR #60 merged onto the old base 0354407) also showed macOS-only tests failing on Windows; those are behind the compile errors now.
+
+##### 47b. `src/**` and `tests/**` (Modify)
+
+*   **Windows compiles the tests.** `src/server.rs` tests added by U3g and U3h use `crate::tools::shell::tests` (built only under `#[cfg(all(test, unix))]`) and `std::os::unix::fs::symlink`. Each such test gets `#[cfg(unix)]`, or a narrower `#[cfg(target_os = "macos")]` when it relies on Seatbelt.
+*   **Tests of macOS-only behaviour run only on macOS.** A test is gated with `#[cfg(target_os = "macos")]` only when what it checks is macOS-only by design: Seatbelt profiles, `/.vol` and the other kernel lookup prefixes, firmlinks, and the macOS user roots `$HOME`, `/Users` and `/Volumes`. Where the code under test runs on Windows (the path decisions, read roots, shell grants, the walkers' tiers), the cause is found and fixed in the code, or in the test's fixture when the fixture used Unix-only paths. A real Windows bug is never hidden by a gate. The handoff lists every test with its decision and reason, and this item records them.
+*   **The browser test accepts the risk notice.** `browser_reads_pages_follows_links_and_fills_in_forms` (`tests/integration.rs`) runs only with `HERON_TEST_BROWSER=1` and a browser, so the local gate never ran it. It now accepts the risk notice in its setup with `heron::risk_notice::accept_current`, as the other chatting tests do.
+*   **Done means CI is green.** The check below is local. U7c, and the v1 PR, also need the `Test` and `Neural memory` jobs green on all three OSes on the pushed `feat/heron-v1`, read from the run's real job results. Windows and Linux stay unqualified for v1 (Q11); this is about keeping them building and their tests honest.
+
 #### Work unit verify
 
 ##### 48. `scripts/verify-v1.sh` (Create)
@@ -1927,7 +1938,8 @@ A fixture copy of a v0.3.1 `~/.heron` is upgraded. v0.3.1 has no git tag, so the
 | U6b | README research-preview banner, platform text, phone row, mode-table change | `README.md` (single-file exception, Q19) | U6 | `grep -q 'Research preview' README.md && grep -q 'docs/ACCEPTED_RISKS.md' README.md && grep -qF 'Reading a file outside the working folder asks first, in every mode except Yolo.' README.md` | judgment and prose: opus high |
 | U7 | `build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test | `packaging/macos/**` | U4c, U3h | `bash packaging/macos/make-upgrade-fixture.sh --if-missing && bash packaging/macos/build-app.sh --unsigned && test -f dist/Heron-macos-universal.dmg && test -x dist/Heron.app/Contents/MacOS/heron-cli && bash packaging/macos/upgrade-test.sh` | feature, refactoring: sonnet high |
 | U7b | Release and CI workflow changes | `.github/**` | U7 | `actionlint .github/workflows/release.yml .github/workflows/ci.yml` | feature, refactoring: sonnet high |
-| verify | Full gate on the final branch | `scripts/**` | U0, U0b, U0g, U3a, U1, U2, U2c, U2s, U3, Ut, U2w, U3f, U2x, U3g, U3h, U3i, U4a, U4b, U4c, U6, U6b, U7, U7b | `bash scripts/verify-v1.sh` | feature, refactoring: sonnet high |
+| U7c | Fixes from CI on all three OSes: Windows compiles and runs the tests, macOS-only tests gated, the browser test accepts the risk notice | `src/**`, `tests/**` | U3i, U7b | `cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && HERON_TEST_BROWSER=1 cargo test --locked --test integration browser_reads_pages_follows_links_and_fills_in_forms`, then CI green on all three OSes on the pushed branch | feature, refactoring: sonnet high |
+| verify | Full gate on the final branch | `scripts/**` | U0, U0b, U0g, U3a, U1, U2, U2c, U2s, U3, Ut, U2w, U3f, U2x, U3g, U3h, U3i, U4a, U4b, U4c, U6, U6b, U7, U7b, U7c | `bash scripts/verify-v1.sh` | feature, refactoring: sonnet high |
 
 **Order.**
 *   U0 and U3a start in parallel. U0b runs after U0, then the `src/**` chain U1 → U2 → U1f → U2f → U1g → U2g → U1h → U3 → U1i, then U2w → U3f → U2x → U3g → U3h. U1f, U2f and U1g carry the fixes from the independent reviews of U1, U2 and U1f, and the U2c re-run follows U2f.
