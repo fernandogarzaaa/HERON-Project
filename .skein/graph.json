@@ -5002,10 +5002,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "78f7f7065d0d4bab44cdd352073bb87a4f96a5fa",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "0dadd5650d26df800b3ca13d6b0bc85b7fa9a300",
+        "result_commit": "ffd6fb6aacaabf94a90f0ce3ddd109084d4eaa2f",
+        "shipped_at": "2026-11-19T00:32:36.821722+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "SwiftUI app shell: screens, tokens, avatar, first run, on preview stubs",
-    "version": 71,
+    "version": 72,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "78f7f7065d0d4bab44cdd352073bb87a4f96a5fa",
@@ -5334,7 +5344,7 @@
       "claim_token": "50ec8a0cbdb54e23888c8ded429d4376",
       "claimed_at": "2026-11-19T00:28:43.578128+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T00:31:43.934774+00:00",
+      "last_heartbeat": "2026-11-19T00:32:13.957146+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -5362,7 +5372,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Scrolling only where content overflows; risk-notice box sized to content; overflow snapshots",
-    "version": 10,
+    "version": 11,
     "worktree": {
       "base_branch": "skein/U4c__integrate-base",
       "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
