@@ -7241,10 +7241,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "3eb1b9bfc08e7db755c1fd037a5a3cc2bdfc85eb",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "8878264f37ae267e672eda08af2f80fa2994b929",
+        "result_commit": "3cd5266b561e45c823d03193b08c660759f77988",
+        "shipped_at": "2026-11-19T18:19:04.015331+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U3n's review (35l)",
-    "version": 26,
+    "version": 27,
     "worktree": {
       "base_branch": "skein/U3p__integrate-base",
       "base_commit": "3eb1b9bfc08e7db755c1fd037a5a3cc2bdfc85eb",
