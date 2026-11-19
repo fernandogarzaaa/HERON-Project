@@ -11102,9 +11102,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "blocked",
+    "status": "unclaimed",
     "title": "Full gate on the final branch",
-    "version": 28,
+    "version": 29,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "branch": null,
