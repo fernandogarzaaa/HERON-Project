@@ -972,19 +972,30 @@ impl Store {
     /// Vectors of current facts made by one embedder. Vectors from different embedders live in
     /// different spaces and must never be compared with each other.
     pub fn memory_embeddings(&self, embedder: &str) -> Result<Vec<(i64, Vec<u8>)>> {
+        self.memory_embeddings_where(embedder, None)
+    }
+
+    /// As `memory_embeddings`, keeping only confirmed (`Some(true)`) or only unconfirmed (`Some(false)`) facts.
+    pub fn memory_embeddings_where(&self, embedder: &str, confirmed: Option<bool>) -> Result<Vec<(i64, Vec<u8>)>> {
         let db = self.db();
-        let mut st = db.prepare("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL AND invalid_at IS NULL AND embedder=?")?;
-        let v = st.query_map([embedder], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        let mut st = db.prepare("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL AND invalid_at IS NULL AND embedder=?1 AND (?2 IS NULL OR confirmed=?2)")?;
+        let v = st.query_map(params![embedder, confirmed.map(|c| c as i64)], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
         Ok(v)
     }
 
     /// Full-text search over current facts; returns ids ordered best-first.
     pub fn fts_memories(&self, match_expr: &str, limit: usize) -> Result<Vec<i64>> {
+        self.fts_memories_where(match_expr, limit, None)
+    }
+
+    /// As `fts_memories`, keeping only confirmed (`Some(true)`) or only unconfirmed (`Some(false)`) facts,
+    /// chosen in the query so the other kind cannot use up the `limit`.
+    pub fn fts_memories_where(&self, match_expr: &str, limit: usize, confirmed: Option<bool>) -> Result<Vec<i64>> {
         let db = self.db();
         let mut st = db.prepare(
-            "SELECT f.rowid FROM memories_fts f JOIN memories m ON m.id=f.rowid WHERE memories_fts MATCH ? AND m.invalid_at IS NULL ORDER BY bm25(memories_fts) LIMIT ?",
+            "SELECT f.rowid FROM memories_fts f JOIN memories m ON m.id=f.rowid WHERE memories_fts MATCH ?1 AND m.invalid_at IS NULL AND (?3 IS NULL OR m.confirmed=?3) ORDER BY bm25(memories_fts) LIMIT ?2",
         )?;
-        let v = st.query_map(params![match_expr, limit as i64], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        let v = st.query_map(params![match_expr, limit as i64, confirmed.map(|c| c as i64)], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
         Ok(v)
     }
 
