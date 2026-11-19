@@ -7676,6 +7676,14 @@
         "holder": "skein-auto-merge",
         "outcome": "interrupted",
         "started_at": "2026-11-19T05:29:43.603835+00:00"
+      },
+      {
+        "attempt_id": "9c09a0c819f04b70af037bbf17bba42a",
+        "ended_at": "2026-11-19T05:31:08.262052+00:00",
+        "error": "",
+        "holder": "inan",
+        "outcome": "done",
+        "started_at": "2026-11-19T05:30:52.435638+00:00"
       }
     ],
     "attempts_used": 0,
@@ -7684,15 +7692,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "9c09a0c819f04b70af037bbf17bba42a",
-      "base_branch": "skein/verify__integrate__integrate-base",
-      "claim_token": "7336b88f3eb54df78ce77178fd1c8699",
-      "claimed_at": "2026-11-19T05:30:52.435638+00:00",
-      "holder": "inan",
-      "last_heartbeat": "2026-11-19T05:30:52.435638+00:00",
-      "node_version": 5,
-      "ttl_seconds": 1800,
-      "worker_id": "inan"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U0",
@@ -7721,8 +7729,14 @@
       "U7c",
       "U3j"
     ],
-    "evidence": [],
-    "handoff_note": "auto-merge conflicted on: eval/containment/claude-cli.json, eval/containment/codex-cli.json, eval/containment/opencode-cli.json; resolve the conflicts in branch 'skein/verify__integrate-base' and mark the node done",
+    "evidence": [
+      {
+        "command": "git merge-base --is-ancestor <each of verify's 25 dependency results> 4ae08905b90e43c8f2c1e8d8483d5933b26da68f; git diff --stat fd48f6a7 4ae08905b90e43c8f2c1e8d8483d5933b26da68f -- eval/containment/ (empty)",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Manual resolution by inan: auto-merge conflicted on eval/containment/{claude,codex,opencode}-cli.json (U2s carries the old U2c attempt's copies). Every verify dependency's result is an ancestor of feat/heron-v1 head 4ae08905b, whose containment JSON equals U2c's re-run fd48f6a7. skein/verify__integrate-base set to that head.",
     "id": "verify__integrate",
     "integration_for": "verify",
     "intent": {
@@ -7732,18 +7746,23 @@
       "goal": "Merge parent branches ['U0', 'U0b', 'U0g', 'U3a', 'U1', 'U2', 'U2c', 'U2s', 'U3', 'Ut', 'U2w', 'U3f', 'U2x', 'U4a', 'U4b', 'U6', 'U6b', 'U7', 'U7b', 'U3g', 'U4c', 'U3h', 'U3i', 'U7c', 'U3j'] into one base branch for verify."
     },
     "max_retries": 3,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "4ae08905b90e43c8f2c1e8d8483d5933b26da68f",
+      "changed_files": [],
+      "commit": "4ae08905b90e43c8f2c1e8d8483d5933b26da68f",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of verify",
-    "version": 6,
+    "version": 8,
     "worktree": {
-      "base_branch": "skein/verify__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "4ae08905b90e43c8f2c1e8d8483d5933b26da68f",
+      "branch": "skein/verify__integrate-base",
       "path": null
     }
   }
