@@ -4474,10 +4474,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "cdbee6468ef3eab77bfbddfb791a31dbbb48012a",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "0bbbf45d2a7ec3ed68b02cb09a2566b4b9cb627f",
+        "result_commit": "30358466c8fb96bbaf120b930cbd7f7805d99028",
+        "shipped_at": "2026-11-19T00:32:38.168288+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U3's review: cross-core revoke, run start/end, overrides, risk-notice gates",
-    "version": 73,
+    "version": 74,
     "worktree": {
       "base_branch": "skein/U3f__integrate-base",
       "base_commit": "cdbee6468ef3eab77bfbddfb791a31dbbb48012a",
