@@ -7684,15 +7684,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "9c09a0c819f04b70af037bbf17bba42a",
+      "base_branch": "skein/verify__integrate__integrate-base",
+      "claim_token": "7336b88f3eb54df78ce77178fd1c8699",
+      "claimed_at": "2026-11-19T05:30:52.435638+00:00",
+      "holder": "inan",
+      "last_heartbeat": "2026-11-19T05:30:52.435638+00:00",
+      "node_version": 5,
+      "ttl_seconds": 1800,
+      "worker_id": "inan"
     },
     "depends_on": [
       "U0",
@@ -7738,9 +7738,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Integrate parents of verify",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "skein/verify__integrate__integrate-base",
       "branch": null,
