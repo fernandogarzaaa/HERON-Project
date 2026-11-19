@@ -5248,9 +5248,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "failed",
+    "status": "unclaimed",
     "title": "Fixes from U3h's review (35e)",
-    "version": 57,
+    "version": 58,
     "worktree": {
       "base_branch": "skein/U3i__integrate-base",
       "base_commit": "e037c700161e793ef6cb91e3be92b8148dd9a9c8",
