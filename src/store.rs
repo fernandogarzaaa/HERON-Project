@@ -684,6 +684,16 @@ impl Store {
         Ok(previous)
     }
 
+    /// The value of `k` in the kv table of the database at `path`, read without opening it as Heron
+    /// does (no upgrade, nothing written). `None` when there is no database or no such value.
+    pub fn peek_kv(path: &Path, k: &str) -> Result<Option<String>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).with_context(|| format!("cannot open {}", path.display()))?;
+        Ok(conn.query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional()?)
+    }
+
     /// Housekeeping for a long-running process: fold the write-ahead log back into the main file so it
     /// cannot grow without limit, and let SQLite refresh its query statistics.
     pub fn maintain(&self) -> Result<()> {

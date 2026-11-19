@@ -62,9 +62,10 @@ pub struct App {
 ///
 /// Every "never" rule is kept in `heron.db` (kv `deny_rules`) as well as in `config.toml`, and the
 /// rules in force are both together: a file that is deleted, recreated (by another Heron or `heron
-/// init`) or edited by hand can add a "never" but never lift one. Only Heron lifts one, when the
-/// tool is set to Ask or Allow ([`App::set_tool_setting`]), which takes it out of both in one step
-/// under the file lock. Each save writes the saved "never" rules into the file's list, so the file
+/// init`) or edited by hand can add a "never" but never lift one. Only Heron lifts one, in one of
+/// two ways: the tool is set to Ask or Allow ([`App::set_tool_setting`], for its `tool:*` rule), or
+/// the rule is removed from the list of "never" rules ([`App::remove_never`], for any rule). Each
+/// takes it out of both in one step under the file lock. Each save writes the saved "never" rules into the file's list, so the file
 /// shows them again; never this one's copy in memory, which may hold one lifted meanwhile.
 #[derive(Default)]
 struct ConfigSeen {
@@ -75,7 +76,8 @@ struct ConfigSeen {
     /// Every "never" rule, saved or in the file, as this one last knew them. A rule leaves the
     /// policy only once it has left both.
     nevers: Vec<String>,
-    /// The "never" rules in force that `config.toml`, readable at the last reload, did not list.
+    /// The "never" rules in force that `config.toml` did not list at the last reload (all of them
+    /// while it is missing; none while it cannot be read, which has its own notice).
     not_in_file: Vec<String>,
 }
 
@@ -86,15 +88,37 @@ pub(crate) struct TestHooks {
     /// Run once, by the next tool-setting change, revoke or mode change, after its save and before
     /// its policy change.
     pub(crate) after_save: Mutex<Option<Box<dyn FnOnce() + Send>>>,
-    /// Run whenever a caller finds the saved-rules lock or the config lock held and is about to
-    /// wait for it.
+    /// Run whenever a caller finds the saved-rules lock, the config lock or `config.lock` held and
+    /// is about to wait for it.
     pub(crate) waiting: Mutex<Option<Box<dyn Fn() + Send>>>,
+    /// Run once, by the next settings save that sets a mode, as the last step before it lets go of
+    /// the config lock.
+    pub(crate) before_unlock: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Run once, by the next reload, after it has read `config.toml` and before it reads or writes
+    /// the "never" rules saved in heron.db.
+    pub(crate) after_read: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// How long a reload waits for `config.lock`, instead of [`RELOAD_LOCK_WAIT`].
+    pub(crate) lock_wait: Mutex<Option<std::time::Duration>>,
 }
 
 #[cfg(test)]
 impl TestHooks {
     fn after_save(&self) {
         let hook = self.after_save.lock().unwrap().take();
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+
+    fn before_unlock(&self) {
+        let hook = self.before_unlock.lock().unwrap().take();
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+
+    fn after_read(&self) {
+        let hook = self.after_read.lock().unwrap().take();
         if let Some(hook) = hook {
             hook();
         }
@@ -158,9 +182,40 @@ impl From<Config> for ConfigChange<'_> {
 /// What `GET /api/grants` says (in the `x-heron-notice` header) while `config.toml` cannot be read.
 pub const CONFIG_UNREADABLE_NOTICE: &str = "config.toml cannot be read, so none of the \"always allow\" rules in it apply until it can";
 
-/// What `GET /api/grants` says (in the `x-heron-notice` header) while `config.toml` does not list a
-/// "never" rule that is still in force. The log names the rule.
-pub const NEVER_NOT_IN_CONFIG_NOTICE: &str = "config.toml does not list every \"never\" rule in force. Heron still refuses those tools; set a tool to Ask or Allow in Heron to lift its \"never\"";
+/// What `GET /api/grants` says (in the `x-heron-notice` header) while `config.toml` is missing or
+/// does not list a "never" rule that is still in force. The log names the rule.
+pub const NEVER_NOT_IN_CONFIG_NOTICE: &str = "config.toml does not list every \"never\" rule in force. Heron still refuses those tools; remove a \"never\" in Heron, or set its tool to Ask or Allow there, to lift it";
+
+/// How long a reload waits for `config.lock` before it gives up and keeps the rules it has.
+pub const RELOAD_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// One "never" rule, as `GET /api/nevers` lists it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Never {
+    pub rule: String,
+    /// The tool it refuses: the part before the first `:` (`*` for a bare `*`).
+    pub tool: String,
+    /// Whether `config.toml` lists it. Every one is saved in heron.db.
+    pub in_file: bool,
+}
+
+/// What `heron doctor` found of the "never" rules saved in heron.db.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NeversCheck {
+    /// Readable, holding this many rules.
+    Sound(usize),
+    /// Damaged, and rebuilt as `rules` from `from` (which sources were used).
+    Repaired { rules: Vec<String>, from: &'static str },
+}
+
+/// Run `f`, which may block for a while, without holding up the other tasks of the async thread it
+/// is called on (where the runtime allows that; a single-threaded one runs it in place).
+fn off_async<T>(f: impl FnOnce() -> T) -> T {
+    match tokio::runtime::Handle::try_current() {
+        Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => tokio::task::block_in_place(f),
+        _ => f(),
+    }
+}
 
 /// The saved "always allow" list.
 fn parse_rules(saved: Option<&str>) -> Vec<String> {
@@ -236,6 +291,30 @@ const RULES_KEY: &str = "allow_rules";
 /// [`ConfigSeen`]). Written only under the config file lock.
 const DENY_KEY: &str = "deny_rules";
 
+/// The last readable value of [`DENY_KEY`], kept so `heron doctor` can rebuild a damaged one from it
+/// as well as from `config.toml`.
+const DENY_LAST_GOOD_KEY: &str = "deny_rules_last_good";
+
+/// Why a core does not start when the "never" rules saved in heron.db cannot be read.
+fn damaged_nevers_error(why: impl std::fmt::Display) -> anyhow::Error {
+    anyhow::anyhow!("the \"never\" rules saved in heron.db (the kv entry `{DENY_KEY}`) are damaged ({why}), so Heron did not start: it would not know which tools you told it never to use. Run `heron doctor`, which rebuilds them from config.toml and the last good copy")
+}
+
+/// The saved "never" list in `text`, read as [`parse_nevers`] does, for the last good copy.
+fn parse_last_good(text: Option<String>) -> Option<Vec<String>> {
+    text.and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+}
+
+/// `extra` added to `rules`, each once, after them.
+fn union(mut rules: Vec<String>, extra: impl IntoIterator<Item = String>) -> Vec<String> {
+    for r in extra {
+        if !rules.contains(&r) {
+            rules.push(r);
+        }
+    }
+    rules
+}
+
 /// Require the model to provide a finite, explicit confidence in [0,1].
 /// Missing confidence is not consent to execute background work.
 fn proactive_confidence(value: &serde_json::Value) -> Option<f64> {
@@ -251,6 +330,55 @@ fn proactive_deny_rules(existing: &[String]) -> Vec<String> {
     let mut deny = existing.to_vec();
     deny.push("mcp__*:*".to_string());
     deny
+}
+
+/// For `heron doctor`: check the "never" rules saved in heron.db and, when they cannot be read,
+/// rebuild them from `config.toml`'s list plus the last good copy (when one was kept), under the
+/// config file lock. While `config.toml` cannot be parsed nothing is rebuilt, as a list rebuilt
+/// without it could miss a "never".
+pub fn repair_saved_nevers(cfg: &Config, store: &Store) -> Result<NeversCheck> {
+    let _lock = cfg.lock_file()?;
+    if let Some(rules) = parse_nevers(store.kv_read(DENY_KEY)?.as_deref()) {
+        return Ok(NeversCheck::Sound(rules.len()));
+    }
+    let file = match read_config_rules(&cfg.home) {
+        ConfigFile::Rules(rules) => rules.deny,
+        ConfigFile::Missing => vec![],
+        ConfigFile::Unreadable(why) => anyhow::bail!("the \"never\" rules saved in heron.db (`{DENY_KEY}`) are damaged, and were not rebuilt because {why}; fix config.toml, then run `heron doctor` again"),
+    };
+    let last_good = parse_last_good(store.kv_read(DENY_LAST_GOOD_KEY)?);
+    let from = if last_good.is_some() { "config.toml and the last good copy" } else { "config.toml only (no good copy was kept)" };
+    let rules = union(file, last_good.unwrap_or_default());
+    store.kv_set(DENY_KEY, &rules_json(&rules))?;
+    store.kv_set(DENY_LAST_GOOD_KEY, &rules_json(&rules))?;
+    Ok(NeversCheck::Repaired { rules, from })
+}
+
+/// `heron restore`: replace heron.db with the copy in `from` (see [`Store::restore`]), keeping every
+/// "never" rule the current database holds and adding the copy's. A restore can add a "never" but
+/// never lift one, even from a copy made before they were kept in heron.db. Done under the config
+/// file lock, so no Heron lifts or adds one meanwhile. Returns where the previous database was saved.
+pub fn restore_keeping_nevers(cfg: &Config, from: &std::path::Path) -> Result<Option<PathBuf>> {
+    let _lock = cfg.lock_file()?;
+    let path = cfg.db_path();
+    // Read without opening it as Heron does, which would upgrade it, and could fail on the damaged
+    // database a restore is for. One that cannot be read keeps nothing here; config.toml still
+    // lists its "never" rules, which the next start saves again. A damaged entry falls back to
+    // its last good copy.
+    let current = match Store::peek_kv(&path, DENY_KEY) {
+        Ok(Some(text)) => parse_nevers(Some(&text)),
+        _ => None,
+    };
+    let current = current.or_else(|| parse_last_good(Store::peek_kv(&path, DENY_LAST_GOOD_KEY).ok().flatten())).unwrap_or_default();
+    let previous = Store::restore(&path, from)?;
+    let store = Store::open(&path)?;
+    let backup_last_good = parse_last_good(store.kv_get(DENY_LAST_GOOD_KEY));
+    let written = store.kv_update(DENY_KEY, |backup| {
+        let theirs = parse_nevers(backup.as_deref()).or(backup_last_good).unwrap_or_default();
+        rules_json(&union(current, theirs))
+    })?;
+    store.kv_set(DENY_LAST_GOOD_KEY, &written)?;
+    Ok(previous)
 }
 
 impl App {
@@ -271,8 +399,13 @@ impl App {
         let config_rules = cfg.loaded_rules.clone().unwrap_or_default();
         // The "never" rules saved in heron.db. On the first run that keeps them there, they start as
         // the file's. Only when the key is missing: a rule lifted while this one started is not put
-        // back from its earlier read of the file.
-        let saved_nevers = store.kv_update(DENY_KEY, |saved| saved.unwrap_or_else(|| rules_json(&config_rules.deny))).ok().and_then(|s| parse_nevers(Some(&s))).unwrap_or_default();
+        // back from its earlier read of the file. When they cannot be read, this one does not start:
+        // reading them as "none" would run every tool the user said never to.
+        let saved_text = store.kv_update(DENY_KEY, |saved| saved.unwrap_or_else(|| rules_json(&config_rules.deny))).map_err(|e| damaged_nevers_error(format!("{e:#}")))?;
+        let saved_nevers = parse_nevers(Some(&saved_text)).ok_or_else(|| damaged_nevers_error("it is not a list of rules"))?;
+        if store.kv_get(DENY_LAST_GOOD_KEY).as_deref() != Some(saved_text.as_str()) {
+            let _ = store.kv_set(DENY_LAST_GOOD_KEY, &saved_text);
+        }
         // A saved one the file lacked is in force too. One the file had is left as these settings
         // have it, which the caller may have changed in memory.
         for r in saved_nevers.iter().filter(|r| !config_rules.deny.contains(r)) {
@@ -371,14 +504,12 @@ impl App {
             // Only what this change sets is written: the file is read again and the changed fields are
             // set in it, so an override from the command line (`--mode`, `--model`) stays out of it,
             // and of a list only this one's additions and removals are applied.
-            let _lock = new.lock_file()?;
+            let _lock = self.lock_config_file(&new)?;
             // The "never" rules saved in heron.db go into the file (one it recreates included), read
             // now under the lock: not this one's copy, which may hold one lifted on another Heron.
-            // When they cannot be read, none is written, and none is lifted either.
+            // When they cannot be read, none is written, and none is lifted either: a change of
+            // settings never lifts one, as the file's list is only ever added to here.
             let nevers = self.saved_nevers().unwrap_or_default();
-            // Nor does a change of settings lift one: only a tool setting does.
-            let dropped: Vec<String> = before.permissions.deny.iter().filter(|r| nevers.contains(r) && !new.permissions.deny.contains(r)).cloned().collect();
-            new.permissions.deny.extend(dropped);
             new.save_changes_held(&before, chosen, &members(&nevers))?;
             // This one's own changes to the standing rules are in the file now; what else changed
             // there is taken in below.
@@ -395,6 +526,8 @@ impl App {
                 #[cfg(test)]
                 self.test_hooks.after_save();
                 self.policy.set_mode(mode);
+                #[cfg(test)]
+                self.test_hooks.before_unlock();
             }
         }
         self.reload_rules();
@@ -428,7 +561,7 @@ impl App {
 
     /// The "never" rules saved in heron.db. An error, never an empty list, when they cannot be read.
     fn saved_nevers(&self) -> Result<Vec<String>> {
-        parse_nevers(self.store.kv_read(DENY_KEY)?.as_deref()).context("the \"never\" rules saved in heron.db cannot be read")
+        parse_nevers(self.store.kv_read(DENY_KEY)?.as_deref()).context("the \"never\" rules saved in heron.db cannot be read; run `heron doctor` to repair them")
     }
 
     /// Change the "never" rules saved in heron.db and return them as written. Called with the config
@@ -442,7 +575,77 @@ impl App {
             // Left as it is: what cannot be read is not replaced by a list missing what it held.
             None => saved.unwrap_or_default(),
         })?;
-        parse_nevers(Some(&written)).context("the \"never\" rules saved in heron.db cannot be read")
+        let rules = parse_nevers(Some(&written)).context("the \"never\" rules saved in heron.db cannot be read; run `heron doctor` to repair them")?;
+        // A copy for `heron doctor`, should the entry itself ever be damaged.
+        let _ = self.store.kv_set(DENY_LAST_GOOD_KEY, &written);
+        Ok(rules)
+    }
+
+    /// Take `config.lock` for `cfg`'s home (made if missing). A test learns when it is held
+    /// elsewhere and this one is about to wait.
+    fn lock_config_file(&self, cfg: &Config) -> Result<std::fs::File> {
+        let file = cfg.open_lock_file()?;
+        match file.try_lock() {
+            Ok(()) => return Ok(file),
+            Err(std::fs::TryLockError::WouldBlock) => {}
+            Err(std::fs::TryLockError::Error(e)) => return Err(e).context("locking config.lock"),
+        }
+        #[cfg(test)]
+        self.test_hooks.waiting();
+        off_async(|| file.lock()).context("locking config.lock")?;
+        Ok(file)
+    }
+
+    /// `config.lock` for a reload: `Ok(None)` when there is no home folder yet or the lock cannot be
+    /// taken at all (then the file's "never" rules apply but are not saved in heron.db), and an
+    /// error when it is still held by someone else after [`RELOAD_LOCK_WAIT`] (a Heron stopped in
+    /// the middle of a save must not stall every other one).
+    fn lock_config_file_for_reload(&self, cfg: &Config) -> Result<Option<std::fs::File>> {
+        if !cfg.home.is_dir() {
+            return Ok(None);
+        }
+        let cannot_lock = |e: anyhow::Error| {
+            eprintln!("heron: {e:#}. The \"never\" rules in config.toml apply, but are not saved in heron.db until it can be locked.");
+            Ok(None)
+        };
+        let file = match cfg.open_lock_file() {
+            Ok(file) => file,
+            Err(e) => return cannot_lock(e),
+        };
+        #[cfg(test)]
+        let wait = self.test_hooks.lock_wait.lock().unwrap().unwrap_or(RELOAD_LOCK_WAIT);
+        #[cfg(not(test))]
+        let wait = RELOAD_LOCK_WAIT;
+        let try_lock = || match file.try_lock() {
+            Ok(()) => Ok(true),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(false),
+            Err(std::fs::TryLockError::Error(e)) => Err(anyhow::Error::from(e).context("locking config.lock")),
+        };
+        match try_lock() {
+            Ok(true) => return Ok(Some(file)),
+            Ok(false) => {}
+            Err(e) => return cannot_lock(e),
+        }
+        #[cfg(test)]
+        self.test_hooks.waiting();
+        let deadline = std::time::Instant::now() + wait;
+        let got = off_async(|| -> Result<bool> {
+            loop {
+                let now = std::time::Instant::now();
+                if now >= deadline {
+                    return Ok(false);
+                }
+                std::thread::sleep((deadline - now).min(std::time::Duration::from_millis(20)));
+                if try_lock()? {
+                    return Ok(true);
+                }
+            }
+        });
+        match got {
+            Ok(true) => Ok(Some(file)),
+            Ok(false) => anyhow::bail!("config.lock is still held by another program after {} s", wait.as_secs()),
+            Err(e) => cannot_lock(e),
+        }
     }
 
     /// Revoke a standing rule everywhere it lives: the settings file, the policy and the saved
@@ -457,7 +660,7 @@ impl App {
         let mut saved_rules = self.lock_rules_seen();
         let mut seen = self.lock_config_seen();
         let home = self.cfg().home.clone();
-        let _lock = self.cfg().lock_file()?;
+        let _lock = self.lock_config_file(&self.cfg())?;
         if home.join("config.toml").exists() {
             Config::read_saved(&home)?;
         }
@@ -503,8 +706,13 @@ impl App {
     /// setting for the tool, a revoke) is applied after this one, never between its save and its
     /// policy change.
     ///
-    /// This is the one way a "never" is lifted: "ask" or "allow" takes the rule out of the file and
-    /// out of the "never" rules saved in heron.db, under the same lock (see [`ConfigSeen`]).
+    /// One of the two ways a "never" is lifted (the other is [`App::remove_never`]): "ask" or
+    /// "allow" takes the tool's `tool:*` rule out of the "never" rules saved in heron.db and out of
+    /// the file, under the same lock (see [`ConfigSeen`]).
+    ///
+    /// heron.db is changed first. Should that fail, nothing has changed. Should the file then fail,
+    /// a lifted "never" is still in the file, and the next reload takes it back into heron.db; a new
+    /// "never" is in heron.db, and enforced from there. Either way a failed change never loosens.
     pub fn set_tool_setting(&self, tool: &str, setting: &str) -> Result<()> {
         Policy::check_tool_setting(tool, setting)?;
         let rule = format!("{tool}:*");
@@ -513,7 +721,7 @@ impl App {
         let mut saved_rules = self.lock_rules_seen();
         let mut seen = self.lock_config_seen();
         let home = self.cfg().home.clone();
-        let _lock = self.cfg().lock_file()?;
+        let _lock = self.lock_config_file(&self.cfg())?;
         if home.join("config.toml").exists() {
             // Fails with nothing changed, not even what a reload would take in.
             Config::read_saved(&home)?;
@@ -523,15 +731,12 @@ impl App {
         let mut new = (*before).clone();
         set_member(&mut new.permissions.allow, &rule, setting == "allow");
         set_member(&mut new.permissions.deny, &rule, never);
-        // The saved "never" rules go into the file first, so the choice for this tool has the last
-        // word.
-        let nevers = self.saved_nevers().unwrap_or_default();
+        let nevers = self.change_saved_nevers(|rules| set_member(rules, &rule, never))?;
+        // The saved "never" rules go into the file, then the choice for this tool, which has the
+        // last word.
         let mut changes = members(&nevers);
         changes.extend([("permissions.allow", rule.as_str(), setting == "allow"), ("permissions.deny", rule.as_str(), never)]);
         new.save_changes_held(&before, &[], &changes)?;
-        // Then in heron.db. Should that fail, the file has the choice and heron.db does not: a "never"
-        // is taken into heron.db from the file at the next reload, and a lifted one stays in force.
-        self.change_saved_nevers(|rules| set_member(rules, &rule, never))?;
         note_own_changes(&mut seen.allow, &before.permissions.allow, &new.permissions.allow);
         // The file and heron.db now hold the rule exactly as chosen, whatever this one held before.
         set_member(&mut seen.allow, &rule, setting == "allow");
@@ -545,6 +750,61 @@ impl App {
         // `cfg` already holds the choice, so an "allow" is not counted as this one's saved answer.
         self.persist_rules_held(&mut saved_rules);
         Ok(())
+    }
+
+    /// Every "never" rule in force: those saved in heron.db (the source), then any the file adds
+    /// that heron.db does not hold yet. Each says whether `config.toml` lists it. An error, never an
+    /// empty list, when the saved ones cannot be read.
+    pub fn nevers(&self) -> Result<Vec<Never>> {
+        let file_deny = match read_config_rules(&self.cfg().home) {
+            ConfigFile::Rules(rules) => rules.deny,
+            ConfigFile::Missing | ConfigFile::Unreadable(_) => vec![],
+        };
+        let rules = union(self.saved_nevers()?, file_deny.iter().cloned());
+        Ok(rules
+            .into_iter()
+            .map(|rule| {
+                let tool = rule.split_once(':').map(|(t, _)| t).unwrap_or(&rule).to_string();
+                let in_file = file_deny.contains(&rule);
+                Never { rule, tool, in_file }
+            })
+            .collect())
+    }
+
+    /// Lift one "never" rule, exactly as written: out of the "never" rules saved in heron.db and out
+    /// of `config.toml`, in one locked step, as [`App::set_tool_setting`] does for a tool's own
+    /// rule. False when it is not a "never" rule. heron.db is changed first, so a failure leaves the
+    /// rule in force (see [`App::set_tool_setting`]); `config.toml` is checked before anything, so
+    /// when it cannot be parsed the error is returned with nothing changed.
+    pub fn remove_never(&self, rule: &str) -> Result<bool> {
+        // Lock order: `rules_seen`, `config_seen`, the file lock, then `cfg`.
+        let saved_rules = self.lock_rules_seen();
+        let mut seen = self.lock_config_seen();
+        let home = self.cfg().home.clone();
+        let _lock = self.lock_config_file(&self.cfg())?;
+        if home.join("config.toml").exists() {
+            Config::read_saved(&home)?;
+        }
+        // The file's own "never" rules are saved in heron.db by this, so every one is there now.
+        self.take_config_rules_held(&mut seen, &saved_rules, true);
+        if !self.saved_nevers()?.iter().any(|r| r == rule) {
+            return Ok(false);
+        }
+        let nevers = self.change_saved_nevers(|rules| rules.retain(|r| r != rule))?;
+        let before = self.cfg();
+        let mut new = (*before).clone();
+        new.permissions.deny.retain(|r| r != rule);
+        let mut changes = members(&nevers);
+        changes.push(("permissions.deny", rule, false));
+        new.save_changes_held(&before, &[], &changes)?;
+        seen.nevers.retain(|r| r != rule);
+        seen.not_in_file.retain(|r| r != rule && !nevers.contains(r));
+        new.revision = before.revision + 1;
+        *self.cfg.write().unwrap() = Arc::new(new);
+        #[cfg(test)]
+        self.test_hooks.after_save();
+        self.policy.remove_deny(rule);
+        Ok(true)
     }
 
     /// Re-read the API key (after it was changed) without touching other settings.
@@ -678,16 +938,23 @@ impl App {
     /// The "never" rules in force are those saved in heron.db and those in the file, together, and a
     /// "never" the file has that heron.db lacks is saved there. So a file that is missing, broken,
     /// recreated (by another Heron or `heron init`) or edited by hand can add one but never lift one
-    /// (see [`ConfigSeen`]). One the readable file does not list is named in the log and in
-    /// [`App::config_notice`]. If heron.db cannot be read, the ones this one holds stay.
+    /// (see [`ConfigSeen`]). One the file does not list (a missing file lists none) is named in the
+    /// log and in [`App::config_notice`]. If heron.db cannot be read, the ones this one holds stay.
+    ///
+    /// The file lock is waited for at most [`RELOAD_LOCK_WAIT`], off the async threads. When it is
+    /// still held after that, nothing is read and this one keeps the rules it has, which cannot
+    /// widen anything, and says so in the log.
     fn take_config_rules(&self, saved_rules: &[String]) {
         let mut seen = self.lock_config_seen();
         // Under the file lock, so a read of the file made before another Heron lifts a "never" (from
         // heron.db and the file in one step) cannot save it in heron.db again after.
-        let lock = self.cfg().lock_file_if_home().unwrap_or_else(|e| {
-            eprintln!("heron: {e:#}. The \"never\" rules in config.toml apply, but are not saved in heron.db until it can be locked.");
-            None
-        });
+        let lock = match self.lock_config_file_for_reload(&self.cfg()) {
+            Ok(lock) => lock,
+            Err(e) => {
+                eprintln!("heron: {e:#}. The rules in force here stay as they are until the next reload.");
+                return;
+            }
+        };
         self.take_config_rules_held(&mut seen, saved_rules, lock.is_some());
     }
 
@@ -713,7 +980,9 @@ impl App {
                 (vec![], None)
             }
         };
-        let readable = file_deny.is_some();
+        #[cfg(test)]
+        self.test_hooks.after_read();
+        let readable = seen.unreadable.is_none();
         let file_deny = file_deny.unwrap_or_default();
         let saved = match self.saved_nevers() {
             Ok(saved) if locked && file_deny.iter().any(|r| !saved.contains(r)) => self.change_saved_nevers(|rules| rules.extend(file_deny.iter().filter(|r| !saved.contains(r)).cloned())),
@@ -728,9 +997,10 @@ impl App {
                 nevers.push(r.clone());
             }
         }
+        // A missing file lists none of them; one that cannot be read has its own notice.
         let not_in_file: Vec<String> = if readable { nevers.iter().filter(|r| !file_deny.contains(r)).cloned().collect() } else { vec![] };
         for r in not_in_file.iter().filter(|r| !seen.not_in_file.contains(r)) {
-            eprintln!("heron: config.toml does not list the \"never\" rule {r}, which is still in force. Only Heron lifts it: set that tool to Ask or Allow.");
+            eprintln!("heron: config.toml does not list the \"never\" rule {r}, which is still in force. Only Heron lifts it: remove it from the \"never\" list in Heron, or set its tool to Ask or Allow.");
         }
         seen.not_in_file = not_in_file;
         let (allow_gone, allow_new) = list_diff(&seen.allow, &disk_allow);
@@ -1809,6 +2079,114 @@ mod tests {
         app.update_config(changed).unwrap();
         let disk = on_disk();
         assert_eq!((disk.permissions.mode.as_str(), disk.llm.model.as_str()), ("auto", "saved-model"));
+
+        // Through `POST /api/settings` under `--mode yolo`: another setting leaves the override out,
+        // and choosing the mode the override already holds writes it, as `POST /api/mode` does.
+        let cfg = Config::read_saved(&home).unwrap().with_cli_overrides(Some("yolo"), None).unwrap();
+        let app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
+        assert!(crate::server::save_settings(&app, &json!({"name": "Ibis"})).is_ok());
+        assert_eq!((on_disk().agent.name.as_str(), on_disk().permissions.mode.as_str()), ("Ibis", "auto"));
+        assert!(crate::server::save_settings(&app, &json!({"mode": "yolo"})).is_ok());
+        assert_eq!(on_disk().permissions.mode, "yolo");
+        assert_eq!(app.policy.mode(), Mode::Yolo);
+    }
+
+    /// `home`'s config.toml with `deny` as its "never" list, the rest as saved.
+    fn set_deny_on_disk(home: &std::path::Path, deny: &[&str]) {
+        let mut c = Config::read_saved(home).unwrap();
+        c.permissions.deny = deny.iter().map(|r| r.to_string()).collect();
+        c.save().unwrap();
+    }
+
+    #[tokio::test]
+    async fn unreadable_saved_nevers_stop_the_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.deny = vec!["web_fetch:*".into()];
+        saved.save().unwrap();
+        let cfg = Config::read_saved(&home).unwrap();
+        let ws = dir.path().join("ws");
+        let start = |store: Store| App::assemble(Config::read_saved(&home).unwrap(), ws.clone(), store, Arc::new(ScriptedLlm::new(vec![])));
+        let store = Store::open(&cfg.db_path()).unwrap();
+        // A "never" set in the app, then taken out of the file by hand: heron.db alone holds it.
+        start(store.clone()).await.unwrap().set_tool_setting("shell", "never").unwrap();
+        set_deny_on_disk(&home, &["web_fetch:*"]);
+
+        // The saved list is damaged: the core does not start, and says what is damaged and what repairs it.
+        store.kv_set(DENY_KEY, "{not a list").unwrap();
+        let said = format!("{:#}", start(store.clone()).await.err().expect("a core does not start without its \"never\" rules"));
+        assert!(said.contains("deny_rules") && said.contains("heron doctor"), "{said}");
+        assert_eq!(store.kv_get(DENY_KEY).as_deref(), Some("{not a list"), "nothing was written over it");
+
+        // `heron doctor` rebuilds it from config.toml and the last good copy, and says so.
+        assert_eq!(repair_saved_nevers(&cfg, &store).unwrap(), NeversCheck::Repaired { rules: vec!["web_fetch:*".into(), "shell:*".into()], from: "config.toml and the last good copy" });
+        assert_eq!(repair_saved_nevers(&cfg, &store).unwrap(), NeversCheck::Sound(2));
+        let app = start(store.clone()).await.unwrap();
+        assert_eq!((app.policy.tool_setting("web_fetch"), app.policy.tool_setting("shell")), ("never", "never"));
+
+        // Damaged while a core runs: it keeps the rules it has and logs it, and refuses every change
+        // to them, leaving the damaged entry exactly as it was (not replaced by a shorter list).
+        store.kv_set(DENY_KEY, "{damaged again").unwrap();
+        app.reload_rules();
+        assert_eq!((app.policy.tool_setting("web_fetch"), app.policy.tool_setting("shell")), ("never", "never"));
+        let file_before = std::fs::read_to_string(home.join("config.toml")).unwrap();
+        assert!(app.set_tool_setting("shell", "ask").is_err());
+        assert!(app.set_tool_setting("write_file", "never").is_err());
+        assert!(app.remove_never("web_fetch:*").is_err());
+        assert!(app.nevers().is_err());
+        assert_eq!(store.kv_get(DENY_KEY).as_deref(), Some("{damaged again"));
+        assert_eq!(std::fs::read_to_string(home.join("config.toml")).unwrap(), file_before);
+        app.reload_rules();
+        assert_eq!((app.policy.tool_setting("web_fetch"), app.policy.tool_setting("shell"), app.policy.tool_setting("write_file")), ("never", "never", "ask"));
+
+        // With no good copy kept, from config.toml only, and it says so.
+        store.kv_set(DENY_LAST_GOOD_KEY, "{gone").unwrap();
+        assert_eq!(repair_saved_nevers(&cfg, &store).unwrap(), NeversCheck::Repaired { rules: vec!["web_fetch:*".into()], from: "config.toml only (no good copy was kept)" });
+
+        // While config.toml cannot be parsed, nothing is rebuilt.
+        store.kv_set(DENY_KEY, "{damaged").unwrap();
+        std::fs::write(home.join("config.toml"), "[permissions\n").unwrap();
+        let said = format!("{:#}", repair_saved_nevers(&cfg, &store).unwrap_err());
+        assert!(said.contains("config.toml"), "{said}");
+        assert_eq!(store.kv_get(DENY_KEY).as_deref(), Some("{damaged"));
+    }
+
+    #[tokio::test]
+    async fn restore_keeps_current_nevers() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        // A copy made before "never" rules were kept in heron.db, and one with a "never" of its own.
+        let copy = |name: &str, nevers: Option<&[&str]>| {
+            let store = Store::open(&dir.path().join(format!("{name}.db"))).unwrap();
+            store.create_session(name, "user").unwrap();
+            if let Some(nevers) = nevers {
+                store.kv_set(DENY_KEY, &json!(nevers).to_string()).unwrap();
+            }
+            store.backup(Some(&dir.path().join(format!("{name}-copy.db")))).unwrap()
+        };
+        let (old, own) = (copy("old", None), copy("own", Some(&["write_file:*"])));
+        // The current database holds two "never" rules that config.toml (absent) does not list.
+        {
+            let live = Store::open(&cfg.db_path()).unwrap();
+            live.create_session("now", "user").unwrap();
+            live.kv_set(DENY_KEY, &json!(["web_fetch:*", "shell:*sudo*"]).to_string()).unwrap();
+        }
+        let nevers = || -> Vec<String> { serde_json::from_str(&Store::open(&cfg.db_path()).unwrap().kv_get(DENY_KEY).unwrap()).unwrap() };
+
+        restore_keeping_nevers(&cfg, &old).unwrap();
+        assert_eq!(nevers(), vec!["web_fetch:*", "shell:*sudo*"]);
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert!(store.list_sessions(10).unwrap().iter().any(|s| s.title == "old"), "the copy's data came back");
+        let app = App::assemble(cfg.clone(), dir.path().join("ws"), store, Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
+        assert_eq!(app.policy.tool_setting("web_fetch"), "never", "{:?}", app.policy.deny_rules());
+        drop(app);
+
+        // The copy's own "never" rules are added; none is lifted.
+        restore_keeping_nevers(&cfg, &own).unwrap();
+        assert_eq!(nevers(), vec!["web_fetch:*", "shell:*sudo*", "write_file:*"]);
     }
 
     #[tokio::test]

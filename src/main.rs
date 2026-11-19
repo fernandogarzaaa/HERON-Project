@@ -556,6 +556,13 @@ async fn doctor(cfg: &Config) -> Result<()> {
                 }
                 Err(e) => println!("{} database    {} could not be checked: {e:#}", ok(false), cfg.db_path().display()),
             }
+            match heron::app::repair_saved_nevers(cfg, &store) {
+                Ok(heron::app::NeversCheck::Sound(n)) => println!("{} never       {n} \"never\" rule(s) saved in the database", ok(true)),
+                Ok(heron::app::NeversCheck::Repaired { rules, from }) => {
+                    println!("{} never       the saved \"never\" rules were damaged; rebuilt from {from}: {}", ok(true), if rules.is_empty() { "none".to_string() } else { rules.join(", ") });
+                }
+                Err(e) => println!("{} never       {e:#}", ok(false)),
+            }
         }
         Err(e) => println!("{} database    {e:#}", ok(false)),
     }
@@ -666,7 +673,8 @@ async fn real_main() -> Result<()> {
         }
         Cmd::Restore { file } => {
             cfg.ensure_home()?;
-            let previous = heron::store::Store::restore(&cfg.db_path(), file)?;
+            // Every "never" rule the current database holds is kept: a restore never lifts one.
+            let previous = heron::app::restore_keeping_nevers(&cfg, file)?;
             println!("Restored Heron's data from {}", file.display());
             if let Some(previous) = previous {
                 println!("What was there before is kept at {}", previous.display());

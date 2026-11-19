@@ -1448,6 +1448,8 @@ async fn api_fixtures_match_the_live_core() {
     app.store.park_approval(&sid, "write_file", r#"{"path":"later.txt","content":"later"}"#, "Write later.txt", "later.txt", heron::permissions::Effect::WorkspaceWrite.label(), false, "user").unwrap();
     app.policy.add_allow("shell:git *").unwrap();
     app.persist_rules();
+    // And a "never" rule, on a tool the demo turn did not use.
+    app.set_tool_setting("web_fetch", "never").unwrap();
     api.post_json("/memories", json!({"content": "The user plays the cello", "kind": "profile"})).await;
 
     let responses = [
@@ -1462,9 +1464,10 @@ async fn api_fixtures_match_the_live_core() {
         ("persona.json", api.get_json("/persona").await),
         ("today.json", api.get_json("/today").await),
         ("audit.json", api.get_json("/audit").await),
+        ("nevers.json", api.get_json("/nevers").await),
     ];
     // A recording with an empty list would teach U4's decoder nothing about its items.
-    for (name, list) in [("sessions.json", &responses[1].1), ("approvals.json", &responses[3].1), ("providers.json", &responses[4].1), ("grants.json", &responses[5].1), ("audit.json", &responses[10].1["entries"])] {
+    for (name, list) in [("sessions.json", &responses[1].1), ("approvals.json", &responses[3].1), ("providers.json", &responses[4].1), ("grants.json", &responses[5].1), ("audit.json", &responses[10].1["entries"]), ("nevers.json", &responses[11].1)] {
         assert!(!list.as_array().unwrap().is_empty(), "{name} has no items to record");
     }
     // M9: the activity log says which model acted.
