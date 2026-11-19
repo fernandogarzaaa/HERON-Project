@@ -7712,7 +7712,7 @@
       "U3j"
     ],
     "evidence": [],
-    "handoff_note": null,
+    "handoff_note": "auto-merge conflicted on: eval/containment/claude-cli.json, eval/containment/codex-cli.json, eval/containment/opencode-cli.json; resolve the conflicts in branch 'skein/verify__integrate-base' and mark the node done",
     "id": "verify__integrate",
     "integration_for": "verify",
     "intent": {
@@ -7730,7 +7730,7 @@
     "shipped": {},
     "status": "needs_human",
     "title": "Integrate parents of verify",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/verify__integrate__integrate-base",
       "branch": null,
