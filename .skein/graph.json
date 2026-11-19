@@ -8246,15 +8246,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "7f90d2bfed984ea28d1814158a1f8385",
+      "base_branch": "skein/U3t__integrate-base",
+      "claim_token": "4c82e8bd1e6649c0b61607856b4366b4",
+      "claimed_at": "2026-11-19T20:13:05.206365+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-19T20:13:05.206365+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U3s",
@@ -8277,9 +8277,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fixes from the U3s review (35p)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U3t__integrate-base",
       "branch": null,
