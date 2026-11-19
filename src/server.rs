@@ -319,14 +319,13 @@ async fn set_settings(State(st): S, Json(body): Json<Value>) -> ApiResult {
         st.app.cfg().store_api_key(&key)?;
     }
     // Applied to the settings as they are when they are saved, never to a copy held across an await.
+    // A mode chosen here is made live under the save's lock, so it ends as the file says.
+    let mode = text("mode").map(|v| Mode::parse(&v)).transpose()?;
     let mut restart_browser = false;
     st.app.update_config(ConfigChange::try_edit(|cfg| {
         restart_browser = body.get("browser_visible").and_then(|v| v.as_bool()).is_some_and(|v| v != cfg.agent.browser_visible);
         apply_settings(&body, cfg).map_err(|e| anyhow::anyhow!(e.1))
-    }))?;
-    if let Some(v) = text("mode") {
-        st.app.policy.set_mode(Mode::parse(&v)?);
-    }
+    }).setting_mode(mode))?;
     if restart_browser {
         crate::browser::shutdown().await; // the next use starts it the new way
     }
@@ -429,9 +428,9 @@ struct ModeBody {
 async fn set_mode(State(st): S, Json(b): Json<ModeBody>) -> ApiResult {
     let mode = Mode::parse(&b.mode)?;
     // The config file stays the one source of truth, so the mode survives a restart. It is the
-    // user's explicit choice, so it is written even when `--mode` already set the same mode.
-    st.app.update_config_choosing(ConfigChange::edit(|c| c.permissions.mode = mode.name().to_string()), &["permissions.mode"])?;
-    st.app.policy.set_mode(mode);
+    // user's explicit choice, so it is written even when `--mode` already set the same mode, and
+    // made live under the save's lock.
+    st.app.set_mode(mode)?;
     Ok(Json(json!({"mode": st.app.policy.mode().name()})))
 }
 
@@ -760,14 +759,15 @@ async fn accept_provider_version(State(st): S, Path(id): Path<String>, Json(b): 
 
 /// Every standing allow rule: folder reads (`read:`) and tool rules. While `config.toml` cannot be
 /// read, none of its rules are listed (they do not apply), and the `x-heron-notice` header says why;
-/// the body stays the plain list, so a client that does not know the header is unaffected.
+/// the body stays the plain list, so a client that does not know the header is unaffected. The
+/// header also says when `config.toml` does not list a "never" rule still in force.
 async fn list_grants(State(st): S) -> std::result::Result<Response, ApiError> {
     // Including what another Heron on this home granted or revoked since this one last looked.
     st.app.reload_rules();
     let grants: Vec<Value> = st.app.policy.allow_rules().into_iter().map(|rule| json!({"kind": if rule.starts_with("read:") { "read" } else { "tool" }, "rule": rule})).collect();
     let mut response = Json(json!(grants)).into_response();
-    if st.app.config_unreadable().is_some() {
-        response.headers_mut().insert("x-heron-notice", header::HeaderValue::from_static(crate::app::CONFIG_UNREADABLE_NOTICE));
+    if let Some(notice) = st.app.config_notice() {
+        response.headers_mut().insert("x-heron-notice", header::HeaderValue::from_static(notice));
     }
     Ok(response)
 }
@@ -2568,6 +2568,8 @@ mod tests {
 
         // A refused change takes nothing in from the broken file either: the "always allow" rules
         // that came from it stay live, and the file is not marked unreadable, until a reload says so.
+        // Only Heron lifts a "never" (35g), so "shell" is set back to "ask" here, not by editing the file.
+        app.set_tool_setting("shell", "ask").unwrap();
         saved.permissions.allow = vec!["shell:git *".into()];
         saved.permissions.deny.clear();
         saved.save().unwrap();
@@ -2759,15 +2761,14 @@ mod tests {
         std::fs::remove_file(home.join("config.toml")).unwrap();
         a.reload_rules();
         assert!(refuses(&a));
-        // B starts while the file is missing, so it holds no "never", and its save of something
-        // else recreates the file without it.
+        // B starts while the file is missing. The "never" saved in heron.db is in force on it all the
+        // same (35g), and its save of something else recreates the file with it.
         let b = core().await;
-        assert!(!refuses(&b));
+        assert!(refuses(&b));
         b.update_config(ConfigChange::edit(|c| c.agent.name = "Wren".into())).unwrap();
-        assert!(Config::read_saved(&home).unwrap().permissions.deny.is_empty());
+        assert_eq!(Config::read_saved(&home).unwrap().permissions.deny, vec!["web_fetch:*"]);
 
-        // A's reloads take in the recreated file and lift nothing: the rule was not in the file at a
-        // read before.
+        // A's reloads take in the recreated file and lift nothing.
         for _ in 0..2 {
             a.reload_rules();
             assert!(refuses(&a), "{:?}", a.policy.deny_rules());
@@ -2788,6 +2789,283 @@ mod tests {
         b.set_tool_setting("web_fetch", "ask").unwrap();
         a.reload_rules();
         assert!(!refuses(&a), "{:?}", a.policy.deny_rules());
+    }
+
+    /// A core on `home` started from `config.toml` as saved, in Yolo mode: what it is not told to
+    /// refuse, it runs unasked.
+    async fn yolo_core(home: &std::path::Path, ws: &std::path::Path) -> Arc<App> {
+        let cfg = Config::read_saved(home).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        crate::risk_notice::accept_current(&store).unwrap();
+        let app = Arc::new(App::assemble(cfg, ws.to_path_buf(), store, scripted(vec![])).await.unwrap());
+        app.policy.set_mode(Mode::Yolo);
+        app
+    }
+
+    /// `home` with a `config.toml` whose only "never" is `web_fetch:*`, plus `allow`.
+    fn home_with_a_never(dir: &std::path::Path, allow: &[&str]) -> std::path::PathBuf {
+        let home = dir.join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.allow = allow.iter().map(|r| r.to_string()).collect();
+        saved.permissions.deny = vec!["web_fetch:*".into()];
+        saved.save().unwrap();
+        home
+    }
+
+    fn refuses_fetch(app: &App) -> bool {
+        matches!(crate::permissions::decide_for(&app.policy, "web_fetch", "https://example.com/", crate::permissions::Effect::NetworkRead, false), crate::permissions::Verdict::Deny(_))
+    }
+
+    /// The "never" rules saved in heron.db.
+    fn saved_nevers(app: &App) -> Vec<String> {
+        serde_json::from_str(&app.store.kv_get("deny_rules").expect("the \"never\" rules are saved")).unwrap()
+    }
+
+    /// The file's "never" rules.
+    fn nevers_on_disk(home: &std::path::Path) -> Vec<String> {
+        Config::read_saved(home).unwrap().permissions.deny
+    }
+
+    /// Write `config.toml` as a person editing it would: the same settings, `deny` as given.
+    fn edit_deny_by_hand(home: &std::path::Path, deny: &[&str]) {
+        let path = home.join("config.toml");
+        let mut doc: toml::Value = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        doc["permissions"]["deny"] = toml::Value::Array(deny.iter().map(|r| toml::Value::String(r.to_string())).collect());
+        std::fs::write(&path, toml::to_string(&doc).unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn recreated_config_does_not_lift_a_never_on_an_idle_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = home_with_a_never(dir.path(), &[]);
+        let ws = dir.path().join("ws");
+        let a = yolo_core(&home, &ws).await;
+        assert!(refuses_fetch(&a));
+
+        // The file is deleted, and A does not reload while it is gone.
+        std::fs::remove_file(home.join("config.toml")).unwrap();
+        // B starts while it is gone and saves its agent name, which recreates the file.
+        let b = yolo_core(&home, &ws).await;
+        b.update_config(ConfigChange::edit(|c| c.agent.name = "Wren".into())).unwrap();
+        a.reload_rules();
+        assert!(refuses_fetch(&a), "{:?}", a.policy.deny_rules());
+        b.reload_rules();
+        assert!(refuses_fetch(&b), "{:?}", b.policy.deny_rules());
+        assert!(refuses_fetch(&*yolo_core(&home, &ws).await));
+        // The recreated file lists it again, from heron.db.
+        assert_eq!(nevers_on_disk(&home), vec!["web_fetch:*"]);
+
+        // Recreated by something that writes no "never" at all, while A is idle again: still refused.
+        std::fs::remove_file(home.join("config.toml")).unwrap();
+        Config { home: home.clone(), ..Default::default() }.save().unwrap();
+        assert!(nevers_on_disk(&home).is_empty());
+        for app in [&a, &b] {
+            app.reload_rules();
+            assert!(refuses_fetch(app), "{:?}", app.policy.deny_rules());
+            assert_eq!(app.cfg().permissions.deny, vec!["web_fetch:*"]);
+        }
+        assert!(refuses_fetch(&*yolo_core(&home, &ws).await));
+        assert_eq!(saved_nevers(&a), vec!["web_fetch:*"]);
+    }
+
+    #[tokio::test]
+    async fn heron_init_does_not_lift_a_never() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = home_with_a_never(dir.path(), &[]);
+        let ws = dir.path().join("ws");
+        let a = yolo_core(&home, &ws).await;
+        let h = serve_app(tempfile::tempdir().unwrap(), a.clone());
+        assert!(refuses_fetch(&a));
+
+        // The file is deleted, and `heron init` writes the starter file, with no "never" in it.
+        std::fs::remove_file(home.join("config.toml")).unwrap();
+        let written = Config { home: home.clone(), ..Default::default() }.write_default().unwrap();
+        assert_eq!(std::fs::read_to_string(&written).unwrap(), crate::config::DEFAULT_CONFIG);
+        assert!(nevers_on_disk(&home).is_empty());
+        a.reload_rules();
+        assert!(refuses_fetch(&a), "{:?}", a.policy.deny_rules());
+        assert!(refuses_fetch(&*yolo_core(&home, &ws).await));
+        // GET /api/grants says the file does not list it.
+        let reply = h.send("GET", "/grants", Value::Null).await;
+        let notice = reply.headers.iter().find(|(n, _)| n == "x-heron-notice").map(|(_, v)| v.clone());
+        assert_eq!(notice.as_deref(), Some(crate::app::NEVER_NOT_IN_CONFIG_NOTICE));
+
+        // The next save writes it into the file again, and the notice goes.
+        a.update_config(ConfigChange::edit(|c| c.agent.name = "Wren".into())).unwrap();
+        assert_eq!(nevers_on_disk(&home), vec!["web_fetch:*"]);
+        let reply = h.send("GET", "/grants", Value::Null).await;
+        assert!(!reply.headers.iter().any(|(n, _)| n == "x-heron-notice"), "{:?}", reply.headers);
+        assert!(refuses_fetch(&a));
+    }
+
+    #[tokio::test]
+    async fn hand_edit_cannot_lift_a_never() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = home_with_a_never(dir.path(), &["shell:git *", "shell:make *"]);
+        let ws = dir.path().join("ws");
+        let a = yolo_core(&home, &ws).await;
+        let h = serve_app(tempfile::tempdir().unwrap(), a.clone());
+        let notice = || async {
+            let reply = h.send("GET", "/grants", Value::Null).await;
+            assert_eq!(reply.status, 200);
+            reply.headers.iter().find(|(n, _)| n == "x-heron-notice").map(|(_, v)| v.clone())
+        };
+        assert_eq!(notice().await, None);
+        // The "never" is refused, and named in the log and the notice, while the file lacks it.
+        let still_refused = |why: &str| {
+            assert!(refuses_fetch(&a), "{why}: {:?}", a.policy.deny_rules());
+            assert_eq!(a.policy.tool_setting("web_fetch"), "never", "{why}");
+            assert_eq!(saved_nevers(&a), vec!["web_fetch:*"], "{why}");
+        };
+
+        // The deny line is taken out by hand. Each way Heron saves the file puts it back.
+        for save in ["settings", "tool setting", "revoke"] {
+            edit_deny_by_hand(&home, &[]);
+            assert!(nevers_on_disk(&home).is_empty());
+            assert_eq!(notice().await.as_deref(), Some(crate::app::NEVER_NOT_IN_CONFIG_NOTICE), "{save}");
+            still_refused(save);
+            assert!(refuses_fetch(&*yolo_core(&home, &ws).await), "{save}: a core started now refuses it too");
+            match save {
+                "settings" => assert_eq!(h.json("POST", "/settings", json!({"name": "Wren"})).await["name"], "Wren"),
+                "tool setting" => assert_eq!(h.json("POST", "/tools/shell", json!({"setting": "ask"})).await["setting"], "ask"),
+                _ => assert_eq!(h.json("DELETE", "/grants", json!({"rule": "shell:git *"})).await["ok"], true),
+            }
+            assert_eq!(nevers_on_disk(&home), vec!["web_fetch:*"], "{save} wrote it back");
+            assert_eq!(notice().await, None, "{save}");
+            still_refused(save);
+        }
+
+        // Unparseable, then repaired by hand without it: still refused, and the next save puts it back.
+        std::fs::write(home.join("config.toml"), "[permissions\ndeny = [\n").unwrap();
+        assert_eq!(notice().await.as_deref(), Some(crate::app::CONFIG_UNREADABLE_NOTICE));
+        still_refused("unparseable");
+        let mut repaired = Config { home: home.clone(), ..Default::default() };
+        repaired.permissions.allow = vec!["shell:make *".into()];
+        repaired.save().unwrap();
+        assert_eq!(notice().await.as_deref(), Some(crate::app::NEVER_NOT_IN_CONFIG_NOTICE));
+        still_refused("repaired without it");
+        assert!(a.policy.allow_rules().contains(&"shell:make *".to_string()), "{:?}", a.policy.allow_rules());
+        h.json("DELETE", "/grants", json!({"rule": "shell:make *"})).await;
+        assert_eq!(nevers_on_disk(&home), vec!["web_fetch:*"]);
+        still_refused("after the repair's first save");
+
+        // A "never" added by hand is taken in, and saved, so taking it out by hand does not lift it.
+        edit_deny_by_hand(&home, &["web_fetch:*", "write_file:*"]);
+        a.reload_rules();
+        assert_eq!(a.policy.tool_setting("write_file"), "never");
+        assert_eq!(saved_nevers(&a), vec!["web_fetch:*", "write_file:*"]);
+        edit_deny_by_hand(&home, &["web_fetch:*"]);
+        a.reload_rules();
+        assert_eq!(a.policy.tool_setting("write_file"), "never");
+    }
+
+    #[tokio::test]
+    async fn only_the_app_lifts_a_never() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = home_with_a_never(dir.path(), &[]);
+        let ws = dir.path().join("ws");
+        let (a, b, stale) = (yolo_core(&home, &ws).await, yolo_core(&home, &ws).await, yolo_core(&home, &ws).await);
+        // `stale` saw the file go missing, and does not look again until the end.
+        std::fs::remove_file(home.join("config.toml")).unwrap();
+        stale.reload_rules();
+        a.update_config(ConfigChange::edit(|c| c.agent.name = "Wren".into())).unwrap();
+        for app in [&a, &b, &stale] {
+            assert!(refuses_fetch(app));
+        }
+
+        // Set to "ask" in the app on B: the one way a "never" is lifted.
+        let hb = serve_app(tempfile::tempdir().unwrap(), b.clone());
+        assert_eq!(hb.json("POST", "/tools/web_fetch", json!({"setting": "ask"})).await["setting"], "ask");
+        assert!(saved_nevers(&b).is_empty(), "{:?}", saved_nevers(&b));
+        assert!(nevers_on_disk(&home).is_empty(), "{:?}", nevers_on_disk(&home));
+        a.reload_rules();
+        let fresh = yolo_core(&home, &ws).await;
+        for app in [&a, &b, &fresh] {
+            assert_eq!(app.policy.tool_setting("web_fetch"), "ask");
+            assert!(!refuses_fetch(app));
+        }
+
+        // A save of something else on the core that has not looked since does not bring it back.
+        assert!(refuses_fetch(&stale), "it has not looked yet");
+        stale.update_config(ConfigChange::edit(|c| c.agent.name = "Ibis".into())).unwrap();
+        assert_eq!(Config::read_saved(&home).unwrap().agent.name, "Ibis");
+        assert!(nevers_on_disk(&home).is_empty(), "{:?}", nevers_on_disk(&home));
+        assert!(saved_nevers(&a).is_empty(), "{:?}", saved_nevers(&a));
+        for app in [&a, &b, &stale] {
+            app.reload_rules();
+            assert_eq!(app.policy.tool_setting("web_fetch"), "ask");
+        }
+        assert_eq!(yolo_core(&home, &ws).await.policy.tool_setting("web_fetch"), "ask");
+    }
+
+    #[tokio::test]
+    async fn concurrent_mode_changes_end_as_the_file_says() {
+        // A request on the core: `POST /api/mode`, or `POST /api/settings` with a mode.
+        fn request(app: &App, how: &str, mode: &str) -> anyhow::Result<()> {
+            let m = Mode::parse(mode)?;
+            match how {
+                "mode" => app.set_mode(m),
+                _ => {
+                    let body = json!({ "mode": mode });
+                    app.update_config(ConfigChange::try_edit(move |c| apply_settings(&body, c).map_err(|e| anyhow::anyhow!(e.1))).setting_mode(Some(m)))
+                }
+            }
+        }
+        // (the first request, the second). The second arrives while the first is between its save
+        // and its change of the live mode.
+        for (first, second) in [(("mode", "yolo"), ("mode", "readonly")), (("settings", "yolo"), ("mode", "auto")), (("mode", "auto"), ("settings", "readonly"))] {
+            let dir = tempfile::tempdir().unwrap();
+            let home = dir.path().join("home");
+            let mut saved = Config { home: home.clone(), ..Default::default() };
+            saved.agent.auto_memory = false;
+            saved.save().unwrap();
+            let ws = dir.path().join("ws");
+            let (app, _) = two_cores_from_saved_settings(&home, &ws).await;
+            assert_eq!(app.policy.mode(), Mode::Ask);
+
+            // As in `same_tool_settings_on_one_core_end_as_the_file_says`: the first waits in the hook
+            // until the second has either finished or found the first holding the lock.
+            let (said, heard) = std::sync::mpsc::channel::<&str>();
+            let waiting = said.clone();
+            *app.test_hooks.waiting.lock().unwrap() = Some(Box::new(move || {
+                let _ = waiting.send("waiting");
+            }));
+            let second_run: Arc<std::sync::Mutex<Option<std::thread::JoinHandle<anyhow::Result<()>>>>> = Default::default();
+            let (other, slot) = (app.clone(), second_run.clone());
+            *app.test_hooks.after_save.lock().unwrap() = Some(Box::new(move || {
+                let done = said.clone();
+                *slot.lock().unwrap() = Some(std::thread::spawn(move || {
+                    let result = request(&other, second.0, second.1);
+                    let _ = done.send("done");
+                    result
+                }));
+                heard.recv().unwrap();
+            }));
+            request(&app, first.0, first.1).unwrap();
+            let second_run = second_run.lock().unwrap().take().expect("the first request reached the hook");
+            second_run.join().unwrap().unwrap();
+
+            // The second came last, so its mode is in the file, and the live mode is what the file says.
+            let on_disk = Config::read_saved(&home).unwrap().permissions.mode;
+            assert_eq!(on_disk, second.1, "{first:?} then {second:?}");
+            assert_eq!(app.policy.mode().name(), on_disk, "{first:?} then {second:?}");
+            assert_eq!(app.cfg().permissions.mode, on_disk, "{first:?} then {second:?}");
+            let (fresh, _) = two_cores_from_saved_settings(&home, &ws).await;
+            assert_eq!(fresh.cfg().permissions.mode, on_disk, "{first:?} then {second:?}");
+        }
+
+        // Over HTTP, both requests save the mode and make it live.
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        Config { home: home.clone(), ..Default::default() }.save().unwrap();
+        let (app, _) = two_cores_from_saved_settings(&home, &dir.path().join("ws")).await;
+        let h = serve_app(dir, app.clone());
+        for (path, mode) in [("/settings", "auto"), ("/mode", "yolo"), ("/settings", "readonly")] {
+            assert_eq!(h.json("POST", path, json!({"mode": mode})).await["mode"], mode, "{path}");
+            assert_eq!(app.policy.mode().name(), mode, "{path}");
+            assert_eq!(Config::read_saved(&home).unwrap().permissions.mode, mode, "{path}");
+        }
     }
 
     #[cfg(unix)]

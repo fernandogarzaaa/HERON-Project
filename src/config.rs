@@ -508,12 +508,10 @@ impl Config {
     /// `before` held. A choice the user just made is written this way even when this copy of the
     /// settings already matched it and another Heron has changed the file since.
     ///
-    /// When there is no `config.toml` yet (or no longer), the "never" rules in `self` are written
-    /// too: a refusal stays in force while the file is missing, so recreating the file must not drop
-    /// it at the next reload.
+    /// The "never" rules in `self` are not written for being in memory: `App` passes the ones saved
+    /// in `heron.db` as `members`, so a copy that is out of date cannot put back a lifted one.
     pub(crate) fn save_changes_held(&self, before: &Config, chosen: &[&str], members: &[(&str, &str, bool)]) -> Result<Config> {
         let (old, new) = (toml::Value::try_from(before)?, toml::Value::try_from(self)?);
-        let recreating = !self.home.join("config.toml").exists();
         let mut saved = toml::Value::try_from(Self::read_saved(&self.home)?)?;
         apply_changes(&mut saved, &old, &new);
         for path in chosen {
@@ -521,8 +519,7 @@ impl Config {
                 toml_set(&mut saved, path, value.clone());
             }
         }
-        let held_deny: Vec<(&str, &str, bool)> = if recreating { self.permissions.deny.iter().map(|r| ("permissions.deny", r.as_str(), true)).collect() } else { vec![] };
-        for (path, item, present) in held_deny.iter().chain(members) {
+        for (path, item, present) in members {
             let mut list = toml_get(&saved, path).and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let item = toml::Value::String(item.to_string());
             if *present {
@@ -550,6 +547,18 @@ impl Config {
         let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).with_context(|| format!("opening {}", path.display()))?;
         file.lock().with_context(|| format!("locking {}", path.display()))?;
         Ok(file)
+    }
+
+    /// [`Config::lock_file`], without making the home folder: `None` when there is none yet (and so
+    /// no `config.toml` either).
+    pub(crate) fn lock_file_if_home(&self) -> Result<Option<std::fs::File>> {
+        if !self.home.is_dir() {
+            return Ok(None);
+        }
+        let path = self.home.join("config.lock");
+        let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).with_context(|| format!("opening {}", path.display()))?;
+        file.lock().with_context(|| format!("locking {}", path.display()))?;
+        Ok(Some(file))
     }
 
     pub fn api_key(&self) -> Option<String> {

@@ -1600,6 +1600,11 @@ impl Store {
         self.db().query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).ok()
     }
 
+    /// [`Store::kv_get`], where a database that cannot be read is an error, not "no value".
+    pub fn kv_read(&self, k: &str) -> Result<Option<String>> {
+        Ok(self.db().query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional()?)
+    }
+
     pub fn kv_set(&self, k: &str, v: &str) -> Result<()> {
         self.db().execute("INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", params![k, v])?;
         Ok(())
