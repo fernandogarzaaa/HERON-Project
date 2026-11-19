@@ -5892,7 +5892,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fixes from U3j's review (35g, owner decision)",
-    "version": 71,
+    "version": 72,
     "worktree": {
       "base_branch": "skein/U3k__integrate-base",
       "base_commit": "476f1dbf9ac54d6d48d90a21fec154b4784bee44",
