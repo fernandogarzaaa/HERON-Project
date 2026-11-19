@@ -4867,7 +4867,16 @@
     }
   },
   "U3h": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "af7c84881ec7450a83df2bd32a07be29",
+        "ended_at": "2026-11-19T01:07:07.870890+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T00:42:03.845001+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -4879,22 +4888,58 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "af7c84881ec7450a83df2bd32a07be29",
-      "base_branch": "skein/U3h__integrate-base",
-      "claim_token": "579d676cf8674e99a45a2ae40c8459eb",
-      "claimed_at": "2026-11-19T00:42:03.845001+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:48:34.366582+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3g",
       "SYNC15"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins",
+        "duration_ms": 12500,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3h_20261119T010638973120_0.log"
+      },
+      {
+        "command": "cargo test --locked --features desktop --bin heron-desktop",
+        "duration_ms": 2708,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3h_20261119T010651476707_1.log"
+      },
+      {
+        "command": "cargo clippy --locked --all-targets -- -D warnings",
+        "duration_ms": 416,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3h_20261119T010654187784_2.log"
+      },
+      {
+        "command": "HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins",
+        "duration_ms": 12720,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3h_20261119T010654607666_3.log"
+      },
+      {
+        "command": "bash eval/require-tests.sh --lib -- settings_save_does_not_bring_back_a_revoked_rule new_core_drops_a_rule_revoked_while_it_started unreadable_config_drops_its_rules_on_reload never_on_one_core_holds_on_another",
+        "duration_ms": 420,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3h_20261119T010707331301_4.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3h_20261119T010707752085_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U3h",
     "integration_for": null,
     "intent": {
@@ -4906,13 +4951,41 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "af7c84881ec7450a83df2bd32a07be29",
+      "base_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
+      "changed_files": [
+        "src/app.rs",
+        "src/config.rs",
+        "src/permissions.rs",
+        "src/server.rs"
+      ],
+      "commit": "d1bfed2fde88a633abe82238f282be5a902853db",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 182,
+          "deleted": 61
+        },
+        "src/config.rs": {
+          "added": 23,
+          "deleted": 2
+        },
+        "src/permissions.rs": {
+          "added": 18,
+          "deleted": 0
+        },
+        "src/server.rs": {
+          "added": 371,
+          "deleted": 81
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Fixes from U3g's review: stale settings save, startup window, unreadable config fails closed, never across cores",
-    "version": 17,
+    "version": 55,
     "worktree": {
       "base_branch": "skein/U3h__integrate-base",
       "base_commit": "d4d655e81660319ed68df6352a8f578b963177b0",
