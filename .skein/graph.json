@@ -5013,7 +5013,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Core API client against the recorded fixtures",
-    "version": 53,
+    "version": 54,
     "worktree": {
       "base_branch": "skein/U4b__integrate-base",
       "base_commit": "b2760052fc73b6517ca2df020c7189c42667a669",
