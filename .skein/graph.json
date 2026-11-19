@@ -6277,9 +6277,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test",
-    "version": 10,
+    "version": 11,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U7__integrate-base",
       "branch": null,
       "path": null
     }
