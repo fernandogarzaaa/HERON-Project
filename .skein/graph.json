@@ -5210,7 +5210,7 @@
       "claim_token": "22ae7c75e1a449689ff807ec85978a57",
       "claimed_at": "2026-11-19T03:52:28.180755+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T03:52:28.180755+00:00",
+      "last_heartbeat": "2026-11-19T03:53:58.417254+00:00",
       "node_version": 58,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -5248,9 +5248,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Fixes from U3h's review (35e)",
-    "version": 60,
+    "version": 63,
     "worktree": {
       "base_branch": "skein/U3i__integrate-base",
       "base_commit": "e037c700161e793ef6cb91e3be92b8148dd9a9c8",
@@ -6746,9 +6746,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "blocked",
+    "status": "unclaimed",
     "title": "Release and CI workflow changes",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "54bcccc119df0616e988ea48d255b8a633b66843",
       "base_commit": "54bcccc119df0616e988ea48d255b8a633b66843",
