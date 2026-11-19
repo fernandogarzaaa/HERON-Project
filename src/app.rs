@@ -3,7 +3,7 @@
 
 use crate::agent::{Agent, EventSink, Session};
 use crate::events::EventBus;
-use crate::config::Config;
+use crate::config::{Config, SavedRules};
 use crate::llm::{Llm, SwappableLlm, Usage};
 use crate::memory::Memory;
 use crate::permissions::{Approver, DenyAll, Mode, Policy};
@@ -37,23 +37,97 @@ pub struct App {
     /// The saved "always allow" list as this program last read or wrote it (see
     /// [`App::persist_rules`]).
     rules_seen: Mutex<Vec<String>>,
-    /// `permissions.allow` in `config.toml` as this program last read or wrote it (see
-    /// [`App::reload_rules`]). Always locked after `rules_seen`, never before it.
-    config_rules_seen: Mutex<Vec<String>>,
+    /// The standing rules in `config.toml` as this program last read or wrote them (see
+    /// [`App::reload_rules`]). It is the config lock too: `cfg` is only ever replaced while it is held.
+    /// Always locked after `rules_seen`, never before it.
+    config_seen: Mutex<ConfigSeen>,
 }
+
+/// What this program knows of the standing rules in `config.toml`.
+#[derive(Default)]
+struct ConfigSeen {
+    rules: SavedRules,
+    /// Why `config.toml` could not be read at the last reload, while it still cannot.
+    unreadable: Option<String>,
+}
+
+/// A change to the settings. [`App::update_config`] applies it to the settings as they are when it
+/// saves, under the config lock, so nothing another handler or another Heron changed meanwhile is
+/// undone by it.
+pub struct ConfigChange<'a>(Box<dyn Edit + 'a>);
+
+/// What a [`ConfigChange`] does to the settings.
+trait Edit: FnOnce(&mut Config) -> Result<()> {}
+
+impl<F: FnOnce(&mut Config) -> Result<()>> Edit for F {}
+
+impl<'a> ConfigChange<'a> {
+    pub fn edit(f: impl FnOnce(&mut Config) + 'a) -> Self {
+        ConfigChange(Box::new(move |c| {
+            f(c);
+            Ok(())
+        }))
+    }
+
+    /// A change that may refuse: its error is returned and nothing is saved.
+    pub fn try_edit(f: impl FnOnce(&mut Config) -> Result<()> + 'a) -> Self {
+        ConfigChange(Box::new(f))
+    }
+}
+
+/// An edited copy of [`App::cfg`]. It is saved only while the settings it was copied from are still
+/// this one's; once they have changed (a save, or a reload that took in another Heron's change) it is
+/// refused with nothing changed, as saving it whole could bring back what was taken out meanwhile.
+impl From<Config> for ConfigChange<'_> {
+    fn from(copy: Config) -> Self {
+        ConfigChange(Box::new(move |current| {
+            anyhow::ensure!(copy.revision == current.revision, "the settings changed while this change was being made, so it was not saved; try again");
+            *current = copy;
+            Ok(())
+        }))
+    }
+}
+
+/// What `GET /api/grants` says (in the `x-heron-notice` header) while `config.toml` cannot be read.
+pub const CONFIG_UNREADABLE_NOTICE: &str = "config.toml cannot be read, so none of the \"always allow\" rules in it apply until it can";
 
 /// The saved "always allow" list.
 fn parse_rules(saved: Option<&str>) -> Vec<String> {
     saved.and_then(|s| serde_json::from_str::<Vec<String>>(s).ok()).unwrap_or_default()
 }
 
-/// `permissions.allow` as it is in `<home>/config.toml` now, or None when the file is missing or
-/// cannot be read.
-fn saved_config_rules(home: &std::path::Path) -> Option<Vec<String>> {
-    if !home.join("config.toml").exists() {
-        return None;
+/// `<home>/config.toml` as the standing rules see it now.
+enum ConfigFile {
+    Missing,
+    Unreadable(String),
+    Rules(SavedRules),
+}
+
+fn read_config_rules(home: &std::path::Path) -> ConfigFile {
+    let path = home.join("config.toml");
+    match std::fs::read_to_string(&path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => ConfigFile::Missing,
+        Err(e) => ConfigFile::Unreadable(format!("could not read {}: {e}", path.display())),
+        Ok(text) => match toml::from_str::<Config>(&text) {
+            Ok(c) => ConfigFile::Rules(SavedRules { allow: c.permissions.allow, deny: c.permissions.deny }),
+            Err(e) => ConfigFile::Unreadable(format!("could not parse {}: {e}", path.display())),
+        },
     }
-    Config::read_saved(home).ok().map(|c| c.permissions.allow)
+}
+
+/// Bring `seen` (a list as this one knew it) to `now` after this one changed it from `old` itself.
+fn note_own_changes(seen: &mut Vec<String>, old: &[String], now: &[String]) {
+    seen.retain(|r| !(old.contains(r) && !now.contains(r)));
+    for r in now.iter().filter(|r| !old.contains(r)) {
+        if !seen.contains(r) {
+            seen.push(r.clone());
+        }
+    }
+}
+
+/// What left `old` and what joined it in `new`.
+fn list_diff(old: &[String], new: &[String]) -> (Vec<String>, Vec<String>) {
+    (old.iter().filter(|r| !new.contains(r)).cloned().collect(), new.iter().filter(|r| !old.contains(r)).cloned().collect())
 }
 
 /// What the inbox says about a job that was running when Heron stopped.
@@ -88,6 +162,13 @@ impl App {
 
     /// Build with an explicit store and model (tests, embedding).
     pub async fn assemble(cfg: Config, workspace: PathBuf, store: Store, llm: Arc<dyn Llm>) -> Result<App> {
+        // What this one last read of `config.toml` is what its policy is built from below, not a read
+        // made after startup's waits: a rule revoked meanwhile is then taken out at the first reload.
+        // Settings not read from the file fall back to the file as it is now.
+        let config_rules = cfg.loaded_rules.clone().unwrap_or_else(|| match read_config_rules(&cfg.home) {
+            ConfigFile::Rules(rules) => rules,
+            ConfigFile::Missing | ConfigFile::Unreadable(_) => SavedRules::default(),
+        });
         std::fs::create_dir_all(&workspace).with_context(|| format!("creating workspace {}", workspace.display()))?;
         let workspace = dunce::canonicalize(&workspace)?;
         let llm = Arc::new(SwappableLlm::new(llm));
@@ -136,58 +217,66 @@ impl App {
         let policy = Arc::new(policy);
         // Tool calls read their standing `read:` rules from this live policy (see `ToolCtx::read_grants`).
         store.set_live_policy(&policy);
-        let config_rules_seen = Mutex::new(saved_config_rules(&cfg.home).unwrap_or_default());
-        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy, workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default(), events: EventBus::new(), rules_seen: Mutex::new(saved), config_rules_seen })
+        let config_seen = Mutex::new(ConfigSeen { rules: config_rules, unreadable: None });
+        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy, workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default(), events: EventBus::new(), rules_seen: Mutex::new(saved), config_seen })
     }
 
     pub fn cfg(&self) -> Arc<Config> {
         self.cfg.read().unwrap().clone()
     }
 
-    /// Apply new settings: persist them and hot-swap the model client.
-    pub fn update_config(&self, new: Config) -> Result<()> {
-        self.update_config_choosing(new, &[])
+    /// Change the settings: apply `change` to them as they are now, save that, and hot-swap the model
+    /// client. The change is applied under the config lock, so a rule revoked (by this one or another
+    /// Heron) while a handler waited for something is not written back by its save. A handler builds
+    /// its change from the request, never from a copy of the settings it held across an await.
+    pub fn update_config<'a>(&self, change: impl Into<ConfigChange<'a>>) -> Result<()> {
+        self.update_config_choosing(change, &[])
     }
 
     /// [`App::update_config`], where `chosen` names the fields the user chose explicitly in the app or
     /// over the API (`"permissions.mode"`). Those are written even when they equal the value in
     /// memory, which an override from the command line may already hold.
-    pub fn update_config_choosing(&self, new: Config, chosen: &[&str]) -> Result<()> {
-        // Build the replacement client first. A provider the new settings
-        // cannot run (Cline/Goose without cli_allow_agent_tools, Custom
-        // CLI without a command) must be rejected before anything is
-        // persisted: saving first writes a config the next startup cannot
-        // build from, and the app will not start until it is repaired.
-        let llm = crate::llm::build_with_store(&new, Some(&self.store))?;
-        self.save_config(new, chosen, Some(llm))
+    pub fn update_config_choosing<'a>(&self, change: impl Into<ConfigChange<'a>>, chosen: &[&str]) -> Result<()> {
+        self.save_config(change.into(), chosen, true)
     }
 
-    /// Save `new` (see [`Config::save_changes`]), make it this one's settings, and take in what other
-    /// Heron programs changed in the file meanwhile. With `llm`, the model client is swapped too.
-    fn save_config(&self, new: Config, chosen: &[&str], llm: Option<Arc<dyn Llm>>) -> Result<()> {
+    /// Apply `change` to this one's settings, save what it changed (see [`Config::save_changes`]),
+    /// make the result this one's settings, and take in what other Heron programs changed in the file
+    /// meanwhile. With `rebuild_llm`, the model client is rebuilt from the new settings and swapped.
+    fn save_config(&self, change: ConfigChange<'_>, chosen: &[&str], rebuild_llm: bool) -> Result<()> {
         {
-            let mut seen = self.config_rules_seen.lock().unwrap_or_else(|e| e.into_inner());
+            let mut seen = self.config_seen.lock().unwrap_or_else(|e| e.into_inner());
             let before = self.cfg();
+            let mut new = (*before).clone();
+            (change.0)(&mut new)?;
+            // Build the replacement client first. A provider the new settings
+            // cannot run (Cline/Goose without cli_allow_agent_tools, Custom
+            // CLI without a command) must be rejected before anything is
+            // persisted: saving first writes a config the next startup cannot
+            // build from, and the app will not start until it is repaired.
+            let llm = if rebuild_llm { Some(crate::llm::build_with_store(&new, Some(&self.store))?) } else { None };
             // Only what this change sets is written: the file is read again and the changed fields are
             // set in it, so an override from the command line (`--mode`, `--model`) stays out of it,
             // and of a list only this one's additions and removals are applied.
             new.save_changes(&before, chosen)?;
-            // This one's own changes to `permissions.allow` are in the file now; what else changed
+            // This one's own changes to the standing rules are in the file now; what else changed
             // there is taken in below.
-            let (old, now) = (&before.permissions.allow, &new.permissions.allow);
-            seen.retain(|r| !(old.contains(r) && !now.contains(r)));
-            for r in now.iter().filter(|r| !old.contains(r)) {
-                if !seen.contains(r) {
-                    seen.push(r.clone());
-                }
-            }
+            note_own_changes(&mut seen.rules.allow, &before.permissions.allow, &new.permissions.allow);
+            note_own_changes(&mut seen.rules.deny, &before.permissions.deny, &new.permissions.deny);
             if let Some(llm) = llm {
                 self.llm.swap(llm);
             }
+            new.revision = before.revision + 1;
             *self.cfg.write().unwrap() = Arc::new(new);
         }
         self.reload_rules();
         Ok(())
+    }
+
+    /// Why `config.toml` could not be read at the last reload, while it still cannot. Until it can,
+    /// none of its "always allow" rules apply here.
+    pub fn config_unreadable(&self) -> Option<String> {
+        self.config_seen.lock().unwrap_or_else(|e| e.into_inner()).unreadable.clone()
     }
 
     /// Revoke a standing rule everywhere it lives: the settings file, the policy and the saved
@@ -200,15 +289,13 @@ impl App {
         }
         self.reload_rules();
         let held = self.policy.allow_rules().iter().any(|r| r == rule);
-        let mut cfg = (*self.cfg()).clone();
-        let in_config = cfg.permissions.allow.iter().any(|r| r == rule);
+        let in_config = self.cfg().permissions.allow.iter().any(|r| r == rule);
         if !held && !in_config {
             return Ok(false);
         }
         if in_config {
-            cfg.permissions.allow.retain(|r| r != rule);
             // Only a permission changes, so the model client is left as it is.
-            self.save_config(cfg, &[], None)?;
+            self.save_config(ConfigChange::edit(|c| c.permissions.allow.retain(|r| r != rule)), &[], false)?;
         }
         self.policy.remove_allow(rule);
         self.persist_rules();
@@ -293,10 +380,11 @@ impl App {
     }
 
     /// Take in the rules other Heron programs on this home added or revoked since this one last read
-    /// them: in the saved list and in `permissions.allow` in `config.toml`. Called at the start of
-    /// every turn and every unattended run, before anything is decided, so a rule revoked elsewhere
-    /// is never used here again: not by the policy, `GET /api/grants`, `ToolCtx::read_grants`, nor a
-    /// job or suggestion that starts afterwards.
+    /// them: in the saved list, and in `permissions.allow` and `permissions.deny` in `config.toml`.
+    /// Called at the start of every turn and every unattended run, before anything is decided, so a
+    /// rule revoked elsewhere is never used here again (not by the policy, `GET /api/grants`,
+    /// `ToolCtx::read_grants`, nor a job or suggestion that starts afterwards), and a tool set to
+    /// "never" elsewhere is refused here too.
     pub fn reload_rules(&self) {
         let mut seen = self.rules_seen.lock().unwrap_or_else(|e| e.into_inner());
         self.take_config_rules(&seen);
@@ -304,37 +392,70 @@ impl App {
         self.take_saved_rules(&mut seen, parse_rules(self.store.kv_get(RULES_KEY).as_deref()), &cfg);
     }
 
-    /// Bring this one's settings and policy from `permissions.allow` as this one last knew the file
-    /// to what the file holds now. Rules the file never held (set in memory only) are left alone, and
-    /// so is everything when the file is missing or cannot be read. A rule gone from the file stays in
-    /// the policy while `saved_rules` (the saved "always" answers) still holds it.
+    /// Bring this one's settings and policy from the standing rules as this one last knew
+    /// `config.toml` to what the file holds now. Rules the file never held (set in memory only) are
+    /// left alone. A rule gone from the file's allow list stays in the policy while `saved_rules` (the
+    /// saved "always" answers) still holds it.
+    ///
+    /// This fails closed. A missing file holds no rules, so the allow rules that came from it are
+    /// gone. A file that cannot be read or parsed drops every allow rule that came from it until it
+    /// can, and says so in the log and in [`App::config_unreadable`]. Either way its deny rules are
+    /// kept: a refusal is never lifted because the file is gone or broken.
     fn take_config_rules(&self, saved_rules: &[String]) {
-        let mut seen = self.config_rules_seen.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(disk) = saved_config_rules(&self.cfg().home) else { return };
-        if *seen == disk {
+        let mut seen = self.config_seen.lock().unwrap_or_else(|e| e.into_inner());
+        let disk = match read_config_rules(&self.cfg().home) {
+            ConfigFile::Rules(rules) => {
+                if seen.unreadable.take().is_some() {
+                    eprintln!("heron: config.toml can be read again; its rules apply again.");
+                }
+                rules
+            }
+            ConfigFile::Missing => {
+                seen.unreadable = None;
+                SavedRules { allow: vec![], deny: seen.rules.deny.clone() }
+            }
+            ConfigFile::Unreadable(why) => {
+                if seen.unreadable.as_deref() != Some(why.as_str()) {
+                    eprintln!("heron: {why}. Until it can be read, none of the \"always allow\" rules in it apply; its \"never\" rules still do.");
+                }
+                seen.unreadable = Some(why);
+                SavedRules { allow: vec![], deny: seen.rules.deny.clone() }
+            }
+        };
+        if seen.rules == disk {
             return;
         }
-        let gone: Vec<String> = seen.iter().filter(|r| !disk.contains(r)).cloned().collect();
-        let new: Vec<String> = disk.iter().filter(|r| !seen.contains(r)).cloned().collect();
+        let (allow_gone, allow_new) = list_diff(&seen.rules.allow, &disk.allow);
+        let (deny_gone, deny_new) = list_diff(&seen.rules.deny, &disk.deny);
         {
             let mut slot = self.cfg.write().unwrap();
             let mut cfg = (**slot).clone();
-            cfg.permissions.allow.retain(|r| !gone.contains(r));
-            for r in &new {
-                if !cfg.permissions.allow.contains(r) {
-                    cfg.permissions.allow.push(r.clone());
+            for (list, gone, new) in [(&mut cfg.permissions.allow, &allow_gone, &allow_new), (&mut cfg.permissions.deny, &deny_gone, &deny_new)] {
+                list.retain(|r| !gone.contains(r));
+                for r in new {
+                    if !list.contains(r) {
+                        list.push(r.clone());
+                    }
                 }
             }
+            cfg.revision += 1;
             *slot = Arc::new(cfg);
         }
-        for r in gone.iter().filter(|r| !saved_rules.contains(r)) {
+        for r in allow_gone.iter().filter(|r| !saved_rules.contains(r)) {
             self.policy.remove_allow(r);
         }
-        for r in &new {
+        for r in &allow_new {
             // A rule that may not be a standing rule is skipped and listed in `rule_notices`.
             let _ = self.policy.add_allow(r);
         }
-        *seen = disk;
+        for r in &deny_gone {
+            self.policy.remove_deny(r);
+        }
+        for r in &deny_new {
+            // A deny rule that is not a valid glob was never loaded at startup either.
+            let _ = self.policy.add_deny(r);
+        }
+        seen.rules = disk;
     }
 
     /// Bring the policy from `seen` (the saved list as this one knows it) to `saved`. Rules this one

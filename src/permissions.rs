@@ -319,6 +319,24 @@ impl Policy {
         allow.len() != before
     }
 
+    /// Add a deny rule. A rule that is not a valid glob is refused.
+    pub fn add_deny(&self, rule: &str) -> Result<()> {
+        let (rule, matcher) = compile_rule(rule).ok_or_else(|| anyhow!("'{rule}' is not a valid rule"))?;
+        let mut deny = self.deny.write().unwrap();
+        if !deny.iter().any(|(r, _)| *r == rule) {
+            deny.push((rule, matcher));
+        }
+        Ok(())
+    }
+
+    /// Remove a deny rule. True if it was there.
+    pub fn remove_deny(&self, rule: &str) -> bool {
+        let mut deny = self.deny.write().unwrap();
+        let before = deny.len();
+        deny.retain(|(r, _)| r != rule);
+        deny.len() != before
+    }
+
     pub fn allow_rules(&self) -> Vec<String> {
         self.allow.read().unwrap().iter().map(|(r, _)| r.clone()).collect()
     }

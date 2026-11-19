@@ -17,6 +17,23 @@ pub struct Config {
     pub telegram: TelegramConfig,
     #[serde(skip)]
     pub home: PathBuf,
+    /// The standing rules as [`Config::read_saved`] read them from `config.toml`; None when these
+    /// settings were not read from the file (built in memory, or no file yet). A core starts from
+    /// these as what it last read there, so a rule revoked while it starts is taken out at its first
+    /// reload.
+    #[serde(skip)]
+    pub loaded_rules: Option<SavedRules>,
+    /// Which settings `App` held when this copy was taken from it. A whole copy is saved only while
+    /// that is still current (see `App::update_config`).
+    #[serde(skip)]
+    pub revision: u64,
+}
+
+/// `permissions.allow` and `permissions.deny` as they are in `config.toml`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SavedRules {
+    pub allow: Vec<String>,
+    pub deny: Vec<String>,
 }
 
 /// Messaging gateway. The bot token itself is kept with the other secrets.
@@ -251,6 +268,8 @@ impl Default for Config {
             sources: SourcesConfig::default(),
             telegram: TelegramConfig::default(),
             home: default_home(),
+            loaded_rules: None,
+            revision: 0,
         }
     }
 }
@@ -432,14 +451,16 @@ impl Config {
         let path = home.join("config.toml");
         let mut cfg: Config = if path.exists() {
             let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-            toml::from_str(&text).with_context(|| {
+            let mut cfg: Config = toml::from_str(&text).with_context(|| {
                 let previous = home.join("config.toml.previous");
                 if previous.exists() {
                     format!("parsing {} (the settings from before the last save are in {}; copy that file over it to go back)", path.display(), previous.display())
                 } else {
                     format!("parsing {}", path.display())
                 }
-            })?
+            })?;
+            cfg.loaded_rules = Some(SavedRules { allow: cfg.permissions.allow.clone(), deny: cfg.permissions.deny.clone() });
+            cfg
         } else {
             let mut c = Config::default();
             // Sensible auto-detection when there is no config file yet.
