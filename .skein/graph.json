@@ -6277,11 +6277,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test",
-    "version": 12,
+    "version": 13,
     "worktree": {
       "base_branch": "skein/U7__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "8879a8df1ef209e79497077acd7951d92568d372",
+      "branch": "skein/U7",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U7"
     }
   },
   "U7__integrate": {
