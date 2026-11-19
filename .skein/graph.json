@@ -5434,7 +5434,8 @@
       "U6",
       "U6b",
       "U7",
-      "U7b"
+      "U7b",
+      "U3g"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -5455,7 +5456,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Full gate on the final branch",
-    "version": 6,
+    "version": 7,
     "worktree": {
       "base_branch": null,
       "branch": null,
