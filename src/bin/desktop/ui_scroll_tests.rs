@@ -314,11 +314,18 @@ fn long_content_wraps_and_scrolls_in_every_view() {
                 snapshot(&format!("heron-long-{view}-{thread}"), width, height, &pixels);
 
                 let shell_height = ui.get_debug_window_height();
+                let sidebar_bottom = ui.get_debug_sidebar_bottom();
                 let overflow_x = ui.get_debug_view_overflow_x();
                 let overflow_y = ui.get_debug_view_overflow_y();
                 eprintln!(
-                    "HERON_UI_SCROLL view={view} thread={thread} {width}x{height} overflow_x={overflow_x} overflow_y={overflow_y} shell={shell_height}"
+                    "HERON_UI_SCROLL view={view} thread={thread} {width}x{height} overflow_x={overflow_x} overflow_y={overflow_y} shell={shell_height} sidebar_bottom={sidebar_bottom}"
                 );
+                if sidebar_bottom > height as f32 + 1.0 {
+                    failures.push(format!(
+                        "{view} ({thread}, {width}x{height}): the sidebar ends {}px below the window",
+                        sidebar_bottom - height as f32
+                    ));
+                }
                 if shell_height > height as f32 + 1.0 {
                     failures.push(format!("{view} ({thread}, {width}x{height}): window content is {shell_height}px tall"));
                 }

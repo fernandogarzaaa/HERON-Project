@@ -3,6 +3,7 @@
 // each view keeps its own file and its own component.
 
 import { ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { WrapText } from "../components/wrap_text.slint";
 import { PageScroll } from "../components/page_scroll.slint";
 import { AuditRow, SectionTitle, SectionIntro, EmptyNote, RowCard } from "common.slint";
 import { Theme } from "../components/theme.slint";
@@ -55,9 +56,11 @@ export component ActivityView inherits Rectangle {
                     padding: 10px;
                     spacing: 10px;
                     Text { text: row.when; font-size: 14px; color: Theme.ink; width: 110px; }
-                    Text { text: row.action; font-size: 14px; color: Theme.ink; width: 140px; wrap: TextWrap.word-wrap; }
-                    Text { text: row.details; font-size: 14px; font-family: "SF Mono"; color: Theme.ink; horizontal-stretch: 1; wrap: TextWrap.word-wrap; }
-                    Text { text: row.outcome; font-size: 14px; color: row.denied ? Theme.danger : Theme.ink; width: 130px; wrap: TextWrap.word-wrap; }
+                    WrapText { text: row.action; font-size: 14px; color: Theme.ink; width: 140px; }
+                    // WrapText: a path or JSON chunk with no break point must not
+                    // widen the row (Linux breaks paths at fewer places than macOS).
+                    WrapText { text: row.details; font-size: 14px; font-family: "SF Mono"; color: Theme.ink; horizontal-stretch: 1; }
+                    WrapText { text: row.outcome; font-size: 14px; color: row.denied ? Theme.danger : Theme.ink; width: 130px; }
                 }
             }
         }

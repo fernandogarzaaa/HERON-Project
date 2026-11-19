@@ -121,6 +121,7 @@ export component MainWindow inherits Window {
     out property <length> debug-chat-thread-height: chat-view.thread-height;
     out property <length> debug-sessions-overflow-x: sidebar.sessions-overflow-x;
     out property <length> debug-sessions-overflow-y: sidebar.sessions-overflow-y;
+    out property <length> debug-sidebar-bottom: sidebar.content-bottom;
     public function debug-scroll-view-to-end() {
         if (root.current-view == "awareness") { awareness-view.scroll-to-end(); }
         if (root.current-view == "memory") { memory-view.scroll-to-end(); }
