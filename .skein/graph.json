@@ -5397,7 +5397,16 @@
     }
   },
   "U4c": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "aa7f8b3565c8413ebcfdae9fa796eb0b",
+        "ended_at": "2026-11-19T00:39:50.863769+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-19T00:28:43.578128+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -5409,22 +5418,52 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "aa7f8b3565c8413ebcfdae9fa796eb0b",
-      "base_branch": "skein/U4c__integrate-base",
-      "claim_token": "50ec8a0cbdb54e23888c8ded429d4376",
-      "claimed_at": "2026-11-19T00:28:43.578128+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-19T00:32:13.957146+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U4b",
       "SYNC14"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift build --package-path macos/HeronMac",
+        "duration_ms": 10259,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T003920667931_0.log"
+      },
+      {
+        "command": "swift test --package-path macos/HeronMac",
+        "duration_ms": 13207,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T003930933146_1.log"
+      },
+      {
+        "command": "swift test --package-path macos/HeronMac --filter OverflowSnapshotTests",
+        "duration_ms": 5665,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T003944145635_2.log"
+      },
+      {
+        "command": "swift test --package-path macos/HeronMac list > \"${TMPDIR:-/tmp}/u4c-tests.txt\" && grep -q 'OverflowSnapshotTests' \"${TMPDIR:-/tmp}/u4c-tests.txt\"",
+        "duration_ms": 1039,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T003949816630_3.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4c_20261119T003950856472_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "U4c",
     "integration_for": null,
     "intent": {
@@ -5437,12 +5476,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-19T00:41:02.445963+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "unclaimed",
     "title": "Scrolling only where content overflows; risk-notice box sized to content; overflow snapshots",
-    "version": 11,
+    "version": 27,
     "worktree": {
       "base_branch": "skein/U4c__integrate-base",
       "base_commit": "80cf6949ab9b3edc6beff12a617e051e488832ab",
