@@ -1621,8 +1621,16 @@ mod tests {
         assert_eq!(classify_path(&resolve_path(&w, "notes/a.md"), &w, &cfg, true), Effect::WorkspaceWrite);
         assert_eq!(classify_path(&resolve_path(&w, "../outside.txt"), &w, &cfg, true), Effect::Privileged);
         // Outside the user's own folders (the temp folders, the system), reading does not ask.
+        // The temp folder is outside them on macOS and Linux. On Windows it is inside the user's profile
+        // folder, which is the Windows user root, so the system folder stands in for it there.
         let elsewhere = tempfile::tempdir().unwrap();
-        let other = elsewhere.path().join("hosts").to_string_lossy().to_string();
+        let other = if cfg!(windows) {
+            PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into())).join("hosts")
+        } else {
+            elsewhere.path().join("hosts")
+        }
+        .to_string_lossy()
+        .to_string();
         assert_eq!(classify_path(&resolve_path(&w, &other), &w, &cfg, true), Effect::Privileged);
         assert_eq!(classify_path(&resolve_path(&w, &other), &w, &cfg, false), Effect::LocalRead);
         // In the user's own folders outside the working folder, it asks.
@@ -1827,6 +1835,7 @@ mod tests {
     /// `/.nofollow<path>`, `/.resolve/<flags><path>` and `/.vol/<device>/<inode>` name `<path>` to the
     /// kernel, but `realpath` fails on them or returns them unchanged, so a working folder written that
     /// way would not look like the Refused location it is. Such a folder never starts a turn.
+    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn working_folder_behind_kernel_prefix_is_refused() {
         let ws = tempfile::tempdir().unwrap();
@@ -1869,6 +1878,7 @@ mod tests {
     }
 
     /// `/System/Volumes/Data/Users/<me>/.codex` is `~/.codex`; `realpath` leaves the alias as written.
+    #[cfg(target_os = "macos")]
     #[test]
     fn firmlink_alias_is_classified_like_its_target() {
         let ws = tempfile::tempdir().unwrap();
@@ -1944,6 +1954,7 @@ mod tests {
 
     /// `/System/Volumes/Data/Users/<me>` is the home folder by its firmlink alias: it is as broad as
     /// the home folder, and a grant is matched the same way by either name.
+    #[cfg(target_os = "macos")]
     #[test]
     fn firmlink_alias_grants_are_too_broad() {
         let home = dirs::home_dir().unwrap();
@@ -2064,20 +2075,24 @@ mod tests {
 
     #[test]
     fn read_roots_come_from_the_config_and_the_registry() {
-        let home = PathBuf::from("/Users/someone");
-        let roots = ReadRoots::build(Some(&home), Path::new("/srv/heron-home"), "~/accounts/claude-work", &["/opt/codex-home".to_string()]);
+        // An absolute path on every platform: `/x` is rooted but not absolute on Windows (it has no
+        // drive), and `ReadRoots` makes paths absolute with the current drive, so a Windows fixture
+        // names its drive.
+        let abs = |p: &str| if cfg!(windows) { PathBuf::from(format!("C:{p}")) } else { PathBuf::from(p) };
+        let home = abs("/Users/someone");
+        let roots = ReadRoots::build(Some(&home), &abs("/srv/heron-home"), "~/accounts/claude-work", &[abs("/opt/codex-home").to_string_lossy().to_string()]);
         for refused in ["/srv/heron-home/heron.db", "/Users/someone/.claude.json", "/Users/someone/.config/goose/config.yaml", "/opt/codex-home/auth.json", "/Users/someone/Library/Safari/History.db"] {
-            assert!(roots.refused(Path::new(refused)).is_some(), "{refused}");
+            assert!(roots.refused(&abs(refused)).is_some(), "{refused}");
         }
-        assert!(roots.refused(Path::new("/Users/someone/projects/a.txt")).is_none());
-        assert!(roots.refused(Path::new("/Users/someone/.claude-notes/a.txt")).is_none(), "compared by path components");
-        assert!(roots.in_user_root(Path::new("/Users/someone/projects/a.txt")));
-        assert!(!roots.in_user_root(Path::new("/usr/share/dict/words")));
+        assert!(roots.refused(&abs("/Users/someone/projects/a.txt")).is_none());
+        assert!(roots.refused(&abs("/Users/someone/.claude-notes/a.txt")).is_none(), "compared by path components");
+        assert!(roots.in_user_root(&abs("/Users/someone/projects/a.txt")));
+        assert!(!roots.in_user_root(&abs("/usr/share/dict/words")));
         // The same configuration gives the same shared roots; a different home gives new ones.
-        let cfg = Config { home: PathBuf::from("/srv/heron-a"), ..Default::default() };
+        let cfg = Config { home: abs("/srv/heron-a"), ..Default::default() };
         assert!(Arc::ptr_eq(&ReadRoots::of(&cfg), &ReadRoots::of(&cfg)));
-        let other = Config { home: PathBuf::from("/srv/heron-b"), ..Default::default() };
-        assert!(ReadRoots::of(&other).refused(Path::new("/srv/heron-b/x")).is_some());
-        assert!(ReadRoots::of(&other).refused(Path::new("/srv/heron-a/x")).is_none());
+        let other = Config { home: abs("/srv/heron-b"), ..Default::default() };
+        assert!(ReadRoots::of(&other).refused(&abs("/srv/heron-b/x")).is_some());
+        assert!(ReadRoots::of(&other).refused(&abs("/srv/heron-a/x")).is_none());
     }
 }

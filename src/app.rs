@@ -14,6 +14,19 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
+/// The lock on `background.lock`. A lock belongs to the open file, not to this handle: a child process
+/// that another thread starts holds a copy of every open file between `fork` and `exec`, and the lock
+/// stays held until that copy closes, even after this handle has been dropped. So it is released
+/// explicitly, which frees it for every copy at once, and the next owner can take it the moment this
+/// one is gone.
+struct BackgroundLock(std::fs::File);
+
+impl Drop for BackgroundLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 pub struct App {
     cfg: RwLock<Arc<Config>>,
     pub store: Store,
@@ -31,7 +44,7 @@ pub struct App {
     pub telegram_task: Mutex<Option<tokio::task::AbortHandle>>,
     /// Held while this is the one Heron on the computer that runs things in the background
     /// (see [`App::own_background_work`]). Released when the program ends, however it ends.
-    background: Mutex<Option<std::fs::File>>,
+    background: Mutex<Option<BackgroundLock>>,
     /// Every event from every session and run (M15).
     pub events: EventBus,
     /// The saved "always allow" list as this program last read or wrote it (see
@@ -1169,7 +1182,7 @@ impl App {
         // Anything that was mid-way when the previous owner stopped has an unknown outcome; say so.
         let _ = self.store.recover_interrupted_approvals();
         let _ = self.store.recover_interrupted_jobs(INTERRUPTED_JOB_NOTICE);
-        *held = Some(file);
+        *held = Some(BackgroundLock(file));
         true
     }
 
@@ -1725,6 +1738,32 @@ mod tests {
         app.run_now(digest).await.unwrap();
         assert_eq!(llm.requests.lock().unwrap().len(), 2, "an automation's model step runs too");
         assert_eq!(app.store.list_runs(digest, 5).unwrap()[0].1, "ok");
+    }
+
+    /// Between `fork` and `exec`, a child that another thread starts holds a copy of every open file,
+    /// the background lock's included, and the lock stays held until that copy closes. The next owner
+    /// must not have to wait for that moment: the lock is released when its owner is dropped.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_background_lock_is_free_the_moment_its_owner_is_gone_even_while_a_child_holds_a_copy() {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        let llm = Arc::new(ScriptedLlm::new(vec![]));
+        let app = App::assemble(cfg.clone(), dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap();
+        assert!(app.own_background_work());
+        let child_copy = {
+            let held = app.background.lock().unwrap();
+            let fd = std::os::fd::AsRawFd::as_raw_fd(&held.as_ref().expect("the lock is held").0);
+            let copy = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+            assert!(copy >= 0, "{}", std::io::Error::last_os_error());
+            unsafe { OwnedFd::from_raw_fd(copy) }
+        };
+        drop(app);
+        let next = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm).await.unwrap();
+        assert!(next.own_background_work(), "the lock outlived its owner because a copy of the file was still open");
+        drop(child_copy);
     }
 
     #[tokio::test]
