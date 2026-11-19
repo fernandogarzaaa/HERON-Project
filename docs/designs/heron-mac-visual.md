@@ -283,7 +283,7 @@ A single-window flow with no sidebar, 1180 × 760, with three steps shown in the
 | Hero | The `ripple` avatar at 64 pt, idle. Heading "Before you start" (`large`, serif). Text: "Heron is a research preview. It can read and change files in your folder, run commands, and use the accounts you connect. Read what that means for you, then accept to continue." |
 | Sandbox card | As in [The sandbox status on first run](#the-sandbox-status-on-first-run). |
 | Label | "Known risks", with "Version *n* · from the risk register built into this copy of Heron" in `ink3`. |
-| Risk text | `text` from `GET /api/risk-notice`, rendered as Markdown in a bordered scroll view 230 pt high, focusable so VoiceOver and the keyboard can scroll it. The first entries are C35-8 and R-1. The app shows the text as served and never rewrites it. |
+| Risk text | `text` from `GET /api/risk-notice`, rendered as Markdown in a bordered box as tall as its text, up to 230 pt, that scrolls only when the text is taller (owner, 2026-11-19; heron-v1.md item 41b), focusable so VoiceOver and the keyboard can scroll it. The first entries are C35-8 and R-1. The app shows the text as served and never rewrites it. |
 | Checkbox | "I've read these risks and accept them on this Mac". Off by default. |
 | Footer | "Quit Heron" on the left. "Heron v1.0 · Research preview", then "Accept and continue" (primary, disabled until the box is ticked) on the right. |
 
