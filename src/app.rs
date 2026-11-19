@@ -37,11 +37,23 @@ pub struct App {
     /// The saved "always allow" list as this program last read or wrote it (see
     /// [`App::persist_rules`]).
     rules_seen: Mutex<Vec<String>>,
+    /// `permissions.allow` in `config.toml` as this program last read or wrote it (see
+    /// [`App::reload_rules`]). Always locked after `rules_seen`, never before it.
+    config_rules_seen: Mutex<Vec<String>>,
 }
 
 /// The saved "always allow" list.
 fn parse_rules(saved: Option<&str>) -> Vec<String> {
     saved.and_then(|s| serde_json::from_str::<Vec<String>>(s).ok()).unwrap_or_default()
+}
+
+/// `permissions.allow` as it is in `<home>/config.toml` now, or None when the file is missing or
+/// cannot be read.
+fn saved_config_rules(home: &std::path::Path) -> Option<Vec<String>> {
+    if !home.join("config.toml").exists() {
+        return None;
+    }
+    Config::read_saved(home).ok().map(|c| c.permissions.allow)
 }
 
 /// What the inbox says about a job that was running when Heron stopped.
@@ -124,7 +136,8 @@ impl App {
         let policy = Arc::new(policy);
         // Tool calls read their standing `read:` rules from this live policy (see `ToolCtx::read_grants`).
         store.set_live_policy(&policy);
-        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy, workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default(), events: EventBus::new(), rules_seen: Mutex::new(saved) })
+        let config_rules_seen = Mutex::new(saved_config_rules(&cfg.home).unwrap_or_default());
+        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy, workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default(), events: EventBus::new(), rules_seen: Mutex::new(saved), config_rules_seen })
     }
 
     pub fn cfg(&self) -> Arc<Config> {
@@ -133,18 +146,73 @@ impl App {
 
     /// Apply new settings: persist them and hot-swap the model client.
     pub fn update_config(&self, new: Config) -> Result<()> {
+        self.update_config_choosing(new, &[])
+    }
+
+    /// [`App::update_config`], where `chosen` names the fields the user chose explicitly in the app or
+    /// over the API (`"permissions.mode"`). Those are written even when they equal the value in
+    /// memory, which an override from the command line may already hold.
+    pub fn update_config_choosing(&self, new: Config, chosen: &[&str]) -> Result<()> {
         // Build the replacement client first. A provider the new settings
         // cannot run (Cline/Goose without cli_allow_agent_tools, Custom
         // CLI without a command) must be rejected before anything is
         // persisted: saving first writes a config the next startup cannot
         // build from, and the app will not start until it is repaired.
         let llm = crate::llm::build_with_store(&new, Some(&self.store))?;
-        // Only what this change sets is written: the file is read again and the changed fields are
-        // set in it, so an override from the command line (`--mode`, `--model`) stays out of it.
-        new.save_changes(&self.cfg())?;
-        self.llm.swap(llm);
-        *self.cfg.write().unwrap() = Arc::new(new);
+        self.save_config(new, chosen, Some(llm))
+    }
+
+    /// Save `new` (see [`Config::save_changes`]), make it this one's settings, and take in what other
+    /// Heron programs changed in the file meanwhile. With `llm`, the model client is swapped too.
+    fn save_config(&self, new: Config, chosen: &[&str], llm: Option<Arc<dyn Llm>>) -> Result<()> {
+        {
+            let mut seen = self.config_rules_seen.lock().unwrap_or_else(|e| e.into_inner());
+            let before = self.cfg();
+            // Only what this change sets is written: the file is read again and the changed fields are
+            // set in it, so an override from the command line (`--mode`, `--model`) stays out of it,
+            // and of a list only this one's additions and removals are applied.
+            new.save_changes(&before, chosen)?;
+            // This one's own changes to `permissions.allow` are in the file now; what else changed
+            // there is taken in below.
+            let (old, now) = (&before.permissions.allow, &new.permissions.allow);
+            seen.retain(|r| !(old.contains(r) && !now.contains(r)));
+            for r in now.iter().filter(|r| !old.contains(r)) {
+                if !seen.contains(r) {
+                    seen.push(r.clone());
+                }
+            }
+            if let Some(llm) = llm {
+                self.llm.swap(llm);
+            }
+            *self.cfg.write().unwrap() = Arc::new(new);
+        }
+        self.reload_rules();
         Ok(())
+    }
+
+    /// Revoke a standing rule everywhere it lives: the settings file, the policy and the saved
+    /// "always" answers. False when it is not granted. `config.toml` is checked first, so when it
+    /// cannot be read (and so cannot be updated) the error is returned with nothing changed.
+    pub fn revoke_grant(&self, rule: &str) -> Result<bool> {
+        let home = self.cfg().home.clone();
+        if home.join("config.toml").exists() {
+            Config::read_saved(&home)?;
+        }
+        self.reload_rules();
+        let held = self.policy.allow_rules().iter().any(|r| r == rule);
+        let mut cfg = (*self.cfg()).clone();
+        let in_config = cfg.permissions.allow.iter().any(|r| r == rule);
+        if !held && !in_config {
+            return Ok(false);
+        }
+        if in_config {
+            cfg.permissions.allow.retain(|r| r != rule);
+            // Only a permission changes, so the model client is left as it is.
+            self.save_config(cfg, &[], None)?;
+        }
+        self.policy.remove_allow(rule);
+        self.persist_rules();
+        Ok(true)
     }
 
     /// Re-read the API key (after it was changed) without touching other settings.
@@ -225,12 +293,48 @@ impl App {
     }
 
     /// Take in the rules other Heron programs on this home added or revoked since this one last read
-    /// the saved list. Called at the start of every turn and every unattended run, before anything
-    /// is decided, so a rule revoked elsewhere is never used here again.
+    /// them: in the saved list and in `permissions.allow` in `config.toml`. Called at the start of
+    /// every turn and every unattended run, before anything is decided, so a rule revoked elsewhere
+    /// is never used here again: not by the policy, `GET /api/grants`, `ToolCtx::read_grants`, nor a
+    /// job or suggestion that starts afterwards.
     pub fn reload_rules(&self) {
-        let cfg = self.cfg();
         let mut seen = self.rules_seen.lock().unwrap_or_else(|e| e.into_inner());
+        self.take_config_rules(&seen);
+        let cfg = self.cfg();
         self.take_saved_rules(&mut seen, parse_rules(self.store.kv_get(RULES_KEY).as_deref()), &cfg);
+    }
+
+    /// Bring this one's settings and policy from `permissions.allow` as this one last knew the file
+    /// to what the file holds now. Rules the file never held (set in memory only) are left alone, and
+    /// so is everything when the file is missing or cannot be read. A rule gone from the file stays in
+    /// the policy while `saved_rules` (the saved "always" answers) still holds it.
+    fn take_config_rules(&self, saved_rules: &[String]) {
+        let mut seen = self.config_rules_seen.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(disk) = saved_config_rules(&self.cfg().home) else { return };
+        if *seen == disk {
+            return;
+        }
+        let gone: Vec<String> = seen.iter().filter(|r| !disk.contains(r)).cloned().collect();
+        let new: Vec<String> = disk.iter().filter(|r| !seen.contains(r)).cloned().collect();
+        {
+            let mut slot = self.cfg.write().unwrap();
+            let mut cfg = (**slot).clone();
+            cfg.permissions.allow.retain(|r| !gone.contains(r));
+            for r in &new {
+                if !cfg.permissions.allow.contains(r) {
+                    cfg.permissions.allow.push(r.clone());
+                }
+            }
+            *slot = Arc::new(cfg);
+        }
+        for r in gone.iter().filter(|r| !saved_rules.contains(r)) {
+            self.policy.remove_allow(r);
+        }
+        for r in &new {
+            // A rule that may not be a standing rule is skipped and listed in `rule_notices`.
+            let _ = self.policy.add_allow(r);
+        }
+        *seen = disk;
     }
 
     /// Bring the policy from `seen` (the saved list as this one knows it) to `saved`. Rules this one
@@ -321,7 +425,9 @@ impl App {
         let cfg = self.cfg();
         let grants: Vec<String> = job.allow.split('\n').map(str::trim).filter(|r| !r.is_empty()).map(String::from).collect();
         let policy = if grants.is_empty() {
-            Policy::new(Mode::parse(&cfg.permissions.daemon_mode).unwrap_or(Mode::Ask), &cfg.permissions.allow, &self.policy.deny_rules())
+            // The settings' rules are standing rules: one revoked while the job runs no longer opens
+            // a read for it, though this policy was built before (see `Policy::with_standing`).
+            Policy::new(Mode::parse(&cfg.permissions.daemon_mode).unwrap_or(Mode::Ask), &cfg.permissions.allow, &self.policy.deny_rules()).with_standing(&cfg.permissions.allow)
         } else {
             Policy::new(Mode::Ask, &grants, &self.policy.deny_rules())
         };
@@ -2012,6 +2118,76 @@ mod tests {
         let record: crate::workflow::RunRecord = serde_json::from_str(&runs[0].3).unwrap();
         assert_eq!(record.steps.iter().filter(|s| s.status == "ok").count(), record.steps.len());
         assert!(app.store.audit_log(20).unwrap().iter().any(|a| a.tool == "write_file" && a.decision == "allowed"));
+    }
+
+    /// A scheduled job's model: it reads `path`, revokes `rule` through the app (as `DELETE
+    /// /api/grants` does) while the job is still going, reads `path` again, then finishes. It keeps
+    /// what each read returned.
+    struct ReadsAroundARevoke {
+        app: std::sync::OnceLock<std::sync::Weak<App>>,
+        path: String,
+        rule: String,
+        results: Mutex<Vec<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Llm for ReadsAroundARevoke {
+        async fn chat(&self, req: crate::llm::ChatRequest, _on_delta: crate::llm::DeltaFn<'_>) -> Result<crate::llm::ChatResponse> {
+            let message = {
+                let mut results = self.results.lock().unwrap();
+                if let Some(read) = req.messages.last().filter(|m| m.role == "tool") {
+                    results.push(read.content.clone().unwrap_or_default());
+                }
+                match results.len() {
+                    0 => ScriptedLlm::tool_call("read_file", json!({"path": self.path})),
+                    1 => {
+                        let app = self.app.get().and_then(std::sync::Weak::upgrade).expect("the app is set");
+                        assert!(app.revoke_grant(&self.rule).unwrap(), "the rule was granted");
+                        ScriptedLlm::tool_call("read_file", json!({"path": self.path}))
+                    }
+                    _ => Message::assistant("Done."),
+                }
+            };
+            Ok(crate::llm::ChatResponse { message, usage: Default::default(), model: "reads".into() })
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn revoke_during_a_job_closes_read_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        let ws = dir.path().join("ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        // A folder that needs a grant wherever the checkout lives, granted in the settings.
+        let outside = crate::tools::shell::tests::AskTierDir::new(&cfg, &dunce::canonicalize(&ws).unwrap());
+        let granted = outside.path().join("granted");
+        std::fs::create_dir_all(&granted).unwrap();
+        let secret = granted.join("notes.txt");
+        std::fs::write(&secret, "JOB-GRANTED-CONTENT").unwrap();
+        let rule = format!("read:{}/**", granted.display());
+        cfg.permissions.allow = vec![rule.clone()];
+        let llm = Arc::new(ReadsAroundARevoke { app: Default::default(), path: secret.display().to_string(), rule: rule.clone(), results: Default::default() });
+        let app = Arc::new(App::assemble(cfg, ws, Store::in_memory().unwrap(), llm.clone()).await.unwrap());
+        let _ = llm.app.set(Arc::downgrade(&app));
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        // With no grant, the folder is not read unasked.
+        let bare = Policy::new(Mode::Ask, &[], &[]);
+        let ctx = app.agent(Arc::new(DenyAll)).tool_ctx("no-grant");
+        let read = |policy: &Policy| policy.decide(&crate::permissions::Call { tool: "read_file", summary: "notes.txt", effect: crate::permissions::Effect::OutsideRead, read_target: Some(&secret) }, &ctx);
+        assert_eq!(read(&bare), crate::permissions::Verdict::Ask);
+
+        let id = app.store.add_schedule("notes", "", "read my notes", i64::MAX - 1, "").unwrap();
+        app.run_now(id).await.unwrap();
+        let results = llm.results.lock().unwrap().clone();
+        assert_eq!(results.len(), 2, "{results:?}");
+        assert!(results[0].contains("JOB-GRANTED-CONTENT"), "the grant opened the job's first read: {results:?}");
+        assert!(!results[1].contains("JOB-GRANTED-CONTENT"), "the revoked grant opened the job's next read: {results:?}");
+        assert!(!app.policy.allow_rules().contains(&rule));
+        // What the job could not read is waiting for the user instead.
+        let waiting = app.store.pending_approvals().unwrap();
+        assert_eq!(waiting.iter().map(|a| a.tool.as_str()).collect::<Vec<_>>(), vec!["read_file"]);
     }
 
     #[tokio::test]

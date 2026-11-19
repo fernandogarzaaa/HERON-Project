@@ -261,11 +261,23 @@ async fn stop_reply(app: &App, shared: &Shared) -> bool {
 }
 
 // Settings can abort the gateway while separately spawned agent turns are
-// still running. Dropping the gateway also aborts those child tasks.
-struct AbortAgentsOnDrop(Arc<Shared>);
+// still running. Dropping the gateway also aborts those child tasks, and ends
+// each aborted reply's run on the bus as `/stop` does: once its task has
+// stopped, `cancelled` and then `run_end`.
+struct AbortAgentsOnDrop(Arc<Shared>, crate::events::EventBus);
 impl Drop for AbortAgentsOnDrop {
     fn drop(&mut self) {
-        self.0.halt();
+        let Some(r) = self.0.halt() else { return };
+        let events = self.1.clone();
+        let end = async move {
+            let _ = r.done.await;
+            events.publish(&r.session_id, &r.run_id, json!({"type": "cancelled"}));
+            events.publish(&r.session_id, &r.run_id, json!({"type": "run_end"}));
+        };
+        // A drop must not block: the wait happens on its own task.
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(end);
+        }
     }
 }
 
@@ -700,7 +712,7 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
         }
     }
     let shared: Arc<Shared> = Default::default();
-    let _abort_children_on_shutdown = AbortAgentsOnDrop(shared.clone());
+    let _abort_children_on_shutdown = AbortAgentsOnDrop(shared.clone(), app.events.clone());
     let mut offset: i64 = app.store.kv_get("telegram_offset").and_then(|v| v.parse().ok()).unwrap_or(0);
     let poll_secs = if api_base.contains("127.0.0.1") { 0 } else { 25 };
     loop {
@@ -1124,6 +1136,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dropped_telegram_gateway_ends_the_run_on_the_bus() {
+        use crate::events::Item;
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        cfg.ensure_home().unwrap();
+        let entered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(Waits(entered.clone()))).await.unwrap());
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        let bot = Bot {
+            client: reqwest::Client::new(),
+            base: "http://127.0.0.1:1/botOFFLINE".into(),
+            app: app.clone(),
+            account_id: "drop-bot".into(),
+            pairing_epoch: pairing_code(&app),
+            spool: ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap(),
+            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        let shared = Arc::<Shared>::default();
+        // What the gateway holds while it runs; settings stopping or replacing it drops it.
+        let gateway = AbortAgentsOnDrop(shared.clone(), app.events.clone());
+        let mut bus = app.events.subscribe(None);
+        handle_message(&app, &bot, &shared, 42, "summarize my notes".into(), false).await;
+        until("the turn reaches the model", || entered.load(std::sync::atomic::Ordering::SeqCst)).await;
+        drop(gateway);
+        assert!(shared.running.lock().unwrap().is_none(), "dropping the gateway halted the reply");
+
+        let mut events = vec![];
+        while let Ok(Some(Item::Event(e))) = tokio::time::timeout(Duration::from_millis(300), bus.next()).await {
+            events.push(e);
+        }
+        let kinds: Vec<&str> = events.iter().map(|e| e.kind()).collect();
+        // One run: it started with `session {id, run_id}` and ended with `cancelled`, `run_end`.
+        let run = events.first().map(|e| e.run_id.clone()).unwrap_or_default();
+        assert!(events.iter().all(|e| e.run_id == run), "{kinds:?}");
+        assert_eq!(kinds.first(), Some(&"session"), "{kinds:?}");
+        assert!(kinds.len() >= 3, "{kinds:?}");
+        assert_eq!(&kinds[kinds.len() - 2..], ["cancelled", "run_end"], "{kinds:?}");
+        assert_eq!(kinds.iter().filter(|k| **k == "run_end").count(), 1, "{kinds:?}");
+    }
+
+    #[tokio::test]
     async fn stopping_gateway_aborts_detached_agent_turns() {
         let shared = Arc::<Shared>::default();
         let task = tokio::spawn(async {
@@ -1131,7 +1186,7 @@ mod tests {
         });
         let (_stopped, done) = oneshot::channel();
         *shared.running.lock().unwrap() = Some(Running { n: 1, session_id: "s".into(), run_id: "r".into(), handle: task.abort_handle(), done });
-        let guard = AbortAgentsOnDrop(shared.clone());
+        let guard = AbortAgentsOnDrop(shared.clone(), crate::events::EventBus::new());
         drop(guard);
         assert!(task.await.unwrap_err().is_cancelled());
         assert!(shared.running.lock().unwrap().is_none());

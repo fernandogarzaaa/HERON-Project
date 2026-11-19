@@ -412,10 +412,11 @@ struct ModeBody {
 
 async fn set_mode(State(st): S, Json(b): Json<ModeBody>) -> ApiResult {
     let mode = Mode::parse(&b.mode)?;
-    // The config file stays the one source of truth, so the mode survives a restart.
+    // The config file stays the one source of truth, so the mode survives a restart. It is the
+    // user's explicit choice, so it is written even when `--mode` already set the same mode.
     let mut cfg = (*st.app.cfg()).clone();
     cfg.permissions.mode = mode.name().to_string();
-    st.app.update_config(cfg)?;
+    st.app.update_config_choosing(cfg, &["permissions.mode"])?;
     st.app.policy.set_mode(mode);
     Ok(Json(json!({"mode": st.app.policy.mode().name()})))
 }
@@ -757,20 +758,11 @@ struct GrantBody {
 }
 
 /// Revoke a standing rule everywhere it lives: the policy, the saved "always" answers and the
-/// settings file.
+/// settings file. When the settings file cannot be updated, nothing is changed.
 async fn revoke_grant(State(st): S, Json(b): Json<GrantBody>) -> ApiResult {
-    st.app.reload_rules();
-    let removed = st.app.policy.remove_allow(&b.rule);
-    let mut cfg = (*st.app.cfg()).clone();
-    let in_config = cfg.permissions.allow.contains(&b.rule);
-    if !removed && !in_config {
+    if !st.app.revoke_grant(&b.rule)? {
         return Err(ApiError(StatusCode::NOT_FOUND, "That permission is not granted.".into()));
     }
-    if in_config {
-        cfg.permissions.allow.retain(|r| *r != b.rule);
-        st.app.update_config(cfg)?;
-    }
-    st.app.persist_rules();
     Ok(Json(json!({"ok": true, "rule": b.rule})))
 }
 
@@ -2000,44 +1992,183 @@ mod tests {
         assert_eq!(saved(), vec!["shell:ls *"]);
     }
 
+    /// Two cores on one home, each with its own connection, started from `config.toml` as saved.
+    async fn two_cores_from_saved_settings(home: &std::path::Path, ws: &std::path::Path) -> (Arc<App>, Arc<App>) {
+        let core = || async {
+            let cfg = Config::read_saved(home).unwrap();
+            let store = Store::open(&cfg.db_path()).unwrap();
+            crate::risk_notice::accept_current(&store).unwrap();
+            Arc::new(App::assemble(cfg, ws.to_path_buf(), store, scripted(vec![])).await.unwrap())
+        };
+        (core().await, core().await)
+    }
+
+    #[tokio::test]
+    async fn revoked_config_rule_stays_revoked_across_cores() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.allow = vec!["shell:git *".into(), "shell:make *".into()];
+        saved.save().unwrap();
+        let ws = dir.path().join("ws");
+        let (a, b) = two_cores_from_saved_settings(&home, &ws).await;
+        let (ha, hb) = (serve_app(tempfile::tempdir().unwrap(), a.clone()), serve_app(tempfile::tempdir().unwrap(), b.clone()));
+        let has = |app: &App, rule: &str| app.policy.allow_rules().iter().any(|r| r == rule);
+        let on_disk = || Config::read_saved(&home).unwrap().permissions.allow;
+        for app in [&a, &b] {
+            assert!(has(app, "shell:git *") && has(app, "shell:make *"), "{:?}", app.policy.allow_rules());
+        }
+
+        // A revokes one. B takes that in at its next reload: its policy, its settings, its grants
+        // list and what its tool calls read no longer have it.
+        ha.json("DELETE", "/grants", json!({"rule": "shell:git *"})).await;
+        assert_eq!(on_disk(), vec!["shell:make *"]);
+        assert!(has(&b, "shell:git *"), "B has not looked yet");
+        b.reload_rules();
+        assert!(!has(&b, "shell:git *"), "{:?}", b.policy.allow_rules());
+        assert_eq!(b.cfg().permissions.allow, vec!["shell:make *"]);
+        let listed = hb.json("GET", "/grants", json!(null)).await;
+        assert_eq!(listed, json!([{"kind": "tool", "rule": "shell:make *"}]));
+        let standing = crate::sandbox::standing_rules(&b.cfg(), &b.store);
+        assert_eq!(standing, vec!["shell:make *"]);
+        let verdict = crate::permissions::decide_for(&b.policy, "shell", "git push", crate::permissions::Effect::ProcessExec, false);
+        assert_eq!(verdict, crate::permissions::Verdict::Ask, "B no longer runs it unasked");
+
+        // B revokes the other. Only B's own removal is written, not its earlier copy of the list.
+        hb.json("DELETE", "/grants", json!({"rule": "shell:make *"})).await;
+        assert!(on_disk().is_empty(), "{:?}", on_disk());
+        a.reload_rules();
+        assert!(!has(&a, "shell:make *"), "{:?}", a.policy.allow_rules());
+
+        // A rule one core adds to the file reaches the other's policy and settings at its reload.
+        let mut more = (*a.cfg()).clone();
+        more.permissions.allow.push("shell:ls *".into());
+        a.update_config(more).unwrap();
+        b.reload_rules();
+        assert!(has(&b, "shell:ls *"), "{:?}", b.policy.allow_rules());
+        assert_eq!(b.cfg().permissions.allow, vec!["shell:ls *"]);
+        // Taken out of the file while a saved "always" answer still holds it, it stays granted.
+        a.store.kv_set("allow_rules", &json!(["shell:ls *"]).to_string()).unwrap();
+        b.reload_rules();
+        let mut less = (*a.cfg()).clone();
+        less.permissions.allow.clear();
+        a.update_config(less).unwrap();
+        b.reload_rules();
+        assert!(b.cfg().permissions.allow.is_empty());
+        assert!(has(&b, "shell:ls *"), "the saved answer still grants it: {:?}", b.policy.allow_rules());
+
+        // A core started afterwards allows neither.
+        let (fresh, _) = two_cores_from_saved_settings(&home, &ws).await;
+        assert!(!has(&fresh, "shell:git *") && !has(&fresh, "shell:make *"), "{:?}", fresh.policy.allow_rules());
+        assert!(fresh.cfg().permissions.allow.is_empty());
+    }
+
+    #[tokio::test]
+    async fn explicit_mode_choice_is_saved_under_a_cli_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.mode = "ask".into();
+        saved.llm.model = "saved-model".into();
+        saved.save().unwrap();
+        // What `heron --mode yolo --model cli-model` starts with.
+        let cfg = Config::read_saved(&home).unwrap().with_cli_overrides(Some("yolo"), Some("cli-model")).unwrap();
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), scripted(vec![])).await.unwrap());
+        let h = serve_app(dir, app.clone());
+        let on_disk = || Config::read_saved(&home).unwrap();
+
+        // An unrelated change still leaves the overrides out of the file.
+        h.json("POST", "/settings", json!({"name": "Wren"})).await;
+        assert_eq!((on_disk().permissions.mode.as_str(), on_disk().llm.model.as_str()), ("ask", "saved-model"));
+        // Choosing the mode the override already set is written: it is the user's choice now.
+        assert_eq!(h.json("POST", "/mode", json!({"mode": "yolo"})).await["mode"], "yolo");
+        let disk = on_disk();
+        assert_eq!((disk.permissions.mode.as_str(), disk.llm.model.as_str(), disk.agent.name.as_str()), ("yolo", "saved-model", "Wren"));
+        assert_eq!(app.policy.mode(), Mode::Yolo);
+    }
+
+    #[tokio::test]
+    async fn revoke_with_unparseable_config_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.allow = vec!["shell:git *".into()];
+        saved.save().unwrap();
+        let cfg = Config::read_saved(&home).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        store.kv_set("allow_rules", &json!(["shell:make *"]).to_string()).unwrap();
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), store, scripted(vec![])).await.unwrap());
+        let h = serve_app(dir, app.clone());
+        let config = home.join("config.toml");
+        let broken = "[permissions\nallow = [\"shell:git *\"\n";
+        std::fs::write(&config, broken).unwrap();
+        let state = || (app.policy.allow_rules(), app.cfg().permissions.allow.clone(), app.store.kv_get("allow_rules"), std::fs::read_to_string(&config).unwrap());
+        let before = state();
+        assert_eq!(before.0, vec!["shell:git *", "shell:make *"]);
+
+        for rule in ["shell:git *", "shell:make *"] {
+            let refused = h.send("DELETE", "/grants", json!({"rule": rule})).await;
+            assert!(!(200..300).contains(&refused.status), "{rule}: {}", refused.status);
+            let message = refused.json().await["error"].as_str().unwrap_or_default().to_string();
+            assert!(message.contains("config.toml"), "{rule}: the error says which file: {message}");
+            assert_eq!(state(), before, "{rule}: nothing changed");
+            assert!(app.revoke_grant(rule).is_err(), "{rule}");
+            assert_eq!(state(), before, "{rule}: nothing changed");
+        }
+        // Once the file is repaired, the same revoke goes through.
+        saved.save().unwrap();
+        assert!(app.revoke_grant("shell:git *").unwrap());
+        assert!(!app.policy.allow_rules().iter().any(|r| r == "shell:git *"));
+        assert!(Config::read_saved(&home).unwrap().permissions.allow.is_empty());
+    }
+
     #[tokio::test]
     async fn revoked_config_grant_closes_for_a_run_in_progress() {
-        use crate::tools::shell::tests::{q, seatbelt};
-        // A folder outside the working folder that needs a grant (as in the walker tests).
-        let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
-        std::fs::create_dir_all(&target).unwrap();
-        let outside = tempfile::Builder::new().prefix("heron-ask-tier-test").tempdir_in(target).unwrap();
-        let granted = dunce::canonicalize(outside.path()).unwrap().join("granted");
+        use crate::tools::shell::tests::{q, seatbelt, AskTierDir};
+        // A folder outside the working folder that needs a grant, wherever the checkout lives.
+        let bare = harness(scripted(vec![]), true, |_| {}).await;
+        let outside = AskTierDir::new(&bare.app.cfg(), &bare.app.workspace);
+        let granted = outside.path().join("granted");
         std::fs::create_dir_all(&granted).unwrap();
         let secret = granted.join("notes.txt");
         std::fs::write(&secret, "GRANTED-CONTENT").unwrap();
+        let search = json!({"pattern": "GRANTED-CONTENT"});
+        let cat = json!({"command": format!("cat {}", q(&secret))});
+        let call = |app: Arc<App>, ctx: crate::tools::ToolCtx, tool: &'static str, args: Value| async move { app.tools.get(tool).unwrap().call(&args, &ctx).await.unwrap() };
+        // With no grant, neither a walk through a link nor a command reads it.
+        std::os::unix::fs::symlink(&secret, bare.app.workspace.join("granted-link.txt")).unwrap();
+        let bare_ctx = bare.app.agent(Arc::new(crate::permissions::DenyAll)).tool_ctx("no-grant");
+        let found = call(bare.app.clone(), bare_ctx.clone(), "search_files", search.clone()).await;
+        assert!(!found.contains("granted-link.txt"), "the folder must need a grant: {found}");
+        if seatbelt(&bare.app.cfg()) {
+            let out = call(bare.app.clone(), bare_ctx, "shell", cat.clone()).await;
+            assert!(!out.contains("GRANTED-CONTENT"), "the folder must need a grant: {out}");
+        }
+
         let rule = format!("read:{}/**", granted.display());
         let h = harness(scripted(vec![]), true, |c| c.permissions.allow = vec![rule.clone()]).await;
         assert!(h.app.policy.allow_rules().contains(&rule), "{:?}", h.app.policy.rule_notices());
         // A run that started with the rule in its settings, and keeps that snapshot.
         let agent = h.app.agent(Arc::new(crate::permissions::DenyAll));
         let ctx = agent.tool_ctx("run-in-progress");
-        let call = |tool: &'static str, args: Value| {
-            let (tools, ctx) = (h.app.tools.clone(), ctx.clone());
-            async move { tools.get(tool).unwrap().call(&args, &ctx).await.unwrap() }
-        };
         // A walk of the working folder opens the granted file through a link to it.
         std::os::unix::fs::symlink(&secret, h.app.workspace.join("granted-link.txt")).unwrap();
-        let search = json!({"pattern": "GRANTED-CONTENT"});
-        let cat = json!({"command": format!("cat {}", q(&secret))});
         let sandboxed = seatbelt(&h.app.cfg());
-        assert!(call("search_files", search.clone()).await.contains("granted-link.txt"));
+        assert!(call(h.app.clone(), ctx.clone(), "search_files", search.clone()).await.contains("granted-link.txt"));
         if sandboxed {
-            assert!(call("shell", cat.clone()).await.contains("GRANTED-CONTENT"));
+            assert!(call(h.app.clone(), ctx.clone(), "shell", cat.clone()).await.contains("GRANTED-CONTENT"));
         }
 
         h.json("DELETE", "/grants", json!({"rule": rule})).await;
         assert!(ctx.cfg.permissions.allow.contains(&rule), "the run's settings snapshot still names it");
         // The run's next walk and next command no longer get it.
-        let found = call("search_files", search).await;
+        let found = call(h.app.clone(), ctx.clone(), "search_files", search).await;
         assert!(!found.contains("granted-link.txt"), "{found}");
         if sandboxed {
-            let out = call("shell", cat).await;
+            let out = call(h.app.clone(), ctx, "shell", cat).await;
             assert!(!out.contains("GRANTED-CONTENT"), "{out}");
         }
     }

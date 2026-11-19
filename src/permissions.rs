@@ -178,6 +178,8 @@ pub struct Policy {
     /// Allow rules that were found but not loaded (a `read:` folder that is too broad), kept so
     /// Settings can say why they do nothing.
     rejected: RwLock<Vec<String>>,
+    /// Allow rules that are standing rules held by another, live policy (see [`Policy::with_standing`]).
+    standing: Vec<String>,
 }
 
 /// The four tools that read files. Their "always" answer is a folder grant, never the whole tool.
@@ -225,7 +227,16 @@ fn unloadable(rule: &str) -> Option<&'static str> {
 impl Policy {
     pub fn new(mode: Mode, allow: &[String], deny: &[String]) -> Self {
         let (rejected, kept): (Vec<String>, Vec<String>) = allow.iter().cloned().partition(|r| unloadable(r).is_some());
-        Policy { mode: RwLock::new(mode), allow: RwLock::new(compile(&kept)), deny: RwLock::new(compile(deny)), rejected: RwLock::new(rejected) }
+        Policy { mode: RwLock::new(mode), allow: RwLock::new(compile(&kept)), deny: RwLock::new(compile(deny)), rejected: RwLock::new(rejected), standing: vec![] }
+    }
+
+    /// The same policy, for a run that started from a snapshot of the settings (a scheduled job):
+    /// `standing` are its rules that come from the settings. Each opens a read only while the live
+    /// policy of the app that owns the store (`ToolCtx::store`) still holds it, so a rule revoked
+    /// while the run is going no longer opens its next read.
+    pub fn with_standing(mut self, standing: &[String]) -> Self {
+        self.standing = standing.to_vec();
+        self
     }
 
     pub fn mode(&self) -> Mode {
@@ -361,10 +372,17 @@ impl Policy {
             return Verdict::Allow;
         }
         // 8. Standing rules. A read outside the working folder is opened only by a folder grant that
-        //    covers it; tool-wide rules (`read_file:*`, `*`) never open one.
+        //    covers it; tool-wide rules (`read_file:*`, `*`) never open one. A standing rule this
+        //    policy took from the settings counts only while the live policy still holds it.
+        let live: Option<Vec<String>> = if effect == Effect::OutsideRead && !self.standing.is_empty() {
+            ctx.store.live_policy().filter(|p| !std::ptr::eq(Arc::as_ptr(p), self)).map(|p| p.allow_rules())
+        } else {
+            None
+        };
+        let revoked = |rule: &str| live.as_ref().is_some_and(|live| self.standing.iter().any(|s| s == rule) && !live.iter().any(|l| l == rule));
         let allow = self.allow.read().unwrap();
         let allowed = if effect == Effect::OutsideRead {
-            read_target.is_some_and(|target| allow.iter().any(|(rule, _)| read_rule_covers(rule, target)))
+            read_target.is_some_and(|target| allow.iter().any(|(rule, _)| !revoked(rule) && read_rule_covers(rule, target)))
         } else {
             !effect.high() && allow.iter().any(|(rule, g)| !rule.starts_with("read:") && allow_rule_covers(rule, g, tool, summary, &key))
         };
