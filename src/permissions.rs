@@ -300,6 +300,14 @@ impl Policy {
         Ok(())
     }
 
+    /// Remove a standing allow rule. True if it was there.
+    pub fn remove_allow(&self, rule: &str) -> bool {
+        let mut allow = self.allow.write().unwrap();
+        let before = allow.len();
+        allow.retain(|(r, _)| r != rule);
+        allow.len() != before
+    }
+
     pub fn allow_rules(&self) -> Vec<String> {
         self.allow.read().unwrap().iter().map(|(r, _)| r.clone()).collect()
     }
@@ -455,6 +463,9 @@ impl Approver for DenyAll {
     }
 }
 
+/// What the model is told about a call that was parked for the user to approve later.
+pub const PARKED_FOR_LATER: &str = "nobody is here to approve this right now, so it was NOT done. It has been saved for the user to approve later. Carry on with everything else, and say in your report that this step is waiting for them";
+
 /// For work nobody is watching: nothing that needs approval is done, but the request is kept so the
 /// user can approve it later, and the agent is told to carry on with everything else.
 pub struct ParkingApprover {
@@ -468,7 +479,7 @@ impl Approver for ParkingApprover {
     async fn approve(&self, req: &ApprovalRequest) -> Approval {
         let parked = self.store.park_approval(&req.session_id, &req.tool, &req.args.to_string(), &req.summary, &req.detail, req.risk.label(), req.tainted, &self.origin);
         Approval::Deny(Some(match parked {
-            Ok(_) => "nobody is here to approve this right now, so it was NOT done. It has been saved for the user to approve later. Carry on with everything else, and say in your report that this step is waiting for them".into(),
+            Ok(_) => PARKED_FOR_LATER.into(),
             Err(_) => "no human is available to approve this (unattended run)".into(),
         }))
     }

@@ -467,6 +467,8 @@ impl Agent {
         // A working folder inside Heron's home, a CLI login or a personal store never starts a turn,
         // whichever surface asked for it.
         crate::permissions::check_workspace(&self.workspace, &self.cfg)?;
+        // Before anything is written: no turn runs until the risk notice is accepted (B2).
+        crate::risk_notice::check(&self.store)?;
         let before = session.messages.len();
         repair_transcript(&mut session.messages);
         if session.persist && session.messages.len() != before {
@@ -834,6 +836,7 @@ mod tests {
     fn agent_with(llm: ScriptedLlm, mode: Mode, approver: Arc<dyn Approver>, ws: &std::path::Path) -> (Agent, Arc<ScriptedLlm>) {
         let llm = Arc::new(llm);
         let store = Store::in_memory().unwrap();
+        crate::risk_notice::accept_current(&store).unwrap();
         let mut cfg = Config { home: ws.join(".heron-home"), ..Default::default() };
         cfg.agent.auto_memory = false;
         let agent = Agent {
@@ -850,6 +853,31 @@ mod tests {
             token_limit: None,
         };
         (agent, llm)
+    }
+
+    #[tokio::test]
+    async fn risk_notice_blocks_turns_until_accepted() {
+        let ws = tempfile::tempdir().unwrap();
+        let (agent, llm) = agent_with(ScriptedLlm::new(vec![Message::assistant("Hello.")]), Mode::Auto, Arc::new(DenyAll), ws.path());
+        crate::risk_notice::revoke(&agent.store);
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let first = agent.run_turn(&mut s, "hi", &null_sink()).await;
+        if crate::risk_notice::required() {
+            let err = first.expect_err("no turn before the notice is accepted");
+            assert!(err.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some(), "{err:#}");
+            // Refused before anything was written or sent.
+            assert!(llm.requests.lock().unwrap().is_empty());
+            assert!(agent.store.load_messages(&s.id).unwrap().is_empty());
+            assert!(agent.store.session_title(&s.id).is_empty());
+            assert!(s.messages.is_empty());
+            crate::risk_notice::accept_current(&agent.store).unwrap();
+            assert_eq!(agent.run_turn(&mut s, "hi", &null_sink()).await.unwrap(), "Hello.");
+        } else {
+            // Elsewhere turns run as they always have (Q11).
+            assert_eq!(first.unwrap(), "Hello.");
+        }
+        assert_eq!(llm.requests.lock().unwrap().len(), 1);
+        assert_eq!(agent.store.load_messages(&s.id).unwrap().len(), 2);
     }
 
     #[tokio::test]

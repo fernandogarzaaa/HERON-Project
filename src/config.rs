@@ -220,6 +220,8 @@ pub struct PermissionConfig {
 pub struct ServerConfig {
     pub bind: String,
     pub port: u16,
+    /// How long a live approval waits for an answer before it is parked for later.
+    pub approval_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -318,7 +320,7 @@ impl Default for PermissionConfig {
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        ServerConfig { bind: "127.0.0.1".into(), port: 7878 }
+        ServerConfig { bind: "127.0.0.1".into(), port: 7878, approval_timeout_secs: 900 }
     }
 }
 
