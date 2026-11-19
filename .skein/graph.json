@@ -7432,11 +7432,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Mac app: the Never list with Remove (35h)",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U4d__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "fd5f950459c28a46a1bd8cc3490e15ce6ee8e8ff",
+      "branch": "skein/U4d",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U4d"
     }
   },
   "U4d__integrate": {
