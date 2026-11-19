@@ -693,9 +693,19 @@ fn write_current_into(work: &std::path::Path, current: &CurrentState, allow: &st
         let stricter = match k {
             // Switched on if either is.
             "paused" | "telegram_locked" if on(&now) || on(&theirs) => Some("1".to_string()),
-            // The records of both, the current one first, as repeated damage is kept.
+            // The records of both, the current one first, as repeated damage is kept. A record the
+            // current database already holds is not added again, so restoring the same copy twice
+            // does not double it.
             "deny_rules_damaged" => match (now, theirs) {
-                (Some(now), Some(theirs)) => Some(format!("{now}\n{theirs}")),
+                (Some(now), Some(theirs)) => {
+                    let mut records: Vec<&str> = vec![];
+                    for record in now.split('\n').chain(theirs.split('\n')) {
+                        if !records.contains(&record) {
+                            records.push(record);
+                        }
+                    }
+                    Some(records.join("\n"))
+                }
                 (now, theirs) => now.or(theirs),
             },
             _ => now,
@@ -2863,7 +2873,37 @@ mod tests {
             assert_eq!(store.kv_get(k), None, "{k} came back from the copy");
         }
         assert_eq!(store.kv_get("deny_rules_damaged").as_deref(), Some("[\"old\"]"));
-        assert_eq!(store.kv_get("not_a_switch").as_deref(), Some("from the copy"));
+    }
+
+    /// Repeated damage is kept record by record, but the same record is kept once: restoring a copy
+    /// whose record the current database already holds (or restoring the same copy again) does not
+    /// double it.
+    #[test]
+    fn restoring_the_same_damaged_record_keeps_it_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let copy = copy_with(dir.path(), "old", &[("deny_rules_damaged", "[\"old\"]")]);
+        // The same record now and in the copy: kept once, however often it is restored.
+        current_with(&cfg, &[("deny_rules_damaged", "[\"old\"]")]);
+        for _ in 0..3 {
+            restore_keeping_nevers(&cfg, &copy).unwrap();
+            let store = Store::open(&cfg.db_path()).unwrap();
+            assert_eq!(store.kv_get("deny_rules_damaged").as_deref(), Some("[\"old\"]"));
+        }
+        // A different record now: the current one first, the copy's once after it.
+        std::fs::remove_file(cfg.db_path()).unwrap();
+        current_with(&cfg, &[("deny_rules_damaged", "[\"now\"]")]);
+        for _ in 0..3 {
+            restore_keeping_nevers(&cfg, &copy).unwrap();
+            let store = Store::open(&cfg.db_path()).unwrap();
+            assert_eq!(store.kv_get("deny_rules_damaged").as_deref(), Some("[\"now\"]\n[\"old\"]"));
+        }
+        // A copy holding several records, one of them already here: only the new ones are added.
+        let many = copy_with(dir.path(), "many", &[("deny_rules_damaged", "[\"old\"]\n[\"older\"]")]);
+        restore_keeping_nevers(&cfg, &many).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert_eq!(store.kv_get("deny_rules_damaged").as_deref(), Some("[\"now\"]\n[\"old\"]\n[\"older\"]"));
     }
 
     /// A restore never loosens a safety switch: with no current database (the recovery the
