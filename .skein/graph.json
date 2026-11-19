@@ -6283,10 +6283,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "a6af321dd4f99a212b1cf933c9320b990fb0ee40",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "4cb8a98b09082228aa0a949d7c4889ed50926c59",
+        "result_commit": "fd5f950459c28a46a1bd8cc3490e15ce6ee8e8ff",
+        "shipped_at": "2026-11-19T17:17:08.432590+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Fixes from U3k's review (35h core, owner decision)",
-    "version": 72,
+    "version": 73,
     "worktree": {
       "base_branch": "skein/U3l__integrate-base",
       "base_commit": "a6af321dd4f99a212b1cf933c9320b990fb0ee40",
