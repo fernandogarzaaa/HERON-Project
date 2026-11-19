@@ -4513,7 +4513,7 @@
       "claim_token": "d32de5eb183c4087a511e08e09c14b27",
       "claimed_at": "2026-11-19T00:07:59.784438+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T00:20:30.721103+00:00",
+      "last_heartbeat": "2026-11-19T00:21:00.756605+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4541,7 +4541,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fixes from U3f's review: config.toml revoke across cores, job read_file, dropped gateway run_end, explicit choices saved, atomic revoke",
-    "version": 29,
+    "version": 30,
     "worktree": {
       "base_branch": "skein/U3g__integrate-base",
       "base_commit": "19384e891d51f18541cde83bd23ada0397b7f645",
@@ -5003,9 +5003,9 @@
     "retry_at": "2026-11-19T00:21:55.893182+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "blocked",
     "title": "Core API client against the recorded fixtures",
-    "version": 42,
+    "version": 43,
     "worktree": {
       "base_branch": "skein/U4b__integrate-base",
       "base_commit": "b2760052fc73b6517ca2df020c7189c42667a669",
