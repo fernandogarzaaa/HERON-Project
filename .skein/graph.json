@@ -8541,9 +8541,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fixes from the U3t review (35q)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U3u__integrate-base",
       "branch": null,
       "path": null
     }
