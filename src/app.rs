@@ -73,6 +73,9 @@ struct ConfigSeen {
     allow: Vec<String>,
     /// Why `config.toml` could not be read at the last reload, while it still cannot.
     unreadable: Option<String>,
+    /// The last reload did not read `config.toml` because `config.lock` was still held by another
+    /// program (then `unreadable` says so too, and the notice names the lock).
+    lock_held: bool,
     /// Every "never" rule, saved or in the file, as this one last knew them. A rule leaves the
     /// policy only once it has left both.
     nevers: Vec<String>,
@@ -186,6 +189,14 @@ impl From<Config> for ConfigChange<'_> {
 /// What `GET /api/grants` says (in the `x-heron-notice` header) while `config.toml` cannot be read.
 pub const CONFIG_UNREADABLE_NOTICE: &str = "config.toml cannot be read, so none of the \"always allow\" rules in it apply until it can";
 
+/// What `GET /api/grants` says (in the `x-heron-notice` header) while a reload could not take
+/// `config.lock`, which another program still held, and so did not read `config.toml`.
+pub const CONFIG_LOCK_HELD_NOTICE: &str = "config.lock is held by another program (perhaps a Heron that stopped in the middle of a save), so config.toml was not read: none of the \"always allow\" rules in it apply until Heron can lock it again. Its \"never\" rules still do";
+
+/// What `GET /api/nevers` says (in the `x-heron-notice` header) while heron.db keeps the damaged
+/// "never" rules of a rebuild that could not use every source (see [`kept_damaged_nevers`]).
+pub const NEVERS_MAY_BE_LOST_NOTICE: &str = "Some \"never\" rules may have been lost: heron doctor rebuilt them from what was left after they were damaged. The damaged value is kept in heron.db as deny_rules_damaged; run heron doctor to see it, set \"never\" again for anything missing, then run heron doctor --clear-damaged-nevers";
+
 /// What `GET /api/grants` says (in the `x-heron-notice` header) while `config.toml` is missing or
 /// does not list a "never" rule that is still in force. The log names the rule.
 pub const NEVER_NOT_IN_CONFIG_NOTICE: &str = "config.toml does not list every \"never\" rule in force. Heron still refuses those tools; remove a \"never\" in Heron, or set its tool to Ask or Allow there, to lift it";
@@ -226,8 +237,9 @@ pub struct Never {
 pub enum NeversCheck {
     /// Readable, holding this many rules.
     Sound(usize),
-    /// Damaged, and rebuilt as `rules` from `from` (which sources were used). The damaged value is
-    /// kept in heron.db as the kv entry `deny_rules_damaged`.
+    /// Damaged, and rebuilt as `rules` from `from` (which sources were used). When that was not
+    /// every source, the damaged value is kept in heron.db as the kv entry `deny_rules_damaged`
+    /// (see [`kept_damaged_nevers`]).
     Repaired { rules: Vec<String>, from: &'static str },
 }
 
@@ -355,15 +367,15 @@ fn damaged_nevers_error(why: impl std::fmt::Display) -> anyhow::Error {
 }
 
 /// Why a core does not start when heron.db could not be read or written for the "never" rules saved
-/// in it: busy (another program holds it) or some other failure. Neither means the rules are
-/// damaged, so neither sends the user to `heron doctor` to rebuild them.
-fn unreadable_nevers_error(e: anyhow::Error) -> anyhow::Error {
-    use rusqlite::ErrorCode::{DatabaseBusy, DatabaseLocked};
+/// in it: busy (another program holds it), damaged (the file itself), or some other failure. None of
+/// these means the rules are damaged, so none sends the user to `heron doctor` to rebuild them.
+fn unreadable_nevers_error(e: anyhow::Error, db: &std::path::Path) -> anyhow::Error {
+    use rusqlite::ErrorCode::{DatabaseBusy, DatabaseCorrupt, DatabaseLocked, NotADatabase};
     let code = e.chain().filter_map(|c| c.downcast_ref::<rusqlite::Error>()).find_map(|c| c.sqlite_error_code());
-    if matches!(code, Some(DatabaseBusy | DatabaseLocked)) {
-        anyhow::anyhow!("heron.db is busy: another program held it for too long ({e:#}), so Heron did not start, as it could not read the \"never\" rules saved there. Nothing is damaged; close the other program or wait, then start Heron again")
-    } else {
-        anyhow::anyhow!("the \"never\" rules saved in heron.db could not be read ({e:#}), so Heron did not start: it would not know which tools you told it never to use. This is a failure to read the database, not damage to the rules; check the disk, then start Heron again")
+    match code {
+        Some(DatabaseBusy | DatabaseLocked) => anyhow::anyhow!("heron.db is busy: another program held it for too long ({e:#}), so Heron did not start, as it could not read the \"never\" rules saved there. Nothing is damaged; close the other program or wait, then start Heron again"),
+        Some(DatabaseCorrupt | NotADatabase) => anyhow::anyhow!("heron.db is damaged ({e:#}), so Heron did not start: it could not read the \"never\" rules saved there. {}.", crate::store::damaged_database_guidance(db)),
+        _ => anyhow::anyhow!("the \"never\" rules saved in heron.db could not be read ({e:#}), so Heron did not start: it would not know which tools you told it never to use. This is a failure to read the database, not damage to the rules; check the disk, then start Heron again"),
     }
 }
 
@@ -412,9 +424,11 @@ fn proactive_deny_rules(existing: &[String]) -> Vec<String> {
 /// config file lock. While `config.toml` cannot be parsed nothing is rebuilt, as a list rebuilt
 /// without it could miss a "never".
 ///
-/// The damaged value is kept in heron.db (`deny_rules_damaged`) before anything is written over it,
-/// and the result says which sources were used: a rebuild without one of them (no good copy, or no
+/// The result says which sources were used: a rebuild without one of them (no good copy, or no
 /// `config.toml`) may hold fewer rules than the damaged entry did (see [`NeversCheck::complete`]).
+/// Then the damaged value is kept in heron.db (`deny_rules_damaged`, after any value kept from an
+/// earlier damage, never over it) until the user clears it (see [`kept_damaged_nevers`]). A complete
+/// rebuild loses nothing, so it keeps nothing.
 pub fn repair_saved_nevers(cfg: &Config, store: &Store) -> Result<NeversCheck> {
     let _lock = cfg.lock_file()?;
     let saved = store.kv_read(DENY_KEY)?;
@@ -434,10 +448,34 @@ pub fn repair_saved_nevers(cfg: &Config, store: &Store) -> Result<NeversCheck> {
         (false, false) => "nothing (config.toml is missing and no good copy was kept)",
     };
     let rules = union(file.unwrap_or_default(), last_good.unwrap_or_default());
-    store.kv_set(DENY_DAMAGED_KEY, saved.as_deref().unwrap_or_default())?;
+    if from != FROM_EVERY_SOURCE {
+        // Kept even when it is empty text: what is kept, not what it says, marks the loss.
+        let damaged = saved.unwrap_or_default();
+        store.kv_update(DENY_DAMAGED_KEY, |kept| match kept {
+            Some(kept) => format!("{kept}\n{damaged}"),
+            None => damaged,
+        })?;
+    }
     store.kv_set(DENY_KEY, &rules_json(&rules))?;
     keep_last_good(store, &rules_json(&rules));
     Ok(NeversCheck::Repaired { rules, from })
+}
+
+/// The damaged "never" rules a rebuild that could not use every source kept in heron.db
+/// (`deny_rules_damaged`; one per line when it happened more than once), until the user clears
+/// them with [`clear_kept_damaged_nevers`]. While there are any, some "never" rules may have been
+/// lost, and `heron doctor` and `GET /api/nevers` say so.
+pub fn kept_damaged_nevers(store: &Store) -> Result<Option<String>> {
+    store.kv_read(DENY_DAMAGED_KEY)
+}
+
+/// `heron doctor --clear-damaged-nevers`: the user has checked the "never" rules after a rebuild
+/// that may have lost some, so the damaged value kept for it is let go. Returns what was kept.
+pub fn clear_kept_damaged_nevers(cfg: &Config, store: &Store) -> Result<Option<String>> {
+    let _lock = cfg.lock_file()?;
+    let kept = kept_damaged_nevers(store)?;
+    store.kv_delete(DENY_DAMAGED_KEY)?;
+    Ok(kept)
 }
 
 /// The standing rules saved in a database: every "never" and every "always" answer.
@@ -458,52 +496,185 @@ fn peek_permissions(path: &std::path::Path) -> Result<SavedPermissions> {
     Ok(SavedPermissions { nevers, allow })
 }
 
+/// The kv entries a restore takes from the current database whatever the copy holds, as an SQL
+/// condition on `k`: the folders each conversation was given (`grants:<session>`) and the MCP
+/// servers' accepted tool lists (`mcp_pin:<server>`). Like the "always" answers, these grant
+/// authority, so one taken back since the copy was made does not come back.
+const KEPT_KV: &str = "k GLOB 'grants:*' OR k GLOB 'mcp_pin:*'";
+
+/// What a schedule may do when it runs: its name, when, what it is asked, the tools it was given
+/// and its automation. A restored schedule runs on its own only when one just like it is enabled now.
+type JobKey = (String, String, String, String, String);
+
+/// The schedules in `conn`, with what gives each its authority (see [`JobKey`]); the enabled ones
+/// only, with `enabled_only`. Columns an older database lacks read as empty.
+fn job_keys(conn: &rusqlite::Connection, enabled_only: bool) -> rusqlite::Result<Vec<(i64, JobKey)>> {
+    let cols = conn.prepare("SELECT name FROM pragma_table_info('schedules')")?.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if cols.is_empty() {
+        return Ok(vec![]);
+    }
+    let col = |c: &str| if cols.iter().any(|x| x == c) { c.to_string() } else { "''".to_string() };
+    let sql = format!("SELECT id, name, cron, prompt, {}, {} FROM schedules{}", col("allow"), col("workflow"), if enabled_only { " WHERE enabled=1" } else { "" });
+    let mut st = conn.prepare(&sql)?;
+    let rows = st.query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))))?;
+    rows.collect()
+}
+
+/// What a restore keeps from the current database (see [`restore_keeping_nevers`]).
+struct CurrentState {
+    permissions: SavedPermissions,
+    /// The kv entries matching [`KEPT_KV`].
+    kept_kv: Vec<(String, String)>,
+    /// The schedules enabled now.
+    enabled_jobs: Vec<JobKey>,
+}
+
+/// [`CurrentState`] of the database at `path`, read as [`peek_permissions`] reads; empty when there
+/// is no database.
+fn peek_current(path: &std::path::Path) -> Result<CurrentState> {
+    let permissions = peek_permissions(path)?;
+    let kept_kv = Store::peek(path, |c| c.prepare(&format!("SELECT k, v FROM kv WHERE {KEPT_KV}"))?.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<(String, String)>>>())?.unwrap_or_default();
+    let enabled_jobs = Store::peek(path, |c| job_keys(c, true))?.unwrap_or_default().into_iter().map(|(_, key)| key).collect();
+    Ok(CurrentState { permissions, kept_kv, enabled_jobs })
+}
+
+/// What a test runs on a restore's working copy (see [`RestoreHooks::after_write`]).
+#[cfg(test)]
+pub(crate) type WorkCopyHook = Box<dyn FnOnce(&std::path::Path)>;
+
+/// Points where a test can step into a restore, on the thread that runs it.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct RestoreHooks {
+    /// Make the write of the current permissions into the working copy fail, as a full disk would.
+    pub(crate) fail_write: bool,
+    /// Run on the working copy after the current permissions are written into it, before they are
+    /// read back.
+    pub(crate) after_write: Option<WorkCopyHook>,
+    /// Fail once the working copy has been swapped in, before the restore returns.
+    pub(crate) fail_after_swap: bool,
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static RESTORE_HOOKS: std::cell::RefCell<RestoreHooks> = Default::default();
+}
+
+/// Name of the working folder a restore makes in Heron's home (see [`restore_keeping_nevers`]).
+const RESTORING_PREFIX: &str = ".restoring-";
+
+/// Remove the working folders of restores that did not finish (Heron was stopped in the middle of
+/// one). Only with the config file lock held, as a restore holds it while its folder is in use.
+fn clear_stale_restores(home: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(home) else { return };
+    for entry in entries.flatten() {
+        if entry.file_name().to_string_lossy().starts_with(RESTORING_PREFIX) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// [`clear_stale_restores`] at startup, when no restore is running (the config file lock is free
+/// right now); otherwise the next start or restore does it.
+fn clear_stale_restores_if_idle(cfg: &Config) {
+    if let Ok(file) = cfg.open_lock_file() {
+        if file.try_lock().is_ok() {
+            let _lock = crate::config::ConfigLock::held(file);
+            clear_stale_restores(&cfg.home);
+        }
+    }
+}
+
 /// `heron restore`: replace heron.db with the copy in `from` (see [`Store::restore`]), leaving the
 /// permissions as they are. The "never" rules are the current database's plus the copy's: a restore
 /// can add one but never lift one, even from a copy made before they were kept in heron.db. The
-/// "always" answers are the current database's only, so one revoked since the copy was made does not
-/// come back.
+/// "always" answers, the folders given to each conversation and the MCP servers' accepted tool lists
+/// are the current database's only, so one taken back since the copy was made does not come back. A
+/// schedule runs on its own after the restore only when one just like it is enabled in the current
+/// database; every other one comes back paused, to run once the user resumes it.
 ///
-/// The current rules are read first; when they cannot be (the database is busy or damaged) nothing
-/// is restored and the error says what to do. They are written into a private working copy of
-/// `from` (never into `from` itself), which is then swapped in, so the restored database holds them
-/// whatever happens after. Done under the config file lock, so no Heron changes them meanwhile.
-/// Returns where the previous database was saved.
+/// The current state is read first; when it cannot be (the database is busy or damaged) nothing is
+/// restored and the error says what to do. It is written into a private working copy of `from`
+/// (never into `from` itself), read back from it, and only then is the copy swapped in, so the
+/// restored database holds it whatever happens after. A copy holding SQL of its own (a trigger or a
+/// view Heron's schema does not have) is refused. Done under the config file lock, so no Heron
+/// changes the rules meanwhile. Returns where the previous database was saved.
 pub fn restore_keeping_nevers(cfg: &Config, from: &std::path::Path) -> Result<Option<PathBuf>> {
     let _lock = cfg.lock_file()?;
+    clear_stale_restores(&cfg.home);
     let path = cfg.db_path();
-    let current = peek_permissions(&path).map_err(|e| {
+    let current = peek_current(&path).map_err(|e| {
         anyhow::anyhow!(
-            "nothing was restored: the permission rules in {} could not be read ({e:#}), and restoring without them could lift a \"never\" rule or bring back a revoked \"always\". If Heron is running, close it and try again. If the database is damaged, run `heron doctor`; or move {} aside yourself and restore again, which does not keep its rules",
+            "nothing was restored: the permission rules in {} could not be read ({e:#}), and restoring without them could lift a \"never\" rule or bring back a revoked \"always\". If Heron is running, close it and try again. If only the \"never\" rules saved in it are damaged, run `heron doctor`, which rebuilds them. If the database itself is damaged: {}",
             path.display(),
-            path.display()
+            crate::store::damaged_database_guidance(&path)
         )
     })?;
     // In a folder of its own, so the upgrade of an older copy keeps its own snapshots there and
     // leaves the copies beside heron.db alone.
-    let work_dir = cfg.home.join(format!(".restoring-{}", uuid::Uuid::new_v4().simple()));
+    let work_dir = cfg.home.join(format!("{RESTORING_PREFIX}{}", uuid::Uuid::new_v4().simple()));
     let restored = (|| -> Result<Option<PathBuf>> {
         let work = work_dir.join("heron.db");
         Store::restore(&work, from)?;
-        {
-            let copy = Store::open(&work)?;
-            let theirs_last_good = parse_last_good(copy.kv_read(DENY_LAST_GOOD_KEY)?);
-            let written = copy.kv_update(DENY_KEY, |theirs| {
-                let theirs = parse_nevers(theirs.as_deref()).or(theirs_last_good).unwrap_or_default();
-                rules_json(&union(current.nevers, theirs))
-            })?;
-            copy.kv_set(DENY_LAST_GOOD_KEY, &written)?;
-            copy.kv_set(RULES_KEY, &rules_json(&current.allow))?;
+        let allow = rules_json(&current.permissions.allow);
+        let written = write_current_into(&work, &current, &allow)?;
+        #[cfg(test)]
+        if let Some(hook) = RESTORE_HOOKS.with(|h| h.borrow_mut().after_write.take()) {
+            hook(&work);
         }
-        Store::restore(&path, &work)
+        // Read back before the swap: what the copy does on a write must not change them.
+        let deny_back = Store::peek_kv(&work, DENY_KEY)?;
+        let allow_back = Store::peek_kv(&work, RULES_KEY)?;
+        if deny_back.as_deref() != Some(written.as_str()) || allow_back.as_deref() != Some(allow.as_str()) {
+            anyhow::bail!("{} was not restored: the permission rules written into it did not read back as written (\"never\" {}, \"always\" {}), so something in the copy changes them", from.display(), deny_back.unwrap_or_default(), allow_back.unwrap_or_default());
+        }
+        let previous = Store::restore(&path, &work)?;
+        #[cfg(test)]
+        if RESTORE_HOOKS.with(|h| std::mem::take(&mut h.borrow_mut().fail_after_swap)) {
+            anyhow::bail!("the restore failed after the swap (a test)");
+        }
+        Ok(previous)
     })();
     let _ = std::fs::remove_dir_all(&work_dir);
     restored
 }
 
+/// Write `current` into the working copy at `work` in one transaction (see
+/// [`restore_keeping_nevers`]), returning the "never" rules as written.
+fn write_current_into(work: &std::path::Path, current: &CurrentState, allow: &str) -> Result<String> {
+    use rusqlite::OptionalExtension;
+    let mut conn = rusqlite::Connection::open(work)?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    let tx = conn.transaction()?;
+    let read = |k: &str| -> Result<Option<String>> { Ok(tx.query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional()?) };
+    let theirs_last_good = parse_last_good(read(DENY_LAST_GOOD_KEY)?);
+    let theirs = parse_nevers(read(DENY_KEY)?.as_deref()).or(theirs_last_good).unwrap_or_default();
+    let written = rules_json(&union(current.permissions.nevers.clone(), theirs));
+    let set = |k: &str, v: &str| tx.execute("INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [k, v]);
+    #[cfg(test)]
+    if RESTORE_HOOKS.with(|h| std::mem::take(&mut h.borrow_mut().fail_write)) {
+        anyhow::bail!("could not write the \"never\" rules into the copy: the disk is full (a test)");
+    }
+    set(DENY_KEY, &written)?;
+    set(DENY_LAST_GOOD_KEY, &written)?;
+    set(RULES_KEY, allow)?;
+    tx.execute(&format!("DELETE FROM kv WHERE {KEPT_KV}"), [])?;
+    for (k, v) in &current.kept_kv {
+        set(k, v)?;
+    }
+    for (id, key) in job_keys(&tx, true)? {
+        if !current.enabled_jobs.contains(&key) {
+            tx.execute("UPDATE schedules SET enabled=0 WHERE id=?", [id])?;
+        }
+    }
+    tx.commit()?;
+    Ok(written)
+}
+
 impl App {
     pub async fn build(cfg: Config, workspace: PathBuf) -> Result<App> {
         cfg.ensure_home()?;
+        clear_stale_restores_if_idle(&cfg);
         let store = Store::open(&cfg.db_path()).with_context(|| format!("opening {}", cfg.db_path().display()))?;
         let llm = crate::llm::build_with_store(&cfg, Some(&store))?;
         Self::assemble(cfg, workspace, store, llm).await
@@ -521,7 +692,7 @@ impl App {
         // the file's. Only when the key is missing: a rule lifted while this one started is not put
         // back from its earlier read of the file. When they cannot be read, this one does not start:
         // reading them as "none" would run every tool the user said never to.
-        let saved_text = store.kv_update(DENY_KEY, |saved| saved.unwrap_or_else(|| rules_json(&config_rules.deny))).map_err(unreadable_nevers_error)?;
+        let saved_text = store.kv_update(DENY_KEY, |saved| saved.unwrap_or_else(|| rules_json(&config_rules.deny))).map_err(|e| unreadable_nevers_error(e, &cfg.db_path()))?;
         let saved_nevers = parse_nevers(Some(&saved_text)).ok_or_else(|| damaged_nevers_error("it is not a list of rules"))?;
         if store.kv_get(DENY_LAST_GOOD_KEY).as_deref() != Some(saved_text.as_str()) {
             keep_last_good(&store, &saved_text);
@@ -609,7 +780,14 @@ impl App {
     /// Apply `change` to this one's settings, save what it changed (see [`Config::save_changes`]),
     /// make the result this one's settings, and take in what other Heron programs changed in the file
     /// meanwhile. With `rebuild_llm`, the model client is rebuilt from the new settings and swapped.
+    ///
+    /// It waits for the config lock and `config.lock`, so it runs off the async threads, as every
+    /// change of the standing rules does: one waiting does not hold up the server's other work.
     fn save_config(&self, change: ConfigChange<'_>, chosen: &[&str], rebuild_llm: bool) -> Result<()> {
+        off_async(|| self.save_config_now(change, chosen, rebuild_llm))
+    }
+
+    fn save_config_now(&self, change: ConfigChange<'_>, chosen: &[&str], rebuild_llm: bool) -> Result<()> {
         {
             let mut seen = self.lock_config_seen();
             let before = self.cfg();
@@ -670,7 +848,9 @@ impl App {
     /// that `config.toml` cannot be read, or that it does not list a "never" rule still in force.
     pub fn config_notice(&self) -> Option<&'static str> {
         let seen = off_async(|| self.lock_config_seen());
-        if seen.unreadable.is_some() {
+        if seen.unreadable.is_some() && seen.lock_held {
+            Some(CONFIG_LOCK_HELD_NOTICE)
+        } else if seen.unreadable.is_some() {
             Some(CONFIG_UNREADABLE_NOTICE)
         } else if !seen.not_in_file.is_empty() {
             Some(NEVER_NOT_IN_CONFIG_NOTICE)
@@ -715,10 +895,10 @@ impl App {
     /// that asked for it is not made: a Heron stopped in the middle of a save must not stall this
     /// one, which holds the saved-rules and config locks meanwhile, and every reload behind them. A
     /// test learns when it is held elsewhere and this one is about to wait.
-    fn lock_config_file(&self, cfg: &Config) -> Result<std::fs::File> {
+    fn lock_config_file(&self, cfg: &Config) -> Result<crate::config::ConfigLock> {
         let file = cfg.open_lock_file()?;
         match file.try_lock() {
-            Ok(()) => return Ok(file),
+            Ok(()) => return Ok(crate::config::ConfigLock::held(file)),
             Err(std::fs::TryLockError::WouldBlock) => {}
             Err(std::fs::TryLockError::Error(e)) => return Err(e).context("locking config.lock"),
         }
@@ -728,14 +908,14 @@ impl App {
         if !off_async(|| crate::config::lock_within(&file, wait)).context("locking config.lock")? {
             return Err(crate::config::lock_timed_out(wait));
         }
-        Ok(file)
+        Ok(crate::config::ConfigLock::held(file))
     }
 
     /// `config.lock` for a reload: `Ok(None)` when there is no home folder yet or the lock cannot be
     /// taken at all (then the file's "never" rules apply but are not saved in heron.db), and an
     /// error when it is still held by someone else after [`RELOAD_LOCK_WAIT`] (a Heron stopped in
     /// the middle of a save must not stall every other one; see [`FileLock::TimedOut`]).
-    fn lock_config_file_for_reload(&self, cfg: &Config) -> Result<Option<std::fs::File>> {
+    fn lock_config_file_for_reload(&self, cfg: &Config) -> Result<Option<crate::config::ConfigLock>> {
         if !cfg.home.is_dir() {
             return Ok(None);
         }
@@ -748,7 +928,7 @@ impl App {
             Err(e) => return cannot_lock(e),
         };
         match file.try_lock() {
-            Ok(()) => return Ok(Some(file)),
+            Ok(()) => return Ok(Some(crate::config::ConfigLock::held(file))),
             Err(std::fs::TryLockError::WouldBlock) => {}
             Err(std::fs::TryLockError::Error(e)) => return cannot_lock(anyhow::Error::from(e).context("locking config.lock")),
         }
@@ -756,7 +936,7 @@ impl App {
         self.test_hooks.waiting();
         let wait = self.lock_wait();
         match off_async(|| crate::config::lock_within(&file, wait)) {
-            Ok(true) => Ok(Some(file)),
+            Ok(true) => Ok(Some(crate::config::ConfigLock::held(file))),
             Ok(false) => anyhow::bail!("config.toml was not read, as config.lock is still held by another program after {} s", wait.as_secs()),
             Err(e) => cannot_lock(anyhow::Error::from(e).context("locking config.lock")),
         }
@@ -770,6 +950,10 @@ impl App {
     /// request on this one (a tool set to "allow") cannot land between them and leave the policy
     /// saying something the file does not.
     pub fn revoke_grant(&self, rule: &str) -> Result<bool> {
+        off_async(|| self.revoke_grant_now(rule))
+    }
+
+    fn revoke_grant_now(&self, rule: &str) -> Result<bool> {
         // Lock order: `rules_seen`, `config_seen`, the file lock, then `cfg`.
         let mut saved_rules = self.lock_rules_seen();
         let mut seen = self.lock_config_seen();
@@ -828,6 +1012,10 @@ impl App {
     /// a lifted "never" is still in the file, and the next reload takes it back into heron.db; a new
     /// "never" is in heron.db, and enforced from there. Either way a failed change never loosens.
     pub fn set_tool_setting(&self, tool: &str, setting: &str) -> Result<()> {
+        off_async(|| self.set_tool_setting_now(tool, setting))
+    }
+
+    fn set_tool_setting_now(&self, tool: &str, setting: &str) -> Result<()> {
         Policy::check_tool_setting(tool, setting)?;
         let rule = format!("{tool}:*");
         let never = setting == "never";
@@ -873,6 +1061,16 @@ impl App {
         off_async(|| self.nevers_now())
     }
 
+    /// What `GET /api/nevers` says in its `x-heron-notice` header: that some "never" rules may have
+    /// been lost, while heron.db keeps the damaged value of a rebuild that could not use every source
+    /// (see [`kept_damaged_nevers`]). A heron.db that cannot be read fails the list itself.
+    pub fn nevers_notice(&self) -> Option<&'static str> {
+        match off_async(|| kept_damaged_nevers(&self.store)) {
+            Ok(Some(_)) => Some(NEVERS_MAY_BE_LOST_NOTICE),
+            Ok(None) | Err(_) => None,
+        }
+    }
+
     fn nevers_now(&self) -> Result<Vec<Never>> {
         let file_deny = match read_config_rules(&self.cfg().home) {
             ConfigFile::Rules(rules) => rules.deny,
@@ -904,6 +1102,10 @@ impl App {
     /// With the file there, it is, as the file still lists the rule and the next reload would take
     /// it back into heron.db.
     pub fn lift_never(&self, rule: &str) -> Result<Lift> {
+        off_async(|| self.lift_never_now(rule))
+    }
+
+    fn lift_never_now(&self, rule: &str) -> Result<Lift> {
         // Lock order: `rules_seen`, `config_seen`, the file lock, then `cfg`.
         let saved_rules = self.lock_rules_seen();
         let mut seen = self.lock_config_seen();
@@ -1005,9 +1207,15 @@ impl App {
     /// so the saved list is read and written again under the database's write lock, and only the
     /// rules this one added or removed since then are applied to it. What the others changed is then
     /// taken into this one's policy.
+    ///
+    /// It waits for the saved-rules lock, which a change holds while it waits up to
+    /// [`RELOAD_LOCK_WAIT`] for `config.lock`, so it runs off the async threads: the end of a turn
+    /// never parks one of the server's workers.
     pub fn persist_rules(&self) {
-        let mut seen = self.lock_rules_seen();
-        self.persist_rules_held(&mut seen);
+        off_async(|| {
+            let mut seen = self.lock_rules_seen();
+            self.persist_rules_held(&mut seen);
+        })
     }
 
     /// [`App::persist_rules`], with `rules_seen` already locked.
@@ -1113,6 +1321,7 @@ impl App {
             FileLock::TimedOut(why) => ConfigFile::Unreadable(why.clone()),
             FileLock::Held | FileLock::NotHeld => read_config_rules(&self.cfg().home),
         };
+        seen.lock_held = matches!(lock, FileLock::TimedOut(_));
         let (disk_allow, file_deny) = match file {
             ConfigFile::Rules(rules) => {
                 if seen.unreadable.take().is_some() {
@@ -2401,7 +2610,8 @@ mod tests {
         let current = json!(["web_fetch:*", "shell:*sudo*"]).to_string();
         current_with(&cfg, &[(DENY_KEY, &current), (RULES_KEY, &json!(["shell:make *"]).to_string())]);
         // A copy whose "never" rules cannot be written, as the review made it: the write that
-        // brings the current ones into the restored database fails.
+        // brings the current ones into the restored database fails. Since 35m a copy with triggers
+        // of its own is refused before that write; the cases below inject the failures instead.
         let blocked = copy_with(dir.path(), "blocked", &[]);
         let db = rusqlite::Connection::open(&blocked).unwrap();
         db.execute_batch(
@@ -2415,6 +2625,27 @@ mod tests {
         // Whatever is at heron.db now holds the current permissions.
         let store = Store::open(&cfg.db_path()).unwrap();
         assert_eq!(store.kv_get(DENY_KEY), Some(current.clone()));
+        assert_eq!(parse_rules(store.kv_get(RULES_KEY).as_deref()), vec!["shell:make *"]);
+        drop(store);
+
+        // The write into the working copy fails, before the swap: heron.db is as it was.
+        RESTORE_HOOKS.with(|h| h.borrow_mut().fail_write = true);
+        assert!(restore_keeping_nevers(&cfg, &copy_with(dir.path(), "full", &[])).is_err());
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert!(store.list_sessions(10).unwrap().iter().any(|s| s.title == "now"));
+        assert_eq!(store.kv_get(DENY_KEY), Some(current.clone()));
+        drop(store);
+
+        // A failure after the swap: the restored database already holds the current permissions,
+        // and its spare copy of the "never" rules is them too, for `heron doctor`.
+        let after = copy_with(dir.path(), "after", &[(DENY_KEY, &json!(["write_file:*"]).to_string()), (RULES_KEY, &json!(["shell:git *"]).to_string())]);
+        RESTORE_HOOKS.with(|h| h.borrow_mut().fail_after_swap = true);
+        assert!(restore_keeping_nevers(&cfg, &after).is_err());
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert!(store.list_sessions(10).unwrap().iter().any(|s| s.title == "after"), "the failure came after the swap");
+        let restored = vec!["web_fetch:*".to_string(), "shell:*sudo*".into(), "write_file:*".into()];
+        assert_eq!(parse_nevers(store.kv_get(DENY_KEY).as_deref()), Some(restored.clone()));
+        assert_eq!(parse_last_good(store.kv_get(DENY_LAST_GOOD_KEY)), Some(restored));
         assert_eq!(parse_rules(store.kv_get(RULES_KEY).as_deref()), vec!["shell:make *"]);
         drop(store);
         // And a retry with a good copy keeps them too.
@@ -2445,6 +2676,196 @@ mod tests {
         assert!(!allowed.iter().any(|r| r == "shell:git *") && allowed.iter().any(|r| r == "shell:make *"), "{allowed:?}");
     }
 
+    /// The review's probe: a copy whose trigger resets the permission rules whenever `allow_rules`
+    /// is written.
+    #[test]
+    fn restore_refuses_a_copy_with_foreign_triggers() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let current = json!(["web_fetch:*"]).to_string();
+        current_with(&cfg, &[(DENY_KEY, &current)]);
+        let crafted = copy_with(dir.path(), "crafted", &[]);
+        let db = rusqlite::Connection::open(&crafted).unwrap();
+        db.execute_batch(
+            r#"CREATE TRIGGER reset AFTER UPDATE ON kv WHEN NEW.k = 'allow_rules' BEGIN
+                 UPDATE kv SET v = '[]' WHERE k IN ('deny_rules', 'deny_rules_last_good');
+                 INSERT INTO kv(k, v) VALUES ('allow_rules', '["shell:*"]') ON CONFLICT(k) DO UPDATE SET v = excluded.v;
+               END;"#,
+        )
+        .unwrap();
+        drop(db);
+        let said = format!("{:#}", restore_keeping_nevers(&cfg, &crafted).expect_err("refused"));
+        assert!(said.contains("trigger reset"), "{said}");
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert!(store.list_sessions(10).unwrap().iter().any(|s| s.title == "now"), "nothing was restored");
+        assert_eq!(store.kv_get(DENY_KEY), Some(current.clone()));
+        drop(store);
+
+        // A view of its own is refused too, and so is Heron's own trigger with other SQL in it.
+        let viewed = copy_with(dir.path(), "viewed", &[]);
+        rusqlite::Connection::open(&viewed).unwrap().execute_batch("CREATE VIEW grants_view AS SELECT * FROM kv;").unwrap();
+        assert!(format!("{:#}", restore_keeping_nevers(&cfg, &viewed).unwrap_err()).contains("view grants_view"));
+        let swapped = copy_with(dir.path(), "swapped", &[]);
+        rusqlite::Connection::open(&swapped)
+            .unwrap()
+            .execute_batch("DROP TRIGGER memories_ai; CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN UPDATE kv SET v = '[]' WHERE k = 'deny_rules'; END;")
+            .unwrap();
+        assert!(format!("{:#}", restore_keeping_nevers(&cfg, &swapped).unwrap_err()).contains("trigger memories_ai"));
+
+        // Whatever changes the rules in the working copy after they are written is caught by
+        // reading them back, before the swap.
+        let plain = copy_with(dir.path(), "plain", &[]);
+        RESTORE_HOOKS.with(|h| {
+            h.borrow_mut().after_write = Some(Box::new(|work: &std::path::Path| {
+                rusqlite::Connection::open(work).unwrap().execute("UPDATE kv SET v = '[\"shell:*\"]' WHERE k = 'allow_rules'", []).unwrap();
+            }))
+        });
+        let said = format!("{:#}", restore_keeping_nevers(&cfg, &plain).expect_err("refused"));
+        assert!(said.contains("did not read back"), "{said}");
+        RESTORE_HOOKS.with(|h| {
+            h.borrow_mut().after_write = Some(Box::new(|work: &std::path::Path| {
+                rusqlite::Connection::open(work).unwrap().execute("UPDATE kv SET v = '[]' WHERE k = 'deny_rules'", []).unwrap();
+            }))
+        });
+        assert!(format!("{:#}", restore_keeping_nevers(&cfg, &plain).unwrap_err()).contains("did not read back"));
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert!(store.list_sessions(10).unwrap().iter().any(|s| s.title == "now"), "nothing was restored");
+        assert_eq!(store.kv_get(DENY_KEY), Some(current));
+        assert_eq!(store.kv_get(RULES_KEY), None);
+        drop(store);
+
+        // A copy Heron made is restored.
+        restore_keeping_nevers(&cfg, &plain).unwrap();
+        assert!(Store::open(&cfg.db_path()).unwrap().list_sessions(10).unwrap().iter().any(|s| s.title == "plain"));
+    }
+
+    #[test]
+    fn restored_schedules_come_back_paused_and_grants_stay_current() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        // The copy: a job still there now, one deleted since (with the tools it was given), one
+        // paused since, and one changed since; the folders each conversation was given; and the MCP
+        // servers' accepted tool lists.
+        let copy = {
+            let old = Store::open(&dir.path().join("old.db")).unwrap();
+            old.create_session("old", "user").unwrap();
+            old.add_schedule("kept", "@daily", "Summarise my notes", 0, "").unwrap();
+            old.add_schedule("deleted", "@hourly", "Send the report", 0, "shell:*\nweb_fetch:*").unwrap();
+            old.add_schedule("paused since", "@daily", "Tidy the downloads", 0, "").unwrap();
+            old.add_schedule("changed", "@daily", "Read my mail", 0, "web_fetch:*").unwrap();
+            old.kv_set("grants:s1", &json!(["read:/Users/me/Documents/**"]).to_string()).unwrap();
+            old.kv_set("grants:gone", &json!(["read:/Users/me/**"]).to_string()).unwrap();
+            old.kv_set("mcp_pin:files", "old-fingerprint").unwrap();
+            old.kv_set("mcp_pin:gone", "gone-fingerprint").unwrap();
+            old.kv_set("mcpXpin:files", "not a pin").unwrap();
+            old.backup(Some(&dir.path().join("old-copy.db"))).unwrap()
+        };
+        {
+            let live = Store::open(&cfg.db_path()).unwrap();
+            live.create_session("now", "user").unwrap();
+            live.add_schedule("kept", "@daily", "Summarise my notes", 0, "").unwrap();
+            let paused = live.add_schedule("paused since", "@daily", "Tidy the downloads", 0, "").unwrap();
+            live.execute_batch_for_test(&format!("UPDATE schedules SET enabled=0 WHERE id={paused}"));
+            live.add_schedule("changed", "@daily", "Read my mail", 0, "").unwrap();
+            live.kv_set("grants:s1", &json!(["read:/Users/me/Documents/notes/**"]).to_string()).unwrap();
+            live.kv_set("grants:new", &json!(["read:/Users/me/Music/**"]).to_string()).unwrap();
+            live.kv_set("mcp_pin:files", "new-fingerprint").unwrap();
+        }
+
+        restore_keeping_nevers(&cfg, &copy).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert!(store.list_sessions(10).unwrap().iter().any(|s| s.title == "old"), "the copy's data came back");
+        let enabled = |name: &str| store.list_schedules().unwrap().into_iter().find(|s| s.name == name).unwrap_or_else(|| panic!("{name} came back")).enabled;
+        assert!(enabled("kept"), "a job just like one enabled now runs as before");
+        assert!(!enabled("deleted"), "a job deleted since comes back paused");
+        assert!(!enabled("paused since"), "a job paused since stays paused");
+        assert!(!enabled("changed"), "a job whose tools changed since comes back paused");
+        // Per-conversation grants and MCP pins are the current database's only.
+        assert_eq!(store.kv_get("grants:s1"), Some(json!(["read:/Users/me/Documents/notes/**"]).to_string()));
+        assert_eq!(store.kv_get("grants:new"), Some(json!(["read:/Users/me/Music/**"]).to_string()));
+        assert_eq!(store.kv_get("grants:gone"), None);
+        assert_eq!(store.kv_get("mcp_pin:files").as_deref(), Some("new-fingerprint"));
+        assert_eq!(store.kv_get("mcp_pin:gone"), None);
+        assert_eq!(store.kv_get("mcpXpin:files").as_deref(), Some("not a pin"), "only the pins are taken from the current database");
+        drop(store);
+
+        // Into a home with no database: every job comes back paused, with no grants.
+        std::fs::remove_file(cfg.db_path()).unwrap();
+        restore_keeping_nevers(&cfg, &copy).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert!(store.list_schedules().unwrap().iter().all(|s| !s.enabled));
+        assert_eq!((store.kv_get("grants:s1"), store.kv_get("mcp_pin:files")), (None, None));
+    }
+
+    #[tokio::test]
+    async fn a_crashed_restore_leaves_no_working_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.llm.base_url = "demo".into();
+        cfg.agent.browser = "off".into();
+        cfg.ensure_home().unwrap();
+        let stale = |n: &str| {
+            let folder = cfg.home.join(format!(".restoring-{n}"));
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join("heron.db"), "a copy half made").unwrap();
+            folder
+        };
+        let left = |cfg: &Config| std::fs::read_dir(&cfg.home).unwrap().filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().starts_with(".restoring")).count();
+
+        // At the next restore.
+        stale("crashed");
+        restore_keeping_nevers(&cfg, &copy_with(dir.path(), "old", &[])).unwrap();
+        assert_eq!(left(&cfg), 0);
+
+        // At the next start, unless a restore holds the lock.
+        stale("again");
+        let held = cfg.lock_file().unwrap();
+        drop(App::build(cfg.clone(), dir.path().join("ws")).await.unwrap());
+        assert_eq!(left(&cfg), 1, "a restore that is running keeps its folder");
+        drop(held);
+        drop(App::build(cfg.clone(), dir.path().join("ws")).await.unwrap());
+        assert_eq!(left(&cfg), 0);
+    }
+
+    /// Every message about a damaged heron.db says to move it aside first, then restore; and doing
+    /// what it says works.
+    #[tokio::test]
+    async fn damaged_database_guidance_says_to_move_it_aside() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let copy = copy_with(dir.path(), "old", &[]);
+        let says_move_aside = |said: &str| said.contains("move") && said.contains("aside") && said.contains("heron restore") && said.contains("heron.db-wal");
+
+        // Opening it (startup, `heron backup`, `heron doctor`).
+        std::fs::write(cfg.db_path(), "this is not a database").unwrap();
+        let said = format!("{:#}", Store::open(&cfg.db_path()).err().expect("damaged"));
+        assert!(said.contains("damaged and cannot be read") && says_move_aside(&said), "{said}");
+        // `heron restore` over it refuses, and says the same rather than only `heron doctor`.
+        let said = format!("{:#}", restore_keeping_nevers(&cfg, &copy).expect_err("refused"));
+        assert!(said.contains("nothing was restored") && says_move_aside(&said), "{said}");
+        // Damaged under a core reading its "never" rules: a damaged database, not "check the disk".
+        let corrupt = |code| anyhow::Error::from(rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(code), None));
+        for code in [rusqlite::ffi::SQLITE_CORRUPT, rusqlite::ffi::SQLITE_NOTADB] {
+            let said = format!("{:#}", unreadable_nevers_error(corrupt(code), &cfg.db_path()));
+            assert!(said.contains("damaged") && says_move_aside(&said) && !said.contains("check the disk"), "{said}");
+        }
+        // Busy or locked by another program: busy, not damaged.
+        for code in [rusqlite::ffi::SQLITE_BUSY, rusqlite::ffi::SQLITE_LOCKED] {
+            let said = format!("{:#}", unreadable_nevers_error(corrupt(code), &cfg.db_path()));
+            assert!(said.contains("busy") && !said.contains("damaged ("), "{said}");
+        }
+
+        // Done as it says: moved aside, then restored.
+        std::fs::rename(cfg.db_path(), cfg.home.join("heron.db.damaged")).unwrap();
+        restore_keeping_nevers(&cfg, &copy).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert!(store.list_sessions(10).unwrap().iter().any(|s| s.title == "old"));
+        assert!(store.integrity().unwrap().is_empty());
+    }
+
     #[test]
     fn doctor_reports_an_incomplete_rebuild() {
         let dir = tempfile::tempdir().unwrap();
@@ -2469,7 +2890,8 @@ mod tests {
         let check = repair_saved_nevers(&cfg, &store).unwrap();
         assert_eq!(check, NeversCheck::Repaired { rules: vec![], from: "nothing (config.toml is missing and no good copy was kept)" });
         assert!(!check.complete());
-        assert_eq!(store.kv_get(DENY_DAMAGED_KEY).as_deref(), Some("{damaged again"));
+        // Kept after the earlier damaged value, not over it (35m).
+        assert_eq!(store.kv_get(DENY_DAMAGED_KEY).as_deref(), Some("{damaged: shell:*sudo*\n{damaged again"));
 
         // config.toml without a good copy: incomplete too.
         let mut saved = Config { home: cfg.home.clone(), ..Default::default() };

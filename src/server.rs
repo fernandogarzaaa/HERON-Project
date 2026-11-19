@@ -795,12 +795,17 @@ async fn revoke_grant(State(st): S, Json(b): Json<GrantBody>) -> ApiResult {
 }
 
 /// Every "never" rule in force, `[{"rule", "tool", "in_file"}]`, from the ones saved in heron.db;
-/// `in_file` says whether `config.toml` lists it. An error when they cannot be read.
-async fn list_nevers(State(st): S) -> ApiResult {
+/// `in_file` says whether `config.toml` lists it. An error when they cannot be read. While heron.db
+/// keeps the damaged value of a rebuild that may have lost some, `x-heron-notice` says so.
+async fn list_nevers(State(st): S) -> std::result::Result<Response, ApiError> {
     // Including what another Heron on this home added or lifted since this one last looked.
     st.app.reload_rules();
     let nevers = st.app.nevers().map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
-    Ok(Json(json!(nevers)))
+    let mut response = Json(json!(nevers)).into_response();
+    if let Some(notice) = st.app.nevers_notice() {
+        response.headers_mut().insert("x-heron-notice", header::HeaderValue::from_static(notice));
+    }
+    Ok(response)
 }
 
 /// Lift one "never" rule, exactly as written, in heron.db and in `config.toml` in one step. 404 when
@@ -3404,10 +3409,11 @@ mod tests {
         assert!(refuses(&a, "write_file", "notes.md", WorkspaceWrite), "{:?}", a.policy.deny_rules());
         assert_eq!(a.policy.tool_setting("write_file"), "never");
         assert!(refuses_fetch(&a));
-        // No allow rule from the file applies, the revoked one included, and the notice says why.
+        // No allow rule from the file applies, the revoked one included, and the notice says why
+        // (the held lock, since 35m).
         assert!(!allows(&a, "shell:git *") && !allows(&a, "shell:make *"), "{:?}", a.policy.allow_rules());
         assert!(a.cfg().permissions.allow.is_empty(), "{:?}", a.cfg().permissions.allow);
-        assert_eq!(a.config_notice(), Some(crate::app::CONFIG_UNREADABLE_NOTICE));
+        assert_eq!(a.config_notice(), Some(crate::app::CONFIG_LOCK_HELD_NOTICE));
         // Read only: heron.db is as B left it.
         assert_eq!(saved_nevers(&a), vec!["web_fetch:*", "write_file:*"]);
         // The holder is half-way through a lift: heron.db no longer has `web_fetch:*`, the file still
@@ -3495,6 +3501,140 @@ mod tests {
         drop(held);
         a.set_tool_setting("write_file", "never").unwrap();
         assert_eq!(a.policy.tool_setting("write_file"), "never");
+    }
+
+    /// The review's probe, for each change of the standing rules a handler makes: one change holds
+    /// the locks while it waits for `config.lock` (the wait injected through the test hook), and a
+    /// second one, started from the server's only worker, waits behind it. An unrelated task on the
+    /// server still runs at once.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn turn_end_and_setting_changes_do_not_park_async_workers() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = tempfile::tempdir().unwrap();
+        let home = home_with_a_never(dir.path(), &["shell:git *"]);
+        let a = yolo_core(&home, &dir.path().join("ws")).await;
+        // Every wait for `config.lock` itself is set to none at all; the waits that matter here are
+        // the hook's.
+        *a.test_hooks.lock_wait.lock().unwrap() = Some(Duration::ZERO);
+        let held = Config { home: home.clone(), ..Default::default() }.lock_file().unwrap();
+        type Change = fn(&App);
+        let changes: [(&str, Change); 5] = [
+            ("the end of a turn", |app| app.persist_rules()),
+            ("a tool setting", |app| drop(app.set_tool_setting("write_file", "never"))),
+            ("a revoke", |app| drop(app.revoke_grant("shell:git *"))),
+            ("a lifted never", |app| drop(app.lift_never("web_fetch:*"))),
+            ("a settings save", |app| drop(app.update_config(ConfigChange::edit(|c| c.agent.name = "Wren".into())))),
+        ];
+        for (what, change) in changes {
+            let (said, heard) = std::sync::mpsc::channel::<&str>();
+            let (go, gone) = std::sync::mpsc::channel::<()>();
+            let gone = std::sync::Mutex::new(gone);
+            let calls = AtomicUsize::new(0);
+            *a.test_hooks.waiting.lock().unwrap() = Some(Arc::new(move || match calls.fetch_add(1, Ordering::SeqCst) {
+                0 => {
+                    let _ = said.send("the first change waits for config.lock");
+                    let _ = gone.lock().unwrap().recv();
+                }
+                1 => {
+                    let _ = said.send("the second waits behind it");
+                }
+                _ => {}
+            }));
+            let first = a.clone();
+            let holder = std::thread::spawn(move || first.set_tool_setting("shell", "never"));
+            assert_eq!(heard.recv().unwrap(), "the first change waits for config.lock");
+            let second = a.clone();
+            let waiting = tokio::spawn(async move { change(&second) });
+            assert_eq!(heard.recv().unwrap(), "the second waits behind it", "{what}");
+            let asked = std::time::Instant::now();
+            let (pong, ponged) = std::sync::mpsc::channel::<()>();
+            drop(tokio::spawn(async move {
+                let _ = pong.send(());
+            }));
+            // Bounded, so a parked worker fails the test instead of hanging it; the first change is
+            // let go right after either way.
+            let ran = ponged.recv_timeout(Duration::from_secs(2)).is_ok();
+            let delay = asked.elapsed();
+            go.send(()).unwrap();
+            assert!(holder.join().unwrap().is_err(), "the first change gave up on the held lock");
+            waiting.await.unwrap();
+            assert!(ran && delay < Duration::from_millis(100), "{what} parked the server's only worker: an unrelated task waited {delay:?}");
+        }
+        *a.test_hooks.waiting.lock().unwrap() = None;
+        drop(held);
+    }
+
+    /// A reload that gives up on a held `config.lock` says so, not that `config.toml` cannot be read.
+    #[tokio::test]
+    async fn timed_out_reload_notice_names_the_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = home_with_a_never(dir.path(), &["shell:git *"]);
+        let a = yolo_core(&home, &dir.path().join("ws")).await;
+        *a.test_hooks.lock_wait.lock().unwrap() = Some(Duration::ZERO);
+        let h = serve_app(tempfile::tempdir().unwrap(), a.clone());
+        let notice = || async {
+            let reply = h.send("GET", "/grants", Value::Null).await;
+            assert_eq!(reply.status, 200);
+            reply.headers.iter().find(|(n, _)| n == "x-heron-notice").map(|(_, v)| v.clone())
+        };
+        assert_eq!(notice().await, None);
+
+        let held = Config { home: home.clone(), ..Default::default() }.lock_file().unwrap();
+        let said = notice().await.expect("a notice while the lock is held");
+        assert_eq!(said, crate::app::CONFIG_LOCK_HELD_NOTICE);
+        assert!(said.contains("config.lock") && !said.contains("cannot be read"), "{said}");
+        drop(held);
+        assert_eq!(notice().await, None);
+
+        // A file that cannot be parsed still says that.
+        std::fs::write(home.join("config.toml"), "[permissions\n").unwrap();
+        assert_eq!(notice().await.as_deref(), Some(crate::app::CONFIG_UNREADABLE_NOTICE));
+    }
+
+    /// After `heron doctor` rebuilt the "never" rules without every source, the damaged value stays
+    /// kept (a second damage adds to it) and `GET /api/nevers` says some may have been lost, until
+    /// the user clears it.
+    #[tokio::test]
+    async fn incomplete_rebuild_stays_visible() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = home_with_a_never(dir.path(), &[]);
+        let a = yolo_core(&home, &dir.path().join("ws")).await;
+        let cfg = a.cfg();
+        let h = serve_app(tempfile::tempdir().unwrap(), a.clone());
+        let notice = || async {
+            let reply = h.send("GET", "/nevers", Value::Null).await;
+            assert_eq!(reply.status, 200);
+            reply.headers.iter().find(|(n, _)| n == "x-heron-notice").map(|(_, v)| v.clone())
+        };
+        assert_eq!(notice().await, None);
+
+        // Damaged with no good copy kept: rebuilt from config.toml only, which may not be all.
+        a.store.kv_set("deny_rules", "{damaged: shell:*sudo*").unwrap();
+        a.store.kv_set("deny_rules_last_good", "{gone").unwrap();
+        assert!(!crate::app::repair_saved_nevers(&cfg, &a.store).unwrap().complete());
+        let said = notice().await.expect("a notice while the damaged value is kept");
+        assert_eq!(said, crate::app::NEVERS_MAY_BE_LOST_NOTICE);
+        assert!(said.contains("may have been lost") && said.contains("deny_rules_damaged"), "{said}");
+        // Sound from now on, and still visible.
+        assert_eq!(crate::app::repair_saved_nevers(&cfg, &a.store).unwrap(), crate::app::NeversCheck::Sound(1));
+        assert_eq!(notice().await.as_deref(), Some(crate::app::NEVERS_MAY_BE_LOST_NOTICE));
+        assert_eq!(crate::app::kept_damaged_nevers(&a.store).unwrap().as_deref(), Some("{damaged: shell:*sudo*"));
+
+        // A second damage adds to what is kept, never over it.
+        a.store.kv_set("deny_rules", "{damaged again").unwrap();
+        a.store.kv_set("deny_rules_last_good", "{gone").unwrap();
+        crate::app::repair_saved_nevers(&cfg, &a.store).unwrap();
+        assert_eq!(crate::app::kept_damaged_nevers(&a.store).unwrap().as_deref(), Some("{damaged: shell:*sudo*\n{damaged again"));
+        // A complete rebuild keeps nothing more, and leaves what is kept alone.
+        a.store.kv_set("deny_rules", "{damaged once more").unwrap();
+        assert!(crate::app::repair_saved_nevers(&cfg, &a.store).unwrap().complete());
+        assert_eq!(crate::app::kept_damaged_nevers(&a.store).unwrap().as_deref(), Some("{damaged: shell:*sudo*\n{damaged again"));
+        assert_eq!(notice().await.as_deref(), Some(crate::app::NEVERS_MAY_BE_LOST_NOTICE));
+
+        // Cleared by the user: no notice.
+        assert_eq!(crate::app::clear_kept_damaged_nevers(&cfg, &a.store).unwrap().as_deref(), Some("{damaged: shell:*sudo*\n{damaged again"));
+        assert_eq!(notice().await, None);
+        assert_eq!(crate::app::kept_damaged_nevers(&a.store).unwrap(), None);
     }
 
     #[tokio::test]

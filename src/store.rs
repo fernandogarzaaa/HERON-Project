@@ -360,6 +360,49 @@ fn snapshot_to(conn: &Connection, to: &Path) -> Result<()> {
     made.with_context(|| format!("cannot save a copy of the database to {}", to.display()))
 }
 
+/// What to do about a damaged database at `db`, as every message about one says it: move it aside
+/// first (`heron restore` refuses over a database it cannot read, as it would lose the permission
+/// rules kept there), then restore a copy.
+pub fn damaged_database_guidance(db: &Path) -> String {
+    let name = db.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "heron.db".into());
+    format!(
+        "Close Heron, move {} aside (with {name}-wal and {name}-shm beside it, if they are there), then restore a copy from {} with `heron restore <file>`. The rules kept only in the damaged file (\"never\" and \"always\") are not brought back; check them in Heron's settings afterwards",
+        db.display(),
+        backup_dir(db).display()
+    )
+}
+
+/// The read-only connection [`Store::peek`] reads through. It waits for a busy database as
+/// [`Store::open`] does: a read that gave up at once would be taken for a database that cannot be
+/// read.
+fn peek_connection(path: &Path) -> Result<Connection> {
+    let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).with_context(|| format!("cannot open {}", path.display()))?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    Ok(conn)
+}
+
+/// Every trigger and view in a database that Heron's own schema does not have, as `"<type> <name>"`.
+/// A copy holding one could run its own SQL on every later write (a trigger on `kv` could reset the
+/// permission rules), so it is never restored.
+fn foreign_schema(conn: &Connection) -> Result<Vec<String>> {
+    static OWN: std::sync::OnceLock<Vec<(String, String, String)>> = std::sync::OnceLock::new();
+    let read = |conn: &Connection| -> Result<Vec<(String, String, String)>> {
+        let mut st = conn.prepare("SELECT type, name, coalesce(sql, '') FROM sqlite_master WHERE type IN ('trigger', 'view')")?;
+        let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?;
+        // Compared without regard to spacing, which SQLite keeps as written.
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().map(|(t, n, sql)| (t, n, sql.split_whitespace().collect::<Vec<_>>().join(" "))).collect())
+    };
+    let own = match OWN.get() {
+        Some(own) => own,
+        None => {
+            let fresh = Store::in_memory()?;
+            let own = read(&fresh.db())?;
+            OWN.get_or_init(|| own)
+        }
+    };
+    Ok(read(conn)?.into_iter().filter(|item| !own.contains(item)).map(|(t, n, _)| format!("{t} {n}")).collect())
+}
+
 /// Move a database that SQLite cannot read out of the way, exactly as it is, together with its log
 /// files, into the `backups` folder. Nothing in it is changed, so whatever a repair tool could still
 /// recover remains recoverable. Returns where the main file went.
@@ -547,7 +590,7 @@ impl Store {
             // SQLite saying the file itself is broken: say what can be done about it.
             let broken = e.chain().filter_map(|c| c.downcast_ref::<rusqlite::Error>()).any(|c| matches!(c.sqlite_error_code(), Some(rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase)));
             if broken {
-                e.context(format!("{} is damaged and cannot be read. Restore a copy from {} with `heron restore <file>`; the damaged file is kept when you do.", path.display(), backup_dir(path).display()))
+                e.context(format!("{} is damaged and cannot be read. {}.", path.display(), damaged_database_guidance(path)))
             } else {
                 e
             }
@@ -573,7 +616,7 @@ impl Store {
             if has_data(&conn)? {
                 let problems = damage(&conn).unwrap_or_else(|e| vec![e.to_string()]);
                 if !problems.is_empty() {
-                    bail!("{} is damaged and was not upgraded ({}). Restore a copy from {} with `heron restore`.", path.display(), problems.join("; "), backup_dir(path).display());
+                    bail!("{} is damaged and was not upgraded ({}). {}.", path.display(), problems.join("; "), damaged_database_guidance(path));
                 }
                 let copy = snapshot(&conn, path, &format!("before-upgrade-from-v{found}"))?;
                 // Another program may have finished the upgrade while the copy was being made. Then the
@@ -649,6 +692,11 @@ impl Store {
         if !problems.is_empty() {
             bail!("{} is damaged and was not restored ({})", from.display(), problems.join("; "));
         }
+        // Checked before anything is copied: the upgrade below writes, and would set them off.
+        let foreign = foreign_schema(&source)?;
+        if !foreign.is_empty() {
+            bail!("{} was not restored: it holds SQL that Heron's own data does not ({}), which could change your permission rules behind your back. Restore a copy Heron made", from.display(), foreign.join(", "));
+        }
         if let Some(p) = path.parent() {
             std::fs::create_dir_all(p)?;
         }
@@ -688,12 +736,18 @@ impl Store {
     /// does (no upgrade, nothing written). `None` when there is no database or no such value. While
     /// another program is writing, it waits as [`Store::open`] does before it gives up with an error.
     pub fn peek_kv(path: &Path, k: &str) -> Result<Option<String>> {
+        Ok(Self::peek(path, |conn| conn.query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional())?.flatten())
+    }
+
+    /// Run `read` on the database at `path`, opened read-only without opening it as Heron does (no
+    /// upgrade, nothing written). `None` when there is no database. While another program is
+    /// writing, it waits as [`Store::open`] does before it gives up with an error.
+    pub fn peek<T>(path: &Path, read: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> Result<Option<T>> {
         if !path.exists() {
             return Ok(None);
         }
-        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).with_context(|| format!("cannot open {}", path.display()))?;
-        conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        Ok(conn.query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional()?)
+        let conn = peek_connection(path)?;
+        Ok(Some(read(&conn)?))
     }
 
     /// Housekeeping for a long-running process: fold the write-ahead log back into the main file so it
@@ -1619,6 +1673,12 @@ impl Store {
 
     pub fn kv_set(&self, k: &str, v: &str) -> Result<()> {
         self.db().execute("INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", params![k, v])?;
+        Ok(())
+    }
+
+    /// Remove `k`, so it reads as no value at all.
+    pub fn kv_delete(&self, k: &str) -> Result<()> {
+        self.db().execute("DELETE FROM kv WHERE k=?", [k])?;
         Ok(())
     }
 
