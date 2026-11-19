@@ -5973,7 +5973,7 @@
     },
     "depends_on": [
       "U4c",
-      "U3g"
+      "U3h"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -5994,7 +5994,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "`build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test",
-    "version": 8,
+    "version": 9,
     "worktree": {
       "base_branch": null,
       "branch": null,
