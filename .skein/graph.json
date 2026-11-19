@@ -9605,7 +9605,8 @@
       "U3m",
       "U3n",
       "U3o",
-      "U3p"
+      "U3p",
+      "U3q"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -9626,7 +9627,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 22,
+    "version": 23,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "branch": null,
