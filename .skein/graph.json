@@ -11739,6 +11739,59 @@
       "path": null
     }
   },
+  "U8e": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U8d",
+      "SYNC34"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U8e",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- opencode_ignores_config_above_its_run_folder opencode_failure_redacts_an_echoed_key opencode_failure_shows_its_error_event",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 35v (and 35s, 35u for context).",
+      "goal": "Implement spec item 35v in src/cli_llm.rs (and the banned-flag list it names). Read 35v first.\n1. In child_env for opencode-cli (next to the OPENCODE_CONFIG push, around 1499-1502 at f652cf3), also push OPENCODE_DISABLE_PROJECT_CONFIG=1. Test opencode_ignores_config_above_its_run_folder: a fake opencode reports its env; assert OPENCODE_DISABLE_PROJECT_CONFIG=1 and OPENCODE_CONFIG are set; and add an exact-allowlist check of child_env for opencode-cli like the existing claude-cli one in fake_cli_child_env_is_exactly_the_allowlist (extend that test or add a sibling; keep the claude-cli check unchanged).\n2. Mutant e (401 -> LoggedOut removed survives): strengthen opencode_failure_shows_its_error_event, or add a test, so a 401 event with a neutral type (e.g. \"provider.error\", message \"denied\") gives a failure that STARTS WITH the logged-out wording, not just one that contains the generic hint. Mutant g (`&& acc.provider_error.is_none()` removed survives): add a case where opencode prints a text part, then an error event, then exits 1; it must be a failure, not a returned answer.\n3. Add \"--auto\" to the banned-flag lists (the argv test around 3977 and the registry test that list forbidden flags), so no provider argv carries it.\n4. Redact echoed keys in the opencode provider-error summary (ProviderError::summary or where it is built): replace tokens starting with \"sk-\", \"Bearer <token>\", and any run of 32+ chars from [A-Za-z0-9_-] with \"[redacted]\", before the 300-byte cut. Test opencode_failure_redacts_an_echoed_key: message \"Invalid API key sk-live-XYZ123 for org\" with status 401 -> failure contains \"[redacted]\" and not \"sk-live-XYZ123\"; a 40-char token in a message is redacted too.\nEach new test or strengthened assertion must fail with its fix removed (check, then restore). Keep every other existing test passing unchanged. Deterministic, no sleeps. No macos/ changes."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "opencode ignores config above its run folder (35v)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "Ut": {
     "attempts": [
       {
