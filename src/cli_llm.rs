@@ -862,6 +862,10 @@ async fn capture(mut cmd: Command, path: &Path, timeout_secs: u64) -> Result<Str
     }
 }
 
+/// Tool-rules sentence added only when the request offers `web_fetch`, so a
+/// request without it never names a tool the model cannot call.
+const PAGE_READ_RULE: &str = "To read a web page, call web_fetch; do not use shell (curl, wget or similar) to fetch pages.";
+
 /// Render a chat request as one prompt. The CLI gets the full conversation
 /// and the tool inventory, and is told to answer with the JSON envelope and
 /// to use no tools of its own: Heron is the agent, the CLI is the model.
@@ -892,6 +896,10 @@ pub fn render_prompt(req: &ChatRequest) -> String {
         out.push_str("Tools you may call, as JSON schemas. Call them only by listing them in your reply envelope; do not run anything yourself:\n");
         for t in &req.tools {
             out.push_str(&format!("{}\n", t));
+        }
+        if valid_tool_names(req).iter().any(|n| n == "web_fetch") {
+            out.push_str(PAGE_READ_RULE);
+            out.push('\n');
         }
         out.push('\n');
     }
@@ -2649,6 +2657,37 @@ mod tests {
         assert!(prompt.contains("list_dir"));
         assert!(prompt.contains("tool_calls"));
         assert!(prompt.contains("Do not run commands"));
+    }
+
+    #[test]
+    fn cli_prompt_steers_page_reads_to_web_fetch() {
+        let tool = |name: &str| {
+            serde_json::json!({"type": "function", "function": {"name": name, "parameters": {}}})
+        };
+        let with = ChatRequest {
+            messages: vec![Message::user("read example.com")],
+            tools: vec![tool("web_fetch"), tool("shell")],
+            ..Default::default()
+        };
+        let prompt = render_prompt(&with);
+        assert!(
+            prompt.contains("To read a web page, call web_fetch"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("do not use shell (curl, wget or similar) to fetch pages"),
+            "{prompt}"
+        );
+
+        let without = ChatRequest {
+            messages: vec![Message::user("read example.com")],
+            tools: vec![tool("shell"), tool("list_dir")],
+            ..Default::default()
+        };
+        let prompt = render_prompt(&without);
+        assert!(!prompt.contains("web_fetch"), "{prompt}");
+        assert!(!prompt.contains("to fetch pages"), "{prompt}");
+        assert!(!prompt.contains("curl"), "{prompt}");
     }
 
     #[test]
