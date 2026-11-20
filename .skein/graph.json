@@ -10939,7 +10939,16 @@
     }
   },
   "U8a": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "6b9112ac92484bc1b9104900d500d1b2",
+        "ended_at": "2026-11-20T12:46:18.431894+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-20T12:39:07.580304+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -10951,22 +10960,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "6b9112ac92484bc1b9104900d500d1b2",
-      "base_branch": "skein/U8a__integrate-base",
-      "claim_token": "fde2552f23054674828cd47c06c46ef4",
-      "claimed_at": "2026-11-20T12:39:07.580304+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-20T12:39:07.580304+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U3v",
       "SYNC31"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- opencode_runs_a_heron_agent_with_its_own_tools_off opencode_failure_shows_its_error_event opencode_fake_binary_parses_text_events_and_runs_in_temp_dir",
+        "duration_ms": 44966,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8a_20261120T124533354576_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8a_20261120T124618321957_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U8a",
     "integration_for": null,
     "intent": {
@@ -10978,13 +10999,26 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "6b9112ac92484bc1b9104900d500d1b2",
+      "base_commit": "98d7829077785d3a85ff42b69ebc08df38c89d84",
+      "changed_files": [
+        "src/cli_llm.rs"
+      ],
+      "commit": "f652cf3b86259ee44880147ca262f76fd4d276e5",
+      "diff_stats": {
+        "src/cli_llm.rs": {
+          "added": 219,
+          "deleted": 10
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "opencode runs as a plain text model (35s U8a)",
-    "version": 4,
+    "version": 19,
     "worktree": {
       "base_branch": "skein/U8a__integrate-base",
       "base_commit": "98d7829077785d3a85ff42b69ebc08df38c89d84",
