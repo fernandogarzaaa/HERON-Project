@@ -10984,9 +10984,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "opencode runs as a plain text model (35s U8a)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U8a__integrate-base",
       "branch": null,
       "path": null
     }
