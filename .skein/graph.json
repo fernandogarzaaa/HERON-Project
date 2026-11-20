@@ -11251,6 +11251,59 @@
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U8b"
     }
   },
+  "U8c": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U8b",
+      "SYNC32"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U8c",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- genuine_rate_and_quota_errors_are_limits ordinary_failures_that_mention_rate_or_limit_are_not_limits opencode_failure_shows_its_error_event",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 35t (and 35s for context).",
+      "goal": "Implement spec item 35t in src/cli_llm.rs. Read 35t first.\n1. Add one helper, e.g. fn names_a_provider_limit(text: &str) -> bool, true only when the lowercased text contains one of the phrases: \"rate limit\", \"rate_limit\", \"ratelimit\", \"too many requests\", \"quota\", \"usage limit\", \"usage_limit\", \"spend limit\", \"credit balance\", \"temporarily limiting\". No loose word combinations.\n2. ProviderError::class (around 1250-1262): Limit iff status == Some(429) or names_a_provider_limit(kind + \" \" + message). Keep the 401 and auth mapping as it is, and keep the order (401 first).\n3. The generic failure path for every CLI (around 2346, `lower.contains(\"rate limit\") || lower.contains(\"limit\") && lower.contains(\"usage\")`): replace that condition with names_a_provider_limit(&lower).\n4. Tests: genuine_rate_and_quota_errors_are_limits covers an opencode error event with status 429, type provider.rate_limit, message \"Usage limit reached for this plan\" and message \"quota exceeded\"; each must give the provider-limit message. ordinary_failures_that_mention_rate_or_limit_are_not_limits uses \"file size limit exceeded\", \"generate a rate table\", \"the rate of change exceeds the limit\" and \"usage: heron [options] --limit N\". Run each both as an opencode error event (no status, or status 500) and as a generic fake CLI (pick one provider with plain stderr, exit 1, empty stdout). Each must NOT give the provider-limit message (no \"refused the request\", no \"usage window\"). Keep opencode_rate_and_usage_limits_show_the_provider_limit_message and opencode_failure_shows_its_error_event passing unchanged.\nEach new test must fail on the current code (the \"rate of change exceeds the limit\" and \"usage ... --limit\" cases do) and with the fix removed. Keep every existing test passing unchanged. Deterministic, no sleeps. No macos/ changes."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Limit errors told apart by phrase (35t)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "Ut": {
     "attempts": [
       {
