@@ -1221,6 +1221,26 @@ struct ProviderError {
     status: Option<u64>,
 }
 
+/// True when `text` names a provider limit by one of a fixed set of phrases (spec 35t). Loose word
+/// combinations such as "limit" with "rate" or "usage" do not count: a real failure ("the rate of
+/// change exceeds the limit", "usage: heron --limit N") must never be taken for a limit.
+fn names_a_provider_limit(text: &str) -> bool {
+    const PHRASES: [&str; 10] = [
+        "rate limit",
+        "rate_limit",
+        "ratelimit",
+        "too many requests",
+        "quota",
+        "usage limit",
+        "usage_limit",
+        "spend limit",
+        "credit balance",
+        "temporarily limiting",
+    ];
+    let lower = text.to_lowercase();
+    PHRASES.iter().any(|p| lower.contains(p))
+}
+
 /// How Heron words a [`ProviderError`].
 enum ErrorClass {
     LoggedOut,
@@ -1251,10 +1271,9 @@ impl ProviderError {
     }
 
     fn class(&self) -> ErrorClass {
-        let lower = format!("{} {}", self.kind, self.message).to_lowercase();
         if self.status == Some(401) {
             ErrorClass::LoggedOut
-        } else if self.status == Some(429) || (lower.contains("limit") && (lower.contains("rate") || lower.contains("usage"))) {
+        } else if self.status == Some(429) || names_a_provider_limit(&format!("{} {}", self.kind, self.message)) {
             ErrorClass::Limit
         } else if self.kind.to_lowercase().contains("auth") {
             ErrorClass::LoggedOut
@@ -2353,9 +2372,7 @@ impl CliLlm {
                 }
                 // A CLI with no login probe cannot say; the hint goes with the failure.
                 let hint = if parse_login_output(self.spec.id, "").0.is_none() { format!(" If {logged_out}.") } else { String::new() };
-                if lower.contains("rate limit")
-                    || lower.contains("limit") && lower.contains("usage")
-                {
+                if names_a_provider_limit(&lower) {
                     bail!("{}", limit_msg(&preview));
                 }
                 if text_len == 0 {
@@ -2941,6 +2958,72 @@ mod tests {
             let err = opencode_failure_with(event).await;
             assert!(err.contains("refused the request") && err.contains("usage window may be exhausted"), "{event}: {err}");
             assert!(!err.contains("logged out"), "{event}: {err}");
+        }
+    }
+
+    /// A fake `codex` (the generic failure path: no error event) that prints `stderr` and exits 1
+    /// with an empty stdout.
+    #[cfg(not(windows))]
+    async fn generic_failure_with(stderr: &str) -> String {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_bin(dir.path(), "codex", &format!("#!/bin/sh\nprintf '%s\\n' '{stderr}' >&2\nexit 1\n"));
+        let mut cfg = test_cfg(dir.path(), "codex-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(std::sync::Arc::new(cfg), None).unwrap();
+        llm.chat(hi(), &|_| {}).await.unwrap_err().to_string()
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn genuine_rate_and_quota_errors_are_limits() {
+        for event in [
+            // The status alone makes a limit.
+            r#"{"type":"error","error":{"type":"provider.request","message":"Slow down","status":429}}"#,
+            // So does the type alone.
+            r#"{"type":"error","error":{"type":"provider.rate_limit","message":"Slow down"}}"#,
+            // And so does the message alone.
+            r#"{"type":"error","error":{"type":"provider.error","message":"Usage limit reached for this plan"}}"#,
+            r#"{"type":"error","error":{"type":"provider.error","message":"quota exceeded"}}"#,
+        ] {
+            let err = opencode_failure_with(event).await;
+            assert!(err.contains("refused the request") && err.contains("usage window may be exhausted"), "{event}: {err}");
+            assert!(!err.contains("logged out"), "{event}: {err}");
+        }
+        // The generic failure path of any CLI tells the same phrases apart.
+        for stderr in ["Rate limit reached, retry later", "quota exceeded", "You hit your usage limit"] {
+            let err = generic_failure_with(stderr).await;
+            assert!(err.contains("refused the request") && err.contains("usage window may be exhausted"), "{stderr}: {err}");
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn ordinary_failures_that_mention_rate_or_limit_are_not_limits() {
+        for text in [
+            "file size limit exceeded",
+            "generate a rate table",
+            "the rate of change exceeds the limit",
+            "usage: heron [options] --limit N",
+        ] {
+            let not_a_limit = |err: &str, how: &str| {
+                assert!(err.contains(text), "{how} {text}: the failure must show its text: {err}");
+                assert!(!err.contains("refused the request") && !err.contains("usage window"), "{how} {text}: {err}");
+            };
+            for status in ["", r#","status":500"#] {
+                let event = format!(r#"{{"type":"error","error":{{"type":"provider.error","message":"{text}"{status}}}}}"#);
+                not_a_limit(&opencode_failure_with(&event).await, "opencode event");
+            }
+            not_a_limit(&generic_failure_with(text).await, "generic CLI");
+        }
+    }
+
+    #[test]
+    fn only_a_fixed_set_of_phrases_names_a_provider_limit() {
+        for text in ["Rate Limit hit", "provider.rate_limit", "RateLimitError", "Too Many Requests", "QUOTA", "usage limit", "usage_limit", "Spend limit reached", "Your credit balance is too low", "temporarily limiting requests"] {
+            assert!(names_a_provider_limit(text), "{text}");
+        }
+        for text in ["", "limit", "rate", "usage", "file size limit exceeded", "the rate of change exceeds the limit", "usage: heron --limit N", "limit of usage", "rate the limit"] {
+            assert!(!names_a_provider_limit(text), "{text}");
         }
     }
 
