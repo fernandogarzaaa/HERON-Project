@@ -11584,15 +11584,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "2e27b612b7ca42ccaef68c864e122838",
+      "base_branch": "skein/U8d__integrate__integrate-base",
+      "claim_token": "5b5ea9d4c8a344c9927de9f61789e287",
+      "claimed_at": "2026-11-20T13:32:25.304495+00:00",
+      "holder": "skein-auto-merge",
+      "last_heartbeat": "2026-11-20T13:32:25.304495+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "skein-auto-merge"
     },
     "depends_on": [
       "U8c",
@@ -11615,11 +11615,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Integrate parents of U8d",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U8d__integrate__integrate-base",
       "branch": null,
       "path": null
     }
