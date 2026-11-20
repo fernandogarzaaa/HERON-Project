@@ -302,16 +302,20 @@ impl CliSpec {
                 model_arg("--model", &mut args);
                 args.extend(["--output-format".into(), "json".into()]);
             }
-            // OpenCode: the plan agent is the read-only one. OpenCode routes
-            // to whatever the user configured in opencode.json: a Claude Pro
-            // OAuth login, OpenRouter free models, or a local Ollama model.
+            // OpenCode runs as a plain text model: Heron's own `heron` agent (defined in the config
+            // file written into the run folder, see `opencode_config`) has every opencode tool off,
+            // and `--standalone` keeps the model calls in this contained child, not in a shared
+            // background service started outside Heron's sandbox. OpenCode routes to whatever the
+            // user configured in opencode.json: a Claude Pro OAuth login, OpenRouter free models,
+            // or a local Ollama model.
             "opencode-cli" => {
                 args.extend([
                     "run".into(),
+                    "--standalone".into(),
                     "--format".into(),
                     "json".into(),
                     "--agent".into(),
-                    "plan".into(),
+                    OPENCODE_AGENT.into(),
                 ]);
                 model_arg("--model", &mut args);
             }
@@ -1169,6 +1173,89 @@ fn skip_json_value(bytes: &[u8], text: &str, mut i: usize) -> Option<usize> {
     }
 }
 
+/// The agent Heron defines for opencode, and the file in the run folder that defines it.
+const OPENCODE_AGENT: &str = "heron";
+const OPENCODE_CONFIG_FILE: &str = "heron-opencode.json";
+
+/// opencode's config with one agent, `heron`: a short neutral prompt, every tool switched off and
+/// edit, bash and web fetch denied. The model does all file, shell and web work through Heron's
+/// envelope tools, which run in the task folder under Heron's approvals and sandbox. (opencode's
+/// built-in `plan` agent refused writing tasks and the model used its own tools in the run folder.)
+fn opencode_config() -> Value {
+    let tools: serde_json::Map<String, Value> = ["*", "bash", "edit", "write", "multiedit", "patch", "read", "grep", "glob", "list", "lsp", "webfetch", "websearch", "codesearch", "todowrite", "todoread", "task", "skill"]
+        .iter()
+        .map(|t| (t.to_string(), Value::Bool(false)))
+        .collect();
+    serde_json::json!({
+        "agent": {
+            OPENCODE_AGENT: {
+                "description": "Answers from the conversation it is given. Has no tools of its own.",
+                "mode": "primary",
+                "prompt": "Follow the instructions in the user's message and answer in the format it asks for.",
+                "tools": tools,
+                "permission": { "edit": "deny", "bash": "deny", "webfetch": "deny" }
+            }
+        }
+    })
+}
+
+fn write_opencode_config(run_dir: &Path) -> Result<()> {
+    let path = run_dir.join(OPENCODE_CONFIG_FILE);
+    std::fs::write(&path, serde_json::to_vec(&opencode_config())?).map_err(|e| anyhow!("could not write {}: {e}", path.display()))
+}
+
+/// What a provider error event in opencode's stdout says: its type, message and HTTP status, and
+/// nothing else, so no header, request body or key reaches a failure message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProviderError {
+    kind: String,
+    message: String,
+    status: Option<u64>,
+}
+
+/// How Heron words a [`ProviderError`].
+enum ErrorClass {
+    LoggedOut,
+    Limit,
+    Other,
+}
+
+impl ProviderError {
+    /// `{"type":"error","error":{"type":"provider.auth","message":"...","status":401}}`
+    fn from_opencode_line(line: &str) -> Option<Self> {
+        let v: Value = serde_json::from_str(line).ok()?;
+        if v.get("type").and_then(|t| t.as_str()) != Some("error") {
+            return None;
+        }
+        let e = v.get("error")?;
+        let text = |v: Option<&Value>| v.and_then(|t| t.as_str()).map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
+        Some(ProviderError {
+            kind: text(e.get("type")).or_else(|| text(e.get("name"))).unwrap_or_else(|| "error".into()),
+            message: text(e.get("message")).or_else(|| text(e.get("data").and_then(|d| d.get("message")))).unwrap_or_default(),
+            status: e.get("status").or_else(|| e.get("statusCode")).or_else(|| e.get("data").and_then(|d| d.get("statusCode"))).and_then(|s| s.as_u64()),
+        })
+    }
+
+    /// `<type>: <message>`, at most 300 bytes.
+    fn summary(&self) -> String {
+        let s = if self.message.is_empty() { self.kind.clone() } else { format!("{}: {}", self.kind, self.message) };
+        truncate_str(&s, 300).to_string()
+    }
+
+    fn class(&self) -> ErrorClass {
+        let lower = format!("{} {}", self.kind, self.message).to_lowercase();
+        if self.status == Some(401) {
+            ErrorClass::LoggedOut
+        } else if self.status == Some(429) || (lower.contains("limit") && (lower.contains("rate") || lower.contains("usage"))) {
+            ErrorClass::Limit
+        } else if self.kind.to_lowercase().contains("auth") {
+            ErrorClass::LoggedOut
+        } else {
+            ErrorClass::Other
+        }
+    }
+}
+
 /// Truncate to at most `max` bytes without splitting a UTF-8 character.
 /// Slicing `&s[..max]` panics when byte `max` falls inside a multibyte
 /// character, which a localized diagnostic can easily do.
@@ -1409,6 +1496,10 @@ impl CliLlm {
                 env.push((var.to_string(), v));
             }
         }
+        if self.spec.id == "opencode-cli" {
+            // Survives `env_clear`: the file `write_opencode_config` puts in the run folder.
+            env.push(("OPENCODE_CONFIG".into(), run_dir.join(OPENCODE_CONFIG_FILE).to_string_lossy().into_owned()));
+        }
         if self.spec.id == "claude-cli" {
             // Never let the CLI update itself past its tested version or upload feedback mid-session.
             env.push(("DISABLE_AUTOUPDATER".into(), "1".into()));
@@ -1631,6 +1722,8 @@ struct Accumulator {
     /// A pretty-printed single JSON document arrives over many lines;
     /// it is only decoded once the whole document is there.
     json_buf: String,
+    /// The last provider error event opencode printed on stdout (it exits 1 with an empty stderr).
+    provider_error: Option<ProviderError>,
 }
 
 impl Accumulator {
@@ -1644,6 +1737,7 @@ impl Accumulator {
             stream_mode: StreamMode::Unknown,
             emitted: 0,
             json_buf: String::new(),
+            provider_error: None,
         }
     }
 
@@ -1728,6 +1822,12 @@ impl Accumulator {
         let line = line.trim();
         if line.is_empty() {
             return None;
+        }
+        if spec.id == "opencode-cli" {
+            if let Some(e) = ProviderError::from_opencode_line(line) {
+                self.provider_error = Some(e);
+                return None;
+            }
         }
         match spec.output {
             OutputKind::ClaudeStreamJson => self.claude_line(line, on_delta),
@@ -2043,6 +2143,9 @@ impl CliLlm {
     /// One turn in a run folder the caller made and removes.
     async fn turn_in(&self, req: ChatRequest, on_delta: DeltaFn<'_>, run_dir: &Path) -> Result<ChatResponse> {
         let run_dir = run_dir.to_path_buf();
+        if self.spec.id == "opencode-cli" {
+            write_opencode_config(&run_dir)?;
+        }
         let prompt = render_prompt(&req);
         // The agent routes simple and background requests to the fast model
         // through ChatRequest.model; that override wins over cli_model, so
@@ -2193,14 +2296,21 @@ impl CliLlm {
         let text_len = acc.text.trim().len();
         if !status.success() {
             let err = stderr.trim();
+            // opencode prints provider errors on stdout and leaves stderr empty.
+            let err = match (&acc.provider_error, err.is_empty()) {
+                (Some(e), true) => e.summary(),
+                (Some(e), false) => format!("{} ({err})", e.summary()),
+                (None, _) => err.to_string(),
+            };
             let preview = if err.len() > 600 {
-                format!("{}...", truncate_str(err, 600))
+                format!("{}...", truncate_str(&err, 600))
             } else {
-                err.to_string()
+                err
             };
             // Hermes accepts error_max_turns with a complete batch; the same
             // applies here: a finished answer survives a non-zero exit.
             let recoverable = text_len > 0
+                && acc.provider_error.is_none()
                 && (preview.contains("max_turns")
                     || preview.contains("max turns")
                     || status.code() == Some(1))
@@ -2219,6 +2329,12 @@ impl CliLlm {
                         }
                     }
                 }
+                let limit_msg = |preview: &str| format!("{} refused the request: {}. The subscription's usage window may be exhausted; wait or check the plan.", self.spec.display_name, preview);
+                match acc.provider_error.as_ref().map(ProviderError::class) {
+                    Some(ErrorClass::LoggedOut) => bail!("{logged_out}, then try again. (CLI said: {preview})"),
+                    Some(ErrorClass::Limit) => bail!("{}", limit_msg(&preview)),
+                    _ => {}
+                }
                 let lower = preview.to_lowercase();
                 if lower.contains("auth")
                     || lower.contains("not logged in")
@@ -2232,7 +2348,7 @@ impl CliLlm {
                 if lower.contains("rate limit")
                     || lower.contains("limit") && lower.contains("usage")
                 {
-                    bail!("{} refused the request: {}. The subscription's usage window may be exhausted; wait or check the plan.", self.spec.display_name, preview);
+                    bail!("{}", limit_msg(&preview));
                 }
                 if text_len == 0 {
                     bail!("{} failed (exit {}): {}. Check `{}` and run `heron providers` to re-check the install.{hint}", self.spec.display_name, status.code().unwrap_or(-1), preview, self.spec.login_command);
@@ -2242,7 +2358,8 @@ impl CliLlm {
             // Recoverable: fall through and return the answer we have.
         }
         if text_len == 0 {
-            let preview = stderr.trim();
+            let event = acc.provider_error.as_ref().map(ProviderError::summary);
+            let preview = event.as_deref().unwrap_or(stderr.trim());
             bail!(
                 "{} returned no text. {}",
                 self.spec.display_name,
@@ -2705,6 +2822,98 @@ mod tests {
             !cwd.starts_with(here.to_str().unwrap()),
             "CLI must not run in the test workspace, ran in {cwd}"
         );
+    }
+
+    /// A fake `opencode` that records how it was started: its argv (reduced to a safe alphabet), its
+    /// working folder and `OPENCODE_CONFIG`, and keeps a copy of the config file it was pointed at in
+    /// its working folder. It reports through its reply because the sandbox only lets it write there.
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn opencode_runs_a_heron_agent_with_its_own_tools_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\ncp \"$OPENCODE_CONFIG\" ./seen-config.json\nargs=$(for a in \"$@\"; do printf '<%s>' \"$a\"; done | tr -cd 'a-zA-Z0-9<>_.:/-')\nprintf '%s\\n' \"{\\\"type\\\":\\\"text\\\",\\\"part\\\":{\\\"text\\\":\\\"pwd=$(pwd) cfg=$OPENCODE_CONFIG args=$args\\\"}}\"\n";
+        let bin = fake_bin(dir.path(), "opencode", script);
+        let mut cfg = test_cfg(dir.path(), "opencode-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(std::sync::Arc::new(cfg), None).unwrap();
+        let run_dir = make_run_folder().unwrap();
+        let r = llm.turn_in(hi(), &|_| {}, &run_dir).await;
+        let seen_config = std::fs::read_to_string(run_dir.join("seen-config.json"));
+        let canonical = std::fs::canonicalize(&run_dir).unwrap();
+        let _ = remove_temp_dir(&run_dir);
+        let text = r.unwrap().message.text().to_string();
+        let field = |name: &str| text.split(' ').find_map(|w| w.strip_prefix(name)).unwrap_or_else(|| panic!("no {name} in {text}")).to_string();
+        // The agent is Heron's own, never opencode's `plan`, and the model calls stay in this child.
+        let args = field("args=");
+        assert!(args.starts_with("<run>"), "{args}");
+        assert!(args.contains("<--agent><heron>"), "{args}");
+        assert!(args.contains("<--standalone>"), "{args}");
+        assert!(args.contains("<--format><json>"), "{args}");
+        assert!(!args.contains("<plan>"), "{args}");
+        // The child runs in the throwaway run folder, not in a task folder or the workspace.
+        assert_eq!(std::path::PathBuf::from(field("pwd=")), canonical);
+        // The config reached the child through the variable, and it is the file in the run folder.
+        assert_eq!(std::path::PathBuf::from(field("cfg=")), run_dir.join(OPENCODE_CONFIG_FILE));
+        let config: Value = serde_json::from_str(&seen_config.expect("the child could not read OPENCODE_CONFIG")).unwrap();
+        let agent = &config["agent"]["heron"];
+        assert_eq!(agent["mode"], "primary", "{config}");
+        assert!(agent["prompt"].as_str().is_some_and(|p| !p.is_empty() && p.len() < 300), "{config}");
+        let tools = agent["tools"].as_object().expect("tools");
+        for tool in ["*", "bash", "edit", "write", "read", "grep", "glob", "list", "patch", "webfetch", "websearch", "task", "todowrite"] {
+            assert_eq!(tools.get(tool), Some(&Value::Bool(false)), "tool {tool} is not switched off: {config}");
+        }
+        assert!(tools.values().all(|v| v == &Value::Bool(false)), "a tool is on: {config}");
+        for permission in ["edit", "bash", "webfetch"] {
+            assert_eq!(agent["permission"][permission], "deny", "{permission} is not denied: {config}");
+        }
+    }
+
+    /// A fake `opencode` that prints `event` on stdout and exits 1 with an empty stderr.
+    #[cfg(not(windows))]
+    async fn opencode_failure_with(event: &str) -> String {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_bin(dir.path(), "opencode", &format!("#!/bin/sh\nprintf '%s\\n' '{event}'\nexit 1\n"));
+        let mut cfg = test_cfg(dir.path(), "opencode-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(std::sync::Arc::new(cfg), None).unwrap();
+        llm.chat(hi(), &|_| {}).await.unwrap_err().to_string()
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn opencode_failure_shows_its_error_event() {
+        // The header and body are in the event, as a provider's error data carries them.
+        let event = r#"{"type":"error","error":{"type":"provider.auth","message":"API key expired.","status":401,"data":{"responseHeaders":{"authorization":"Bearer sk-live-secret"},"responseBody":"Bearer sk-live-secret"}}}"#;
+        let err = opencode_failure_with(event).await;
+        assert!(err.contains("provider.auth: API key expired."), "{err}");
+        assert!(err.contains("is logged out: run `opencode auth login"), "{err}");
+        assert!(!err.contains("Bearer") && !err.contains("sk-live-secret"), "{err}");
+        assert!(!err.contains("exit 1): ."), "the reason must not be empty: {err}");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn opencode_rate_and_usage_limits_show_the_provider_limit_message() {
+        for event in [
+            r#"{"type":"error","error":{"type":"provider.request","message":"Too many requests","status":429}}"#,
+            r#"{"type":"error","error":{"type":"provider.rate_limit","message":"Slow down"}}"#,
+            r#"{"type":"error","error":{"type":"provider.quota","message":"Usage limit reached for this plan"}}"#,
+        ] {
+            let err = opencode_failure_with(event).await;
+            assert!(err.contains("refused the request") && err.contains("usage window may be exhausted"), "{event}: {err}");
+            assert!(!err.contains("logged out"), "{event}: {err}");
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn opencode_other_errors_show_type_and_message_cut_to_300_chars() {
+        let event = format!(r#"{{"type":"error","error":{{"type":"provider.timeout","message":"{}","status":504}}}}"#, "z".repeat(1000));
+        let err = opencode_failure_with(&event).await;
+        assert!(err.contains("provider.timeout: zzz"), "{err}");
+        let zs = err.matches('z').count();
+        assert!(zs > 200 && zs < 300, "{zs} z's in {err}");
+        assert!(!err.contains("then try again") && !err.contains("refused the request"), "{err}");
     }
 
     #[tokio::test]
@@ -3756,7 +3965,7 @@ mod tests {
         let codex = argv("codex-cli");
         assert!(has(&codex, &["-a", "never"]) && has(&codex, &["--sandbox", "read-only"]), "{codex:?}");
         let opencode = argv("opencode-cli");
-        assert!(has(&opencode, &["--agent", "plan"]), "{opencode:?}");
+        assert!(has(&opencode, &["--agent", OPENCODE_AGENT]) && !opencode.iter().any(|a| a == "plan"), "{opencode:?}");
         // Cline has no flag that turns its tools off: it runs only when the user accepted that.
         let mut cline = test_cfg(dir.path(), "cline-cli");
         cline.llm.cli_command = "/usr/bin/true".into();
@@ -4041,7 +4250,7 @@ mod tests {
                     Err(e) => format!("{e:#}"),
                 };
                 let env_names: Vec<String> = llm.child_env(&run_dir).into_iter().map(|(k, _)| k).collect();
-                let allowed: Vec<&str> = CHILD_ENV_ALLOWED.iter().copied().chain(["TMPDIR", "DISABLE_AUTOUPDATER", "DISABLE_FEEDBACK_COMMAND"]).chain(llm.spec.config_dir_env).collect();
+                let allowed: Vec<&str> = CHILD_ENV_ALLOWED.iter().copied().chain(["TMPDIR", "DISABLE_AUTOUPDATER", "DISABLE_FEEDBACK_COMMAND"]).chain(llm.spec.config_dir_env).chain((llm.spec.id == "opencode-cli").then_some("OPENCODE_CONFIG")).collect();
                 let env_ok = env_names.iter().all(|n| allowed.contains(&n.as_str()));
                 let result = llm.turn_in(ChatRequest { messages: vec![Message::user(prompt)], ..Default::default() }, &|_| {}, &run_dir).await;
                 let inside_written = run_dir.join("heron-canary.txt").exists();
