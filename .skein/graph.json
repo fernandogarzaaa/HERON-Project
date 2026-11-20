@@ -11813,11 +11813,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "opencode ignores config above its run folder (35v)",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U8e__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "4be6db51f4d5aa74df6eb450837bcccb20503c75",
+      "branch": "skein/U8e",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U8e"
     }
   },
   "U8e__integrate": {
