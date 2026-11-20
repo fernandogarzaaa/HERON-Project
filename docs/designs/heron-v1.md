@@ -1907,7 +1907,7 @@ Open at v1 (2026-11-20). The review rule for the last rounds: a medium or high f
 *   **Keys echoed in a provider message are redacted.** opencode passes the provider's own message through, and a provider can echo the key (`Invalid API key sk-live-XYZ123`). Heron redacts these from the failure text, as `[redacted]`:
     *   tokens that start with `sk-`;
     *   `Bearer <token>`;
-    *   any run of 32 or more letters, digits, `-` and `_`.
+    *   any run of 32 or more letters, digits, `-` and `_` that contains at least one letter and at least one digit. A run with no digit, such as a long repeated character, isn't a key; the existing 300-character-cut test relies on that.
 
     Test: `opencode_failure_redacts_an_echoed_key`.
 *   **Left as Known low issues.**
