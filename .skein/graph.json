@@ -11139,9 +11139,9 @@
     "retry_at": "2026-11-20T10:12:59.360697+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 1363,
+    "version": 1364,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "base_commit": "4ae08905b90e43c8f2c1e8d8483d5933b26da68f",
