@@ -1264,6 +1264,33 @@ fn names_a_provider_limit(text: &str) -> bool {
     })
 }
 
+/// Replaces what looks like an API key a provider echoed back with `[redacted]` (spec 35v): a
+/// `Bearer <token>`, a token that starts with `sk-`, and any run of 32 or more letters, digits,
+/// `-` and `_` that holds at least one ASCII letter and one ASCII digit (so a long run of one
+/// repeated letter is prose, not a key).
+fn redact_secrets(text: &str) -> String {
+    static PATTERNS: std::sync::OnceLock<[regex::Regex; 3]> = std::sync::OnceLock::new();
+    let patterns = PATTERNS.get_or_init(|| {
+        [
+            regex::Regex::new(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+").unwrap(),
+            regex::Regex::new(r"\bsk-[A-Za-z0-9_-]*").unwrap(),
+            regex::Regex::new(r"[A-Za-z0-9_-]{32,}").unwrap(),
+        ]
+    });
+    let acc = patterns[0].replace_all(text, "[redacted]").into_owned();
+    let acc = patterns[1].replace_all(&acc, "[redacted]").into_owned();
+    patterns[2]
+        .replace_all(&acc, |caps: &regex::Captures| {
+            let run = &caps[0];
+            if run.bytes().any(|b| b.is_ascii_alphabetic()) && run.bytes().any(|b| b.is_ascii_digit()) {
+                "[redacted]".to_string()
+            } else {
+                run.to_string()
+            }
+        })
+        .into_owned()
+}
+
 /// How Heron words a [`ProviderError`].
 enum ErrorClass {
     LoggedOut,
@@ -1287,10 +1314,11 @@ impl ProviderError {
         })
     }
 
-    /// `<type>: <message>`, at most 300 bytes.
+    /// `<type>: <message>` with echoed keys redacted, at most 300 bytes.
     fn summary(&self) -> String {
         let s = if self.message.is_empty() { self.kind.clone() } else { format!("{}: {}", self.kind, self.message) };
-        truncate_str(&s, 300).to_string()
+        // Redact before the cut, so a key that straddles byte 300 is not left half-shown.
+        truncate_str(&redact_secrets(&s), 300).to_string()
     }
 
     fn class(&self) -> ErrorClass {
@@ -1549,6 +1577,9 @@ impl CliLlm {
         if self.spec.id == "opencode-cli" {
             // Survives `env_clear`: the file `write_opencode_config` puts in the run folder.
             env.push(("OPENCODE_CONFIG".into(), run_dir.join(OPENCODE_CONFIG_FILE).to_string_lossy().into_owned()));
+            // opencode otherwise applies every `opencode.json` and `.opencode/` from its cwd up to `/`
+            // after that file; the run folder's parent is the user's `$TMPDIR` (spec 35v).
+            env.push(("OPENCODE_DISABLE_PROJECT_CONFIG".into(), "1".into()));
         }
         if self.spec.id == "claude-cli" {
             // Never let the CLI update itself past its tested version or upload feedback mid-session.
@@ -2566,6 +2597,8 @@ mod tests {
                     "--allow-all",
                     "auto-approve",
                     "--auto-approve",
+                    // opencode's own auto-approve switch.
+                    "--auto",
                 ] {
                     assert!(
                         !lower.contains(banned),
@@ -2968,6 +3001,79 @@ mod tests {
         assert!(err.contains("is logged out: run `opencode auth login"), "{err}");
         assert!(!err.contains("Bearer") && !err.contains("sk-live-secret"), "{err}");
         assert!(!err.contains("exit 1): ."), "the reason must not be empty: {err}");
+        // A 401 with a neutral type is still logged out, and the failure starts with that wording,
+        // not only a generic hint further along that mentions it.
+        let err = opencode_failure_with(r#"{"type":"error","error":{"type":"provider.error","message":"denied","status":401}}"#).await;
+        assert!(err.starts_with("OpenCode (router) is logged out: run `opencode auth login"), "{err}");
+        assert!(err.contains("provider.error: denied"), "{err}");
+        // Text, then an error event, then exit 1: a failure, never the partial text as an answer.
+        let err = opencode_failure_with("{\"type\":\"text\",\"part\":{\"text\":\"partial answer\"}}\n{\"type\":\"error\",\"error\":{\"type\":\"provider.error\",\"message\":\"boom\"}}").await;
+        assert!(err.contains("provider.error: boom") && err.contains("The reply was incomplete"), "{err}");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn opencode_failure_redacts_an_echoed_key() {
+        let err = opencode_failure_with(r#"{"type":"error","error":{"type":"provider.auth","message":"Invalid API key sk-live-XYZ123 for org","status":401}}"#).await;
+        assert!(err.contains("[redacted]") && err.contains("for org"), "{err}");
+        assert!(!err.contains("sk-live-XYZ123") && !err.contains("XYZ123"), "{err}");
+        // A bearer token, and a long token with no `sk-` prefix, in a message with a neutral type.
+        let err = opencode_failure_with(r#"{"type":"error","error":{"type":"provider.error","message":"rejected Authorization: Bearer abc.def-123 and key AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd"}}"#).await;
+        assert!(err.contains("[redacted]"), "{err}");
+        assert!(!err.contains("abc.def-123") && !err.contains("AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd"), "{err}");
+        // 31 characters is an ordinary word, not a key.
+        let err = opencode_failure_with(r#"{"type":"error","error":{"type":"provider.error","message":"see AbCdEfGhIjKlMnOpQrStUvWxYz01234 here"}}"#).await;
+        assert!(err.contains("AbCdEfGhIjKlMnOpQrStUvWxYz01234"), "{err}");
+    }
+
+    #[test]
+    fn echoed_keys_are_redacted_before_the_300_byte_cut() {
+        assert_eq!(redact_secrets("Invalid API key sk-live-XYZ123 for org"), "Invalid API key [redacted] for org");
+        assert_eq!(redact_secrets("Authorization: Bearer abc.def-123 rejected"), "Authorization: [redacted] rejected");
+        assert_eq!(redact_secrets("key AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd here"), "key [redacted] here");
+        assert_eq!(redact_secrets("AbCdEfGhIjKlMnOpQrStUvWxYz01234"), "AbCdEfGhIjKlMnOpQrStUvWxYz01234", "31 characters is not a key");
+        assert_eq!(redact_secrets("an ordinary message"), "an ordinary message");
+        // A long run with no digit, or no letter, is prose or a number, not a key.
+        let letters = "z".repeat(40);
+        assert_eq!(redact_secrets(&letters), letters);
+        let digits = "7".repeat(40);
+        assert_eq!(redact_secrets(&digits), digits);
+        // A key that would straddle byte 300 is gone before the cut, not left half shown.
+        let e = ProviderError { kind: "provider.error".into(), message: format!("{} sk-{}", "x ".repeat(140), "a1".repeat(10)), status: None };
+        let s = e.summary();
+        assert!(!s.contains("sk-") && !s.contains("a1a1"), "{s}");
+        assert!(s.len() <= 300 && s.len() > 250, "{s}");
+    }
+
+    /// A fake `opencode` that reports two of its environment variables through its reply.
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn opencode_ignores_config_above_its_run_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\nprintf '%s\\n' \"{\\\"type\\\":\\\"text\\\",\\\"part\\\":{\\\"text\\\":\\\"disable=[$OPENCODE_DISABLE_PROJECT_CONFIG] cfg=[$OPENCODE_CONFIG]\\\"}}\"\n";
+        let bin = fake_bin(dir.path(), "opencode", script);
+        let mut cfg = test_cfg(dir.path(), "opencode-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(std::sync::Arc::new(cfg), None).unwrap();
+        let text = llm.chat(hi(), &|_| {}).await.unwrap().message.text().to_string();
+        assert!(text.contains("disable=[1]"), "{text}");
+        assert!(text.contains(&format!("{OPENCODE_CONFIG_FILE}]")), "{text}");
+        // The child's variables are exactly the allowlist plus these two, as for claude-cli.
+        let parent: std::collections::HashMap<String, String> = CHILD_ENV_ALLOWED
+            .iter()
+            .map(|k| (k.to_string(), format!("value-of-{k}")))
+            .chain(["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OPENAI_API_KEY", "OPENCODE_CONFIG_DIR", "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_CONFIG", "TMPDIR"].map(|k| (k.to_string(), "must-not-pass".to_string())))
+            .collect();
+        let run = Path::new("/the/run/folder");
+        let env = llm.child_env_from(run, &|k| parent.get(k).cloned());
+        let names: std::collections::BTreeSet<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
+        let mut expected: std::collections::BTreeSet<&str> = CHILD_ENV_ALLOWED.iter().copied().collect();
+        expected.extend(["TMPDIR", "OPENCODE_CONFIG", "OPENCODE_DISABLE_PROJECT_CONFIG"]);
+        assert_eq!(names, expected);
+        assert_eq!(env.len(), names.len(), "no variable twice: {env:?}");
+        assert!(!env.iter().any(|(_, v)| v == "must-not-pass"), "{env:?}");
+        assert!(env.contains(&("OPENCODE_DISABLE_PROJECT_CONFIG".into(), "1".into())), "{env:?}");
+        assert!(env.contains(&("OPENCODE_CONFIG".into(), run.join(OPENCODE_CONFIG_FILE).display().to_string())), "{env:?}");
     }
 
     #[tokio::test]
@@ -4213,7 +4319,7 @@ mod tests {
         for id in ["claude-cli", "codex-cli", "opencode-cli", "cline-cli", "gemini-cli", "antigravity-cli"] {
             for arg in argv(id) {
                 let lower = arg.to_lowercase();
-                for banned in ["--yolo", "--force", "--dangerously-skip-permissions", "--allow-all-tools", "auto-approve", "bypasspermissions", "--approval-mode=yolo"] {
+                for banned in ["--yolo", "--force", "--dangerously-skip-permissions", "--allow-all-tools", "auto-approve", "bypasspermissions", "--approval-mode=yolo", "--auto"] {
                     assert!(!lower.contains(banned), "{id} passes {arg}");
                 }
             }
@@ -4489,7 +4595,7 @@ mod tests {
                     Err(e) => format!("{e:#}"),
                 };
                 let env_names: Vec<String> = llm.child_env(&run_dir).into_iter().map(|(k, _)| k).collect();
-                let allowed: Vec<&str> = CHILD_ENV_ALLOWED.iter().copied().chain(["TMPDIR", "DISABLE_AUTOUPDATER", "DISABLE_FEEDBACK_COMMAND"]).chain(llm.spec.config_dir_env).chain((llm.spec.id == "opencode-cli").then_some("OPENCODE_CONFIG")).collect();
+                let allowed: Vec<&str> = CHILD_ENV_ALLOWED.iter().copied().chain(["TMPDIR", "DISABLE_AUTOUPDATER", "DISABLE_FEEDBACK_COMMAND"]).chain(llm.spec.config_dir_env).chain((llm.spec.id == "opencode-cli").then_some("OPENCODE_CONFIG")).chain((llm.spec.id == "opencode-cli").then_some("OPENCODE_DISABLE_PROJECT_CONFIG")).collect();
                 let env_ok = env_names.iter().all(|n| allowed.contains(&n.as_str()));
                 let result = llm.turn_in(ChatRequest { messages: vec![Message::user(prompt)], ..Default::default() }, &|_| {}, &run_dir).await;
                 let inside_written = run_dir.join("heron-canary.txt").exists();
