@@ -1836,11 +1836,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Sync feat head into U8c base",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/heron-v1",
-      "branch": null,
-      "path": null
+      "base_commit": "7cfbe2272356e08b297250b63882b6a9bfc70de3",
+      "branch": "skein/SYNC32",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC32"
     }
   },
   "SYNC4": {
