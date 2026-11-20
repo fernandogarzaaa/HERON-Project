@@ -11860,10 +11860,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "4be6db51f4d5aa74df6eb450837bcccb20503c75",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "6b9a1917f3f87babc683da566856c0e4f3f90096",
+        "result_commit": "543bcad1eea45bc3726505061c09bc387780af7e",
+        "shipped_at": "2026-11-20T13:49:01.800937+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "opencode ignores config above its run folder (35v)",
-    "version": 22,
+    "version": 23,
     "worktree": {
       "base_branch": "skein/U8e__integrate-base",
       "base_commit": "4be6db51f4d5aa74df6eb450837bcccb20503c75",
