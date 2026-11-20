@@ -11105,7 +11105,16 @@
     }
   },
   "U8b": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "62f2b3ceb71742bf9fbff6587dd1869b",
+        "ended_at": "2026-11-20T12:48:52.564387+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-20T12:46:18.560562+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -11117,21 +11126,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "62f2b3ceb71742bf9fbff6587dd1869b",
-      "base_branch": "f652cf3b86259ee44880147ca262f76fd4d276e5",
-      "claim_token": "5acd5ceefac14ba6a111c4d61b4121e0",
-      "claimed_at": "2026-11-20T12:46:18.560562+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-20T12:47:19.020093+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U8a"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- cli_prompt_steers_page_reads_to_web_fetch",
+        "duration_ms": 41499,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8b_20261120T124810849953_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8b_20261120T124852351174_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U8b",
     "integration_for": null,
     "intent": {
@@ -11143,13 +11164,26 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "62f2b3ceb71742bf9fbff6587dd1869b",
+      "base_commit": "f652cf3b86259ee44880147ca262f76fd4d276e5",
+      "changed_files": [
+        "src/cli_llm.rs"
+      ],
+      "commit": "1df86adfa22504fd8b9a10586745f3a0d8d5af79",
+      "diff_stats": {
+        "src/cli_llm.rs": {
+          "added": 39,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "CLI envelope steers page reads to web_fetch (35s U8b)",
-    "version": 5,
+    "version": 9,
     "worktree": {
       "base_branch": "f652cf3b86259ee44880147ca262f76fd4d276e5",
       "base_commit": "f652cf3b86259ee44880147ca262f76fd4d276e5",
