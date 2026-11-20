@@ -1794,7 +1794,16 @@
     }
   },
   "SYNC32": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "3b39bd52b70a4dbd9ae855fab41d6c86",
+        "ended_at": "2026-11-20T13:14:32.796222+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-20T13:14:24.916735+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1806,19 +1815,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "3b39bd52b70a4dbd9ae855fab41d6c86",
-      "base_branch": "feat/heron-v1",
-      "claim_token": "daec0fc4273e47ff80a2cdc961981097",
-      "claimed_at": "2026-11-20T13:14:24.916735+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-20T13:14:24.916735+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -q ordinary_failures_that_mention_rate_or_limit_are_not_limits docs/designs/heron-v1.md",
+        "duration_ms": 236,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC32_20261120T131432447040_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC32_20261120T131432684745_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I didn't run the completion check, since the constraints say not to run anything. The supervisor will run it.",
     "id": "SYNC32",
     "integration_for": null,
     "intent": {
@@ -1830,13 +1851,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "3b39bd52b70a4dbd9ae855fab41d6c86",
+      "base_commit": "7cfbe2272356e08b297250b63882b6a9bfc70de3",
+      "changed_files": [],
+      "commit": "7cfbe2272356e08b297250b63882b6a9bfc70de3",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Sync feat head into U8c base",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/heron-v1",
       "base_commit": "7cfbe2272356e08b297250b63882b6a9bfc70de3",
