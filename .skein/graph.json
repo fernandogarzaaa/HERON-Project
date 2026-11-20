@@ -1638,6 +1638,84 @@
     }
   },
   "SYNC30": {
+    "attempts": [
+      {
+        "attempt_id": "03c30e3f189d482f8d3292a68288cb19",
+        "ended_at": "2026-11-19T20:51:14.163336+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T20:51:06.307928+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "grep -q a_near_echo_of_an_in_space_outside_row_stays_unconfirmed docs/designs/heron-v1.md",
+        "duration_ms": 237,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC30_20261119T205113842517_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC30_20261119T205114081245_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: done",
+    "id": "SYNC30",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q a_near_echo_of_an_in_space_outside_row_stays_unconfirmed docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3v's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "03c30e3f189d482f8d3292a68288cb19",
+      "base_commit": "ce58c3eb747c41b51baad3e28958b12c91597362",
+      "changed_files": [],
+      "commit": "ce58c3eb747c41b51baad3e28958b12c91597362",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Sync feat head into U3v base",
+    "version": 4,
+    "worktree": {
+      "base_branch": "feat/heron-v1",
+      "base_commit": "ce58c3eb747c41b51baad3e28958b12c91597362",
+      "branch": "skein/SYNC30",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC30"
+    }
+  },
+  "SYNC31": {
     "attempts": [],
     "attempts_used": 0,
     "backend": "claude_build_rust",
@@ -1650,12 +1728,12 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "03c30e3f189d482f8d3292a68288cb19",
+      "attempt_id": "9731540f69df425b9db7ef5f308fbe88",
       "base_branch": "feat/heron-v1",
-      "claim_token": "44c2faf1d7d24de78fd6628cf9a2b718",
-      "claimed_at": "2026-11-19T20:51:06.307928+00:00",
+      "claim_token": "a33d69c018d54254bcbf62e37f1fa5c9",
+      "claimed_at": "2026-11-20T12:38:58.818242+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-19T20:51:06.307928+00:00",
+      "last_heartbeat": "2026-11-20T12:38:58.818242+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1663,13 +1741,13 @@
     "depends_on": [],
     "evidence": [],
     "handoff_note": null,
-    "id": "SYNC30",
+    "id": "SYNC31",
     "integration_for": null,
     "intent": {
-      "completion": "grep -q a_near_echo_of_an_in_space_outside_row_stays_unconfirmed docs/designs/heron-v1.md",
+      "completion": "grep -q opencode_runs_a_heron_agent_with_its_own_tools_off docs/designs/heron-v1.md",
       "constraints": "Do not read, write or run anything.",
       "context": "No spec work.",
-      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U3v's base. Reply 'done' and stop."
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U8a's base. Reply 'done' and stop."
     },
     "max_retries": 0,
     "rejected_count": 0,
@@ -1679,7 +1757,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "claimed",
-    "title": "Sync feat head into U3v base",
+    "title": "Sync feat head into U8a base",
     "version": 2,
     "worktree": {
       "base_branch": "feat/heron-v1",
@@ -8717,7 +8795,16 @@
     }
   },
   "U3v": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "27713dcb01a14bf8b974c1b5cafb6f53",
+        "ended_at": "2026-11-19T20:55:31.922146+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-19T20:51:14.827721+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -8743,8 +8830,20 @@
       "U3u",
       "SYNC30"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- a_near_echo_of_an_in_space_outside_row_stays_unconfirmed a_user_restating_an_outside_row_keeps_one_confirmed_version an_exact_echo_of_an_in_space_outside_row_stays_unconfirmed a_near_echo_of_a_stale_outside_row_stays_unconfirmed restore_keeps_pause_telegram_lock_and_damaged_nevers_from_now",
+        "duration_ms": 33524,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3v_20261119T205458230730_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U3v_20261119T205531757688_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U3v",
     "integration_for": null,
     "intent": {
@@ -8756,16 +8855,113 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "27713dcb01a14bf8b974c1b5cafb6f53",
+      "base_commit": "a096de351842999370d1288dc32472cb006e2d6e",
+      "changed_files": [
+        "src/app.rs",
+        "src/memory.rs"
+      ],
+      "commit": "dfa85c3393b6860c21fbd194d1a1ff9571834e59",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 1,
+          "deleted": 0
+        },
+        "src/memory.rs": {
+          "added": 76,
+          "deleted": 6
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "a096de351842999370d1288dc32472cb006e2d6e",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "579cb3e9364878d664b414bb2b79dff8bc3beb99",
+        "result_commit": "dfa85c3393b6860c21fbd194d1a1ff9571834e59",
+        "shipped_at": "2026-11-19T20:56:00.987924+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
+    "title": "Fixes from the U3u review (35r)",
+    "version": 14,
+    "worktree": {
+      "base_branch": "skein/U3v__integrate-base",
+      "base_commit": "a096de351842999370d1288dc32472cb006e2d6e",
+      "branch": "skein/U3v",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U3v"
+    }
+  },
+  "U3v__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "902518e497394bdfb5ea1a75c8a1be15",
+        "ended_at": "2026-11-19T20:51:14.744768+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-19T20:51:14.414769+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3u",
+      "SYNC30"
+    ],
+    "evidence": [
+      {
+        "command": "git merge ce58c3eb747c41b51baad3e28958b12c91597362",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['255fec809f99334b63834cc64e8ff8de8f5c2dd7', 'ce58c3eb747c41b51baad3e28958b12c91597362'] into skein/U3v__integrate-base.",
+    "id": "U3v__integrate",
+    "integration_for": "U3v",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U3u', 'SYNC30'] into one base branch for U3v."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "255fec809f99334b63834cc64e8ff8de8f5c2dd7",
+      "changed_files": [],
+      "commit": "a096de351842999370d1288dc32472cb006e2d6e",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
-    "title": "Fixes from the U3u review (35r)",
-    "version": 1,
+    "status": "done",
+    "title": "Integrate parents of U3v",
+    "version": 3,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
+      "base_branch": "255fec809f99334b63834cc64e8ff8de8f5c2dd7",
+      "branch": "skein/U3v__integrate-base",
       "path": null
     }
   },
@@ -10714,6 +10910,111 @@
       "path": null
     }
   },
+  "U8a": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U3v",
+      "SYNC31"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U8a",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- opencode_runs_a_heron_agent_with_its_own_tools_off opencode_failure_shows_its_error_event opencode_fake_binary_parses_text_events_and_runs_in_temp_dir",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 35s (U8a part), and items 22, 39 and the module doc at the top of src/cli_llm.rs.",
+      "goal": "Implement the U8a part of spec item 35s. Read 35s first, then the opencode-cli arm in src/cli_llm.rs (around 305-315), the shared spawn (current_dir(run_dir).env_clear().envs(child_env(run_dir)), around 1460 and 2072), render_prompt (around 864-895) and the failure-message code (around 2215-2240).\n1. Remove `--agent plan`. Write an opencode config file into the run directory defining a Heron agent (e.g. name \"heron\", mode primary) with a short neutral prompt, every opencode tool switched off, and permissions edit/bash/webfetch set to deny. Pass it to the child so it survives env_clear: the OPENCODE_CONFIG env var pointing at that file (add it in the opencode path of child_env or the opencode arm, not globally), and select it with `--agent heron`. Keep `run --format json` and model_arg. The child cwd stays the throwaway run directory: do NOT set it to the task folder, and do not give opencode any tool of its own (see the 35s build decision).\n2. If `opencode run` defaults to a shared background service (2.1.4 help says: \"--standalone  Run with a private server instead of the background service\"), add `--standalone` so model calls and any tool work stay in the contained child.\n3. opencode reports provider errors as a stdout JSON line like {\"type\":\"error\",\"error\":{\"type\":\"provider.auth\",\"message\":\"API key expired.\",\"status\":401,...}} with exit 1 and EMPTY stderr. Heron currently shows \"failed (exit 1): .\" Parse error events from stdout; put \"<error.type>: <error.message>\" (cut to 300 chars, never any header, body or key) into the failure. Map provider.auth (or status 401) to the existing logged-out message, and rate or usage limit errors (status 429, or type/message naming a rate or usage limit) to the existing provider-limit message.\n4. Tests (fake binaries, no network): opencode_runs_a_heron_agent_with_its_own_tools_off asserts the argv has no \"plan\", selects the heron agent (and --standalone if you add it), the config file the child sees turns every tool off and denies edit/bash/webfetch, and the child pwd is the run directory; opencode_failure_shows_its_error_event uses a fake opencode that prints the error event above and exits 1, and asserts the failure names \"provider.auth\" / the logged-out path and contains no \"Bearer\"; add a 429 case asserting the provider-limit message. Keep opencode_fake_binary_parses_text_events_and_runs_in_temp_dir passing unchanged.\nEach new test must fail with its fix removed (check, then restore). Keep every existing test passing unchanged. No changes to other providers' argv, to render_prompt, or to macos/. Deterministic, no sleeps. Kill any test process you start that hangs."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "opencode runs as a plain text model (35s U8a)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
+  "U8b": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U8a"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U8b",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- cli_prompt_steers_page_reads_to_web_fetch",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 35s (U8b part).",
+      "goal": "Implement the U8b part of spec item 35s. In src/cli_llm.rs render_prompt (the tool-rules text appended when req.tools is not empty, around 887-894), add one general sentence: to read a web page, call web_fetch; do not use shell (curl, wget or similar) to fetch pages. Add it only when the request offers a tool named web_fetch, so a request without web_fetch never names a tool it cannot call. Do not mention any eval task, and do not change any approval, tool schema or other provider argv. Test cli_prompt_steers_page_reads_to_web_fetch: with web_fetch and shell in req.tools the rendered prompt names web_fetch for reading pages and says not to fetch with shell/curl; with no web_fetch tool the sentence is absent. Update any existing render_prompt test only if it asserts the exact full prompt text, and say so in your handoff (adding the sentence is not a weakening). The new test must fail with the sentence removed. Keep every other test passing unchanged. Deterministic, no sleeps."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "CLI envelope steers page reads to web_fetch (35s U8b)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "Ut": {
     "attempts": [
       {
@@ -10877,8 +11178,33 @@
     }
   },
   "verify": {
-    "attempts": [],
-    "attempts_used": 0,
+    "attempts": [
+      {
+        "attempt_id": "e7081e16d22c479caedc071b6c1ef615",
+        "ended_at": "2026-11-19T21:21:49.512318+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-19T21:15:06.464868+00:00"
+      },
+      {
+        "attempt_id": "253fb1e41267460cae093a284625f67c",
+        "ended_at": "2026-11-19T22:23:03.049333+00:00",
+        "error": "released by agent-1",
+        "holder": "agent-1",
+        "outcome": "released",
+        "started_at": "2026-11-19T21:23:00.441778+00:00"
+      },
+      {
+        "attempt_id": "030865ee212045eaa8b99d9f1dc9dc10",
+        "ended_at": "2026-11-20T10:11:10.395219+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-19T22:23:03.300114+00:00"
+      }
+    ],
+    "attempts_used": 1,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -10937,32 +11263,47 @@
       "U3s",
       "U3t",
       "U3u",
-      "U3v"
+      "U3v",
+      "U8a",
+      "U8b"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash scripts/verify-v1.sh",
+        "duration_ms": 35956157,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/verify_20261119T222320866428_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/verify_20261120T101110373859_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "verify",
     "integration_for": null,
     "intent": {
       "completion": "bash scripts/verify-v1.sh",
       "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
       "context": "Spec: docs/designs/heron-v1.md, section 'Detailed Implementation Plan', Work unit verify (items 48), plus every spec section those items link to. Read the Preconditions and Work units table too.",
-      "goal": "Full gate on the final branch scripts/verify-v1.sh exports HERON_REQUIRE_SEATBELT=1 on macOS before running cargo tests, so a skipped Seatbelt test fails the gate (spec 'Skips fail in the gate').\nWrite scripts/verify-v1.sh exactly as spec item 48 says (steps 1-11, `set -euo pipefail`, BASE from eval/baseline/summary.json heron_commit). Don't loosen any threshold. Owner decisions for this run (2026-11-20, option \"Run both\"):\n- G9 (step 9): the build-session run sets HERON_G9_PENDING=1 in the environment, which the spec allows; the script keeps failing without it.\n- G7 (step 7) runs on every id `python3 -I eval/containment/check.py --list-tier1` prints (today claude-cli, opencode-cli, codex-cli), 3 runs per task, through the existing runner, which uses mode = \"ask\" (eval/run_core_tasks.py). It uses the owner's existing CLI logins; the script never prints, logs or passes keys or tokens.\n- Provider limits: run each CLI one task at a time (`--tasks <id> --resume` into the same --out folder), and after each task read that folder's summary.json. If any run's `error` mentions a spend, usage or rate limit (e.g. \"rate limit\", \"temporarily limiting\", \"usage limit\", \"spend limit\", \"credit balance\", \"overloaded\", \"429\"), stop that CLI's remaining tasks at once (no retry loop), print `G7 <id>: STOPPED on a provider limit after <n> runs: <first error line, no secrets>`, and go on to the next CLI. A limit stop is reported as a stop, not counted as a task failure, but the step (and so the gate) still fails, because G7 wasn't measured in full. A later `--resume` rerun completes only the missing runs.\n- After each CLI, print `G7 <id>: <gate_passes>/<gate_runs> runs passed; lowest task <tid> <passes>/<runs>; t10 (hidden instruction) <passes>/<runs>; p1 (R-1 probe, reported only) <passes>/<runs>`, then run check_gate.py on it as the spec says.\n- The G3 record docs/designs/reviews/g3-regressions.md is written by an independent reviewer and committed to the branch before this node runs; step 5 only checks it, one line per m* test (seven: m1, m2, both m4 tests, m6, m7, m8).\nYou may not be able to run the slow steps yourself; make the script correct and let the completion check run it.\n"
+      "goal": "Full gate on the final branch scripts/verify-v1.sh exports HERON_REQUIRE_SEATBELT=1 on macOS before running cargo tests, so a skipped Seatbelt test fails the gate (spec 'Skips fail in the gate').\nWrite scripts/verify-v1.sh exactly as spec item 48 says (steps 1-11, `set -euo pipefail`, BASE from eval/baseline/summary.json heron_commit). Don't loosen any threshold. Owner decisions for this run (2026-11-20, option \"Run both\"):\n- G9 (step 9): the build-session run sets HERON_G9_PENDING=1 in the environment, which the spec allows; the script keeps failing without it.\n- G7 (step 7) runs on every id `python3 -I eval/containment/check.py --list-tier1` prints (today claude-cli, opencode-cli, codex-cli), 3 runs per task, through the existing runner, which uses mode = \"ask\" (eval/run_core_tasks.py). It uses the owner's existing CLI logins; the script never prints, logs or passes keys or tokens.\n- Provider limits: run each CLI one task at a time (`--tasks <id> --resume` into the same --out folder), and after each task read that folder's summary.json. If any run's `error` mentions a spend, usage or rate limit (e.g. \"rate limit\", \"temporarily limiting\", \"usage limit\", \"spend limit\", \"credit balance\", \"overloaded\", \"429\"), stop that CLI's remaining tasks at once (no retry loop), print `G7 <id>: STOPPED on a provider limit after <n> runs: <first error line, no secrets>`, and go on to the next CLI. A limit stop is reported as a stop, not counted as a task failure, but the step (and so the gate) still fails, because G7 wasn't measured in full. A later `--resume` rerun completes only the missing runs.\n- After each CLI, print `G7 <id>: <gate_passes>/<gate_runs> runs passed; lowest task <tid> <passes>/<runs>; t10 (hidden instruction) <passes>/<runs>; p1 (R-1 probe, reported only) <passes>/<runs>`, then run check_gate.py on it as the spec says.\n- The G3 record docs/designs/reviews/g3-regressions.md is written by an independent reviewer and committed to the branch before this node runs; step 5 only checks it, one line per m* test (seven: m1, m2, both m4 tests, m6, m7, m8).\nYou may not be able to run the slow steps yourself; make the script correct and let the completion check run it.\nRETRY NOTE (try 1): your scripts/verify-v1.sh is kept in your worktree; keep it as is unless a real error shows. Try 1 failed only because your worktree was based on an old commit (4ae0890) that lacked units U3k to U3v and the committed G3 record; the failing test (parked_walk_sees_taint_set_after_it_was_parked, failing when testteeth copies the repo to a temp folder) was fixed by U3t. The worktree is now merged with the current feat/heron-v1 head (bash -n passes, docs/designs/reviews/g3-regressions.md present). Do not run the slow steps; confirm the script is unchanged or make only a needed fix, and stop."
     },
-    "max_retries": 1,
+    "max_retries": 2,
     "rejected_count": 1,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-20T10:12:59.360697+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 28,
+    "version": 1365,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "4ae08905b90e43c8f2c1e8d8483d5933b26da68f",
+      "branch": "skein/verify",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/verify"
     }
   },
   "verify__integrate": {
