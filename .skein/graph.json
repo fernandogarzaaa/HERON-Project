@@ -11524,7 +11524,16 @@
     }
   },
   "U8d": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "90e4b07130ab48bab99447b641ef7245",
+        "ended_at": "2026-11-20T13:35:39.590402+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-20T13:32:25.701616+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -11536,22 +11545,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "90e4b07130ab48bab99447b641ef7245",
-      "base_branch": "skein/U8d__integrate-base",
-      "claim_token": "115ecea3eed54b2e9125e873c738dd7a",
-      "claimed_at": "2026-11-20T13:32:25.701616+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-20T13:32:25.701616+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U8c",
       "SYNC33"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- genuine_rate_and_quota_errors_are_limits ordinary_failures_that_mention_rate_or_limit_are_not_limits an_auth_typed_event_naming_a_limit_is_worded_as_a_limit",
+        "duration_ms": 36797,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8d_20261120T133502612803_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8d_20261120T133539412430_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U8d",
     "integration_for": null,
     "intent": {
@@ -11563,13 +11584,26 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "90e4b07130ab48bab99447b641ef7245",
+      "base_commit": "07d18845a369b8a1663aa5dd3e780ff4cce21a65",
+      "changed_files": [
+        "src/cli_llm.rs"
+      ],
+      "commit": "61989d212a5dd032641289446117db5af6a620fd",
+      "diff_stats": {
+        "src/cli_llm.rs": {
+          "added": 130,
+          "deleted": 13
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Bounded limit phrases (35u)",
-    "version": 4,
+    "version": 11,
     "worktree": {
       "base_branch": "skein/U8d__integrate-base",
       "base_commit": "07d18845a369b8a1663aa5dd3e780ff4cce21a65",
