@@ -11180,10 +11180,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "f652cf3b86259ee44880147ca262f76fd4d276e5",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "4f6c090c0e8107e96e0a2b6373c282b660b7379e",
+        "result_commit": "1df86adfa22504fd8b9a10586745f3a0d8d5af79",
+        "shipped_at": "2026-11-20T12:49:31.394350+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "CLI envelope steers page reads to web_fetch (35s U8b)",
-    "version": 9,
+    "version": 10,
     "worktree": {
       "base_branch": "f652cf3b86259ee44880147ca262f76fd4d276e5",
       "base_commit": "f652cf3b86259ee44880147ca262f76fd4d276e5",
