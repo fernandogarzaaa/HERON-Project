@@ -10963,6 +10963,58 @@
       "path": null
     }
   },
+  "U8b": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U8a"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U8b",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- cli_prompt_steers_page_reads_to_web_fetch",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 35s (U8b part).",
+      "goal": "Implement the U8b part of spec item 35s. In src/cli_llm.rs render_prompt (the tool-rules text appended when req.tools is not empty, around 887-894), add one general sentence: to read a web page, call web_fetch; do not use shell (curl, wget or similar) to fetch pages. Add it only when the request offers a tool named web_fetch, so a request without web_fetch never names a tool it cannot call. Do not mention any eval task, and do not change any approval, tool schema or other provider argv. Test cli_prompt_steers_page_reads_to_web_fetch: with web_fetch and shell in req.tools the rendered prompt names web_fetch for reading pages and says not to fetch with shell/curl; with no web_fetch tool the sentence is absent. Update any existing render_prompt test only if it asserts the exact full prompt text, and say so in your handoff (adding the sentence is not a weakening). The new test must fail with the sentence removed. Keep every other test passing unchanged. Deterministic, no sleeps."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "CLI envelope steers page reads to web_fetch (35s U8b)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "Ut": {
     "attempts": [
       {
