@@ -11600,10 +11600,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "07d18845a369b8a1663aa5dd3e780ff4cce21a65",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "3633fdc052f110c03a88b397c15cf6ebc653fb7d",
+        "result_commit": "61989d212a5dd032641289446117db5af6a620fd",
+        "shipped_at": "2026-11-20T13:39:08.143556+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Bounded limit phrases (35u)",
-    "version": 11,
+    "version": 12,
     "worktree": {
       "base_branch": "skein/U8d__integrate-base",
       "base_commit": "07d18845a369b8a1663aa5dd3e780ff4cce21a65",
