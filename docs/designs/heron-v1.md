@@ -1864,6 +1864,34 @@ Open at v1 (2026-11-20). The review rule for the last rounds: a medium or high f
 *   **Tests:** `genuine_rate_and_quota_errors_are_limits`, which covers a 429, `provider.rate_limit`, "Usage limit reached" and "quota exceeded". `ordinary_failures_that_mention_rate_or_limit_are_not_limits`, which covers "file size limit exceeded", "generate a rate table", "the rate of change exceeds the limit" and "usage: heron [options] --limit N", in both the opencode error event and a generic CLI's stderr.
 *   **The G7 report** (`scripts/verify-v1.sh`, step 7) lists every run whose error it reads as a provider limit, with that run's raw error line (secrets redacted). The owner can then check that none of them was a real failure.
 
+##### 35u. Bounded limit phrases (U8d, 2026-11-20)
+
+*   **Type / Scope**: `src/**`, plus the matching regex in `scripts/verify-v1.sh`. The U8c review found that 35t's phrase list reads some ordinary failure text as a limit. These matched in the old loose-word code only partly:
+    *   "Disk quota exceeded (os error 69)";
+    *   "credit balance column missing";
+    *   a Rust type or test named `RateLimiter` or `rate_limiter`;
+    *   a JSON key `rate_limits`.
+
+    These come from a CLI's stderr on a crash. The review also found genuine limits missed: `provider.free-limit` and "Rate-limited".
+*   **The rule, replacing 35t's list.** Matching is case-insensitive. A phrase counts only on a word boundary: no letter or digit right before it or right after it.
+    *   **Limit phrases:** "rate limit", "rate-limit", "rate limited", "rate-limited", "rate_limit", "rate_limit_error", "rate_limit_exceeded", "ratelimiterror", "too many requests", "usage limit", "usage_limit", "free-limit", "free usage", "spend limit", "temporarily limiting", "credit balance is too low", "insufficient_quota", "resource_exhausted", "exceeded your quota", "exceeded your current quota", "out of quota", "quota exceeded".
+    *   **One exception:** "quota exceeded" doesn't count when "disk " or "disc " comes right before it.
+    *   **Structured status:** a status of 429 in opencode's error event is still a limit. 401 is still checked first.
+*   **Tests.** `ordinary_failures_that_mention_rate_or_limit_are_not_limits` gains these inputs, on both paths:
+    *   "Disc quota exceeded (os error 69)";
+    *   "credit balance column missing";
+    *   "cannot find type RateLimiter in this scope";
+    *   "test rate_limiter::tests::burst ... FAILED";
+    *   `invalid event: {"rate_limits":{}}`.
+
+    `genuine_rate_and_quota_errors_are_limits` gains `provider.free-limit`, "Rate-limited, retry later" and "insufficient_quota". The new test `an_auth_typed_event_naming_a_limit_is_worded_as_a_limit` covers `{"type":"provider.auth","message":"quota exceeded for this key"}`, which is worded as a limit, not as logged out. That kills the surviving `class()` mutants.
+*   **G7 matcher.** `scripts/verify-v1.sh`'s limit regex uses the same bounded phrases, plus "overloaded" and a standalone `429`. It still stops that CLI and fails G7 as not measured in full, and it still lists every limit run with its raw line.
+*   **Still missed (low, fail-closed; Known low issues):**
+    *   claude-cli reports a limit inside its stdout result event, which becomes reply text, not the failure preview;
+    *   wordings such as "5-hour limit reached" and "usage exceeds plan limit".
+
+    A missed limit counts as a task failure, which makes G7 stricter, not weaker.
+
 #### Work unit U2w: apply the measurements
 
 ##### 39. `src/cli_llm.rs` and `src/config.rs` (Modify)
@@ -2136,6 +2164,7 @@ The skein gate runs only on this Mac, so it can't see Windows or Linux. CI now a
 | U8a | opencode runs as a plain text model: own agent with its tools off, `--standalone` if needed, stdout error events in failures (35s) | `src/**` | U3v | `cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- opencode_runs_a_heron_agent_with_its_own_tools_off opencode_failure_shows_its_error_event opencode_fake_binary_parses_text_events_and_runs_in_temp_dir` | feature, refactoring: sonnet high |
 | U8b | CLI envelope steers page reads to `web_fetch` (35s) | `src/**` | U8a | `cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- cli_prompt_steers_page_reads_to_web_fetch` | feature, refactoring: sonnet high |
 | U8c | Limit errors told apart by phrase, not by loose words (35t) | `src/**` | U8b | `cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- genuine_rate_and_quota_errors_are_limits ordinary_failures_that_mention_rate_or_limit_are_not_limits opencode_failure_shows_its_error_event` | feature, refactoring: sonnet high |
+| U8d | Bounded limit phrases (35u) | `src/**` | U8c | `cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- genuine_rate_and_quota_errors_are_limits ordinary_failures_that_mention_rate_or_limit_are_not_limits an_auth_typed_event_naming_a_limit_is_worded_as_a_limit` | feature, refactoring: sonnet high |
 | U2g | Regression tests that run each reproduced U2 escape under Seatbelt: a positive control in the launch test, a real-run test for too-broad config-folder overrides, and a Seatbelt half in the probe test | `src/**` | U1g | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- broad_config_dir_override_opens_nothing_in_a_cli_sandbox probes_run_contained_like_the_turn sandboxed_command_cannot_launch_outside_the_sandbox` | hardest tasks: opus high |
 | U0g | genesis `json` audit of the pass-rule grammar (item 8c) | `eval/genesis/**` | U0 | `python3 -I -m unittest discover -s eval/genesis -t eval && genesis audit-evaluator eval/genesis/pass-rules-json.yaml --suite json` | feature, refactoring: sonnet high |
 | U2s | Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement) | `eval/spike/**` | U0, U0g, U2, U2c | `bash eval/spike/run-spike.sh && python3 -I eval/check_gate.py --spike eval/spike/envelope/summary.json eval/spike/hybrid/summary.json --report eval/spike/topology.md` | feature, refactoring: sonnet high |
@@ -2150,7 +2179,7 @@ The skein gate runs only on this Mac, so it can't see Windows or Linux. CI now a
 | U7 | `build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test | `packaging/macos/**` | U4c, U3h | `bash packaging/macos/make-upgrade-fixture.sh --if-missing && bash packaging/macos/build-app.sh --unsigned && test -f dist/Heron-macos-universal.dmg && test -x dist/Heron.app/Contents/MacOS/heron-cli && bash packaging/macos/upgrade-test.sh` | feature, refactoring: sonnet high |
 | U7b | Release and CI workflow changes | `.github/**` | U7 | `actionlint .github/workflows/release.yml .github/workflows/ci.yml` | feature, refactoring: sonnet high |
 | U7c | Fixes from CI on all three OSes: Windows compiles and runs the tests, macOS-only tests gated, the browser test accepts the risk notice, two flaky tests made deterministic | `src/**`, `tests/**` | U3i, U7b | `cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && HERON_TEST_BROWSER=1 cargo test --locked --test integration browser_reads_pages_follows_links_and_fills_in_forms && for i in $(seq 1 50); do cargo test --locked --lib -q > /dev/null 2>&1 \|\| { echo "lib run $i failed"; exit 1; }; done`, then CI green on all three OSes on the pushed branch | feature, refactoring: sonnet high |
-| verify | Full gate on the final branch | `scripts/**` | U0, U0b, U0g, U3a, U1, U2, U2c, U2s, U3, Ut, U2w, U3f, U2x, U3g, U3h, U3i, U4a, U4b, U4c, U6, U6b, U7, U7b, U7c, U3j, U3k, U3l, U4d, U3m, U3n, U3o, U3p, U3q, U3r, U3s, U3t, U3u, U3v, U8a, U8b, U8c | `bash scripts/verify-v1.sh` | feature, refactoring: sonnet high |
+| verify | Full gate on the final branch | `scripts/**` | U0, U0b, U0g, U3a, U1, U2, U2c, U2s, U3, Ut, U2w, U3f, U2x, U3g, U3h, U3i, U4a, U4b, U4c, U6, U6b, U7, U7b, U7c, U3j, U3k, U3l, U4d, U3m, U3n, U3o, U3p, U3q, U3r, U3s, U3t, U3u, U3v, U8a, U8b, U8c, U8d | `bash scripts/verify-v1.sh` | feature, refactoring: sonnet high |
 
 **Order.**
 *   U0 and U3a start in parallel. U0b runs after U0, then the `src/**` chain U1 → U2 → U1f → U2f → U1g → U2g → U1h → U3 → U1i, then U2w → U3f → U2x → U3g → U3h. U1f, U2f and U1g carry the fixes from the independent reviews of U1, U2 and U1f, and the U2c re-run follows U2f.

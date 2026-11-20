@@ -1794,6 +1794,84 @@
     }
   },
   "SYNC32": {
+    "attempts": [
+      {
+        "attempt_id": "3b39bd52b70a4dbd9ae855fab41d6c86",
+        "ended_at": "2026-11-20T13:14:32.796222+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-20T13:14:24.916735+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "grep -q ordinary_failures_that_mention_rate_or_limit_are_not_limits docs/designs/heron-v1.md",
+        "duration_ms": 236,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC32_20261120T131432447040_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC32_20261120T131432684745_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I didn't run the completion check, since the constraints say not to run anything. The supervisor will run it.",
+    "id": "SYNC32",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q ordinary_failures_that_mention_rate_or_limit_are_not_limits docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U8c's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "3b39bd52b70a4dbd9ae855fab41d6c86",
+      "base_commit": "7cfbe2272356e08b297250b63882b6a9bfc70de3",
+      "changed_files": [],
+      "commit": "7cfbe2272356e08b297250b63882b6a9bfc70de3",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Sync feat head into U8c base",
+    "version": 4,
+    "worktree": {
+      "base_branch": "feat/heron-v1",
+      "base_commit": "7cfbe2272356e08b297250b63882b6a9bfc70de3",
+      "branch": "skein/SYNC32",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC32"
+    }
+  },
+  "SYNC33": {
     "attempts": [],
     "attempts_used": 0,
     "backend": "claude_build_rust",
@@ -1806,12 +1884,12 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "3b39bd52b70a4dbd9ae855fab41d6c86",
+      "attempt_id": "2764436b5b9d462d9e6d11267eb46eb5",
       "base_branch": "feat/heron-v1",
-      "claim_token": "daec0fc4273e47ff80a2cdc961981097",
-      "claimed_at": "2026-11-20T13:14:24.916735+00:00",
+      "claim_token": "3cb4fefb0b374bbd9bbbc3bf162a1207",
+      "claimed_at": "2026-11-20T13:32:18.128384+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-20T13:14:24.916735+00:00",
+      "last_heartbeat": "2026-11-20T13:32:18.128384+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1819,13 +1897,13 @@
     "depends_on": [],
     "evidence": [],
     "handoff_note": null,
-    "id": "SYNC32",
+    "id": "SYNC33",
     "integration_for": null,
     "intent": {
-      "completion": "grep -q ordinary_failures_that_mention_rate_or_limit_are_not_limits docs/designs/heron-v1.md",
+      "completion": "grep -q an_auth_typed_event_naming_a_limit_is_worded_as_a_limit docs/designs/heron-v1.md",
       "constraints": "Do not read, write or run anything.",
       "context": "No spec work.",
-      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U8c's base. Reply 'done' and stop."
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U8d's base. Reply 'done' and stop."
     },
     "max_retries": 0,
     "rejected_count": 0,
@@ -1835,7 +1913,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "claimed",
-    "title": "Sync feat head into U8c base",
+    "title": "Sync feat head into U8d base",
     "version": 2,
     "worktree": {
       "base_branch": "feat/heron-v1",
@@ -11252,7 +11330,16 @@
     }
   },
   "U8c": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "89d5726ea056498398f1024ea1dd646c",
+        "ended_at": "2026-11-20T13:16:43.946023+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-20T13:14:33.493210+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -11278,8 +11365,20 @@
       "U8b",
       "SYNC32"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- genuine_rate_and_quota_errors_are_limits ordinary_failures_that_mention_rate_or_limit_are_not_limits opencode_failure_shows_its_error_event",
+        "duration_ms": 42368,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8c_20261120T131601378499_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8c_20261120T131643753977_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U8c",
     "integration_for": null,
     "intent": {
@@ -11291,12 +11390,157 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
+    "result": {
+      "attempt_id": "89d5726ea056498398f1024ea1dd646c",
+      "base_commit": "50925c392c357e075fff776fd8e7fd753a570205",
+      "changed_files": [
+        "src/cli_llm.rs"
+      ],
+      "commit": "b33cf1af95337a6be8f78d50a15ccf59eb7187fc",
+      "diff_stats": {
+        "src/cli_llm.rs": {
+          "added": 88,
+          "deleted": 5
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "50925c392c357e075fff776fd8e7fd753a570205",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "b8b5fe71d012ddd01f2802cd7ba2bb60ea180e24",
+        "result_commit": "b33cf1af95337a6be8f78d50a15ccf59eb7187fc",
+        "shipped_at": "2026-11-20T13:17:22.830514+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
+    "title": "Limit errors told apart by phrase (35t)",
+    "version": 10,
+    "worktree": {
+      "base_branch": "skein/U8c__integrate-base",
+      "base_commit": "50925c392c357e075fff776fd8e7fd753a570205",
+      "branch": "skein/U8c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U8c"
+    }
+  },
+  "U8c__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "c45b4fa235c7469197ec53d3415f38d7",
+        "ended_at": "2026-11-20T13:14:33.403739+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-20T13:14:33.090711+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U8b",
+      "SYNC32"
+    ],
+    "evidence": [
+      {
+        "command": "git merge 7cfbe2272356e08b297250b63882b6a9bfc70de3",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['1df86adfa22504fd8b9a10586745f3a0d8d5af79', '7cfbe2272356e08b297250b63882b6a9bfc70de3'] into skein/U8c__integrate-base.",
+    "id": "U8c__integrate",
+    "integration_for": "U8c",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U8b', 'SYNC32'] into one base branch for U8c."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "1df86adfa22504fd8b9a10586745f3a0d8d5af79",
+      "changed_files": [],
+      "commit": "50925c392c357e075fff776fd8e7fd753a570205",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Integrate parents of U8c",
+    "version": 3,
+    "worktree": {
+      "base_branch": "1df86adfa22504fd8b9a10586745f3a0d8d5af79",
+      "branch": "skein/U8c__integrate-base",
+      "path": null
+    }
+  },
+  "U8d": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U8c",
+      "SYNC33"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U8d",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- genuine_rate_and_quota_errors_are_limits ordinary_failures_that_mention_rate_or_limit_are_not_limits an_auth_typed_event_naming_a_limit_is_worded_as_a_limit",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 35u (it replaces 35t's phrase list).",
+      "goal": "Implement spec item 35u in src/cli_llm.rs. Read 35u first; it replaces the phrase list of names_a_provider_limit (added by U8c, around 1225-1245).\n1. names_a_provider_limit(text): case-insensitive; true only when one of 35u's phrases occurs on a word boundary (the char before and the char after the match are not ASCII letters or digits; start/end of text counts as a boundary). \"quota exceeded\" does not count when immediately preceded by \"disk \" or \"disc \". Use exactly 35u's phrase list. No regex crate (no new deps); plain string scanning.\n2. ProviderError::class keeps its order: status 401 -> logged out; then status 429 or names_a_provider_limit(kind + \" \" + message) -> limit; then auth-typed -> logged out.\n3. Tests: extend ordinary_failures_that_mention_rate_or_limit_are_not_limits with \"Disc quota exceeded (os error 69)\", \"Disk quota exceeded\", \"credit balance column missing\", \"cannot find type RateLimiter in this scope\", \"test rate_limiter::tests::burst ... FAILED\", and invalid event: {\"rate_limits\":{}} on both the opencode event and generic paths (escape quotes correctly in the shell fake). Extend genuine_rate_and_quota_errors_are_limits with type provider.free-limit (message \"Free usage exceeded\"), \"Rate-limited, retry later\", \"insufficient_quota\", and keep its existing cases. Update only_a_fixed_set_of_phrases_names_a_provider_limit to 35u (it is a unit test of the list; changing its expected list to the new spec is not a weakening, say so in your handoff), adding boundary negatives (RateLimiter, rate_limits, rate_limiter, \"disk quota exceeded\"). New test an_auth_typed_event_naming_a_limit_is_worded_as_a_limit: opencode event {\"type\":\"error\",\"error\":{\"type\":\"provider.auth\",\"message\":\"quota exceeded for this key\"}} must give the provider-limit message, not logged out (this kills the mutants that replace the class() phrase check with false or with a kind-only check; confirm by applying them).\nEach new case must fail on the current code or with its fix removed. Keep every other existing test passing unchanged. Deterministic, no sleeps. No macos/ changes."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
     "result": null,
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "unclaimed",
-    "title": "Limit errors told apart by phrase (35t)",
+    "title": "Bounded limit phrases (35u)",
     "version": 1,
     "worktree": {
       "base_branch": null,
@@ -11555,7 +11799,8 @@
       "U3v",
       "U8a",
       "U8b",
-      "U8c"
+      "U8c",
+      "U8d"
     ],
     "evidence": [
       {
@@ -11588,7 +11833,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 1366,
+    "version": 1367,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "base_commit": "4ae08905b90e43c8f2c1e8d8483d5933b26da68f",
