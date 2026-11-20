@@ -11569,11 +11569,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Bounded limit phrases (35u)",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U8d__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "07d18845a369b8a1663aa5dd3e780ff4cce21a65",
+      "branch": "skein/U8d",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U8d"
     }
   },
   "U8d__integrate": {
