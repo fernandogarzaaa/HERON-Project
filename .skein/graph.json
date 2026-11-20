@@ -11263,7 +11263,9 @@
       "U3s",
       "U3t",
       "U3u",
-      "U3v"
+      "U3v",
+      "U8a",
+      "U8b"
     ],
     "evidence": [
       {
@@ -11296,7 +11298,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 1364,
+    "version": 1365,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "base_commit": "4ae08905b90e43c8f2c1e8d8483d5933b26da68f",
