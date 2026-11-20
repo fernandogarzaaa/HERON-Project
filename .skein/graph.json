@@ -11139,11 +11139,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "CLI envelope steers page reads to web_fetch (35s U8b)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "f652cf3b86259ee44880147ca262f76fd4d276e5",
-      "branch": null,
-      "path": null
+      "base_commit": "f652cf3b86259ee44880147ca262f76fd4d276e5",
+      "branch": "skein/U8b",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U8b"
     }
   },
   "Ut": {
