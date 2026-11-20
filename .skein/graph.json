@@ -11784,6 +11784,14 @@
         "holder": "agent-1",
         "outcome": "failed",
         "started_at": "2026-11-20T13:44:17.367674+00:00"
+      },
+      {
+        "attempt_id": "07c0ade796d8426e8a43f61ee3308c07",
+        "ended_at": "2026-11-20T13:48:21.720817+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-20T13:46:47.380437+00:00"
       }
     ],
     "attempts_used": 1,
@@ -11797,15 +11805,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "07c0ade796d8426e8a43f61ee3308c07",
-      "base_branch": "skein/U8e__integrate-base",
-      "claim_token": "9d81f885e56b450bb825222b8c3be925",
-      "claimed_at": "2026-11-20T13:46:47.380437+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-20T13:46:47.380437+00:00",
-      "node_version": 16,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U8d",
@@ -11814,17 +11822,17 @@
     "evidence": [
       {
         "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- opencode_ignores_config_above_its_run_folder opencode_failure_redacts_an_echoed_key opencode_failure_shows_its_error_event",
-        "duration_ms": 13623,
-        "exit_code": 101,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8e_20261120T134448441216_0.log"
+        "duration_ms": 34943,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8e_20261120T134746613367_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8e_20261120T134502066347_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8e_20261120T134821559237_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U8e",
     "integration_for": null,
     "intent": {
@@ -11836,13 +11844,26 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "07c0ade796d8426e8a43f61ee3308c07",
+      "base_commit": "4be6db51f4d5aa74df6eb450837bcccb20503c75",
+      "changed_files": [
+        "src/cli_llm.rs"
+      ],
+      "commit": "543bcad1eea45bc3726505061c09bc387780af7e",
+      "diff_stats": {
+        "src/cli_llm.rs": {
+          "added": 110,
+          "deleted": 4
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "opencode ignores config above its run folder (35v)",
-    "version": 18,
+    "version": 22,
     "worktree": {
       "base_branch": "skein/U8e__integrate-base",
       "base_commit": "4be6db51f4d5aa74df6eb450837bcccb20503c75",
