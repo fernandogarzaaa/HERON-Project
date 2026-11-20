@@ -11292,15 +11292,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "89d5726ea056498398f1024ea1dd646c",
+      "base_branch": "skein/U8c__integrate-base",
+      "claim_token": "99ba4887e6b8464ea936ceb35e27bb9d",
+      "claimed_at": "2026-11-20T13:14:33.493210+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-20T13:14:33.493210+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U8b",
@@ -11323,9 +11323,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Limit errors told apart by phrase (35t)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U8c__integrate-base",
       "branch": null,
