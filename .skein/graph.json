@@ -11813,9 +11813,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "opencode ignores config above its run folder (35v)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U8e__integrate-base",
       "branch": null,
       "path": null
     }
