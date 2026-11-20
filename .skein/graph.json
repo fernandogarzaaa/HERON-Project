@@ -11356,10 +11356,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "50925c392c357e075fff776fd8e7fd753a570205",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "b8b5fe71d012ddd01f2802cd7ba2bb60ea180e24",
+        "result_commit": "b33cf1af95337a6be8f78d50a15ccf59eb7187fc",
+        "shipped_at": "2026-11-20T13:17:22.830514+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Limit errors told apart by phrase (35t)",
-    "version": 9,
+    "version": 10,
     "worktree": {
       "base_branch": "skein/U8c__integrate-base",
       "base_commit": "50925c392c357e075fff776fd8e7fd753a570205",
