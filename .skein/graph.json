@@ -11577,29 +11577,44 @@
     }
   },
   "U8d__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "2e27b612b7ca42ccaef68c864e122838",
+        "ended_at": "2026-11-20T13:32:25.611014+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-20T13:32:25.304495+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "2e27b612b7ca42ccaef68c864e122838",
-      "base_branch": "skein/U8d__integrate__integrate-base",
-      "claim_token": "5b5ea9d4c8a344c9927de9f61789e287",
-      "claimed_at": "2026-11-20T13:32:25.304495+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-20T13:32:25.304495+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U8c",
       "SYNC33"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 3d3ac4aa546ee0c1c0448cfe1c9224dcf8730b11",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['b33cf1af95337a6be8f78d50a15ccf59eb7187fc', '3d3ac4aa546ee0c1c0448cfe1c9224dcf8730b11'] into skein/U8d__integrate-base.",
     "id": "U8d__integrate",
     "integration_for": "U8d",
     "intent": {
@@ -11611,16 +11626,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "b33cf1af95337a6be8f78d50a15ccf59eb7187fc",
+      "changed_files": [],
+      "commit": "07d18845a369b8a1663aa5dd3e780ff4cce21a65",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of U8d",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/U8d__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "b33cf1af95337a6be8f78d50a15ccf59eb7187fc",
+      "branch": "skein/U8d__integrate-base",
       "path": null
     }
   },
