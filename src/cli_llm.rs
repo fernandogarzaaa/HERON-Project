@@ -1221,24 +1221,47 @@ struct ProviderError {
     status: Option<u64>,
 }
 
-/// True when `text` names a provider limit by one of a fixed set of phrases (spec 35t). Loose word
-/// combinations such as "limit" with "rate" or "usage" do not count: a real failure ("the rate of
-/// change exceeds the limit", "usage: heron --limit N") must never be taken for a limit.
+/// True when `text` names a provider limit by one of a fixed set of phrases, each on a word
+/// boundary (spec 35u). Loose word combinations such as "limit" with "rate" or "usage" do not
+/// count, and neither does a phrase inside a longer word: a real failure ("the rate of change
+/// exceeds the limit", "usage: heron --limit N", `RateLimiter`, `rate_limits`) must never be taken
+/// for a limit. "quota exceeded" right after "disk " or "disc " is a full disk quota, not a limit.
 fn names_a_provider_limit(text: &str) -> bool {
-    const PHRASES: [&str; 10] = [
+    const PHRASES: [&str; 22] = [
         "rate limit",
+        "rate-limit",
+        "rate limited",
+        "rate-limited",
         "rate_limit",
-        "ratelimit",
+        "rate_limit_error",
+        "rate_limit_exceeded",
+        "ratelimiterror",
         "too many requests",
-        "quota",
         "usage limit",
         "usage_limit",
+        "free-limit",
+        "free usage",
         "spend limit",
-        "credit balance",
         "temporarily limiting",
+        "credit balance is too low",
+        "insufficient_quota",
+        "resource_exhausted",
+        "exceeded your quota",
+        "exceeded your current quota",
+        "out of quota",
+        "quota exceeded",
     ];
-    let lower = text.to_lowercase();
-    PHRASES.iter().any(|p| lower.contains(p))
+    // ASCII lowercasing keeps byte offsets, and every phrase is ASCII.
+    let lower = text.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    PHRASES.iter().any(|phrase| {
+        lower.match_indices(phrase).any(|(start, _)| {
+            let end = start + phrase.len();
+            let bounded = !start.checked_sub(1).is_some_and(|i| bytes[i].is_ascii_alphanumeric()) && !bytes.get(end).is_some_and(u8::is_ascii_alphanumeric);
+            let full_disk = *phrase == "quota exceeded" && (lower[..start].ends_with("disk ") || lower[..start].ends_with("disc "));
+            bounded && !full_disk
+        })
+    })
 }
 
 /// How Heron words a [`ProviderError`].
@@ -2984,13 +3007,17 @@ mod tests {
             // And so does the message alone.
             r#"{"type":"error","error":{"type":"provider.error","message":"Usage limit reached for this plan"}}"#,
             r#"{"type":"error","error":{"type":"provider.error","message":"quota exceeded"}}"#,
+            // 35u: a limit named by the type, with a message that names none.
+            r#"{"type":"error","error":{"type":"provider.free-limit","message":"Free usage exceeded"}}"#,
+            r#"{"type":"error","error":{"type":"provider.error","message":"Rate-limited, retry later"}}"#,
+            r#"{"type":"error","error":{"type":"provider.error","message":"insufficient_quota"}}"#,
         ] {
             let err = opencode_failure_with(event).await;
             assert!(err.contains("refused the request") && err.contains("usage window may be exhausted"), "{event}: {err}");
             assert!(!err.contains("logged out"), "{event}: {err}");
         }
         // The generic failure path of any CLI tells the same phrases apart.
-        for stderr in ["Rate limit reached, retry later", "quota exceeded", "You hit your usage limit"] {
+        for stderr in ["Rate limit reached, retry later", "quota exceeded", "You hit your usage limit", "Rate-limited, retry later", "insufficient_quota", "Free usage exceeded"] {
             let err = generic_failure_with(stderr).await;
             assert!(err.contains("refused the request") && err.contains("usage window may be exhausted"), "{stderr}: {err}");
         }
@@ -3004,13 +3031,21 @@ mod tests {
             "generate a rate table",
             "the rate of change exceeds the limit",
             "usage: heron [options] --limit N",
+            "Disc quota exceeded (os error 69)",
+            "Disk quota exceeded",
+            "credit balance column missing",
+            "cannot find type RateLimiter in this scope",
+            "test rate_limiter::tests::burst ... FAILED",
+            r#"invalid event: {"rate_limits":{}}"#,
         ] {
             let not_a_limit = |err: &str, how: &str| {
                 assert!(err.contains(text), "{how} {text}: the failure must show its text: {err}");
                 assert!(!err.contains("refused the request") && !err.contains("usage window"), "{how} {text}: {err}");
             };
             for status in ["", r#","status":500"#] {
-                let event = format!(r#"{{"type":"error","error":{{"type":"provider.error","message":"{text}"{status}}}}}"#);
+                // The message goes through serde_json so a quote in `text` is escaped in the event.
+                let message = serde_json::to_string(text).unwrap();
+                let event = format!(r#"{{"type":"error","error":{{"type":"provider.error","message":{message}{status}}}}}"#);
                 not_a_limit(&opencode_failure_with(&event).await, "opencode event");
             }
             not_a_limit(&generic_failure_with(text).await, "generic CLI");
@@ -3019,12 +3054,94 @@ mod tests {
 
     #[test]
     fn only_a_fixed_set_of_phrases_names_a_provider_limit() {
-        for text in ["Rate Limit hit", "provider.rate_limit", "RateLimitError", "Too Many Requests", "QUOTA", "usage limit", "usage_limit", "Spend limit reached", "Your credit balance is too low", "temporarily limiting requests"] {
+        // The list is spec 35u's, which replaced 35t's (it had bare "quota", "ratelimit" and
+        // "credit balance"); this is the list under test, not a loosened expectation.
+        for text in [
+            "Rate Limit hit",
+            "rate-limit",
+            "Rate limited",
+            "Rate-limited, retry later",
+            "provider.rate_limit",
+            "rate_limit_error",
+            "rate_limit_exceeded",
+            "RateLimitError",
+            "Too Many Requests",
+            "usage limit",
+            "usage_limit",
+            "provider.free-limit",
+            "Free usage exceeded",
+            "Spend limit reached",
+            "temporarily limiting requests",
+            "Your credit balance is too low",
+            "insufficient_quota",
+            "RESOURCE_EXHAUSTED",
+            "You exceeded your quota",
+            "You exceeded your current quota",
+            "out of quota",
+            "quota exceeded",
+            "Quota exceeded.",
+            "(quota exceeded)",
+            "disk full: quota exceeded",
+        ] {
             assert!(names_a_provider_limit(text), "{text}");
         }
-        for text in ["", "limit", "rate", "usage", "file size limit exceeded", "the rate of change exceeds the limit", "usage: heron --limit N", "limit of usage", "rate the limit"] {
+        for text in [
+            "",
+            "limit",
+            "rate",
+            "usage",
+            "QUOTA",
+            "quota",
+            "credit balance",
+            "file size limit exceeded",
+            "the rate of change exceeds the limit",
+            "usage: heron --limit N",
+            "limit of usage",
+            "rate the limit",
+            // A phrase inside a longer word or identifier is not on a word boundary.
+            "RateLimiter",
+            "rate_limits",
+            "rate_limiter",
+            "ratelimit",
+            "myquota exceeded",
+            "quota exceededs",
+            "quota exceeded2",
+            "ratelimiterrors",
+            // A full disk is not a limit.
+            "disk quota exceeded",
+            "Disc quota exceeded (os error 69)",
+        ] {
             assert!(!names_a_provider_limit(text), "{text}");
         }
+    }
+
+    #[test]
+    fn provider_error_class_checks_401_then_limit_then_auth() {
+        let class = |event: &str| ProviderError::from_opencode_line(event).expect("an error event").class();
+        let auth_naming_a_limit = r#"{"type":"error","error":{"type":"provider.auth","message":"quota exceeded for this key"}}"#;
+        assert!(matches!(class(auth_naming_a_limit), ErrorClass::Limit));
+        // An auth type with no limit phrase and no 401 is still logged out.
+        assert!(matches!(class(r#"{"type":"error","error":{"type":"provider.auth","message":"key expired"}}"#), ErrorClass::LoggedOut));
+        // 401 wins over a limit phrase, and 429 alone is a limit.
+        assert!(matches!(class(r#"{"type":"error","error":{"type":"provider.auth","message":"quota exceeded","status":401}}"#), ErrorClass::LoggedOut));
+        assert!(matches!(class(r#"{"type":"error","error":{"type":"provider.request","message":"Slow down","status":429}}"#), ErrorClass::Limit));
+        // A phrase in the type names a limit when the message does not.
+        assert!(matches!(class(r#"{"type":"error","error":{"type":"provider.free-limit","message":"Free usage exceeded"}}"#), ErrorClass::Limit));
+        assert!(matches!(class(r#"{"type":"error","error":{"type":"provider.error","message":"Disk quota exceeded"}}"#), ErrorClass::Other));
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn an_auth_typed_event_naming_a_limit_is_worded_as_a_limit() {
+        // The type says "auth", but the message names a limit and there is no 401: a limit.
+        let event = r#"{"type":"error","error":{"type":"provider.auth","message":"quota exceeded for this key"}}"#;
+        let err = opencode_failure_with(event).await;
+        assert!(err.contains("refused the request") && err.contains("usage window may be exhausted"), "{err}");
+        assert!(!err.contains("logged out"), "{err}");
+        // A 401 is still checked first.
+        let event = r#"{"type":"error","error":{"type":"provider.auth","message":"quota exceeded for this key","status":401}}"#;
+        let err = opencode_failure_with(event).await;
+        assert!(err.contains("logged out") && !err.contains("refused the request"), "{err}");
     }
 
     #[tokio::test]
