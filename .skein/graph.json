@@ -10951,15 +10951,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "6b9112ac92484bc1b9104900d500d1b2",
+      "base_branch": "skein/U8a__integrate-base",
+      "claim_token": "fde2552f23054674828cd47c06c46ef4",
+      "claimed_at": "2026-11-20T12:39:07.580304+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-20T12:39:07.580304+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U3v",
@@ -10982,9 +10982,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "opencode runs as a plain text model (35s U8a)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U8a__integrate-base",
       "branch": null,
