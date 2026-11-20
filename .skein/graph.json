@@ -11536,15 +11536,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "90e4b07130ab48bab99447b641ef7245",
+      "base_branch": "skein/U8d__integrate-base",
+      "claim_token": "115ecea3eed54b2e9125e873c738dd7a",
+      "claimed_at": "2026-11-20T13:32:25.701616+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-20T13:32:25.701616+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "U8c",
@@ -11567,9 +11567,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Bounded limit phrases (35u)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/U8d__integrate-base",
       "branch": null,
