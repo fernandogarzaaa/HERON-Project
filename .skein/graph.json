@@ -11768,7 +11768,16 @@
     }
   },
   "U8e": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "0c00c3cefd524de08f4519e62fddcb5c",
+        "ended_at": "2026-11-20T13:43:11.681891+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-20T13:39:54.373033+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -11780,22 +11789,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "0c00c3cefd524de08f4519e62fddcb5c",
-      "base_branch": "skein/U8e__integrate-base",
-      "claim_token": "0f21f21f1bc2494b8c5bdd94f9867c36",
-      "claimed_at": "2026-11-20T13:39:54.373033+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-20T13:39:54.373033+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U8d",
       "SYNC34"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- opencode_ignores_config_above_its_run_folder opencode_failure_redacts_an_echoed_key opencode_failure_shows_its_error_event",
+        "duration_ms": 26961,
+        "exit_code": 101,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8e_20261120T134244681573_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8e_20261120T134311651406_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "U8e",
     "integration_for": null,
     "intent": {
@@ -11808,12 +11829,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-20T13:44:17.314099+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "opencode ignores config above its run folder (35v)",
-    "version": 4,
+    "version": 11,
     "worktree": {
       "base_branch": "skein/U8e__integrate-base",
       "base_commit": "4be6db51f4d5aa74df6eb450837bcccb20503c75",
