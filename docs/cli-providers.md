@@ -18,9 +18,10 @@ For a first install on a Mac, follow [Getting started on a Mac](getting-started-
 ## Tier 1 CLIs
 
 A Tier 1 CLI passed Heron's containment check on a real install (see
-[Containment](#containment)). Tier 1 CLIs are the ones the release gates are
-run on, and the only ones with a pinned version range. Every other provider is
-labelled experimental.
+[Containment](#containment)) and the release's task gate. Tier 1 CLIs are the
+ones the release gates are run on. Every CLI that passed the containment check
+has a pinned version range. Every provider that isn't Tier 1 is labelled
+experimental.
 
 Recorded on the owner's Mac on 2026-11-18 (`eval/containment/*.json`;
 `python3 -I eval/containment/check.py --list-tier1` prints the list):
@@ -29,11 +30,16 @@ Recorded on the owner's Mac on 2026-11-18 (`eval/containment/*.json`;
 | --- | --- | --- | --- | --- | --- |
 | `claude-cli` | Claude Code | 2.1.327 | `>=2.1.327, <3.0.0` | `claude auth login` | macOS login Keychain |
 | `codex-cli` | Codex CLI | 0.169.0 | `>=0.169.0, <1.0.0` | `codex login` | `~/.codex` |
-| `opencode-cli` | OpenCode | 2.1.4 | `>=2.1.4, <3.0.0` | `opencode auth login` (or `opencode.json`) | its own folders (below) |
 
 The lower bound is the version that passed the containment check. The upper
 bound is the next major version. The same values are in the registry
 (`src/cli_llm.rs`, field `supported`).
+
+**OpenCode is not configured or tested yet in v1.** `opencode-cli` passed the
+containment check on 2.1.4, and Heron keeps its version range
+(`>=2.1.4, <3.0.0`), because the way Heron turns its own tools off was checked
+on 2.x only. Its task gate has not been run, so the owner left it out of v1
+Tier 1 on 2026-11-21 and it is labelled experimental. Don't rely on it yet.
 
 The other candidates did not reach Tier 1:
 
@@ -183,8 +189,6 @@ What each Tier 1 CLI costs:
 
 - **claude-cli:** draws on the Claude Pro/Max plan's usage window.
 - **codex-cli:** draws on the ChatGPT Plus/Pro/Team plan.
-- **opencode-cli:** free when routed to a free or local model; otherwise the
-  upstream provider's price.
 
 Running the full task gate before a release (10 tasks and one probe, 3 runs
 each) uses 33 runs of each Tier 1 CLI's allowance.
@@ -232,7 +236,7 @@ that provider's terms are unreviewed.
 | --- | --- | --- | --- | --- |
 | `claude-cli` | Claude Code | `claude auth login` | Claude Pro/Max usage window | Tier 1 |
 | `codex-cli` | Codex CLI | `codex login` | ChatGPT Plus/Pro/Team plan | Tier 1 |
-| `opencode-cli` | OpenCode | `opencode auth login` or `opencode.json` | Free with a free/local model, else upstream price | Tier 1 |
+| `opencode-cli` | OpenCode | `opencode auth login` or `opencode.json` | Free with a free/local model, else upstream price | experimental: not configured or tested yet in v1 |
 | `antigravity-cli` | Antigravity CLI (`agy`) | Sign in with Google | Google pricing for the method | experimental |
 | `cline-cli` | Cline CLI | `cline auth <provider>` | Free with a free/local model. Needs `cli_allow_agent_tools = true` | experimental |
 | `gemini-cli` | Gemini CLI | Pick Gemini API Key | API-key free tier. Google login no longer works; use Antigravity | experimental |
@@ -269,7 +273,6 @@ Or per run:
 
 ```sh
 HERON_PROVIDER=codex-cli heron
-HERON_PROVIDER=opencode-cli HERON_CLI_MODEL=anthropic/claude-sonnet-5.5 heron
 ```
 
 In the Mac app, Settings also shows whether the sandbox is on.
