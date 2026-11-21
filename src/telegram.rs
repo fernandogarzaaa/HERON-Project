@@ -462,20 +462,28 @@ fn session_for(app: &App, fresh: bool) -> Result<Session> {
     Ok(s)
 }
 
-async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i64, text: String) {
+async fn handle_message(
+    app: &Arc<App>,
+    bot: &Bot,
+    shared: &Arc<Shared>,
+    chat: i64,
+    text: String,
+    identity: ChannelIdentity,
+    provider_message_id: String,
+) -> bool {
     let lower = text.trim().to_lowercase();
     // Stopping comes first: "/stop" while a question is waiting must halt the whole reply, not merely
     // answer the question with "no" and let the work carry on.
     if lower == "/stop" {
         let stopped = shared.stop();
         bot.send(chat, if stopped { "Stopped." } else { "Nothing is running." }).await;
-        return;
+        return false;
     }
     if lower == "/pause" {
         app.set_paused(true);
         shared.stop();
         bot.send(chat, "Paused. Heron will start nothing on its own (reminders, triggers, suggestions) until you send /resume.").await;
-        return;
+        return false;
     }
     // A late response to a prior prompt must not approve whichever action
     // happens to be waiting now. Replies require the challenge displayed
@@ -498,10 +506,10 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
         }
     };
     match reply {
-        Some(Ok((tx, allow))) => { let _ = tx.send(allow); return; }
+        Some(Ok((tx, allow))) => { let _ = tx.send(allow); return false; }
         Some(Err(())) => {
             bot.send(chat, "An approval is pending. Reply using the exact yes/no code displayed in the permission question, or send /stop.").await;
-            return;
+            return false;
         }
         None => {}
     }
@@ -509,16 +517,16 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
         "/new" => {
             let _ = session_for(app, true);
             bot.send(chat, "Started a new conversation.").await;
-            return;
+            return false;
         }
         "/resume" => {
             app.set_paused(false);
             bot.send(chat, "Resumed.").await;
-            return;
+            return false;
         }
         "/start" | "/help" => {
             bot.send(chat, "This is your Heron. Send a message to ask for something. /new starts a fresh conversation, /stop halts a running reply, /pause stops everything Heron does on its own, /resume turns it back on.").await;
-            return;
+            return false;
         }
         _ => {}
     }
@@ -528,7 +536,13 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
         let mut running = shared.running.lock().unwrap();
         if running.is_none() {
             let run_id = shared.next_run.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let (app2, bot2, shared2) = (app.clone(), bot.clone(), shared.clone());
+            let (app2, bot2, shared2, identity2, message_id2) = (
+                app.clone(),
+                bot.clone(),
+                shared.clone(),
+                identity,
+                provider_message_id,
+            );
             let task = tokio::spawn(async move {
                 let reply = async {
                     let mut session = session_for(&app2, false)?;
@@ -550,12 +564,17 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
                     Ok(t) => bot2.send(chat, &t).await,
                     Err(e) => bot2.send(chat, &format!("Heron could not finish: {e:#}")).await,
                 }
+                // The inbound journal remains accepted while the detached turn
+                // runs. A crash/abort before this point is surfaced by
+                // mark_interrupted() on the next gateway start.
+                let _ = bot2.spool.complete_inbound(&identity2, &message_id2);
             });
             *running = Some((run_id, task.abort_handle()));
-            return;
+            return true;
         }
     }
     bot.send(chat, "Still working on your last message. Send /stop to halt it.").await;
+    false
 }
 
 /// Forward results of scheduled and self-started work to the paired chat.
@@ -787,11 +806,21 @@ async fn run_with_generation(app: Arc<App>, api_base: String, token: String, sta
                                     crate::util::now_ts(),
                                 ) {
                                     Ok(true) => {
-                                        handle_message(&app, &bot, &shared, chat, t).await;
-                                        let _ = bot.spool.complete_inbound(
-                                            &identity,
-                                            &event.provider_message_id,
-                                        );
+                                        let detached = handle_message(
+                                            &app,
+                                            &bot,
+                                            &shared,
+                                            chat,
+                                            t,
+                                            identity.clone(),
+                                            event.provider_message_id.clone(),
+                                        ).await;
+                                        if !detached {
+                                            let _ = bot.spool.complete_inbound(
+                                                &identity,
+                                                &event.provider_message_id,
+                                            );
+                                        }
                                     }
                                     Ok(false) => {}
                                     Err(err) => {
@@ -880,6 +909,73 @@ mod tests {
     use crate::config::Config;
     use crate::llm::ScriptedLlm;
     use crate::store::Store;
+
+    struct BlockingLlm {
+        started: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait]
+    impl crate::llm::Llm for BlockingLlm {
+        async fn chat(
+            &self,
+            _req: crate::llm::ChatRequest,
+            _on_delta: crate::llm::DeltaFn<'_>,
+        ) -> Result<crate::llm::ChatResponse> {
+            self.started.notify_one();
+            std::future::pending::<Result<crate::llm::ChatResponse>>().await
+        }
+    }
+
+    #[tokio::test]
+    async fn an_aborted_detached_turn_remains_visible_to_interruption_recovery() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        let started = Arc::new(tokio::sync::Notify::new());
+        let app = Arc::new(App::assemble(
+            cfg,
+            dir.path().join("ws"),
+            Store::in_memory().unwrap(),
+            Arc::new(BlockingLlm { started: started.clone() }),
+        ).await.unwrap());
+        let spool = ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap();
+        let bot = Bot {
+            client: reqwest::Client::new(),
+            base: "http://127.0.0.1:1/botTEST".into(),
+            app: app.clone(),
+            account_id: "test-bot".into(),
+            pairing_epoch: pairing_epoch(&app),
+            spool: spool.clone(),
+            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        let identity = bot.identity(42);
+        let event = InboundMessage {
+            identity: identity.clone(),
+            provider_message_id: "update-1".into(),
+            thread_id: None,
+            text: "run a task".into(),
+        };
+        assert!(spool.accept_inbound(&identity, &event, 100).unwrap());
+
+        let shared = Arc::<Shared>::default();
+        let detached = handle_message(
+            &app,
+            &bot,
+            &shared,
+            42,
+            event.text.clone(),
+            identity,
+            event.provider_message_id.clone(),
+        ).await;
+        assert!(detached, "ordinary messages are handled by a detached agent task");
+        tokio::time::timeout(Duration::from_secs(5), started.notified()).await.unwrap();
+        assert!(shared.stop(), "the blocked agent task should be abortable");
+        assert_eq!(
+            spool.mark_interrupted(ChannelKind::Telegram, &bot.account_id).unwrap(),
+            1,
+            "a detached turn that did not complete must remain recoverable"
+        );
+    }
 
     #[test]
     fn splits_telegram_replies_by_utf16_not_unicode_scalar_count() {
