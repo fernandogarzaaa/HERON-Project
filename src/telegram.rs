@@ -382,11 +382,10 @@ pub(crate) fn initialize_offset_for_token(
     Ok(())
 }
 
-/// Preflight the replacement bot's cursor before revoking the current pairing.
-/// A failed cursor write must leave the existing owner/session intact.
-pub(crate) fn prepare_token_replacement(app: &App, token: &str) -> Result<()> {
-    initialize_offset_for_token(&app.store, token)?;
-    unpair(app)
+/// Preflight the replacement bot's cursor before stopping or revoking the current pairing.
+/// A failed cursor write must leave the existing owner/session and gateway intact.
+pub(crate) fn preflight_token_replacement(app: &App, token: &str) -> Result<()> {
+    initialize_offset_for_token(&app.store, token)
 }
 
 /// The code, for showing in the app. Looking at it there is what re-opens pairing after too many
@@ -1281,7 +1280,7 @@ mod tests {
              BEGIN SELECT RAISE(ABORT, 'injected cursor initialization failure'); END;",
         );
 
-        assert!(prepare_token_replacement(&app, "NEW-TOKEN").is_err());
+        assert!(preflight_token_replacement(&app, "NEW-TOKEN").is_err());
         assert_eq!(app.store.kv_get("telegram_chat").as_deref(), Some("42"));
         assert_eq!(
             app.store.kv_get("telegram_session").as_deref(),
