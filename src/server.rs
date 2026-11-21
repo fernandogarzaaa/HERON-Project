@@ -1041,19 +1041,15 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
             "Telegram bot credentials require a verified native vault; Linux is not yet supported.".into()));
     }
     if replacing {
+        // Cursor initialization is a safe preflight. If SQLite cannot persist
+        // it, preserve the current pairing and leave the running gateway alone.
+        crate::telegram::preflight_token_replacement(&st.app, token)?;
         crate::telegram::stop(&st.app);
         // A gateway in another Heron process sharing this home stops on its next poll.
         crate::telegram::bump_generation(&st.app);
         // The durable pairing revocation must commit before the credential can change.
         // If it fails, leave the old token/pairing intact and restart the old gateway.
         if let Err(err) = crate::telegram::unpair(&st.app) {
-            crate::telegram::spawn_if_configured(&st.app);
-            return Err(err.into());
-        }
-        // Seed this bot's independent update cursor before its credential
-        // can become visible to another process. It never inherits another
-        // bot's cursor, even across a replacement-generation race.
-        if let Err(err) = crate::telegram::initialize_offset_for_token(&st.app.store, token) {
             crate::telegram::spawn_if_configured(&st.app);
             return Err(err.into());
         }
