@@ -100,6 +100,19 @@ impl Bot {
         }
     }
 
+    /// Outbound rows are scoped to the pairing epoch as well as the bot token.
+    /// A detached turn from an earlier pairing can never become sendable again
+    /// merely because the same chat pairs with the bot a second time.
+    fn outbox_account_id(&self) -> String {
+        format!("{}:{}", self.account_id, self.pairing_epoch)
+    }
+
+    fn outbox_identity(&self, chat: i64) -> ChannelIdentity {
+        let mut identity = self.identity(chat);
+        identity.account_id = self.outbox_account_id();
+        identity
+    }
+
     /// Current pairing gate, including the specific generation captured by
     /// this Bot. Detached agent turns cannot send to a revoked owner.
     fn is_current_owner(&self, chat: i64) -> bool {
@@ -114,9 +127,15 @@ impl Bot {
         if !self.is_current_owner(chat) {
             return Err(anyhow!("The chat was unpaired or pairing was rotated; refusing to queue a reply"));
         }
-        let identity = self.identity(chat);
+        let identity = self.outbox_identity(chat);
         let parts = Self::chunks(text);
         self.spool.enqueue_parts(&identity, None, &parts, key, crate::util::now_ts())?;
+        // Close the check/enqueue race with unpair or re-pair. If the epoch
+        // changed while SQLite was committing, discard this old-epoch queue.
+        if !self.is_current_owner(chat) {
+            let _ = self.spool.purge_account(ChannelKind::Telegram, &identity.account_id);
+            return Err(anyhow!("Telegram pairing changed while the reply was being queued."));
+        }
         // Delivery is handled by the gateway's independent outbox worker.
         // Do not let a slow Telegram request block the caller or inbound polling.
         Ok(())
@@ -143,7 +162,7 @@ impl Bot {
         for _ in 0..40 {
             let msg = match self.spool.due(
                 ChannelKind::Telegram,
-                &self.account_id,
+                &self.outbox_account_id(),
                 crate::util::now_ts(),
                 1,
             ) {
@@ -165,7 +184,7 @@ impl Bot {
             };
             if !self.is_current_owner(chat) {
                 // Revocation must not leak a delayed response to a former owner.
-                let _ = self.spool.purge_account(ChannelKind::Telegram, &self.account_id);
+                let _ = self.spool.purge_account(ChannelKind::Telegram, &self.outbox_account_id());
                 break;
             }
             // Provider errors may echo the bot URL, which embeds its token: never log them.
@@ -346,6 +365,7 @@ pub(crate) fn purge_token_spool(app: &App, token: &str) {
     let account = format!("{:x}", Sha256::digest(token.as_bytes()));
     if let Ok(spool) = ChannelStore::open(&app.cfg().home.join("channels.db")) {
         let _ = spool.purge_account(ChannelKind::Telegram, &account);
+        let _ = spool.purge_outbox_account_prefix(ChannelKind::Telegram, &format!("{account}:"));
     }
 }
 
@@ -608,7 +628,15 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
     let mut outbox_bot = bot.clone();
     let _outbox_worker = AbortTaskOnDrop(tokio::spawn(async move {
         loop {
-            outbox_bot.pairing_epoch = pairing_code(&outbox_bot.app);
+            let current_epoch = pairing_code(&outbox_bot.app);
+            if current_epoch != outbox_bot.pairing_epoch {
+                // Drop rows from the previous pairing. A late detached task
+                // may still enqueue under that old epoch, but the new worker
+                // will never query or deliver those rows.
+                let old_account = outbox_bot.outbox_account_id();
+                let _ = outbox_bot.spool.purge_account(ChannelKind::Telegram, &old_account);
+                outbox_bot.pairing_epoch = current_epoch;
+            }
             outbox_bot.flush().await;
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
@@ -829,9 +857,11 @@ mod tests {
 
     fn queue_test_replies(app: &App, token: &str, count: usize) {
         let spool = ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap();
+        let token_account = format!("{:x}", Sha256::digest(token.as_bytes()));
+        let epoch = app.store.kv_get("telegram_code").unwrap();
         let identity = ChannelIdentity {
             kind: ChannelKind::Telegram,
-            account_id: format!("{:x}", Sha256::digest(token.as_bytes())),
+            account_id: format!("{token_account}:{epoch}"),
             chat_id: "42".into(),
             sender_id: "42".into(),
         };
@@ -845,6 +875,31 @@ mod tests {
                 crate::util::now_ts(),
             ).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn previous_pairing_epoch_outbox_is_never_delivered_after_repair() {
+        let (base, paths) = mock_telegram_with_send_delay(Duration::ZERO, false).await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = paired_heron(dir.path()).await;
+        let token = "OUTBOX-OLD-EPOCH";
+        queue_test_replies(&app, token, 1);
+        let old_epoch = app.store.kv_get("telegram_code").unwrap();
+        app.store.kv_set("telegram_code", "NEWCODE88").unwrap();
+
+        let gateway = tokio::spawn(run(app.clone(), base, token.into()));
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert!(
+            !paths.lock().unwrap().iter().any(|path| path.ends_with("/sendMessage")),
+            "a reply queued under the previous pairing epoch was delivered after re-pairing"
+        );
+        gateway.abort();
+
+        let spool = ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap();
+        assert_eq!(spool.count_pending().unwrap(), 1, "the old row is not visible to the new epoch");
+        purge_token_spool(&app, token);
+        assert_eq!(spool.count_pending().unwrap(), 0, "token revocation purges every pairing-scoped outbox row");
+        assert_ne!(old_epoch, app.store.kv_get("telegram_code").unwrap());
     }
 
     #[tokio::test]
