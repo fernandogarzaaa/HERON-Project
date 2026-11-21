@@ -625,9 +625,17 @@ pub async fn verify_token(api_base: &str, token: &str) -> std::result::Result<()
     Err(format!("Telegram could not check the token right now (HTTP {}). Try again in a moment.", status.as_u16()))
 }
 
-pub async fn run(app: Arc<App>, api_base: String, token: String) {
+pub fn run(
+    app: Arc<App>,
+    api_base: String,
+    token: String,
+) -> impl std::future::Future<Output = ()> + Send + 'static {
+    // Capture synchronously when the caller constructs the future, not when
+    // Tokio first polls it. The token may already have been read by the caller.
     let started = generation(&app);
-    run_with_generation(app, api_base, token, started).await;
+    async move {
+        run_with_generation(app, api_base, token, started).await;
+    }
 }
 
 async fn run_with_generation(app: Arc<App>, api_base: String, token: String, started: String) {
@@ -946,15 +954,10 @@ mod tests {
 
         // Model spawn_if_configured capturing the old credential and generation,
         // followed by a replacement bump before Tokio first polls the task.
-        let captured_generation = generation(&app);
-        let stale_future = run_with_generation(
-            app.clone(),
-            base,
-            "OLD-TOKEN".into(),
-            captured_generation,
-        );
-        // Do not schedule the future until after the generation changes: this
-        // deterministically exercises the delayed-first-poll window.
+        let stale_future = run(app.clone(), base, "OLD-TOKEN".into());
+        // run() captures the generation synchronously. Do not schedule the
+        // future until after the replacement bump: this deterministically
+        // exercises the delayed-first-poll window.
         bump_generation(&app);
         let stale_gateway = tokio::spawn(stale_future);
         tokio::time::sleep(Duration::from_millis(100)).await;
