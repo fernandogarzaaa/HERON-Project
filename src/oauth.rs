@@ -542,6 +542,14 @@ mod tests {
         multiple_audiences["aud"] = serde_json::json!(["other", "app"]);
         assert!(account_subject(Provider::Google, "app", &token(multiple_audiences)).is_err());
 
+        let mut wrong_azp = valid_claims(Provider::Google, "app", "user-1");
+        wrong_azp["azp"] = serde_json::json!("other-app");
+        assert!(account_subject(Provider::Google, "app", &token(wrong_azp)).is_err());
+
+        let mut future_issued = valid_claims(Provider::Google, "app", "user-1");
+        future_issued["iat"] = serde_json::json!(Utc::now().timestamp() + 301);
+        assert!(account_subject(Provider::Google, "app", &token(future_issued)).is_err());
+
         let long = "x".repeat(256);
         for bad in [
             serde_json::json!({}),
