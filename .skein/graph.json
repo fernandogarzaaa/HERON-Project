@@ -12073,11 +12073,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "opencode-cli labelled experimental, range kept (35w)",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U8f__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "2fc29889c39e141715d6867bca143b24f9ae4ec8",
+      "branch": "skein/U8f",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U8f"
     }
   },
   "U8f__integrate": {
