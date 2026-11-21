@@ -382,6 +382,13 @@ pub(crate) fn initialize_offset_for_token(
     Ok(())
 }
 
+/// Preflight the replacement bot's cursor before revoking the current pairing.
+/// A failed cursor write must leave the existing owner/session intact.
+pub(crate) fn prepare_token_replacement(app: &App, token: &str) -> Result<()> {
+    initialize_offset_for_token(&app.store, token)?;
+    unpair(app)
+}
+
 /// The code, for showing in the app. Looking at it there is what re-opens pairing after too many
 /// wrong guesses: only someone at the computer can do that.
 pub fn show_pairing_code(app: &App) -> String {
@@ -1251,6 +1258,35 @@ mod tests {
         assert!(unpair(&app).is_err(), "a failed revocation must be reported to the caller");
         assert_eq!(app.store.kv_get("telegram_chat").as_deref(), Some("42"));
         assert_eq!(app.store.kv_get("telegram_session").as_deref(), Some("session-before-unpair"));
+        assert_eq!(pairing_epoch(&app), "old-epoch");
+    }
+
+    #[tokio::test]
+    async fn cursor_initialization_failure_does_not_revoke_current_pairing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        let app = App::assemble(
+            cfg,
+            dir.path().join("ws"),
+            Store::in_memory().unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap();
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        app.store.kv_set("telegram_session", "session-before-replacement").unwrap();
+        app.store.kv_set("telegram_pairing_epoch", "old-epoch").unwrap();
+        app.store.execute_batch_for_test(
+            "CREATE TRIGGER reject_new_telegram_cursor BEFORE INSERT ON kv
+             WHEN NEW.k LIKE 'telegram_offset_%'
+             BEGIN SELECT RAISE(ABORT, 'injected cursor initialization failure'); END;",
+        );
+
+        assert!(prepare_token_replacement(&app, "NEW-TOKEN").is_err());
+        assert_eq!(app.store.kv_get("telegram_chat").as_deref(), Some("42"));
+        assert_eq!(
+            app.store.kv_get("telegram_session").as_deref(),
+            Some("session-before-replacement")
+        );
         assert_eq!(pairing_epoch(&app), "old-epoch");
     }
 
