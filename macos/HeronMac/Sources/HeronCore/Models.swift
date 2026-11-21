@@ -493,9 +493,16 @@ public struct ProviderStatus: Sendable, Equatable, Identifiable {
         self.authKind = authKind
         self.isActive = isActive
     }
+
+    /// The Settings row line for a signed-in provider. An experimental provider is
+    /// labelled "experimental, not tested yet" and never shows its tested range.
+    public var signedInLine: String {
+        let middle: String? = experimental ? "experimental, not tested yet" : testedRange.map { "tested range \($0)" }
+        return ["Version \(version ?? "unknown")", middle, authKind].compactMap { $0 }.joined(separator: " · ")
+    }
 }
 
-public struct Grant: Sendable, Equatable, Identifiable {
+public struct Grant:Sendable, Equatable, Identifiable {
     public var rule: String
     /// `read` for `read:` rules, `tool` for the rest.
     public var kind: String

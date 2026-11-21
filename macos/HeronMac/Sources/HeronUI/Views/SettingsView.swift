@@ -207,7 +207,7 @@ private struct ModelTab: View {
     private func rowLine(_ p: ProviderStatus) -> String {
         switch p.rowState {
         case .signedIn:
-            ["Version \(p.version ?? "unknown")", p.testedRange.map { "tested range \($0)" }, p.authKind].compactMap { $0 }.joined(separator: " · ")
+            p.signedInLine
         default: p.detailText
         }
     }
