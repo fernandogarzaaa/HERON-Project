@@ -11999,6 +11999,59 @@
       "path": null
     }
   },
+  "U8f": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U8e",
+      "SYNC35"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U8f",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- tier1_candidates_have_ranges deferred_cli_keeps_its_range_but_is_experimental",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 35w (and 35s, 35v for opencode context). eval/containment/check.py already has DEFERRED (committed 8565d29).",
+      "goal": "Implement spec item 35w's src part in src/cli_llm.rs. Read 35w first. Owner decision: opencode-cli is deferred from v1 Tier 1 (not configured or tested yet).\n1. Add a pub const DEFERRED_FROM_TIER1: &[&str] = &[\"opencode-cli\"] with a doc comment pointing at design item 35w and eval/containment/check.py's DEFERRED.\n2. In the opencode-cli registry entry set experimental: true. KEEP its supported range (2.1.4 to below 3.0.0) and everything else unchanged: the tools-off agent and OPENCODE_DISABLE_PROJECT_CONFIG were checked on 2.x only, so the version gate must stay. Do not remove or change any opencode launch code.\n3. In tier1_candidates_have_ranges, change the rule: a candidate that passed containment (status passed and folders confirmed) gets the range checks as now. It must be non-experimental only when it is not in DEFERRED_FROM_TIER1; a deferred one must be experimental and still have its range. Keep every other assertion as it is (no weakening). Also make the test read eval/containment/check.py, extract the keys of its DEFERRED dict (the quoted ids between 'DEFERRED = {' and the closing '}'), and assert they equal DEFERRED_FROM_TIER1.\n4. New test deferred_cli_keeps_its_range_but_is_experimental: spec_for(\"opencode-cli\") is experimental, has Some range, and check_version still refuses an out-of-range version like 3.0.0 for it (as codex's test does) and accepts 2.1.4.\n5. Check other tests that assume opencode-cli is not experimental (search for opencode in tests, for example probe hints or provider lists) and update only those expectations that 35w changes; list each changed assertion in your handoff.\nRun the completion command yourself before stopping."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "opencode-cli labelled experimental, range kept (35w)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "Ut": {
     "attempts": [
       {
