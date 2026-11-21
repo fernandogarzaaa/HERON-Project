@@ -589,8 +589,13 @@ async fn forward_inbox(app: &App, bot: &Bot, chat: i64) {
 /// home reads it, so a gateway in another process notices that its token was revoked and stops.
 const GENERATION_KEY: &str = "telegram_generation";
 
-pub fn bump_generation(app: &App) {
-    let _ = app.store.kv_set(GENERATION_KEY, &uuid::Uuid::new_v4().simple().to_string());
+pub fn bump_generation(app: &App) -> Result<()> {
+    app.store.kv_set(GENERATION_KEY, &uuid::Uuid::new_v4().simple().to_string())?;
+    Ok(())
+}
+
+fn token_matches_configuration(app: &App, token: &str, enforce: bool) -> bool {
+    !enforce || app.cfg().secret("telegram_token").as_deref() == Some(token)
 }
 
 fn generation(app: &App) -> String {
@@ -599,11 +604,16 @@ fn generation(app: &App) -> String {
 
 /// One gateway per Heron home, across processes: two readers of one bot split its updates and
 /// race the spool. Waits for the current holder to stop, and gives up if the token changes first.
-async fn take_gateway_lock(app: &App, started: &str) -> Option<std::fs::File> {
+async fn take_gateway_lock(
+    app: &App,
+    started: &str,
+    token: &str,
+    enforce_token_match: bool,
+) -> Option<std::fs::File> {
     // A gateway can be spawned with a captured token and not be polled until
     // after another process has replaced that token. Reject stale snapshots
     // before opening or acquiring the shared gateway lock.
-    if generation(app) != started {
+    if generation(app) != started || !token_matches_configuration(app, token, enforce_token_match) {
         return None;
     }
     let cfg = app.cfg();
@@ -627,7 +637,7 @@ async fn take_gateway_lock(app: &App, started: &str) -> Option<std::fs::File> {
             Ok(()) => {
                 // The generation may change between the pre-lock check and
                 // acquiring the lock. Drop the lock rather than run stale credentials.
-                if generation(app) != started {
+                if generation(app) != started || !token_matches_configuration(app, token, enforce_token_match) {
                     return None;
                 }
                 return Some(file);
@@ -638,7 +648,7 @@ async fn take_gateway_lock(app: &App, started: &str) -> Option<std::fs::File> {
                 return None;
             }
         }
-        if generation(app) != started {
+        if generation(app) != started || !token_matches_configuration(app, token, enforce_token_match) {
             return None;
         }
         if !told {
@@ -676,12 +686,18 @@ pub fn run(
     // Tokio first polls it. The token may already have been read by the caller.
     let started = generation(&app);
     async move {
-        run_with_generation(app, api_base, token, started).await;
+        run_with_generation(app, api_base, token, started, false).await;
     }
 }
 
-async fn run_with_generation(app: Arc<App>, api_base: String, token: String, started: String) {
-    let Some(_gateway_lock) = take_gateway_lock(&app, &started).await else { return };
+async fn run_with_generation(
+    app: Arc<App>,
+    api_base: String,
+    token: String,
+    started: String,
+    enforce_token_match: bool,
+) {
+    let Some(_gateway_lock) = take_gateway_lock(&app, &started, &token, enforce_token_match).await else { return };
     let spool = match ChannelStore::open(&app.cfg().home.join("channels.db")) {
         Ok(spool) => spool,
         Err(err) => {
@@ -751,7 +767,7 @@ async fn run_with_generation(app: Arc<App>, api_base: String, token: String, sta
     let mut offset = read_offset(&app.store, &bot.account_id);
     let poll_secs = if api_base.contains("127.0.0.1") { 0 } else { 25 };
     loop {
-        if generation(&app) != started {
+        if generation(&app) != started || !token_matches_configuration(&app, &token, enforce_token_match) {
             eprintln!("HERON Telegram: the bot token changed; this gateway stopped.");
             return;
         }
@@ -763,11 +779,15 @@ async fn run_with_generation(app: Arc<App>, api_base: String, token: String, sta
             }
         };
         // A long poll can return after the token was replaced: those messages were sent to the old bot.
-        if generation(&app) != started {
+        if generation(&app) != started || !token_matches_configuration(&app, &token, enforce_token_match) {
             eprintln!("HERON Telegram: the bot token changed; this gateway stopped.");
             return;
         }
         for u in updates.as_array().cloned().unwrap_or_default() {
+            if generation(&app) != started || !token_matches_configuration(&app, &token, enforce_token_match) {
+                eprintln!("HERON Telegram: the bot token changed; this gateway stopped.");
+                return;
+            }
             let Some(update_id) = u["update_id"].as_i64().filter(|id| *id > 0) else {
                 continue;
             };
@@ -865,7 +885,7 @@ pub fn spawn_if_configured(app: &Arc<App>) -> bool {
     let started = generation(app);
     match cfg.secret("telegram_token") {
         Some(token) => {
-            let task = tokio::spawn(run_with_generation(app.clone(), cfg.telegram.api_base.clone(), token, started));
+            let task = tokio::spawn(run_with_generation(app.clone(), cfg.telegram.api_base.clone(), token, started, true));
             *app.telegram_task.lock().unwrap() = Some(task.abort_handle());
             true
         }
@@ -992,6 +1012,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn production_gateway_stops_when_configured_token_changes_without_generation_bump() {
+        let (base, paths) = mock_telegram(|_| (200, json!({"ok": true, "result": []}))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = heron_process(dir.path()).await;
+        app.cfg().store_secret("telegram_token", "NEW-TOKEN").unwrap();
+        let started = generation(&app);
+
+        let gateway = tokio::spawn(run_with_generation(
+            app.clone(), base, "OLD-TOKEN".into(), started, true,
+        ));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert!(gateway.is_finished(), "a gateway with a superseded credential must exit");
+        assert!(
+            !paths.lock().unwrap().iter().any(|path| path.ends_with("/getUpdates")),
+            "a superseded credential must not poll Telegram even if generation persistence failed"
+        );
+    }
+
+    #[tokio::test]
+    async fn bump_generation_reports_sqlite_write_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = heron_process(dir.path()).await;
+        app.store.execute_batch_for_test(
+            "CREATE TRIGGER reject_telegram_generation BEFORE INSERT ON kv
+             WHEN NEW.k = 'telegram_generation'
+             BEGIN SELECT RAISE(ABORT, 'injected generation write failure'); END;",
+        );
+
+        assert!(bump_generation(&app).is_err());
+    }
+
+    #[tokio::test]
     async fn gateway_spawned_before_replacement_cannot_adopt_the_new_generation() {
         let (base, paths) = mock_telegram(|_| (200, json!({"ok": true, "result": []}))).await;
         let dir = tempfile::tempdir().unwrap();
@@ -1003,7 +1056,7 @@ mod tests {
         // run() captures the generation synchronously. Do not schedule the
         // future until after the replacement bump: this deterministically
         // exercises the delayed-first-poll window.
-        bump_generation(&app);
+        bump_generation(&app).unwrap();
         let stale_gateway = tokio::spawn(stale_future);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -1147,7 +1200,7 @@ mod tests {
         second.abort();
 
         // What set_telegram does in the other process when the owner pastes a new token.
-        bump_generation(&serve);
+        bump_generation(&serve).unwrap();
         let new = tokio::spawn(run(serve.clone(), base.clone(), "NEW".into()));
         until("the old gateway stops", || old.is_finished()).await;
         until("the new gateway takes over", || polls("NEW") > 0).await;
