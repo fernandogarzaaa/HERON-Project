@@ -468,20 +468,28 @@ fn session_for(app: &App, fresh: bool) -> Result<Session> {
     Ok(s)
 }
 
-async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i64, text: String) {
+async fn handle_message(
+    app: &Arc<App>,
+    bot: &Bot,
+    shared: &Arc<Shared>,
+    chat: i64,
+    text: String,
+    identity: ChannelIdentity,
+    provider_message_id: String,
+) -> Result<bool> {
     let lower = text.trim().to_lowercase();
     // Stopping comes first: "/stop" while a question is waiting must halt the whole reply, not merely
     // answer the question with "no" and let the work carry on.
     if lower == "/stop" {
         let stopped = shared.stop();
-        bot.send(chat, if stopped { "Stopped." } else { "Nothing is running." }).await;
-        return;
+        bot.queue(chat, if stopped { "Stopped." } else { "Nothing is running." }).await?;
+        return Ok(false);
     }
     if lower == "/pause" {
         app.set_paused(true);
         shared.stop();
-        bot.send(chat, "Paused. Heron will start nothing on its own (reminders, triggers, suggestions) until you send /resume.").await;
-        return;
+        bot.queue(chat, "Paused. Heron will start nothing on its own (reminders, triggers, suggestions) until you send /resume.").await?;
+        return Ok(false);
     }
     // A late response to a prior prompt must not approve whichever action
     // happens to be waiting now. Replies require the challenge displayed
@@ -504,27 +512,27 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
         }
     };
     match reply {
-        Some(Ok((tx, allow))) => { let _ = tx.send(allow); return; }
+        Some(Ok((tx, allow))) => { let _ = tx.send(allow); return Ok(false); }
         Some(Err(())) => {
-            bot.send(chat, "An approval is pending. Reply using the exact yes/no code displayed in the permission question, or send /stop.").await;
-            return;
+            bot.queue(chat, "An approval is pending. Reply using the exact yes/no code displayed in the permission question, or send /stop.").await?;
+            return Ok(false);
         }
         None => {}
     }
     match lower.as_str() {
         "/new" => {
-            let _ = session_for(app, true);
-            bot.send(chat, "Started a new conversation.").await;
-            return;
+            session_for(app, true)?;
+            bot.queue(chat, "Started a new conversation.").await?;
+            return Ok(false);
         }
         "/resume" => {
             app.set_paused(false);
-            bot.send(chat, "Resumed.").await;
-            return;
+            bot.queue(chat, "Resumed.").await?;
+            return Ok(false);
         }
         "/start" | "/help" => {
-            bot.send(chat, "This is your Heron. Send a message to ask for something. /new starts a fresh conversation, /stop halts a running reply, /pause stops everything Heron does on its own, /resume turns it back on.").await;
-            return;
+            bot.queue(chat, "This is your Heron. Send a message to ask for something. /new starts a fresh conversation, /stop halts a running reply, /pause stops everything Heron does on its own, /resume turns it back on.").await?;
+            return Ok(false);
         }
         _ => {}
     }
@@ -534,7 +542,13 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
         let mut running = shared.running.lock().unwrap();
         if running.is_none() {
             let run_id = shared.next_run.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let (app2, bot2, shared2) = (app.clone(), bot.clone(), shared.clone());
+            let (app2, bot2, shared2, identity2, message_id2) = (
+                app.clone(),
+                bot.clone(),
+                shared.clone(),
+                identity,
+                provider_message_id,
+            );
             let task = tokio::spawn(async move {
                 let reply = async {
                     let mut session = session_for(&app2, false)?;
@@ -551,17 +565,44 @@ async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i
                         running.take();
                     }
                 }
-                match reply {
-                    Ok(t) if t.trim().is_empty() => bot2.send(chat, "(done)").await,
-                    Ok(t) => bot2.send(chat, &t).await,
-                    Err(e) => bot2.send(chat, &format!("Heron could not finish: {e:#}")).await,
+                let response = match reply {
+                    Ok(t) if t.trim().is_empty() => "(done)".to_string(),
+                    Ok(t) => t,
+                    Err(e) => format!("Heron could not finish: {e:#}"),
+                };
+                // The journal is complete only after the reply is durably
+                // queued. A failed SQLite enqueue must remain recoverable.
+                if let Err(err) = queue_reply_and_complete(
+                    &bot2,
+                    chat,
+                    &response,
+                    &identity2,
+                    &message_id2,
+                ).await {
+                    eprintln!("HERON Telegram: reply was not durably queued; inbound request remains recoverable: {err}");
                 }
             });
             *running = Some((run_id, task.abort_handle()));
-            return;
+            return Ok(true);
         }
     }
-    bot.send(chat, "Still working on your last message. Send /stop to halt it.").await;
+    bot.queue(chat, "Still working on your last message. Send /stop to halt it.").await?;
+    Ok(false)
+}
+
+/// Queue the detached turn's reply before completing its inbound journal row.
+/// If the outbox transaction fails, the accepted inbound row remains visible to
+/// startup recovery instead of being falsely marked done.
+async fn queue_reply_and_complete(
+    bot: &Bot,
+    chat: i64,
+    text: &str,
+    identity: &ChannelIdentity,
+    provider_message_id: &str,
+) -> Result<()> {
+    bot.queue(chat, text).await?;
+    bot.spool.complete_inbound(identity, provider_message_id)?;
+    Ok(())
 }
 
 /// Forward results of scheduled and self-started work to the paired chat.
@@ -793,11 +834,29 @@ async fn run_with_generation(app: Arc<App>, api_base: String, token: String, sta
                                     crate::util::now_ts(),
                                 ) {
                                     Ok(true) => {
-                                        handle_message(&app, &bot, &shared, chat, t).await;
-                                        let _ = bot.spool.complete_inbound(
-                                            &identity,
-                                            &event.provider_message_id,
-                                        );
+                                        let detached = match handle_message(
+                                            &app,
+                                            &bot,
+                                            &shared,
+                                            chat,
+                                            t,
+                                            identity.clone(),
+                                            event.provider_message_id.clone(),
+                                        ).await {
+                                            Ok(detached) => detached,
+                                            Err(err) => {
+                                                // A synchronous response was not durably queued.
+                                                // Leave the inbound row accepted for startup recovery.
+                                                eprintln!("HERON Telegram: could not durably handle inbound message; leaving it recoverable: {err}");
+                                                break;
+                                            }
+                                        };
+                                        if !detached {
+                                            let _ = bot.spool.complete_inbound(
+                                                &identity,
+                                                &event.provider_message_id,
+                                            );
+                                        }
                                     }
                                     Ok(false) => {}
                                     Err(err) => {
@@ -886,6 +945,153 @@ mod tests {
     use crate::config::Config;
     use crate::llm::ScriptedLlm;
     use crate::store::Store;
+
+    struct BlockingLlm {
+        started: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait]
+    impl crate::llm::Llm for BlockingLlm {
+        async fn chat(
+            &self,
+            _req: crate::llm::ChatRequest,
+            _on_delta: crate::llm::DeltaFn<'_>,
+        ) -> Result<crate::llm::ChatResponse> {
+            self.started.notify_one();
+            std::future::pending::<Result<crate::llm::ChatResponse>>().await
+        }
+    }
+
+    #[tokio::test]
+    async fn an_aborted_detached_turn_remains_visible_to_interruption_recovery() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        let started = Arc::new(tokio::sync::Notify::new());
+        let app = Arc::new(App::assemble(
+            cfg,
+            dir.path().join("ws"),
+            Store::in_memory().unwrap(),
+            Arc::new(BlockingLlm { started: started.clone() }),
+        ).await.unwrap());
+        let spool = ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap();
+        let bot = Bot {
+            client: reqwest::Client::new(),
+            base: "http://127.0.0.1:1/botTEST".into(),
+            app: app.clone(),
+            account_id: "test-bot".into(),
+            pairing_epoch: pairing_epoch(&app),
+            spool: spool.clone(),
+            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        let identity = bot.identity(42);
+        let event = InboundMessage {
+            identity: identity.clone(),
+            provider_message_id: "update-1".into(),
+            thread_id: None,
+            text: "run a task".into(),
+        };
+        assert!(spool.accept_inbound(&identity, &event, 100).unwrap());
+
+        let shared = Arc::<Shared>::default();
+        let detached = handle_message(
+            &app,
+            &bot,
+            &shared,
+            42,
+            event.text.clone(),
+            identity,
+            event.provider_message_id.clone(),
+        ).await.unwrap();
+        assert!(detached, "ordinary messages are handled by a detached agent task");
+        tokio::time::timeout(Duration::from_secs(5), started.notified()).await.unwrap();
+        assert!(shared.stop(), "the blocked agent task should be abortable");
+        assert_eq!(
+            spool.mark_interrupted(ChannelKind::Telegram, &bot.account_id).unwrap(),
+            1,
+            "a detached turn that did not complete must remain recoverable"
+        );
+    }
+
+    #[tokio::test]
+    async fn cursor_initialization_failure_does_not_revoke_current_pairing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        let app = App::assemble(
+            cfg,
+            dir.path().join("ws"),
+            Store::in_memory().unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap();
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        app.store.kv_set("telegram_session", "session-before-replacement").unwrap();
+        app.store.kv_set("telegram_pairing_epoch", "old-epoch").unwrap();
+        app.store.execute_batch_for_test(
+            "CREATE TRIGGER reject_new_telegram_cursor BEFORE INSERT ON kv
+             WHEN NEW.k LIKE 'telegram_offset_%'
+             BEGIN SELECT RAISE(ABORT, 'injected cursor initialization failure'); END;",
+        );
+
+        assert!(preflight_token_replacement(&app, "NEW-TOKEN").is_err());
+        assert_eq!(app.store.kv_get("telegram_chat").as_deref(), Some("42"));
+        assert_eq!(
+            app.store.kv_get("telegram_session").as_deref(),
+            Some("session-before-replacement")
+        );
+        assert_eq!(pairing_epoch(&app), "old-epoch");
+    }
+
+    #[tokio::test]
+    async fn failed_sync_reply_enqueue_keeps_the_inbound_request_recoverable() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        let app = Arc::new(App::assemble(
+            cfg,
+            dir.path().join("ws"),
+            Store::in_memory().unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap());
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        app.store.kv_set("telegram_pairing_epoch", "epoch-1").unwrap();
+
+        let spool = ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap();
+        let bot = Bot {
+            client: reqwest::Client::new(),
+            base: "http://127.0.0.1:1/botDISABLED".into(),
+            app: app.clone(),
+            account_id: "test-bot".into(),
+            pairing_epoch: "epoch-1".into(),
+            spool: spool.clone(),
+            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        let identity = bot.identity(42);
+        let event = InboundMessage {
+            identity: identity.clone(),
+            provider_message_id: "update-help".into(),
+            thread_id: None,
+            text: "/help".into(),
+        };
+        assert!(spool.accept_inbound(&identity, &event, crate::util::now_ts()).unwrap());
+
+        let db = rusqlite::Connection::open(&app.cfg().home.join("channels.db")).unwrap();
+        db.execute_batch(
+            "CREATE TRIGGER reject_sync_outbox BEFORE INSERT ON channel_outbox
+             BEGIN SELECT RAISE(ABORT, 'injected sync reply enqueue failure'); END;",
+        ).unwrap();
+        drop(db);
+
+        assert!(handle_message(
+            &app, &bot, &Arc::new(Shared::default()), 42,
+            event.text.clone(), identity, event.provider_message_id.clone()
+        ).await.is_err());
+        assert_eq!(
+            spool.mark_interrupted(ChannelKind::Telegram, "test-bot").unwrap(),
+            1,
+            "a sync-handled message with no durable reply must remain recoverable"
+        );
+    }
 
     #[test]
     fn splits_telegram_replies_by_utf16_not_unicode_scalar_count() {
@@ -1260,35 +1466,6 @@ mod tests {
         assert_eq!(pairing_epoch(&app), "old-epoch");
     }
 
-    #[tokio::test]
-    async fn cursor_initialization_failure_does_not_revoke_current_pairing() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dir.path().join("home");
-        let app = App::assemble(
-            cfg,
-            dir.path().join("ws"),
-            Store::in_memory().unwrap(),
-            Arc::new(ScriptedLlm::new(vec![])),
-        ).await.unwrap();
-        app.store.kv_set("telegram_chat", "42").unwrap();
-        app.store.kv_set("telegram_session", "session-before-replacement").unwrap();
-        app.store.kv_set("telegram_pairing_epoch", "old-epoch").unwrap();
-        app.store.execute_batch_for_test(
-            "CREATE TRIGGER reject_new_telegram_cursor BEFORE INSERT ON kv
-             WHEN NEW.k LIKE 'telegram_offset_%'
-             BEGIN SELECT RAISE(ABORT, 'injected cursor initialization failure'); END;",
-        );
-
-        assert!(preflight_token_replacement(&app, "NEW-TOKEN").is_err());
-        assert_eq!(app.store.kv_get("telegram_chat").as_deref(), Some("42"));
-        assert_eq!(
-            app.store.kv_get("telegram_session").as_deref(),
-            Some("session-before-replacement")
-        );
-        assert_eq!(pairing_epoch(&app), "old-epoch");
-    }
-
     #[test]
     fn telegram_update_cursors_are_scoped_to_the_bot_token() {
         let store = Store::in_memory().unwrap();
@@ -1351,5 +1528,61 @@ mod tests {
         assert_eq!(show_pairing_code(&app), replaced);
         assert!(!pairing_locked(&app));
         assert!(!wrong_code(&app), "and the count starts again");
+    }    
+    #[tokio::test]
+    async fn failed_reply_enqueue_keeps_the_inbound_request_recoverable() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        let app = Arc::new(App::assemble(
+            cfg,
+            dir.path().join("ws"),
+            Store::in_memory().unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap());
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        app.store.kv_set("telegram_pairing_epoch", "epoch-1").unwrap();
+
+        let spool_path = app.cfg().home.join("channels.db");
+        let spool = ChannelStore::open(&spool_path).unwrap();
+        let identity = ChannelIdentity {
+            kind: ChannelKind::Telegram,
+            account_id: "test-bot".into(),
+            chat_id: "42".into(),
+            sender_id: "42".into(),
+        };
+        let event = InboundMessage {
+            identity: identity.clone(),
+            provider_message_id: "update-1".into(),
+            thread_id: None,
+            text: "do the work".into(),
+        };
+        assert!(spool.accept_inbound(&identity, &event, crate::util::now_ts()).unwrap());
+
+        let db = rusqlite::Connection::open(&spool_path).unwrap();
+        db.execute_batch(
+            "CREATE TRIGGER reject_outbox BEFORE INSERT ON channel_outbox
+             BEGIN SELECT RAISE(ABORT, 'injected outbox failure'); END;",
+        ).unwrap();
+        drop(db);
+
+        let bot = Bot {
+            client: reqwest::Client::new(),
+            base: "http://127.0.0.1:1/botDISABLED".into(),
+            app,
+            account_id: "test-bot".into(),
+            pairing_epoch: "epoch-1".into(),
+            spool: spool.clone(),
+            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        assert!(queue_reply_and_complete(
+            &bot, 42, "reply", &identity, "update-1"
+        ).await.is_err());
+        assert_eq!(
+            spool.mark_interrupted(ChannelKind::Telegram, "test-bot").unwrap(),
+            1,
+            "a failed durable reply enqueue must leave the accepted turn recoverable"
+        );
     }
+
 }
