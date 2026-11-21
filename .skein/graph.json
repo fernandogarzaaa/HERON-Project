@@ -12550,7 +12550,8 @@
       "U8c",
       "U8d",
       "U8e",
-      "U8f"
+      "U8f",
+      "U4e"
     ],
     "evidence": [
       {
@@ -12583,7 +12584,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 1369,
+    "version": 1370,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "base_commit": "4ae08905b90e43c8f2c1e8d8483d5933b26da68f",
