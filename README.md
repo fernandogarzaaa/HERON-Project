@@ -15,7 +15,7 @@ Heron reads and writes files, runs commands, searches and reads the web, keeps l
 | | |
 |---|---|
 | **Local-first** | One process, one SQLite file in `~/.heron`. No account, no telemetry, no server. Conversations go to the AI model you choose and nowhere else by default. Things you switch on send what they need to the service involved: web search and page fetches (the query or address), a remote embedding model (the text being remembered), Telegram (your messages and Heron's replies), an email or calendar account you connect (your sign-in, to your own provider), and any app you connect through MCP. |
-| **Uses the CLI you already pay for** | The main way to connect a model is a CLI you are already logged in to, such as Claude Code, Codex or OpenCode. Heron never reads the CLI's login, and runs the CLI with its own tools off, inside a sandbox on macOS. Any OpenAI-compatible endpoint works too: OpenRouter, OpenAI, or a model running entirely on your machine (Ollama, LM Studio), with automatic retry and fallback models. |
+| **Uses the CLI you already pay for** | The main way to connect a model is a CLI you are already logged in to, such as Claude Code or Codex. Heron never reads the CLI's login, and runs the CLI with its own tools off, inside a sandbox on macOS. Any OpenAI-compatible endpoint works too: OpenRouter, OpenAI, or a model running entirely on your machine (Ollama, LM Studio), with automatic retry and fallback models. |
 | **Memory that works offline** | Hybrid retrieval (SQLite FTS5 keyword search + vector similarity, fused and weighted by importance and recency). Embeddings are computed locally with no API call; a remote embedding model is optional. Near-duplicates are merged, and credentials are redacted before anything is stored. |
 | **Safety you can reason about** | Every tool call is classified (safe / network / write / exec / dangerous / forbidden) and checked against the permission mode and your allow/deny rules. Catastrophic commands are blocked in every mode. File writes are checkpointed and undoable. Fetches cannot reach localhost or your LAN. |
 | **Outside content restricts what happens next** | Telling a model to ignore instructions hidden in a web page or email is known not to be reliable, so Heron does not rely on it. Once such content has entered a conversation, anything that changes state needs your approval, whatever the mode or your allow rules say, and so does anything that could carry your data out: fetching a web address that was not already in the conversation word for word (data can ride in the path or host name as easily as in a query), calling a connected app's tool, or scheduling a job to run later. Facts saved from then on are held as unconfirmed. Unattended runs do not do these things; they keep them for you to approve. The restriction applies in read-only mode too, follows sub-agents and survives reopening the conversation. |
@@ -70,7 +70,7 @@ Or download `Heron-Setup-windows-x64.exe` and run it (no administrator rights ne
 curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.1/scripts/install.sh | sh
 ```
 
-Then connect a model. The main path is a CLI you already use: install Claude Code, Codex or OpenCode, log in inside the CLI itself (for example `claude auth login`), then open Heron, which looks for it (or pick it as the provider in Settings). The Tier 1 CLIs and their login commands are in [docs/cli-providers.md](docs/cli-providers.md#tier-1-clis). On first launch Heron shows the risk notice, then walks you through the rest: tell Heron about yourself, and connect what you like. An API key, or the built-in demo, which needs no key, also works.
+Then connect a model. The main path is a CLI you already use: install Claude Code or Codex, log in inside the CLI itself (for example `claude auth login`), then open Heron, which looks for it (or pick it as the provider in Settings). The Tier 1 CLIs and their login commands are in [docs/cli-providers.md](docs/cli-providers.md#tier-1-clis). On first launch Heron shows the risk notice, then walks you through the rest: tell Heron about yourself, and connect what you like. An API key, or the built-in demo, which needs no key, also works.
 
 Notes for the preview:
 - On Windows and Linux, Heron keeps its earlier behaviour and shows no risk notice. Windows binaries are unsigned and SmartScreen may require More info → Run anyway; Windows also has no command sandbox.
@@ -197,13 +197,13 @@ The API key is read from the environment, or from the OS credential store when s
 ### Signing in with a CLI (the main setup path)
 
 The main way to connect a model is a local CLI you are already logged in to,
-billed through your own subscription. Three CLIs passed Heron's containment
-check and are Tier 1: Claude Code (`claude-cli`), Codex (`codex-cli`) and
-OpenCode (`opencode-cli`). The rest (Antigravity, Cline, Cursor, Grok Build,
-Copilot, Qwen, Gemini, Pi, fx, Kiro, Muse, Goose, or a custom CLI) work but
-are labelled experimental. Not all of them bill through a subscription:
-OpenCode routes to whatever providers you configure in it, metered or free,
-and Gemini and Qwen take API keys.
+billed through your own subscription. Two CLIs are Tier 1 in v1: Claude Code
+(`claude-cli`) and Codex (`codex-cli`). OpenCode (`opencode-cli`) is
+**not configured or tested yet in v1**: it passed the containment check, but
+its task gate has not been run, so it is labelled experimental. The rest
+(Antigravity, Cline, Cursor, Grok Build, Copilot, Qwen, Gemini, Pi, fx, Kiro,
+Muse, Goose, or a custom CLI) are labelled experimental too. Not all of them
+bill through a subscription: Gemini and Qwen take API keys.
 
 Log in inside the CLI itself (`claude auth login`, `codex login`, ...). Then
 run `heron providers` to check install and login status, and set `[llm]

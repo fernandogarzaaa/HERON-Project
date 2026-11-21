@@ -412,6 +412,53 @@ fn toml_set(value: &mut toml::Value, path: &str, new: toml::Value) {
     }
 }
 
+/// How long anything waits for `config.lock` before it gives up.
+pub const CONFIG_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// A held `config.lock`, released when this is dropped. A lock belongs to the open file, not to this
+/// handle: a child process that another thread starts holds a copy of every open file between `fork`
+/// and `exec`, and the lock stays held until that copy closes, even after this handle has been
+/// dropped. So it is released explicitly, which frees it for every copy at once, and the next owner
+/// can take it the moment this one is gone.
+#[derive(Debug)]
+pub(crate) struct ConfigLock(std::fs::File);
+
+impl ConfigLock {
+    /// `file`, `config.lock` opened by [`Config::open_lock_file`], which the caller has just locked.
+    pub(crate) fn held(file: std::fs::File) -> Self {
+        Self(file)
+    }
+}
+
+impl Drop for ConfigLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+/// Take the lock on `file` (`config.lock`), waiting at most `wait`. False when another program
+/// still holds it after that.
+pub(crate) fn lock_within(file: &std::fs::File, wait: std::time::Duration) -> std::io::Result<bool> {
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(true),
+            Err(std::fs::TryLockError::WouldBlock) => {}
+            Err(std::fs::TryLockError::Error(e)) => return Err(e),
+        }
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return Ok(false);
+        }
+        std::thread::sleep((deadline - now).min(std::time::Duration::from_millis(20)));
+    }
+}
+
+/// The error for a change that gave up waiting for `config.lock`.
+pub(crate) fn lock_timed_out(wait: std::time::Duration) -> anyhow::Error {
+    anyhow::anyhow!("config.lock is still held by another program after {} s (perhaps a Heron that stopped in the middle of a save), so nothing was changed; try again, or close the other Heron", wait.as_secs())
+}
+
 pub fn default_home() -> PathBuf {
     if let Ok(h) = std::env::var("HERON_HOME") {
         return PathBuf::from(h);
@@ -538,13 +585,25 @@ impl Config {
     }
 
     /// Hold the lock that every Heron on this home takes to read-and-write `config.toml`, until the
-    /// returned file is dropped. It is a file of its own: `config.toml` is replaced by a rename on each
-    /// save, so a lock on it would not outlive the save. A second handle on it blocks even within one
-    /// program, so whoever holds it calls [`Config::save_changes_held`], not `save_changes`.
-    pub(crate) fn lock_file(&self) -> Result<std::fs::File> {
+    /// returned guard is dropped (see [`ConfigLock`]). It is a file of its own: `config.toml` is
+    /// replaced by a rename on each save, so a lock on it would not outlive the save. A second handle
+    /// on it blocks even within one program, so whoever holds it calls [`Config::save_changes_held`],
+    /// not `save_changes`.
+    ///
+    /// It is waited for at most [`CONFIG_LOCK_WAIT`]: a Heron stopped in the middle of a save must not
+    /// stall every other one. Still held after that, it is an error, and nothing is saved.
+    pub(crate) fn lock_file(&self) -> Result<ConfigLock> {
+        self.lock_file_within(CONFIG_LOCK_WAIT)
+    }
+
+    /// [`Config::lock_file`], waiting at most `wait`.
+    pub(crate) fn lock_file_within(&self, wait: std::time::Duration) -> Result<ConfigLock> {
         let file = self.open_lock_file()?;
-        file.lock().with_context(|| format!("locking {}", self.home.join("config.lock").display()))?;
-        Ok(file)
+        let path = self.home.join("config.lock");
+        if !lock_within(&file, wait).with_context(|| format!("locking {}", path.display()))? {
+            return Err(lock_timed_out(wait));
+        }
+        Ok(ConfigLock::held(file))
     }
 
     /// The file [`Config::lock_file`] locks, opened (and the home folder made) but not yet locked,
@@ -1053,6 +1112,32 @@ mod tests {
         assert!(blocked.join("config.toml").is_dir());
         let stray: Vec<_> = std::fs::read_dir(&blocked).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".tmp-")).collect();
         assert!(stray.is_empty());
+    }
+
+    #[test]
+    fn a_held_config_lock_is_waited_for_a_bounded_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        let held = cfg.lock_file().unwrap();
+        // Still held after the wait (none at all here, so the test does not sleep): an error, not a hang.
+        let said = format!("{:#}", cfg.lock_file_within(std::time::Duration::ZERO).expect_err("the lock is held"));
+        assert!(said.contains("config.lock") && said.contains("nothing was changed"), "{said}");
+        drop(held);
+        cfg.lock_file_within(std::time::Duration::ZERO).unwrap();
+    }
+
+    /// A child process another thread starts holds a copy of config.lock between `fork` and `exec`
+    /// (a duplicated handle here, which shares the lock the same way). Dropping the guard still frees
+    /// the lock at once, so the next Heron or restore can take it.
+    #[test]
+    fn a_dropped_config_lock_is_free_while_a_copy_is_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        let held = cfg.lock_file().unwrap();
+        let childs_copy = held.0.try_clone().unwrap();
+        drop(held);
+        cfg.lock_file_within(std::time::Duration::ZERO).expect("free once the guard is dropped");
+        drop(childs_copy);
     }
 
     #[test]

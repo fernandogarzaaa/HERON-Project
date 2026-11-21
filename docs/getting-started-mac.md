@@ -12,14 +12,14 @@ list and won't continue until you accept it.
 
 - A Mac with macOS 14 (Sonoma) or later.
 - A subscription for one of the Tier 1 CLIs: Claude Pro or Max (Claude Code),
-  ChatGPT Plus, Pro or Team (Codex), or an OpenCode setup. See
+  ChatGPT Plus, Pro or Team (Codex). See
   [CLI providers](cli-providers.md) for the full list and what each costs.
 - Node.js and npm, to install Claude Code or Codex. If `npm --version` prints
   nothing in Terminal, install Node first (for example `brew install node`).
 
 ## 1. Install a CLI and log in
 
-This guide uses Claude Code. For Codex or OpenCode, use the install and login
+This guide uses Claude Code. For Codex, use the install and login
 commands from the [Tier 1 table](cli-providers.md#tier-1-clis) instead.
 
 1. Open Terminal and install Claude Code:
@@ -136,6 +136,6 @@ reading outside the working folder.
 ## Next steps
 
 - Name the agent, pick an avatar and a theme in Settings.
-- Read [CLI providers](cli-providers.md) to switch to Codex or OpenCode, or to
+- Read [CLI providers](cli-providers.md) to switch to Codex, or to
   use a second account.
 - Read the [accepted risks](ACCEPTED_RISKS.md) again before pairing Telegram.

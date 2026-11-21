@@ -1,0 +1,24 @@
+# Audit spec for G7's provider-limit classifier (spec 35u).
+#
+# Run from the repository root:
+#   genesis audit-evaluator eval/genesis/limit-classifier.yaml --suite json      # must exit 0
+#
+# A G7 run whose error reads as a provider limit is excluded from the score, so the classifier is
+# part of the scorer. The verifier is `eval/genesis/limit_verifier.py`: for each dataset row (an
+# error line from `eval/fixtures/g7_limit_samples.json`) it accepts only the strict answer
+# {"limit": <bool>} that equals `eval/g7.py`'s `is_limit`. genesis's json suite probes check that
+# the verifier can't be passed by duplicate keys, prose around the JSON, extra fields or a
+# schema-only check. `eval/tests/test_g7.py` checks the classifier itself against every sample.
+# Regenerate `limit-cases.jsonl` with `python3 -I eval/genesis/build_limit_cases.py`.
+name: heron-g7-limit-classifier
+dataset:
+  path: eval/genesis/limit-cases.jsonl
+subject:
+  command: "cat {task_file}"
+evaluator:
+  type: command
+  command: "python3 -I eval/genesis/limit_verifier.py {task_file} {completion_file} {output_file}"
+metrics:
+  - task_success
+thresholds:
+  task_success: ">=0.90"

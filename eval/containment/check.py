@@ -6,7 +6,11 @@
                                                         claude-cli passed and at least one other
                                                         candidate passed
     python3 -I eval/containment/check.py --list-tier1   one id per line for each candidate that
-                                                        meets U2w's Tier 1 rule (item 39)
+                                                        meets U2w's Tier 1 rule (item 39) and is not
+                                                        deferred; each deferred id is named on stderr
+
+A candidate in DEFERRED is left out of Tier 1 and of G4 by an owner decision, whatever its record
+says (design item 35w).
 
 `--dir <folder>` reads the results from somewhere else (the tests use it). Exit 0 on success, 1 when
 the check fails, 2 on bad arguments. Standard library only.
@@ -20,6 +24,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from results import CANDIDATES, HERE, VALID_STATUS  # noqa: E402
 
 IDS = [id_ for id_, _ in CANDIDATES]
+
+# Owner decisions that keep a candidate out of v1 Tier 1 (design item 35w). Not a limit stop.
+DEFERRED = {
+    "opencode-cli": "deferred by the owner on 2026-11-21: not configured or tested yet in v1 "
+                    "(its G7 task gate never ran; the free tier's usage limit was used up)",
+}
 
 
 def load(directory):
@@ -65,6 +75,8 @@ def tier1(records):
     """
     chosen = []
     for id_ in IDS:
+        if id_ in DEFERRED:
+            continue
         record = records.get(id_)
         if not record or record["status"] != "passed":
             continue
@@ -99,13 +111,19 @@ def main(argv):
         return 1 if problems else 0
 
     if mode == "--list-tier1":
+        for id_ in IDS:
+            if id_ in DEFERRED:
+                print("check: %s left out of Tier 1: %s" % (id_, DEFERRED[id_]), file=sys.stderr)
         for id_ in tier1(records):
             print(id_)
         return 0
 
     for id_ in IDS:
         print("%-16s %s" % (id_, status_of(records, id_) or "no valid result"))
-    others = [id_ for id_ in IDS if id_ != "claude-cli" and status_of(records, id_) == "passed"]
+    for id_ in IDS:
+        if id_ in DEFERRED:
+            print("check: %s not counted for G4: %s" % (id_, DEFERRED[id_]))
+    others = [id_ for id_ in IDS if id_ != "claude-cli" and id_ not in DEFERRED and status_of(records, id_) == "passed"]
     if status_of(records, "claude-cli") != "passed":
         print("check: G4 fails: claude-cli did not pass its containment check", file=sys.stderr)
         return 1

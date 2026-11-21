@@ -8,7 +8,7 @@ Measures each installed candidate CLI against the containment check in `docs/des
 | `discover-dirs.sh` | Owner-run, once per installed candidate before U2c: logs in under a fresh `HOME`, writes `<id>.dirs.json`. |
 | `run.sh` | Writes `<id>.json` for claude-cli, opencode-cli, cline-cli, codex-cli, antigravity-cli, gemini-cli. |
 | `results.py` | Finds binaries (as `resolve_binary` does, plus `~/.opencode/bin`) and builds the result records. |
-| `check.py` | `--recorded` (U2c's check), default (G4), `--list-tier1`. |
+| `check.py` | `--recorded` (U2c's check), default (G4), `--list-tier1`. `DEFERRED` keeps `opencode-cli` out of v1 Tier 1 and G4 by an owner decision (not configured or tested yet; design item 35w). |
 | `test_containment.py` | `python3 -I -m unittest discover -s eval/containment -t eval` |
 
 Run `bash eval/containment/run.sh` on the owner's Mac, outside any sandbox, with each candidate

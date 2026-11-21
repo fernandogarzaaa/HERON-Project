@@ -390,5 +390,31 @@ class CheckPy(unittest.TestCase):
         self.assertEqual(self.tier1(), [])
 
 
+    def test_a_deferred_candidate_is_never_tier1(self):
+        self.fill()
+        for id_ in ("claude-cli", "codex-cli", "opencode-cli"):
+            write_result(self.dir, id_, "passed", config_dirs=["~/." + id_], config_dirs_confirmed=True)
+        self.assertEqual(self.tier1(), ["claude-cli", "codex-cli"])
+        proc = self.check("--list-tier1")
+        self.assertIn("opencode-cli left out of Tier 1", proc.stderr)
+        self.assertIn("by the owner", proc.stderr)
+        self.assertNotIn("opencode-cli", proc.stdout)
+
+    def test_g4_does_not_count_a_deferred_candidate(self):
+        self.fill(claude_cli="passed", opencode_cli="passed")
+        proc = self.check()
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("no other candidate", proc.stderr)
+        self.fill(claude_cli="passed", opencode_cli="passed", codex_cli="passed")
+        proc = self.check()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("G4 holds: claude-cli and codex-cli passed", proc.stdout)
+
+    def test_only_opencode_is_deferred(self):
+        self.fill()
+        lines = [l for l in self.check("--list-tier1").stderr.splitlines() if "left out of Tier 1" in l]
+        self.assertEqual([l.split()[1] for l in lines], ["opencode-cli"])
+
+
 if __name__ == "__main__":
     unittest.main()
