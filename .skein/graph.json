@@ -10521,7 +10521,16 @@
     }
   },
   "U4e": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "90b9c40649c64c6c8ed5c8d68dbf1de0",
+        "ended_at": "2026-11-21T07:37:52.741951+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-21T07:36:39.555547+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -10533,22 +10542,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "90b9c40649c64c6c8ed5c8d68dbf1de0",
-      "base_branch": "skein/U4e__integrate-base",
-      "claim_token": "ef3d29990774476bb402b84a02840d3f",
-      "claimed_at": "2026-11-21T07:36:39.555547+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-21T07:36:39.555547+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U4d",
       "SYNC36"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac",
+        "duration_ms": 15481,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4e_20261121T073737171595_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U4e_20261121T073752654697_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I didn't run testteeth, since your notes say it doesn't support Swift.",
     "id": "U4e",
     "integration_for": null,
     "intent": {
@@ -10560,13 +10581,36 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "90b9c40649c64c6c8ed5c8d68dbf1de0",
+      "base_commit": "04fdd9476b50d3b7cdd3e998dff1f6f8b376ba83",
+      "changed_files": [
+        "macos/HeronMac/Sources/HeronCore/Models.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/SettingsView.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/ProviderStatusTests.swift"
+      ],
+      "commit": "23f41602f5b3d0b47fb0d55613c8c1819e8d77a2",
+      "diff_stats": {
+        "macos/HeronMac/Sources/HeronCore/Models.swift": {
+          "added": 8,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/SettingsView.swift": {
+          "added": 1,
+          "deleted": 1
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/ProviderStatusTests.swift": {
+          "added": 38,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Mac Settings row labels experimental providers (35w)",
-    "version": 4,
+    "version": 7,
     "worktree": {
       "base_branch": "skein/U4e__integrate-base",
       "base_commit": "04fdd9476b50d3b7cdd3e998dff1f6f8b376ba83",
