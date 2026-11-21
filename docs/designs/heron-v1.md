@@ -98,7 +98,7 @@ The "1 P0 and 6 P1" count on `main` is M-1 (the P0) plus M-2, M-3, M-4, M-5, M-6
 *   **G1, one decision function for every action.** Every tool call goes through one decision function, whichever model connection it comes from: the HTTP API, an envelope CLI or a hybrid CLI. A tested list covers every way content enters a turn, and each entry is either trusted or taints the conversation.
 *   **G2, reads follow tiers, not a blocked-names list.** Read tiers replace "blocked names" as the main read policy, and the secret check stays as a second layer. `read_file` and the OS sandbox around shell commands enforce the same tiers. Every supported CLI's config folder and Heron's own folder are Refused at both points. v1 changes a behaviour: reads outside the working folder now ask, where the README's mode table today lets every mode read anywhere (`README.md:121-126`). This change goes into the README and the risk notice.
 *   **G3, the qualification passes.** A reviewer who did not write the fixes reruns the frozen v1.0-rc1 rubric and finds 0 open P0 and 0 open P1. The only exceptions are owner-signed accepted risks, with at most 3 new entries. Every v1.0 P0 and P1 has a regression test that fails on the old commit.
-*   **G4, Tier 1 CLIs qualified.** claude-cli and at least one other candidate pass the containment check. The candidates are claude-cli, opencode-cli, cline-cli, codex-cli and antigravity-cli, with gemini-cli as the fallback. gemini-cli takes the Google slot only if antigravity-cli fails its containment check, so Tier 1 has two to five CLIs. A candidate that fails stays experimental. The containment check covers:
+*   **G4, Tier 1 CLIs qualified.** claude-cli and at least one other candidate pass the containment check. The candidates are claude-cli, opencode-cli, cline-cli, codex-cli and antigravity-cli, with gemini-cli as the fallback. gemini-cli takes the Google slot only if antigravity-cli fails its containment check, so Tier 1 has two to five CLIs. A candidate that fails stays experimental. The owner deferred opencode-cli from v1 Tier 1 on 2026-11-21 (35w), so v1's G4 is met by claude-cli and codex-cli. The containment check covers:
     *   built-in tools off, proven with a canary file;
     *   the shell contained;
     *   an allowlisted environment;
@@ -150,6 +150,7 @@ The owner decided every question on 2026-11-18; each carries its decision. Where
     *   **Proposed answer (not taken).** The full task gate on claude-cli, and a reduced, non-blocking gate of 1 run per task on every other Tier 1 CLI.
     *   **Answer.** The full task gate runs on every Tier 1 CLI: 3 runs per task, the same pass rule, and each CLI must pass for the release. With five Tier 1 CLIs that is about 150 runs of subscription allowance per `verify` run.
     *   **Decided by the owner on 2026-11-18:** Full gate on every Tier 1 CLI, blocking the release (changed from the proposal).
+    *   **Narrowed by the owner on 2026-11-21 (35w):** v1 Tier 1 is claude-cli and codex-cli; opencode-cli is deferred as not configured or tested yet. Thresholds unchanged.
 *   **Q6, terms of service.** Each vendor's current consumer terms need reading, and a decision recorded, before builds go to friends.
     *   **Proposed answer.** Build the hold described in [§2](#2-hardened-cli-adapters-g4-g5), with `allow_unattended_subscription = false` by default. The owner reads the terms and records a decision for each provider in `docs/cli-providers.md` before the friends release.
     *   **Decided by the owner on 2026-11-18:** Build the hold, off by default; the owner records each vendor's terms.
@@ -1907,7 +1908,7 @@ Open at v1 (2026-11-20). The review rule for the last rounds: a medium or high f
 *   **Keys echoed in a provider message are redacted.** opencode passes the provider's own message through, and a provider can echo the key (`Invalid API key sk-live-XYZ123`). Heron redacts these from the failure text, as `[redacted]`:
     *   tokens that start with `sk-`;
     *   `Bearer <token>`;
-    *   any run of 32 or more letters, digits, `-` and `_`.
+    *   any run of 32 or more letters, digits, `-` and `_` that contains at least one letter and at least one digit. A run with no digit, such as a long repeated character, isn't a key; the existing 300-character-cut test relies on that.
 
     Test: `opencode_failure_redacts_an_echoed_key`.
 *   **Left as Known low issues.**
@@ -1915,6 +1916,20 @@ Open at v1 (2026-11-20). The review rule for the last rounds: a medium or high f
     *   `~/.config/opencode/AGENTS.md` enters the prompt untainted. It is a user-owned file.
     *   A real 429 is retried inside opencode and tends to surface as Heron's timeout.
     *   A proxy setting needs 127.0.0.1 in `NO_PROXY` for `--standalone`.
+
+##### 35w. opencode deferred from v1 Tier 1 (owner decision, U8f, 2026-11-21)
+
+*   **Owner decision (2026-11-21), in the owner's words:** "lets put opencode on the back for now just say that in the docs that its not configured or tested yet".
+*   **Why.** opencode-cli passed its containment check (U2c), and the U8a to U8e launch fixes landed with reviews. Its G7 task gate never ran: the opencode account's free tier answered `provider.free-limit` ("Free usage limit reached") on all three free models tried (`deepseek-v4.1-flash-free`, `nemotron-3.5-super-vl-free`, `mimo-v2.6-flash-free`), and the owner chose not to buy a paid plan for v1.
+*   **What changes.**
+    *   **Tier 1 for v1 is claude-cli and codex-cli.** opencode-cli is deferred: "not configured or tested yet". Its code, its U8a to U8e fixes and its version range stay.
+    *   **Q5's scope narrows to those two CLIs.** No G7 threshold changes: at least 26 of 30 runs per CLI, no task under 2 of 3, and the hidden instruction never acted on.
+    *   **G4 holds with claude-cli and codex-cli.** A deferred CLI isn't counted toward G4.
+    *   **`eval/containment/check.py`** keeps a `DEFERRED` list (`opencode-cli`, with this reason). `--list-tier1` leaves deferred ids out and names each one on stderr as an owner decision, so `verify` step 7 gates claude-cli and codex-cli only, and its log says opencode-cli was left out by the owner, not stopped by a limit.
+    *   **The product labels opencode-cli `experimental`**, the label every CLI without a measured task gate carries (`heron providers`, `GET /api/providers`, the Mac app's provider list, and the "verify the flags" hint). Its `supported` range stays, so Heron still refuses an opencode version outside 2.1.4 to below 3.0.0 unless the user accepts it: the tools-off agent and `OPENCODE_DISABLE_PROJECT_CONFIG` were checked on 2.x only.
+    *   **The registry test changes its rule.** A CLI has a range when it passed containment. It is not experimental only when it is also in v1 Tier 1, that is, not deferred. The test reads the same deferred list.
+    *   **User docs** (README, `docs/cli-providers.md`, `docs/getting-started-mac.md`, CHANGELOG) say opencode is not configured or tested yet in v1, and make no claim that it works.
+*   **On the owner-review list (Q7).** This deferral, and the free-tier probe result.
 
 #### Work unit U2w: apply the measurements
 
@@ -2190,6 +2205,7 @@ The skein gate runs only on this Mac, so it can't see Windows or Linux. CI now a
 | U8c | Limit errors told apart by phrase, not by loose words (35t) | `src/**` | U8b | `cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- genuine_rate_and_quota_errors_are_limits ordinary_failures_that_mention_rate_or_limit_are_not_limits opencode_failure_shows_its_error_event` | feature, refactoring: sonnet high |
 | U8d | Bounded limit phrases (35u) | `src/**` | U8c | `cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- genuine_rate_and_quota_errors_are_limits ordinary_failures_that_mention_rate_or_limit_are_not_limits an_auth_typed_event_naming_a_limit_is_worded_as_a_limit` | feature, refactoring: sonnet high |
 | U8e | opencode ignores config above its run folder; U8a review test gaps; `--auto` banned; echoed keys redacted (35v) | `src/**` | U8d | `cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- opencode_ignores_config_above_its_run_folder opencode_failure_redacts_an_echoed_key opencode_failure_shows_its_error_event` | feature, refactoring: sonnet high |
+| U8f | opencode-cli labelled experimental, range kept; registry test reads the deferred list (35w) | `src/**` | U8e | `cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- tier1_candidates_have_ranges deferred_cli_keeps_its_range_but_is_experimental` | feature, refactoring: sonnet high |
 | U2g | Regression tests that run each reproduced U2 escape under Seatbelt: a positive control in the launch test, a real-run test for too-broad config-folder overrides, and a Seatbelt half in the probe test | `src/**` | U1g | `cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib -- broad_config_dir_override_opens_nothing_in_a_cli_sandbox probes_run_contained_like_the_turn sandboxed_command_cannot_launch_outside_the_sandbox` | hardest tasks: opus high |
 | U0g | genesis `json` audit of the pass-rule grammar (item 8c) | `eval/genesis/**` | U0 | `python3 -I -m unittest discover -s eval/genesis -t eval && genesis audit-evaluator eval/genesis/pass-rules-json.yaml --suite json` | feature, refactoring: sonnet high |
 | U2s | Measurement spike on claude-cli, envelope vs hybrid, 50 paired runs per arm (measurement) | `eval/spike/**` | U0, U0g, U2, U2c | `bash eval/spike/run-spike.sh && python3 -I eval/check_gate.py --spike eval/spike/envelope/summary.json eval/spike/hybrid/summary.json --report eval/spike/topology.md` | feature, refactoring: sonnet high |
@@ -2204,7 +2220,7 @@ The skein gate runs only on this Mac, so it can't see Windows or Linux. CI now a
 | U7 | `build-app.sh` with the Swift app, signing and notarization; upgrade fixture and test | `packaging/macos/**` | U4c, U3h | `bash packaging/macos/make-upgrade-fixture.sh --if-missing && bash packaging/macos/build-app.sh --unsigned && test -f dist/Heron-macos-universal.dmg && test -x dist/Heron.app/Contents/MacOS/heron-cli && bash packaging/macos/upgrade-test.sh` | feature, refactoring: sonnet high |
 | U7b | Release and CI workflow changes | `.github/**` | U7 | `actionlint .github/workflows/release.yml .github/workflows/ci.yml` | feature, refactoring: sonnet high |
 | U7c | Fixes from CI on all three OSes: Windows compiles and runs the tests, macOS-only tests gated, the browser test accepts the risk notice, two flaky tests made deterministic | `src/**`, `tests/**` | U3i, U7b | `cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && HERON_TEST_BROWSER=1 cargo test --locked --test integration browser_reads_pages_follows_links_and_fills_in_forms && for i in $(seq 1 50); do cargo test --locked --lib -q > /dev/null 2>&1 \|\| { echo "lib run $i failed"; exit 1; }; done`, then CI green on all three OSes on the pushed branch | feature, refactoring: sonnet high |
-| verify | Full gate on the final branch | `scripts/**` | U0, U0b, U0g, U3a, U1, U2, U2c, U2s, U3, Ut, U2w, U3f, U2x, U3g, U3h, U3i, U4a, U4b, U4c, U6, U6b, U7, U7b, U7c, U3j, U3k, U3l, U4d, U3m, U3n, U3o, U3p, U3q, U3r, U3s, U3t, U3u, U3v, U8a, U8b, U8c, U8d, U8e | `bash scripts/verify-v1.sh` | feature, refactoring: sonnet high |
+| verify | Full gate on the final branch | `scripts/**` | U0, U0b, U0g, U3a, U1, U2, U2c, U2s, U3, Ut, U2w, U3f, U2x, U3g, U3h, U3i, U4a, U4b, U4c, U6, U6b, U7, U7b, U7c, U3j, U3k, U3l, U4d, U3m, U3n, U3o, U3p, U3q, U3r, U3s, U3t, U3u, U3v, U8a, U8b, U8c, U8d, U8e, U8f | `bash scripts/verify-v1.sh` | feature, refactoring: sonnet high |
 
 **Order.**
 *   U0 and U3a start in parallel. U0b runs after U0, then the `src/**` chain U1 → U2 → U1f → U2f → U1g → U2g → U1h → U3 → U1i, then U2w → U3f → U2x → U3g → U3h. U1f, U2f and U1g carry the fixes from the independent reviews of U1, U2 and U1f, and the U2c re-run follows U2f.

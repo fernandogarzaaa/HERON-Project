@@ -1950,6 +1950,84 @@
     }
   },
   "SYNC34": {
+    "attempts": [
+      {
+        "attempt_id": "799cfe0ff0d14c6299f5725d860996ce",
+        "ended_at": "2026-11-20T13:39:53.642237+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-20T13:39:46.819545+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "low",
+      "model": "haiku"
+    },
+    "blast_radius": [
+      ".skein-sync/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "grep -q opencode_ignores_config_above_its_run_folder docs/designs/heron-v1.md",
+        "duration_ms": 236,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC34_20261120T133953320777_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/SYNC34_20261120T133953558909_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: done",
+    "id": "SYNC34",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q opencode_ignores_config_above_its_run_folder docs/designs/heron-v1.md",
+      "constraints": "Do not read, write or run anything.",
+      "context": "No spec work.",
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U8e's base. Reply 'done' and stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "799cfe0ff0d14c6299f5725d860996ce",
+      "base_commit": "7cc1cc52c5b4dcab145a1910739d57c3565a6e00",
+      "changed_files": [],
+      "commit": "7cc1cc52c5b4dcab145a1910739d57c3565a6e00",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Sync feat head into U8e base",
+    "version": 4,
+    "worktree": {
+      "base_branch": "feat/heron-v1",
+      "base_commit": "7cc1cc52c5b4dcab145a1910739d57c3565a6e00",
+      "branch": "skein/SYNC34",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/SYNC34"
+    }
+  },
+  "SYNC35": {
     "attempts": [],
     "attempts_used": 0,
     "backend": "claude_build_rust",
@@ -1962,12 +2040,12 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "799cfe0ff0d14c6299f5725d860996ce",
+      "attempt_id": "9aa45ba7c8b549b9b14d138e5111f10f",
       "base_branch": "feat/heron-v1",
-      "claim_token": "815ec9d6abee427c9b1fb7c5c7f5c555",
-      "claimed_at": "2026-11-20T13:39:46.819545+00:00",
+      "claim_token": "f2044570de684b1aacbc31936c0d5345",
+      "claimed_at": "2026-11-21T07:25:22.576868+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-20T13:39:46.819545+00:00",
+      "last_heartbeat": "2026-11-21T07:25:22.576868+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1975,13 +2053,13 @@
     "depends_on": [],
     "evidence": [],
     "handoff_note": null,
-    "id": "SYNC34",
+    "id": "SYNC35",
     "integration_for": null,
     "intent": {
-      "completion": "grep -q opencode_ignores_config_above_its_run_folder docs/designs/heron-v1.md",
+      "completion": "grep -q deferred_cli_keeps_its_range_but_is_experimental docs/designs/heron-v1.md",
       "constraints": "Do not read, write or run anything.",
       "context": "No spec work.",
-      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U8e's base. Reply 'done' and stop."
+      "goal": "Make no changes at all. This node exists only so its base, the current feat/heron-v1 head, is merged into U8f's base. Reply 'done' and stop."
     },
     "max_retries": 0,
     "rejected_count": 0,
@@ -1991,7 +2069,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "claimed",
-    "title": "Sync feat head into U8e base",
+    "title": "Sync feat head into U8f's base",
     "version": 2,
     "worktree": {
       "base_branch": "feat/heron-v1",
@@ -11740,8 +11818,33 @@
     }
   },
   "U8e": {
-    "attempts": [],
-    "attempts_used": 0,
+    "attempts": [
+      {
+        "attempt_id": "0c00c3cefd524de08f4519e62fddcb5c",
+        "ended_at": "2026-11-20T13:43:11.681891+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-20T13:39:54.373033+00:00"
+      },
+      {
+        "attempt_id": "d056598d9871443a9aa9134eab3d39e5",
+        "ended_at": "2026-11-20T13:45:02.083797+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-20T13:44:17.367674+00:00"
+      },
+      {
+        "attempt_id": "07c0ade796d8426e8a43f61ee3308c07",
+        "ended_at": "2026-11-20T13:48:21.720817+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-20T13:46:47.380437+00:00"
+      }
+    ],
+    "attempts_used": 1,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -11766,15 +11869,172 @@
       "U8d",
       "SYNC34"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- opencode_ignores_config_above_its_run_folder opencode_failure_redacts_an_echoed_key opencode_failure_shows_its_error_event",
+        "duration_ms": 34943,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8e_20261120T134746613367_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8e_20261120T134821559237_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U8e",
     "integration_for": null,
     "intent": {
       "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- opencode_ignores_config_above_its_run_folder opencode_failure_redacts_an_echoed_key opencode_failure_shows_its_error_event",
       "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
       "context": "Spec: docs/designs/heron-v1.md item 35v (and 35s, 35u for context).",
-      "goal": "Implement spec item 35v in src/cli_llm.rs (and the banned-flag list it names). Read 35v first.\n1. In child_env for opencode-cli (next to the OPENCODE_CONFIG push, around 1499-1502 at f652cf3), also push OPENCODE_DISABLE_PROJECT_CONFIG=1. Test opencode_ignores_config_above_its_run_folder: a fake opencode reports its env; assert OPENCODE_DISABLE_PROJECT_CONFIG=1 and OPENCODE_CONFIG are set; and add an exact-allowlist check of child_env for opencode-cli like the existing claude-cli one in fake_cli_child_env_is_exactly_the_allowlist (extend that test or add a sibling; keep the claude-cli check unchanged).\n2. Mutant e (401 -> LoggedOut removed survives): strengthen opencode_failure_shows_its_error_event, or add a test, so a 401 event with a neutral type (e.g. \"provider.error\", message \"denied\") gives a failure that STARTS WITH the logged-out wording, not just one that contains the generic hint. Mutant g (`&& acc.provider_error.is_none()` removed survives): add a case where opencode prints a text part, then an error event, then exits 1; it must be a failure, not a returned answer.\n3. Add \"--auto\" to the banned-flag lists (the argv test around 3977 and the registry test that list forbidden flags), so no provider argv carries it.\n4. Redact echoed keys in the opencode provider-error summary (ProviderError::summary or where it is built): replace tokens starting with \"sk-\", \"Bearer <token>\", and any run of 32+ chars from [A-Za-z0-9_-] with \"[redacted]\", before the 300-byte cut. Test opencode_failure_redacts_an_echoed_key: message \"Invalid API key sk-live-XYZ123 for org\" with status 401 -> failure contains \"[redacted]\" and not \"sk-live-XYZ123\"; a 40-char token in a message is redacted too.\nEach new test or strengthened assertion must fail with its fix removed (check, then restore). Keep every other existing test passing unchanged. Deterministic, no sleeps. No macos/ changes."
+      "goal": "Implement spec item 35v in src/cli_llm.rs (and the banned-flag list it names). Read 35v first.\n1. In child_env for opencode-cli (next to the OPENCODE_CONFIG push, around 1499-1502 at f652cf3), also push OPENCODE_DISABLE_PROJECT_CONFIG=1. Test opencode_ignores_config_above_its_run_folder: a fake opencode reports its env; assert OPENCODE_DISABLE_PROJECT_CONFIG=1 and OPENCODE_CONFIG are set; and add an exact-allowlist check of child_env for opencode-cli like the existing claude-cli one in fake_cli_child_env_is_exactly_the_allowlist (extend that test or add a sibling; keep the claude-cli check unchanged).\n2. Mutant e (401 -> LoggedOut removed survives): strengthen opencode_failure_shows_its_error_event, or add a test, so a 401 event with a neutral type (e.g. \"provider.error\", message \"denied\") gives a failure that STARTS WITH the logged-out wording, not just one that contains the generic hint. Mutant g (`&& acc.provider_error.is_none()` removed survives): add a case where opencode prints a text part, then an error event, then exits 1; it must be a failure, not a returned answer.\n3. Add \"--auto\" to the banned-flag lists (the argv test around 3977 and the registry test that list forbidden flags), so no provider argv carries it.\n4. Redact echoed keys in the opencode provider-error summary (ProviderError::summary or where it is built): replace tokens starting with \"sk-\", \"Bearer <token>\", and any run of 32+ chars from [A-Za-z0-9_-] with \"[redacted]\", before the 300-byte cut. Test opencode_failure_redacts_an_echoed_key: message \"Invalid API key sk-live-XYZ123 for org\" with status 401 -> failure contains \"[redacted]\" and not \"sk-live-XYZ123\"; a 40-char token in a message is redacted too.\nEach new test or strengthened assertion must fail with its fix removed (check, then restore). Keep every other existing test passing unchanged. Deterministic, no sleeps. No macos/ changes.\nRETRY NOTE (try 1 failed two assertions; your code is otherwise in place in the worktree, so fix these and re-run the check):\n(a) Your new assertion in opencode_failure_shows_its_error_event uses starts_with(\"Opencode is logged out\"), but the provider's display name is \"OpenCode (router)\". The failure was 'OpenCode (router) is logged out: run ...'. Assert starts_with(\"OpenCode (router) is logged out\").\n(b) The 32+ char redaction broke the EXISTING test opencode_other_errors_show_type_and_message_cut_to_300_chars (its message is 1000 'z's and now shows [redacted]). That test must stay unchanged. Spec 35v now says: a 32+ run of [A-Za-z0-9_-] is redacted only when it contains at least one ASCII letter AND at least one ASCII digit. Implement that, and make opencode_failure_redacts_an_echoed_key's 40-char token contain both letters and digits."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "07c0ade796d8426e8a43f61ee3308c07",
+      "base_commit": "4be6db51f4d5aa74df6eb450837bcccb20503c75",
+      "changed_files": [
+        "src/cli_llm.rs"
+      ],
+      "commit": "543bcad1eea45bc3726505061c09bc387780af7e",
+      "diff_stats": {
+        "src/cli_llm.rs": {
+          "added": 110,
+          "deleted": 4
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "4be6db51f4d5aa74df6eb450837bcccb20503c75",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "6b9a1917f3f87babc683da566856c0e4f3f90096",
+        "result_commit": "543bcad1eea45bc3726505061c09bc387780af7e",
+        "shipped_at": "2026-11-20T13:49:01.800937+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
+    "status": "done",
+    "title": "opencode ignores config above its run folder (35v)",
+    "version": 23,
+    "worktree": {
+      "base_branch": "skein/U8e__integrate-base",
+      "base_commit": "4be6db51f4d5aa74df6eb450837bcccb20503c75",
+      "branch": "skein/U8e",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U8e"
+    }
+  },
+  "U8e__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "906792f4fba04bc79aa30031faa71c1e",
+        "ended_at": "2026-11-20T13:39:54.279374+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-20T13:39:53.954700+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U8d",
+      "SYNC34"
+    ],
+    "evidence": [
+      {
+        "command": "git merge 7cc1cc52c5b4dcab145a1910739d57c3565a6e00",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['61989d212a5dd032641289446117db5af6a620fd', '7cc1cc52c5b4dcab145a1910739d57c3565a6e00'] into skein/U8e__integrate-base.",
+    "id": "U8e__integrate",
+    "integration_for": "U8e",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U8d', 'SYNC34'] into one base branch for U8e."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "61989d212a5dd032641289446117db5af6a620fd",
+      "changed_files": [],
+      "commit": "4be6db51f4d5aa74df6eb450837bcccb20503c75",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Integrate parents of U8e",
+    "version": 3,
+    "worktree": {
+      "base_branch": "61989d212a5dd032641289446117db5af6a620fd",
+      "branch": "skein/U8e__integrate-base",
+      "path": null
+    }
+  },
+  "U8f": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U8e",
+      "SYNC35"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U8f",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- tier1_candidates_have_ranges deferred_cli_keeps_its_range_but_is_experimental",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1.md item 35w (and 35s, 35v for opencode context). eval/containment/check.py already has DEFERRED (committed 8565d29).",
+      "goal": "Implement spec item 35w's src part in src/cli_llm.rs. Read 35w first. Owner decision: opencode-cli is deferred from v1 Tier 1 (not configured or tested yet).\n1. Add a pub const DEFERRED_FROM_TIER1: &[&str] = &[\"opencode-cli\"] with a doc comment pointing at design item 35w and eval/containment/check.py's DEFERRED.\n2. In the opencode-cli registry entry set experimental: true. KEEP its supported range (2.1.4 to below 3.0.0) and everything else unchanged: the tools-off agent and OPENCODE_DISABLE_PROJECT_CONFIG were checked on 2.x only, so the version gate must stay. Do not remove or change any opencode launch code.\n3. In tier1_candidates_have_ranges, change the rule: a candidate that passed containment (status passed and folders confirmed) gets the range checks as now. It must be non-experimental only when it is not in DEFERRED_FROM_TIER1; a deferred one must be experimental and still have its range. Keep every other assertion as it is (no weakening). Also make the test read eval/containment/check.py, extract the keys of its DEFERRED dict (the quoted ids between 'DEFERRED = {' and the closing '}'), and assert they equal DEFERRED_FROM_TIER1.\n4. New test deferred_cli_keeps_its_range_but_is_experimental: spec_for(\"opencode-cli\") is experimental, has Some range, and check_version still refuses an out-of-range version like 3.0.0 for it (as codex's test does) and accepts 2.1.4.\n5. Check other tests that assume opencode-cli is not experimental (search for opencode in tests, for example probe hints or provider lists) and update only those expectations that 35w changes; list each changed assertion in your handoff.\nRun the completion command yourself before stopping."
     },
     "max_retries": 3,
     "rejected_count": 0,
@@ -11784,7 +12044,7 @@
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "unclaimed",
-    "title": "opencode ignores config above its run folder (35v)",
+    "title": "opencode-cli labelled experimental, range kept (35w)",
     "version": 1,
     "worktree": {
       "base_branch": null,
@@ -12045,7 +12305,8 @@
       "U8b",
       "U8c",
       "U8d",
-      "U8e"
+      "U8e",
+      "U8f"
     ],
     "evidence": [
       {
@@ -12078,7 +12339,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Full gate on the final branch",
-    "version": 1368,
+    "version": 1369,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "base_commit": "4ae08905b90e43c8f2c1e8d8483d5933b26da68f",
