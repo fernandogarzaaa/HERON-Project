@@ -686,7 +686,7 @@ pub fn run(
     // Tokio first polls it. The token may already have been read by the caller.
     let started = generation(&app);
     async move {
-        run_with_generation(app, api_base, token, started, false).await;
+        run_with_generation(app, api_base, token, started, true).await;
     }
 }
 
@@ -943,6 +943,17 @@ mod tests {
         ).await.unwrap())
     }
 
+    fn run_test(
+        app: Arc<App>,
+        api_base: String,
+        token: String,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let started = generation(&app);
+        async move {
+            run_with_generation(app, api_base, token, started, false).await;
+        }
+    }
+
     async fn until(what: &str, check: impl Fn() -> bool) {
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         while !check() {
@@ -1052,7 +1063,7 @@ mod tests {
 
         // Model spawn_if_configured capturing the old credential and generation,
         // followed by a replacement bump before Tokio first polls the task.
-        let stale_future = run(app.clone(), base, "OLD-TOKEN".into());
+        let stale_future = run_test(app.clone(), base, "OLD-TOKEN".into());
         // run() captures the generation synchronously. Do not schedule the
         // future until after the replacement bump: this deterministically
         // exercises the delayed-first-poll window.
@@ -1082,7 +1093,7 @@ mod tests {
         };
         spool.enqueue_parts(&identity, None, &["legacy reply".to_string()], "legacy-reply", crate::util::now_ts()).unwrap();
 
-        let gateway = tokio::spawn(run(app, base, token.into()));
+        let gateway = tokio::spawn(run_test(app, base, token.into()));
         until("legacy outbox purge", || spool.count_pending().unwrap() == 0).await;
         assert!(
             !paths.lock().unwrap().iter().any(|path| path.ends_with("/sendMessage")),
@@ -1101,7 +1112,7 @@ mod tests {
         let old_epoch = pairing_epoch(&app);
         let new_epoch = rotate_pairing_epoch(&app);
 
-        let gateway = tokio::spawn(run(app.clone(), base, token.into()));
+        let gateway = tokio::spawn(run_test(app.clone(), base, token.into()));
         tokio::time::sleep(Duration::from_millis(600)).await;
         assert!(
             !paths.lock().unwrap().iter().any(|path| path.ends_with("/sendMessage")),
@@ -1123,7 +1134,7 @@ mod tests {
         let app = paired_heron(dir.path()).await;
         queue_test_replies(&app, "OUTBOX-POLL-FAIL", 1);
 
-        let gateway = tokio::spawn(run(app, base, "OUTBOX-POLL-FAIL".into()));
+        let gateway = tokio::spawn(run_test(app, base, "OUTBOX-POLL-FAIL".into()));
         until("queued reply delivery while getUpdates is failing", || {
             paths.lock().unwrap().iter().any(|path| path.ends_with("/sendMessage"))
         }).await;
@@ -1137,7 +1148,7 @@ mod tests {
         let app = paired_heron(dir.path()).await;
         queue_test_replies(&app, "OUTBOX-SLOW-SEND", 3);
 
-        let gateway = tokio::spawn(run(app, base, "OUTBOX-SLOW-SEND".into()));
+        let gateway = tokio::spawn(run_test(app, base, "OUTBOX-SLOW-SEND".into()));
         let count = |suffix: &str| paths.lock().unwrap().iter()
             .filter(|path| path.ends_with(suffix)).count();
         until("first slow outbound send", || count("/sendMessage") > 0).await;
@@ -1192,16 +1203,16 @@ mod tests {
         let daemon = heron_process(dir.path()).await;
         let serve = heron_process(dir.path()).await;
 
-        let old = tokio::spawn(run(daemon.clone(), base.clone(), "OLD".into()));
+        let old = tokio::spawn(run_test(daemon.clone(), base.clone(), "OLD".into()));
         until("the first gateway polls", || polls("OLD") > 0).await;
-        let second = tokio::spawn(run(serve.clone(), base.clone(), "SECOND".into()));
+        let second = tokio::spawn(run_test(serve.clone(), base.clone(), "SECOND".into()));
         tokio::time::sleep(Duration::from_millis(600)).await;
         assert_eq!(polls("SECOND"), 0, "a second gateway polled while the first was running");
         second.abort();
 
         // What set_telegram does in the other process when the owner pastes a new token.
         bump_generation(&serve).unwrap();
-        let new = tokio::spawn(run(serve.clone(), base.clone(), "NEW".into()));
+        let new = tokio::spawn(run_test(serve.clone(), base.clone(), "NEW".into()));
         until("the old gateway stops", || old.is_finished()).await;
         until("the new gateway takes over", || polls("NEW") > 0).await;
         let after = polls("OLD");
