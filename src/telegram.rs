@@ -346,6 +346,42 @@ fn rotate_pairing_epoch(app: &App) -> String {
     epoch
 }
 
+/// Keep Telegram's update cursor separate for each bot credential. A token
+/// replacement must never let the new bot inherit another bot's update IDs.
+fn token_account_id(token: &str) -> String {
+    format!("{:x}", Sha256::digest(token.as_bytes()))
+}
+
+fn offset_key(account_id: &str) -> String {
+    format!("telegram_offset_{account_id}")
+}
+
+fn read_offset(store: &crate::store::Store, account_id: &str) -> i64 {
+    let key = offset_key(account_id);
+    if let Some(value) = store.kv_get(&key) {
+        return value.parse().unwrap_or(0);
+    }
+    // One-time migration for installations that only have the original
+    // single-bot cursor. Replacement tokens are initialized explicitly to 0
+    // before their credential is published.
+    let legacy = store.kv_get("telegram_offset")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    let _ = store.kv_set(&key, &legacy.to_string());
+    legacy
+}
+
+pub(crate) fn initialize_offset_for_token(
+    store: &crate::store::Store,
+    token: &str,
+) -> Result<()> {
+    let key = offset_key(&token_account_id(token));
+    if store.kv_get(&key).is_none() {
+        store.kv_set(&key, "0")?;
+    }
+    Ok(())
+}
+
 /// The code, for showing in the app. Looking at it there is what re-opens pairing after too many
 /// wrong guesses: only someone at the computer can do that.
 pub fn show_pairing_code(app: &App) -> String {
@@ -651,7 +687,7 @@ async fn run_with_generation(app: Arc<App>, api_base: String, token: String, sta
         client: reqwest::Client::builder().timeout(Duration::from_secs(40)).build().expect("http client"),
         base: format!("{}/bot{token}", api_base.trim_end_matches('/')),
         app: app.clone(),
-        account_id: format!("{:x}", Sha256::digest(token.as_bytes())),
+        account_id: token_account_id(&token),
         pairing_epoch: pairing_epoch(&app),
         spool,
         dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
@@ -705,7 +741,8 @@ async fn run_with_generation(app: Arc<App>, api_base: String, token: String, sta
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
     }));
-    let mut offset: i64 = app.store.kv_get("telegram_offset").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let offset_key = offset_key(&bot.account_id);
+    let mut offset = read_offset(&app.store, &bot.account_id);
     let poll_secs = if api_base.contains("127.0.0.1") { 0 } else { 25 };
     loop {
         if generation(&app) != started {
@@ -792,6 +829,8 @@ async fn run_with_generation(app: Arc<App>, api_base: String, token: String, sta
                 }
             }
             offset = next_offset;
+            let _ = app.store.kv_set(&offset_key, &offset.to_string());
+            // Keep the legacy single-bot cursor current for downgrade compatibility.
             let _ = app.store.kv_set("telegram_offset", &offset.to_string());
         }
         if let Some(chat) = paired_chat(&app) {
@@ -1213,6 +1252,20 @@ mod tests {
         assert_eq!(app.store.kv_get("telegram_chat").as_deref(), Some("42"));
         assert_eq!(app.store.kv_get("telegram_session").as_deref(), Some("session-before-unpair"));
         assert_eq!(pairing_epoch(&app), "old-epoch");
+    }
+
+    #[test]
+    fn telegram_update_cursors_are_scoped_to_the_bot_token() {
+        let store = Store::in_memory().unwrap();
+        store.kv_set("telegram_offset", "982").unwrap();
+
+        let old_account = token_account_id("OLD-TOKEN");
+        assert_eq!(read_offset(&store, &old_account), 982);
+
+        initialize_offset_for_token(&store, "NEW-TOKEN").unwrap();
+        let new_account = token_account_id("NEW-TOKEN");
+        assert_eq!(read_offset(&store, &new_account), 0);
+        assert_eq!(read_offset(&store, &old_account), 982);
     }
 
     #[tokio::test]
