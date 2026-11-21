@@ -558,6 +558,12 @@ fn generation(app: &App) -> String {
 /// One gateway per Heron home, across processes: two readers of one bot split its updates and
 /// race the spool. Waits for the current holder to stop, and gives up if the token changes first.
 async fn take_gateway_lock(app: &App, started: &str) -> Option<std::fs::File> {
+    // A gateway can be spawned with a captured token and not be polled until
+    // after another process has replaced that token. Reject stale snapshots
+    // before opening or acquiring the shared gateway lock.
+    if generation(app) != started {
+        return None;
+    }
     let cfg = app.cfg();
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(false);
@@ -576,7 +582,14 @@ async fn take_gateway_lock(app: &App, started: &str) -> Option<std::fs::File> {
     let mut told = false;
     loop {
         match file.try_lock() {
-            Ok(()) => return Some(file),
+            Ok(()) => {
+                // The generation may change between the pre-lock check and
+                // acquiring the lock. Drop the lock rather than run stale credentials.
+                if generation(app) != started {
+                    return None;
+                }
+                return Some(file);
+            }
             Err(std::fs::TryLockError::WouldBlock) => {}
             Err(std::fs::TryLockError::Error(err)) => {
                 eprintln!("HERON Telegram: gateway disabled because its lock cannot be taken: {err}");
@@ -614,6 +627,10 @@ pub async fn verify_token(api_base: &str, token: &str) -> std::result::Result<()
 
 pub async fn run(app: Arc<App>, api_base: String, token: String) {
     let started = generation(&app);
+    run_with_generation(app, api_base, token, started).await;
+}
+
+async fn run_with_generation(app: Arc<App>, api_base: String, token: String, started: String) {
     let Some(_gateway_lock) = take_gateway_lock(&app, &started).await else { return };
     let spool = match ChannelStore::open(&app.cfg().home.join("channels.db")) {
         Ok(spool) => spool,
@@ -789,9 +806,13 @@ pub fn spawn_if_configured(app: &Arc<App>) -> bool {
         // credential source. User must reconnect through the verified vault.
         return false;
     }
+    // Snapshot the generation before reading the credential. If replacement
+    // starts after this point, its generation bump fences this task even if
+    // Tokio does not poll the spawned future until much later.
+    let started = generation(app);
     match cfg.secret("telegram_token") {
         Some(token) => {
-            let task = tokio::spawn(run(app.clone(), cfg.telegram.api_base.clone(), token));
+            let task = tokio::spawn(run_with_generation(app.clone(), cfg.telegram.api_base.clone(), token, started));
             *app.telegram_task.lock().unwrap() = Some(task.abort_handle());
             true
         }
@@ -915,6 +936,31 @@ mod tests {
                 crate::util::now_ts(),
             ).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn gateway_spawned_before_replacement_cannot_adopt_the_new_generation() {
+        let (base, paths) = mock_telegram(|_| (200, json!({"ok": true, "result": []}))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = heron_process(dir.path()).await;
+
+        // Model spawn_if_configured capturing the old credential and generation,
+        // followed by a replacement bump before Tokio first polls the task.
+        let captured_generation = generation(&app);
+        let stale_gateway = tokio::spawn(run_with_generation(
+            app.clone(),
+            base,
+            "OLD-TOKEN".into(),
+            captured_generation,
+        ));
+        bump_generation(&app);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert!(stale_gateway.is_finished(), "a stale gateway must exit before polling");
+        assert!(
+            !paths.lock().unwrap().iter().any(|path| path.ends_with("/getUpdates")),
+            "a gateway holding a replaced token must never start polling"
+        );
     }
 
     #[tokio::test]
