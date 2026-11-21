@@ -164,20 +164,64 @@ pub async fn finish(cfg: &Config, pending: Pending, code: &str) -> Result<()> {
 
 /// Who signed in, from the ID token the token endpoint returned over TLS (OpenID Connect Core
 /// 3.1.3.7 allows skipping the signature check then). It must have been issued to this app.
-fn account_subject(client_id: &str, token: &Value) -> Result<String> {
+fn account_subject(provider: Provider, client_id: &str, token: &Value) -> Result<String> {
     let unreadable = || anyhow!("The provider did not say which account signed in. Connect again.");
     let payload = token.get("id_token").and_then(Value::as_str)
         .and_then(|jwt| jwt.split('.').nth(1)).ok_or_else(unreadable)?;
     let bytes = URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).map_err(|_| unreadable())?;
     let claims: Value = serde_json::from_slice(&bytes).map_err(|_| unreadable())?;
-    let for_us = match &claims["aud"] {
-        Value::String(aud) => aud == client_id,
-        Value::Array(auds) => auds.iter().any(|aud| aud == client_id),
+
+    // The token endpoint is reached over authenticated TLS, which lets this
+    // public client rely on TLS for issuer authentication instead of fetching
+    // signing keys. OIDC still requires validating the issuer, audience and
+    // expiration claims before using the subject to bind a stored account.
+    let issuer = claims.get("iss").and_then(Value::as_str).unwrap_or_default();
+    let issuer_valid = match provider {
+        Provider::Google => matches!(issuer, "https://accounts.google.com" | "accounts.google.com"),
+        Provider::Microsoft => {
+            let tenant = claims.get("tid").and_then(Value::as_str).unwrap_or_default();
+            let parsed = Url::parse(issuer);
+            let segments = parsed.as_ref().ok()
+                .and_then(Url::path_segments)
+                .map(|parts| parts.collect::<Vec<_>>())
+                .unwrap_or_default();
+            uuid::Uuid::parse_str(tenant).is_ok()
+                && parsed.as_ref().is_ok_and(|url| {
+                    url.scheme() == "https"
+                        && url.host_str() == Some("login.microsoftonline.com")
+                        && url.port().is_none()
+                        && url.username().is_empty()
+                        && url.password().is_none()
+                        && url.query().is_none()
+                        && url.fragment().is_none()
+                })
+                && segments.len() == 2
+                && segments[0].eq_ignore_ascii_case(tenant)
+                && segments[1] == "v2.0"
+        }
+    };
+    if !issuer_valid {
+        bail!("The provider returned an ID token from an unexpected issuer. Connect again.");
+    }
+
+    let for_us = match claims.get("aud") {
+        Some(Value::String(aud)) => aud == client_id,
+        // This client trusts no additional audience. Reject multi-audience
+        // tokens rather than accepting an untrusted audience beside our ID.
+        Some(Value::Array(auds)) => auds.len() == 1 && auds[0].as_str() == Some(client_id),
         _ => false,
     };
-    if !for_us {
+    if !for_us || claims.get("azp").is_some_and(|azp| azp.as_str() != Some(client_id)) {
         bail!("This sign-in was issued to a different app. Connect again.");
     }
+
+    let now = Utc::now().timestamp();
+    let exp = claims.get("exp").and_then(Value::as_i64).ok_or_else(unreadable)?;
+    let iat = claims.get("iat").and_then(Value::as_i64).ok_or_else(unreadable)?;
+    if exp <= now || exp <= iat || iat > now.saturating_add(300) {
+        bail!("The provider returned an expired or invalid ID token. Connect again.");
+    }
+
     claims["sub"].as_str().filter(|sub| !sub.is_empty() && sub.len() <= 255)
         .map(str::to_string).ok_or_else(unreadable)
 }
@@ -217,7 +261,7 @@ fn install(cfg: &Config, provider: Provider, client_id: &str, token: &Value) -> 
     let refresh = token.get("refresh_token").and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| anyhow!("No offline access was granted. Remove the existing app consent and connect again."))?;
-    let subject = account_subject(client_id, token)?;
+    let subject = account_subject(provider, client_id, token)?;
     // Store the nonsecret client ID too so token refresh still works after an app restart.
     // The refresh token is not sent to the desktop frontend or an agent tool.
     // A different account needs an explicit Disconnect first. Holding
@@ -451,18 +495,64 @@ mod tests {
         format!("e30.{}.signature", URL_SAFE_NO_PAD.encode(claims.to_string()))
     }
 
+    fn valid_claims(provider: Provider, client_id: &str, subject: &str) -> Value {
+        let now = Utc::now().timestamp();
+        let mut claims = serde_json::json!({
+            "aud": client_id,
+            "sub": subject,
+            "iat": now,
+            "exp": now + 3600
+        });
+        match provider {
+            Provider::Google => claims["iss"] = serde_json::json!("https://accounts.google.com"),
+            Provider::Microsoft => {
+                let tenant = "11111111-2222-3333-4444-555555555555";
+                claims["tid"] = serde_json::json!(tenant);
+                claims["iss"] = serde_json::json!(format!("https://login.microsoftonline.com/{tenant}/v2.0"));
+            }
+        }
+        claims
+    }
+
     #[test]
-    fn the_signed_in_account_comes_from_an_id_token_issued_to_this_app() {
+    fn the_signed_in_account_comes_from_a_valid_provider_id_token() {
         let token = |claims| serde_json::json!({"id_token": id_token(claims)});
-        use serde_json::json;
-        assert_eq!(account_subject("app", &token(json!({"aud": "app", "sub": "user-1"}))).unwrap(), "user-1");
-        assert_eq!(account_subject("app", &token(json!({"aud": ["other", "app"], "sub": "user-1"}))).unwrap(), "user-1");
-        assert!(account_subject("app", &token(json!({"aud": "other", "sub": "user-1"}))).unwrap_err().to_string().contains("different app"));
-        assert!(account_subject("app", &token(json!({"aud": ["other"], "sub": "user-1"}))).is_err());
+        assert_eq!(
+            account_subject(Provider::Google, "app", &token(valid_claims(Provider::Google, "app", "user-1"))).unwrap(),
+            "user-1"
+        );
+        assert_eq!(
+            account_subject(Provider::Microsoft, "app", &token(valid_claims(Provider::Microsoft, "app", "user-2"))).unwrap(),
+            "user-2"
+        );
+
+        let mut wrong_issuer = valid_claims(Provider::Google, "app", "user-1");
+        wrong_issuer["iss"] = serde_json::json!("https://attacker.example");
+        assert!(account_subject(Provider::Google, "app", &token(wrong_issuer)).unwrap_err().to_string().contains("issuer"));
+
+        let mut expired = valid_claims(Provider::Google, "app", "user-1");
+        expired["exp"] = serde_json::json!(Utc::now().timestamp() - 1);
+        assert!(account_subject(Provider::Google, "app", &token(expired)).unwrap_err().to_string().contains("expired"));
+
+        let mut wrong_tenant = valid_claims(Provider::Microsoft, "app", "user-1");
+        wrong_tenant["iss"] = serde_json::json!("https://login.microsoftonline.com/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/v2.0");
+        assert!(account_subject(Provider::Microsoft, "app", &token(wrong_tenant)).unwrap_err().to_string().contains("issuer"));
+
+        let mut multiple_audiences = valid_claims(Provider::Google, "app", "user-1");
+        multiple_audiences["aud"] = serde_json::json!(["other", "app"]);
+        assert!(account_subject(Provider::Google, "app", &token(multiple_audiences)).is_err());
+
         let long = "x".repeat(256);
-        for bad in [json!({}), json!({"id_token": "no-dots"}), json!({"id_token": "a.!!!.c"}), json!({"id_token": "a.bm90LWpzb24.c"}),
-                    token(json!({"aud": "app"})), token(json!({"aud": "app", "sub": ""})), token(json!({"aud": "app", "sub": long}))] {
-            assert!(account_subject("app", &bad).is_err(), "{bad}");
+        for bad in [
+            serde_json::json!({}),
+            serde_json::json!({"id_token": "no-dots"}),
+            serde_json::json!({"id_token": "a.!!!.c"}),
+            serde_json::json!({"id_token": "a.bm90LWpzb24.c"}),
+            token(valid_claims(Provider::Google, "other", "user-1")),
+            token(valid_claims(Provider::Google, "app", "")),
+            token(valid_claims(Provider::Google, "app", &long)),
+        ] {
+            assert!(account_subject(Provider::Google, "app", &bad).is_err(), "{bad}");
         }
     }
 
@@ -504,7 +594,7 @@ mod tests {
         }).to_string()).unwrap();
         let app = App::assemble(cfg, dir.path().join("ws"), crate::store::Store::in_memory().unwrap(), std::sync::Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
         let p = Provider::Google;
-        let token = json!({"scope": p.scopes(), "refresh_token": "new-refresh", "id_token": id_token(json!({"aud": "new-cid", "sub": "user-1"}))});
+        let token = json!({"scope": p.scopes(), "refresh_token": "new-refresh", "id_token": id_token(valid_claims(p, "new-cid", "user-1"))});
         assert!(install(&app.cfg(), p, "new-cid", &token).is_err());
         let cfg = app.cfg();
         assert_eq!(cfg.secret("oauth_google_client_id").as_deref(), Some("old-cid"));
@@ -524,7 +614,7 @@ mod tests {
         cfg.home = dir.path().join("oauth-vault-qualification");
         let app = App::assemble(cfg, dir.path().join("ws"), crate::store::Store::in_memory().unwrap(), std::sync::Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
         let p = Provider::Google;
-        let token = |refresh: &str, sub: &str| json!({"scope": p.scopes(), "refresh_token": refresh, "id_token": id_token(json!({"aud": "cid", "sub": sub}))});
+        let token = |refresh: &str, sub: &str| json!({"scope": p.scopes(), "refresh_token": refresh, "id_token": id_token(valid_claims(p, "cid", sub))});
         install(&app.cfg(), p, "cid", &token("first-refresh", "user-1")).unwrap();
         let epoch = p.account_epoch(&app.cfg()).unwrap();
         app.store.replace_knowledge_snapshot(p.mail_source(), &[("m1".into(), "Invoice".into(), "Due Friday".into(), 1)]).unwrap();
