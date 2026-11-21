@@ -370,13 +370,11 @@ pub(crate) fn purge_token_spool(app: &App, token: &str) {
 }
 
 pub fn unpair(app: &App) {
-    // Clear unsent replies and inbound identifiers when trusted pairing
-    // is revoked. A new chat must never inherit an old owner's messages.
-    if let Some(token) = app.cfg().secret("telegram_token") {
-        purge_token_spool(app, &token);
-    }
-    // A new pairing (or replaced bot token) must never reuse a previous
-    // owner's conversation, cached notifications, or Telegram update cursor.
+    let token = app.cfg().secret("telegram_token");
+    // Revoke the pairing before purging. Detached turns check this state
+    // after their durable enqueue, so no old-epoch write can race in behind
+    // a purge that happened while the previous pairing was still valid.
+    // A new pairing must never inherit a previous owner's messages.
     let _ = app.store.kv_set("telegram_session", "");
     // Preserve the update cursor for the *same bot*: replaying old owner
     // commands on re-pairing can re-run non-idempotent tool actions.
@@ -385,6 +383,9 @@ pub fn unpair(app: &App) {
     let _ = app.store.kv_set("telegram_code", &new_code());
     let _ = app.store.kv_set("telegram_wrong", "0");
     let _ = app.store.kv_set("telegram_locked", "");
+    if let Some(token) = token {
+        purge_token_spool(app, &token);
+    }
 }
 
 fn session_for(app: &App, fresh: bool) -> Result<Session> {
