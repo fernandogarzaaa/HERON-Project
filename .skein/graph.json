@@ -12028,7 +12028,16 @@
     }
   },
   "U8f": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "5c48595ef74744d98092de34a6b1bbe3",
+        "ended_at": "2026-11-21T07:28:56.369345+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-21T07:25:30.098706+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -12040,22 +12049,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "5c48595ef74744d98092de34a6b1bbe3",
-      "base_branch": "skein/U8f__integrate-base",
-      "claim_token": "ce032bad41f3441c929cf4a50eaee7a5",
-      "claimed_at": "2026-11-21T07:25:30.098706+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-21T07:25:30.098706+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U8e",
       "SYNC35"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && HERON_REQUIRE_SEATBELT=1 cargo test --locked --lib --bins && bash eval/require-tests.sh --lib --bins -- tier1_candidates_have_ranges deferred_cli_keeps_its_range_but_is_experimental",
+        "duration_ms": 34681,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8f_20261121T072821459971_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/U8f_20261121T072856143644_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "U8f",
     "integration_for": null,
     "intent": {
@@ -12067,13 +12088,26 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "5c48595ef74744d98092de34a6b1bbe3",
+      "base_commit": "2fc29889c39e141715d6867bca143b24f9ae4ec8",
+      "changed_files": [
+        "src/cli_llm.rs"
+      ],
+      "commit": "c99e7f452dbbdd09210b0b1dfb9d3771a7ea8985",
+      "diff_stats": {
+        "src/cli_llm.rs": {
+          "added": 49,
+          "deleted": 4
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "opencode-cli labelled experimental, range kept (35w)",
-    "version": 4,
+    "version": 11,
     "worktree": {
       "base_branch": "skein/U8f__integrate-base",
       "base_commit": "2fc29889c39e141715d6867bca143b24f9ae4ec8",
