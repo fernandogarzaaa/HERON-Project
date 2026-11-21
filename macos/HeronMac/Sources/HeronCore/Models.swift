@@ -502,7 +502,7 @@ public struct ProviderStatus: Sendable, Equatable, Identifiable {
     }
 }
 
-public struct Grant:Sendable, Equatable, Identifiable {
+public struct Grant: Sendable, Equatable, Identifiable {
     public var rule: String
     /// `read` for `read:` rules, `tool` for the rest.
     public var kind: String
