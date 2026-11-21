@@ -1525,11 +1525,38 @@ impl Store {
         self.db().execute("INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", params![k, v])?;
         Ok(())
     }
+
+    /// Apply related state changes atomically so recovery cannot observe a
+    /// partially updated ownership or revocation state.
+    pub fn kv_set_many(&self, values: &[(&str, &str)]) -> Result<()> {
+        let mut db = self.db();
+        let tx = db.transaction()?;
+        for (key, value) in values {
+            tx.execute(
+                "INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+                params![key, value],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kv_set_many_rolls_back_all_values_when_one_write_fails() {
+        let store = Store::in_memory().unwrap();
+        store.execute_batch_for_test(
+            "CREATE TRIGGER reject_kv_write BEFORE INSERT ON kv
+             WHEN NEW.k = 'reject'
+             BEGIN SELECT RAISE(ABORT, 'rejected key'); END;",
+        );
+        assert!(store.kv_set_many(&[("first", "one"), ("reject", "no")]).is_err());
+        assert_eq!(store.kv_get("first"), None);
+    }
 
     #[test]
     fn sessions_and_messages_roundtrip() {
