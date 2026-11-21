@@ -12073,9 +12073,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "opencode-cli labelled experimental, range kept (35w)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U8f__integrate-base",
       "branch": null,
       "path": null
     }
