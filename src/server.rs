@@ -1046,7 +1046,10 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
         crate::telegram::preflight_token_replacement(&st.app, token)?;
         crate::telegram::stop(&st.app);
         // A gateway in another Heron process sharing this home stops on its next poll.
-        crate::telegram::bump_generation(&st.app);
+        if let Err(err) = crate::telegram::bump_generation(&st.app) {
+            crate::telegram::spawn_if_configured(&st.app);
+            return Err(err.into());
+        }
         // The durable pairing revocation must commit before the credential can change.
         // If it fails, leave the old token/pairing intact and restart the old gateway.
         if let Err(err) = crate::telegram::unpair(&st.app) {
@@ -1061,7 +1064,13 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
         }
         // A second process may have started with the old token after the first
         // generation bump but before the vault write. Fence that gateway too.
-        crate::telegram::bump_generation(&st.app);
+        if let Err(err) = crate::telegram::bump_generation(&st.app) {
+            // The new credential is already installed. Start it, while production
+            // gateways independently verify their captured token against the vault;
+            // stale processes therefore exit even if the generation write failed.
+            crate::telegram::spawn_if_configured(&st.app);
+            return Err(err.into());
+        }
     } else {
         // Re-saving the same verified token does not revoke the existing pairing.
         cfg.store_vault_only_secret("telegram_token", token)?;
@@ -1073,7 +1082,10 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
 
 async fn remove_telegram(State(st): S) -> ApiResult {
     crate::telegram::stop(&st.app);
-    crate::telegram::bump_generation(&st.app);
+    if let Err(err) = crate::telegram::bump_generation(&st.app) {
+        crate::telegram::spawn_if_configured(&st.app);
+        return Err(err.into());
+    }
     // Revocation must commit before the token is erased. On failure, preserve the
     // configured credential and restart the previous (still-paired) gateway.
     if let Err(err) = crate::telegram::unpair(&st.app) {
@@ -1093,7 +1105,11 @@ async fn remove_telegram(State(st): S) -> ApiResult {
     }
     // Invalidate a gateway that may have captured the old credential between
     // the initial stop signal and successful vault/fallback removal.
-    crate::telegram::bump_generation(&st.app);
+    if let Err(err) = crate::telegram::bump_generation(&st.app) {
+        // The vault item is gone. Stale gateways also verify the configured
+        // token on every poll and will stop even if this final fence cannot persist.
+        return Err(err.into());
+    }
     Ok(Json(json!({"configured": false, "paired": false})))
 }
 
