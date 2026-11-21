@@ -10566,11 +10566,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Mac Settings row labels experimental providers (35w)",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/U4e__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "04fdd9476b50d3b7cdd3e998dff1f6f8b376ba83",
+      "branch": "skein/U4e",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/U4e"
     }
   },
   "U4e__integrate": {
