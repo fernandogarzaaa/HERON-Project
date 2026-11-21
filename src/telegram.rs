@@ -612,6 +612,17 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
         eprintln!("HERON Telegram: could not clear obsolete approval prompts: {err}");
         return;
     }
+    // Pre-epoch builds keyed outbound rows only by bot token. They cannot be
+    // safely attributed to the current pairing, so discard those legacy rows
+    // rather than risk sending a previous owner's reply after an upgrade.
+    match bot.spool.purge_outbox_account(ChannelKind::Telegram, &bot.account_id) {
+        Ok(count) if count > 0 => eprintln!("HERON Telegram: discarded {count} legacy outbox row(s) without a pairing epoch."),
+        Ok(_) => {}
+        Err(err) => {
+            eprintln!("HERON Telegram: could not discard legacy outbox rows: {err}");
+            return;
+        }
+    }
     // An accepted turn left unfinished by a crash may have performed a tool
     // action before stopping. Do not re-execute it automatically.
     if let Ok(count) = bot.spool.mark_interrupted(ChannelKind::Telegram, &bot.account_id) {
@@ -876,6 +887,30 @@ mod tests {
                 crate::util::now_ts(),
             ).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn legacy_unscoped_outbox_rows_are_discarded_on_gateway_start() {
+        let (base, paths) = mock_telegram_with_send_delay(Duration::ZERO, false).await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = paired_heron(dir.path()).await;
+        let token = "LEGACY-OUTBOX";
+        let spool = ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap();
+        let identity = ChannelIdentity {
+            kind: ChannelKind::Telegram,
+            account_id: format!("{:x}", Sha256::digest(token.as_bytes())),
+            chat_id: "42".into(),
+            sender_id: "42".into(),
+        };
+        spool.enqueue_parts(&identity, None, &["legacy reply".to_string()], "legacy-reply", crate::util::now_ts()).unwrap();
+
+        let gateway = tokio::spawn(run(app, base, token.into()));
+        until("legacy outbox purge", || spool.count_pending().unwrap() == 0).await;
+        assert!(
+            !paths.lock().unwrap().iter().any(|path| path.ends_with("/sendMessage")),
+            "an unscoped legacy reply must not be delivered under the new pairing epoch"
+        );
+        gateway.abort();
     }
 
     #[tokio::test]
