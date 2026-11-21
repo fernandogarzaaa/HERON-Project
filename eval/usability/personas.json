@@ -1,0 +1,55 @@
+{
+  "_comment": "Usability personas for the Heron v1 research preview (up to 25 people the owner knows). Everyone here is fictional. eve_persona and eve_profession are ids from `eve personas` and `eve professions` (EVE 0.5.x); tests/test_tasks.py checks them. surfaces says where a persona's runs mean something: an API run says nothing about keyboard or VoiceOver use, so an assistive persona's API runs are tagged api-only in the report and never count as accessibility coverage.",
+  "personas": [
+    {
+      "id": "maya-dev",
+      "name": "Maya (fictional)",
+      "eve_persona": "developer-as-customer",
+      "eve_profession": null,
+      "tech_depth": "high",
+      "assistive": null,
+      "surfaces": ["api", "mac"],
+      "about": "Backend developer, runs Claude Code daily. Installs the DMG herself, reads the risk notice quickly, tries shell tasks and the permission modes first, and pushes on edges (secrets, web pages)."
+    },
+    {
+      "id": "lena-teacher",
+      "name": "Lena (fictional)",
+      "eve_persona": "non-technical-user",
+      "eve_profession": "teacher",
+      "tech_depth": "low",
+      "assistive": null,
+      "surfaces": ["api", "mac"],
+      "about": "Secondary-school teacher, has a Claude subscription a friend set up. Takes every label literally, avoids anything that looks technical, wants lesson notes summarized and saved. Never opens Terminal unless a screen tells her the exact command."
+    },
+    {
+      "id": "omar-keyboard",
+      "name": "Omar (fictional)",
+      "eve_persona": "accessibility-user",
+      "eve_profession": null,
+      "tech_depth": "medium",
+      "assistive": "keyboard-only+voiceover",
+      "surfaces": ["mac"],
+      "about": "Low-vision accountant who drives the Mac with the keyboard and VoiceOver. An approval sheet that steals focus wrongly, a control without a label, or Return approving a high-risk action is a hard blocker for him."
+    },
+    {
+      "id": "priya-pm",
+      "name": "Priya (fictional)",
+      "eve_persona": "project-manager",
+      "eve_profession": "executive",
+      "tech_depth": "medium",
+      "assistive": null,
+      "surfaces": ["api", "mac"],
+      "about": "Product manager. Wants 'Prep my day', the Inbox and her phone. Reads selectively, expects the app to pick up where it left off after her laptop sleeps, and pairs Telegram on day one."
+    },
+    {
+      "id": "tom-careful",
+      "name": "Tom (fictional)",
+      "eve_persona": "anxious-user",
+      "eve_profession": "accountant",
+      "tech_depth": "low",
+      "assistive": null,
+      "surfaces": ["api", "mac"],
+      "about": "Bookkeeper, afraid of an agent deleting or sending something. Reads every approval twice, denies anything he doesn't understand, and needs to see that 'Don't allow' left his files as they were."
+    }
+  ]
+}
