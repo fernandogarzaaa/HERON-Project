@@ -10607,10 +10607,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "04fdd9476b50d3b7cdd3e998dff1f6f8b376ba83",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "4a69981d94aff1fdd449792a9e85830923de38da",
+        "result_commit": "23f41602f5b3d0b47fb0d55613c8c1819e8d77a2",
+        "shipped_at": "2026-11-21T07:38:34.595661+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "Mac Settings row labels experimental providers (35w)",
-    "version": 7,
+    "version": 8,
     "worktree": {
       "base_branch": "skein/U4e__integrate-base",
       "base_commit": "04fdd9476b50d3b7cdd3e998dff1f6f8b376ba83",
