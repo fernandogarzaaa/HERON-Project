@@ -117,8 +117,8 @@ impl Bot {
         let identity = self.identity(chat);
         let parts = Self::chunks(text);
         self.spool.enqueue_parts(&identity, None, &parts, key, crate::util::now_ts())?;
-        // Send failures leave the entire message queued in order.
-        self.flush().await;
+        // Delivery is handled by the gateway's independent outbox worker.
+        // Do not let a slow Telegram request block the caller or inbound polling.
         Ok(())
     }
 
@@ -227,6 +227,14 @@ struct AbortAgentsOnDrop(Arc<Shared>);
 impl Drop for AbortAgentsOnDrop {
     fn drop(&mut self) {
         self.0.stop();
+    }
+}
+
+/// Abort the gateway-owned delivery worker whenever the gateway exits.
+struct AbortTaskOnDrop(tokio::task::JoinHandle<()>);
+impl Drop for AbortTaskOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -594,6 +602,17 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
     }
     let shared: Arc<Shared> = Default::default();
     let _abort_children_on_shutdown = AbortAgentsOnDrop(shared.clone());
+    // Outbound delivery must not depend on getUpdates succeeding, and draining
+    // a backlog must not hold the polling loop hostage. Keep the worker's
+    // pairing epoch current, while detached agent turns retain their snapshots.
+    let mut outbox_bot = bot.clone();
+    let _outbox_worker = AbortTaskOnDrop(tokio::spawn(async move {
+        loop {
+            outbox_bot.pairing_epoch = pairing_code(&outbox_bot.app);
+            outbox_bot.flush().await;
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }));
     let mut offset: i64 = app.store.kv_get("telegram_offset").and_then(|v| v.parse().ok()).unwrap_or(0);
     let poll_secs = if api_base.contains("127.0.0.1") { 0 } else { 25 };
     loop {
@@ -686,7 +705,6 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
         if let Some(chat) = paired_chat(&app) {
             forward_inbox(&app, &bot, chat).await;
         }
-        bot.flush().await;
         if poll_secs == 0 {
             tokio::time::sleep(Duration::from_millis(40)).await;
         }
@@ -771,6 +789,99 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     }
+
+    async fn mock_telegram_with_send_delay(
+        delay: Duration,
+        fail_poll: bool,
+    ) -> (String, Arc<Mutex<Vec<String>>>) {
+        let paths = Arc::new(Mutex::new(Vec::<String>::new()));
+        let router = axum::Router::new()
+            .fallback(move |axum::extract::State(p): axum::extract::State<Arc<Mutex<Vec<String>>>>, uri: axum::http::Uri| async move {
+                let path = uri.path().to_string();
+                p.lock().unwrap().push(path.clone());
+                if path.ends_with("/sendMessage") {
+                    tokio::time::sleep(delay).await;
+                }
+                let (status, body) = if path.ends_with("/getUpdates") && fail_poll {
+                    (503, json!({"ok": false, "description": "poll unavailable"}))
+                } else if path.ends_with("/getUpdates") {
+                    (200, json!({"ok": true, "result": []}))
+                } else if path.ends_with("/sendMessage") {
+                    (200, json!({"ok": true, "result": {"message_id": 1}}))
+                } else {
+                    (404, json!({"ok": false}))
+                };
+                (axum::http::StatusCode::from_u16(status).unwrap(), axum::Json(body))
+            })
+            .with_state(paths.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        (base, paths)
+    }
+
+    async fn paired_heron(root: &std::path::Path) -> Arc<App> {
+        let app = heron_process(root).await;
+        let _ = pairing_code(&app);
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        app
+    }
+
+    fn queue_test_replies(app: &App, token: &str, count: usize) {
+        let spool = ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap();
+        let identity = ChannelIdentity {
+            kind: ChannelKind::Telegram,
+            account_id: format!("{:x}", Sha256::digest(token.as_bytes())),
+            chat_id: "42".into(),
+            sender_id: "42".into(),
+        };
+        for index in 0..count {
+            let chunk = format!("queued reply {index}");
+            spool.enqueue_parts(
+                &identity,
+                None,
+                &[chunk],
+                &format!("outbox-worker-test-{index}"),
+                crate::util::now_ts(),
+            ).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn outbox_retries_continue_when_inbound_polling_is_unavailable() {
+        let (base, paths) = mock_telegram_with_send_delay(Duration::ZERO, true).await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = paired_heron(dir.path()).await;
+        queue_test_replies(&app, "OUTBOX-POLL-FAIL", 1);
+
+        let gateway = tokio::spawn(run(app, base, "OUTBOX-POLL-FAIL".into()));
+        until("queued reply delivery while getUpdates is failing", || {
+            paths.lock().unwrap().iter().any(|path| path.ends_with("/sendMessage"))
+        }).await;
+        gateway.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn draining_outbox_does_not_block_inbound_polling() {
+        let (base, paths) = mock_telegram_with_send_delay(Duration::from_millis(400), false).await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = paired_heron(dir.path()).await;
+        queue_test_replies(&app, "OUTBOX-SLOW-SEND", 3);
+
+        let gateway = tokio::spawn(run(app, base, "OUTBOX-SLOW-SEND".into()));
+        let count = |suffix: &str| paths.lock().unwrap().iter()
+            .filter(|path| path.ends_with(suffix)).count();
+        until("first slow outbound send", || count("/sendMessage") > 0).await;
+        let polls_before = count("/getUpdates");
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let polls_after = count("/getUpdates");
+        assert!(
+            polls_after > polls_before,
+            "inbound polling stopped while sendMessage was in flight: before={polls_before}, after={polls_after}"
+        );
+        gateway.abort();
+    }
+
 
     #[tokio::test]
     async fn telegram_answers_decide_whether_a_reply_is_sent_retried_or_given_up() {
