@@ -10573,6 +10573,54 @@
       "path": null
     }
   },
+  "U4e__integrate": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U4d",
+      "SYNC36"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U4e__integrate",
+    "integration_for": "U4e",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['U4d', 'SYNC36'] into one base branch for U4e."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Integrate parents of U4e",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U6": {
     "attempts": [
       {
