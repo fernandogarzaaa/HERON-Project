@@ -1056,6 +1056,9 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
             crate::telegram::spawn_if_configured(&st.app);
             return Err(err.into());
         }
+        // A second process may have started with the old token after the first
+        // generation bump but before the vault write. Fence that gateway too.
+        crate::telegram::bump_generation(&st.app);
         let _ = st.app.store.kv_set("telegram_offset", "0");
     } else {
         // Re-saving the same verified token does not revoke the existing pairing.
@@ -1081,7 +1084,11 @@ async fn remove_telegram(State(st): S) -> ApiResult {
         return Err(err.into());
     }
     // Clear any legacy fallback that may predate the secure connector vault.
-    cfg.store_secret("telegram_token", "")?;
+    let clear_legacy = cfg.store_secret("telegram_token", "");
+    // Invalidate a gateway that may have captured the old credential between
+    // the initial stop signal and successful vault/fallback removal.
+    crate::telegram::bump_generation(&st.app);
+    clear_legacy?;
     Ok(Json(json!({"configured": false, "paired": false})))
 }
 
