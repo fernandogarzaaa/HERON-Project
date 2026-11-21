@@ -84,6 +84,7 @@ public final class AppModel {
         settings = SettingsStore(client: client)
         persona = PersonaStore(client: client)
         firstRun = FirstRunStore(client: client)
+        chat.onOtherApproval = { [weak self] event in self?.addToFeed(event) }
     }
 
     // MARK: Derived
@@ -171,19 +172,15 @@ public final class AppModel {
     public func route(_ event: CoreEvent) {
         avatar.handle(event)
         switch event.kind {
-        case .approval(let request):
-            if let sid = event.sessionID, sid == chat.currentSessionID, selection == .chat {
+        case .approval:
+            if selection == .chat, chat.isStartingTurn || event.sessionID == chat.currentSessionID {
+                // A held approval that turns out not to be this conversation's comes back through `onOtherApproval`.
                 chat.handle(event)
             } else {
-                var r = request
-                r.sessionID = r.sessionID ?? event.sessionID
-                approvals.add(r)
+                addToFeed(event)
             }
         case .resync:
-            Task {
-                if let id = chat.currentSessionID { await chat.open(id: id) }
-                await approvals.load()
-            }
+            Task { await resynchronize() }
         case .runEnd, .approvalParked:
             chat.handle(event)
             approvals.handle(event)
@@ -192,6 +189,25 @@ public final class AppModel {
             chat.handle(event)
             approvals.handle(event)
         }
+    }
+
+    private func addToFeed(_ event: CoreEvent) {
+        guard case .approval(var request) = event.kind else { return }
+        request.sessionID = request.sessionID ?? event.sessionID
+        approvals.add(request)
+    }
+
+    /// After `resync`: reloads the open conversation and the parked approvals, then the approvals runs are
+    /// waiting on now, since the events that announced them are not replayed.
+    public func resynchronize() async {
+        if let id = chat.currentSessionID { await chat.open(id: id) }
+        await approvals.load()
+        guard let live = try? await client.liveApprovals() else { return }
+        var others: [ApprovalRequest] = []
+        for request in live {
+            if selection == .chat, request.sessionID == chat.currentSessionID { chat.restore(liveApproval: request) } else { others.append(request) }
+        }
+        approvals.replaceLive(with: others)
     }
 
     // MARK: Actions

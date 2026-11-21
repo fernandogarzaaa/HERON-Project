@@ -17,6 +17,9 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     private var subscribers: [UUID: AsyncStream<CoreEvent>.Continuation] = [:]
     private var waiters: [String: (sid: String, continuation: CheckedContinuation<ApprovalDecision, Never>)] = [:]
     private var activeRuns: Set<String> = []
+    /// Approvals a run is waiting on, as `GET /api/approvals/live` returns them.
+    private var liveRequests: [String: ApprovalRequest] = [:]
+    private var beforeSendReturns: (@Sendable (String) async -> Void)?
 
     /// - Parameters:
     ///   - pace: the pause between scripted events. Zero in tests, a little in the running app.
@@ -34,6 +37,10 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     }
 
     // MARK: Test hooks
+
+    /// Runs `body` with the new conversation's id after the run has started but before `sendMessage`
+    /// returns, as a real core can deliver events before its `/api/chat` response.
+    public func runBeforeSendReturns(_ body: (@Sendable (String) async -> Void)?) { lock.withLock { beforeSendReturns = body } }
 
     /// The risk register changed while a screen was open.
     public func simulateRiskNoticeChange() {
@@ -117,6 +124,7 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
         publish(sid, runID, .session(id: sid, runID: runID))
         let script = Self.script(for: message)
         Task { [self] in await run(script: script, sid: sid, runID: runID) }
+        if let hook = lock.withLock({ beforeSendReturns }) { await hook(sid) }
         return ChatStart(sessionID: sid, runID: runID)
     }
 
@@ -154,6 +162,10 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
 
     public func approvals() async throws -> [ParkedApproval] {
         with { $0.parked.filter { $0.status == "pending" } }
+    }
+
+    public func liveApprovals() async throws -> [ApprovalRequest] {
+        lock.withLock { liveRequests.values.sorted { $0.id < $1.id } }
     }
 
     public func answerParked(id: Int, action: ParkedAction) async throws {
@@ -380,6 +392,7 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
                 detail: "~/Work/drafts/northwind-reply.md", alwaysRule: "write_file:~/Work/drafts/**",
                 canAlways: true, canSession: true, tainted: false, outsideSource: nil,
                 reason: "Heron wants to save the reply draft for Northwind.", sessionID: sid)
+            lock.withLock { liveRequests[request.id] = request }
             publish(sid, runID, .approval(request))
             let decision = await withCheckedContinuation { (c: CheckedContinuation<ApprovalDecision, Never>) in
                 lock.withLock { waiters[request.id] = (sid, c) }
@@ -414,7 +427,10 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     }
 
     private func resolveWaiter(_ id: String, _ decision: ApprovalDecision, event: String) {
-        let waiter = lock.withLock { waiters.removeValue(forKey: id) }
+        let waiter = lock.withLock { () -> (sid: String, continuation: CheckedContinuation<ApprovalDecision, Never>)? in
+            liveRequests.removeValue(forKey: id)
+            return waiters.removeValue(forKey: id)
+        }
         guard let waiter else { return }
         publish(waiter.sid, nil, .approvalResolved(id: id, decision: event))
         waiter.continuation.resume(returning: decision)

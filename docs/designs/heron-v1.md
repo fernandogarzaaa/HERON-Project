@@ -515,6 +515,8 @@ The buffer is an in-memory ring of the last 10,000 events. That covers a 5-minut
     | `resync` | `oldest` | **new**: the client asked for a `since` older than the ring holds, or newer than the last `seq` (after a core restart), or fell behind |
 *   **Without `since`,** the stream starts with new events only.
 *   **After `resync`,** the client reloads with `GET /api/sessions/{id}` and `GET /api/approvals`, then continues from the newest `seq` it has.
+*   **Live approvals after `resync`** (PR #62 review). `GET /api/approvals/live` returns the approvals runs are waiting on now, each as its `approval` event plus `session_id` and `run_id`; `GET /api/approvals` lists parked ones only. After a resync the Mac app reopens the open conversation's sheet from it and replaces its Inbox feed with the rest, since the original events are not replayed.
+*   **Events before `/api/chat` answers** (PR #62 review). The core starts the run before it answers `/api/chat`, so a client can see the run's events first. The Mac app holds a conversation's events while its send is in flight and replays them in order once the turn's messages exist; a held approval for another conversation goes to the Inbox feed.
 *   **`/api/chat` view.** The `/api/chat` SSE is the subset with this run's `run_id`, in the JSON shape existing clients parse. The added `seq` and `run_id` keys are extra fields, which the Slint and web clients ignore.
 
 #### Starting and stopping the core

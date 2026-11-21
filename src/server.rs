@@ -29,6 +29,8 @@ const INDEX_HTML: &str = include_str!("../assets/index.html");
 struct PendingApproval {
     session_id: String,
     run_id: String,
+    /// The `approval` event as published, so a client that missed it can get it back (`GET /api/approvals/live`).
+    event: Value,
     tx: oneshot::Sender<Approval>,
 }
 
@@ -177,6 +179,7 @@ pub fn router_with(app: Arc<App>, token: String, loopback_only: bool) -> Router 
         .route("/pause", post(set_pause))
         .route("/backup", post(make_backup))
         .route("/approvals", get(list_approvals))
+        .route("/approvals/live", get(list_live_approvals))
         .route("/approvals/{id}", post(answer_approval))
         .route("/tools", get(list_tools))
         .route("/tools/{name}", post(set_tool))
@@ -483,10 +486,11 @@ impl Approver for WebApprover {
         let app = &self.state.app;
         let id = uuid::Uuid::new_v4().simple().to_string();
         let (tx, mut rx) = oneshot::channel();
-        self.state.approvals.lock().unwrap().insert(id.clone(), PendingApproval { session_id: self.session_id.clone(), run_id: self.run_id.clone(), tx });
+        let event = json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
+            "always_rule": req.always_rule, "can_always": req.can_always(), "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted});
+        self.state.approvals.lock().unwrap().insert(id.clone(), PendingApproval { session_id: self.session_id.clone(), run_id: self.run_id.clone(), event: event.clone(), tx });
         // The approval waits on the bus, not on one connection: any client can answer it.
-        app.events.publish(&self.session_id, &self.run_id, json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
-            "always_rule": req.always_rule, "can_always": req.can_always(), "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted}));
+        app.events.publish(&self.session_id, &self.run_id, event);
         let wait = Duration::from_secs(app.cfg().server.approval_timeout_secs);
         match tokio::time::timeout(wait, &mut rx).await {
             Ok(Ok(answer)) => return answer,
@@ -1146,6 +1150,26 @@ async fn make_backup(State(st): S) -> ApiResult {
 
 async fn list_approvals(State(st): S) -> ApiResult {
     Ok(Json(json!(st.app.store.pending_approvals()?)))
+}
+
+/// The approvals runs are waiting on right now, each as its `approval` event with `session_id` and
+/// `run_id`. A client that fell behind the bus (`resync`) reloads them here: the original events are
+/// not replayed, and `GET /api/approvals` lists only parked ones.
+async fn list_live_approvals(State(st): S) -> ApiResult {
+    let mut live: Vec<Value> = st
+        .approvals
+        .lock()
+        .unwrap()
+        .values()
+        .map(|p| {
+            let mut e = p.event.clone();
+            e["session_id"] = json!(p.session_id);
+            e["run_id"] = json!(p.run_id);
+            e
+        })
+        .collect();
+    live.sort_by(|a, b| (a["session_id"].as_str(), a["id"].as_str()).cmp(&(b["session_id"].as_str(), b["id"].as_str())));
+    Ok(Json(json!(live)))
 }
 
 async fn answer_approval(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>) -> ApiResult {
@@ -1963,6 +1987,29 @@ mod tests {
         assert_eq!(h.send("POST", "/approve", json!({"id": live["id"], "decision": "once"})).await.status, 404);
         h.json("POST", &format!("/approvals/{parked_id}"), json!({"action": "approve"})).await;
         assert_eq!(std::fs::read_to_string(h.app.workspace.join("parked.txt")).unwrap(), "later");
+    }
+
+    #[tokio::test]
+    async fn live_approvals_can_be_reloaded_after_a_missed_event() {
+        let h = harness(scripted(vec![write("live.txt", "yes"), Message::assistant("Saved.")]), true, |_| {}).await;
+        assert_eq!(h.json("GET", "/approvals/live", Value::Null).await, json!([]));
+        let mut chat = h.chat(json!({"message": "save it"})).await;
+        let sid = chat.next().await.unwrap()["id"].as_str().unwrap().to_string();
+        let approval = chat.until("approval").await.pop().unwrap();
+        // A client that missed the event gets the same request back, with its conversation.
+        let live = h.json("GET", "/approvals/live", Value::Null).await;
+        let live = live.as_array().unwrap();
+        assert_eq!(live.len(), 1, "{live:?}");
+        assert_eq!(live[0]["type"], "approval");
+        assert_eq!(live[0]["session_id"], sid.as_str());
+        assert!(live[0]["run_id"].as_str().is_some_and(|r| !r.is_empty()));
+        for key in ["id", "tool", "summary", "risk", "detail", "can_always", "can_session", "tainted"] {
+            assert_eq!(live[0][key], approval[key], "{key}");
+        }
+        h.json("POST", "/approve", json!({"id": approval["id"], "decision": "once"})).await;
+        let rest = chat.all().await;
+        assert_eq!(types(&rest).last(), Some(&"run_end"));
+        assert_eq!(h.json("GET", "/approvals/live", Value::Null).await, json!([]), "an answered approval is no longer live");
     }
 
     #[tokio::test]

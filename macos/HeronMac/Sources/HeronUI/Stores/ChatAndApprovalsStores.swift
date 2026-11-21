@@ -115,6 +115,11 @@ public final class ChatStore {
 
     private static let approvalStepPrefix = "approval-"
     @ObservationIgnored private var awaitingStart = false
+    /// Events that arrived while `sendMessage` was in flight. The core starts the run before it answers
+    /// `/api/chat`, so a fast reply can come before the turn's messages exist; they are replayed in order.
+    @ObservationIgnored private var heldEvents: [CoreEvent] = []
+    /// Where an approval goes when a held event turns out to belong to another conversation (the Inbox feed).
+    @ObservationIgnored public var onOtherApproval: ((CoreEvent) -> Void)?
     @ObservationIgnored private var stepStarts: [String: Date] = [:]
     @ObservationIgnored private var locallyAnswered: Set<String> = []
 
@@ -181,7 +186,6 @@ public final class ChatStore {
         guard !body.isEmpty else { return }
         composerError = nil
         awaitingStart = true
-        defer { awaitingStart = false }
         do {
             let start = try await client.sendMessage(sessionID: currentSessionID, message: body, title: title)
             currentSessionID = start.sessionID
@@ -189,6 +193,7 @@ public final class ChatStore {
             messages.append(ChatMessage(id: "a-\(messages.count)", role: .assistant, text: "", steps: [], finished: false, error: nil))
             isRunning = true
             if text == nil { composer = "" }
+            replayHeldEvents()
             await loadSessions()
         } catch CoreError.sessionBusy {
             composerError = ChatErrorCard.from(message: "", code: "session_busy", provider: nil, version: nil)
@@ -197,6 +202,26 @@ public final class ChatStore {
         } catch {
             composerError = ChatErrorCard(title: describe(error), text: "Your message is kept in the box.", actions: [.tryAgain])
         }
+        replayHeldEvents()
+    }
+
+    /// Ends the send's wait and handles what arrived meanwhile, in order. Called once on every path.
+    private func replayHeldEvents() {
+        guard awaitingStart else { return }
+        awaitingStart = false
+        let held = heldEvents
+        heldEvents = []
+        for event in held {
+            if accepts(event) { handle(event) } else if case .approval = event.kind { onOtherApproval?(event) }
+        }
+    }
+
+    /// Puts back a live approval for the open conversation after a resync: the original event is not replayed.
+    public func restore(liveApproval request: ApprovalRequest) {
+        guard request.sessionID == currentSessionID, currentSessionID != nil else { return }
+        liveApproval = request
+        isRunning = true
+        if request.tainted { isOutsideContent = true; outsideSource = request.outsideSource ?? outsideSource }
     }
 
     public func clearRiskNoticeRequest() { needsRiskNotice = false }
@@ -222,14 +247,17 @@ public final class ChatStore {
 
     public func clearAnsweredElsewhere() { answeredElsewhere = false }
 
-    /// True when `event` belongs to the open conversation (or starts the one being created).
+    /// True when `event` belongs to the open conversation.
     public func accepts(_ event: CoreEvent) -> Bool {
         if let sid = event.sessionID, sid == currentSessionID { return true }
-        if awaitingStart, case .session = event.kind { return true }
         return false
     }
 
+    /// True while a send waits for the core's answer: conversation events are held until it comes.
+    public var isStartingTurn: Bool { awaitingStart }
+
     public func handle(_ event: CoreEvent) {
+        if awaitingStart, event.sessionID != nil { heldEvents.append(event); return }
         guard accepts(event) else { return }
         switch event.kind {
         case .session(let id, _):
@@ -334,6 +362,9 @@ public final class ApprovalsStore {
     public func add(_ request: ApprovalRequest) {
         if !live.contains(where: { $0.id == request.id }) { live.append(request) }
     }
+
+    /// After a resync: the live list becomes exactly what the core is waiting on now.
+    public func replaceLive(with requests: [ApprovalRequest]) { live = requests }
 
     public func handle(_ event: CoreEvent) {
         switch event.kind {

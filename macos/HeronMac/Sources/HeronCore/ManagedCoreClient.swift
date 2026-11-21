@@ -105,6 +105,7 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
     public func cancel(sessionID: String) async throws -> Bool { try await current().cancel(sessionID: sessionID) }
     public func approve(id: String, decision: ApprovalDecision) async throws { try await current().approve(id: id, decision: decision) }
     public func approvals() async throws -> [ParkedApproval] { try await current().approvals() }
+    public func liveApprovals() async throws -> [ApprovalRequest] { try await current().liveApprovals() }
     public func answerParked(id: Int, action: ParkedAction) async throws { try await current().answerParked(id: id, action: action) }
     public func setMode(_ mode: PermissionMode) async throws { try await current().setMode(mode) }
     public func setPaused(_ paused: Bool) async throws { try await current().setPaused(paused) }

@@ -23,6 +23,7 @@ public protocol CoreClientProtocol: Sendable {
     // Approvals
     func approve(id: String, decision: ApprovalDecision) async throws        // POST /api/approve
     func approvals() async throws -> [ParkedApproval]                        // GET /api/approvals
+    func liveApprovals() async throws -> [ApprovalRequest]                   // GET /api/approvals/live
     func answerParked(id: Int, action: ParkedAction) async throws            // POST /api/approvals/{id}
 
     // Mode and pause

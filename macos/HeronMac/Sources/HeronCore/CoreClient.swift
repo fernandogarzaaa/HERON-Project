@@ -190,6 +190,8 @@ public final class CoreClient: CoreClientProtocol, Sendable {
 
     public func approvals() async throws -> [ParkedApproval] { try CoreWire.parkedApprovals(try await send("GET", "/approvals")) }
 
+    public func liveApprovals() async throws -> [ApprovalRequest] { try CoreWire.liveApprovals(try await send("GET", "/approvals/live")) }
+
     public func answerParked(id: Int, action: ParkedAction) async throws {
         try await send("POST", "/approvals/\(id)", body: ["action": action.rawValue])
     }

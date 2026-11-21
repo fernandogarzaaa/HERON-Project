@@ -119,6 +119,25 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(detail.messages[1].content, "")
     }
 
+    func testLiveApprovalsDecodeLikeTheirEvents() throws {
+        // The shape `GET /api/approvals/live` returns: the `approval` event plus `session_id` and `run_id`.
+        let body = #"""
+        [{"type":"approval","id":"9f2c","tool":"write_file","summary":"Write live.txt","risk":"write","detail":"live.txt",
+          "always_rule":"write_file:live.txt","can_always":true,"can_session":false,"tainted":true,"session_id":"s1","run_id":"r1"}]
+        """#
+        let list = try CoreWire.liveApprovals(Data(body.utf8))
+        XCTAssertEqual(list.count, 1)
+        XCTAssertEqual(list[0].id, "9f2c")
+        XCTAssertEqual(list[0].sessionID, "s1")
+        XCTAssertEqual(list[0].alwaysRule, "write_file:live.txt")
+        XCTAssertTrue(list[0].canAlways)
+        XCTAssertFalse(list[0].canSession)
+        XCTAssertTrue(list[0].tainted)
+        XCTAssertEqual(try CoreWire.liveApprovals(Data("[]".utf8)), [])
+        XCTAssertThrowsError(try CoreWire.liveApprovals(Data(#"[{"type":"text","text":"x","session_id":"s1"}]"#.utf8)),
+                             "only approval events belong in the list")
+    }
+
     func testParkedApprovals() throws {
         let list = try CoreWire.parkedApprovals(try Fixtures.data("approvals.json"))
         XCTAssertEqual(list.count, 1)

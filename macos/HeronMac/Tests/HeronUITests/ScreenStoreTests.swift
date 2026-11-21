@@ -45,6 +45,87 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertEqual(chat.sessions.first?.title, "What is on today?")
     }
 
+    /// Feeds `stream` to `chat` from inside `sendMessage`, before it returns, until the run ends.
+    private func deliverBeforeSendReturns(_ client: PreviewCoreClient, _ stream: AsyncStream<CoreEvent>, to chat: ChatStore) {
+        client.runBeforeSendReturns { _ in
+            for await event in stream {
+                await MainActor.run { chat.handle(event) }
+                if case .runEnd = event.kind { return }
+            }
+        }
+    }
+
+    func testEventsThatArriveBeforeSendReturnsBuildTheNewReply() async throws {
+        let client = try await makeClient()
+        let chat = ChatStore(client: client, now: { self.now })
+        deliverBeforeSendReturns(client, client.events(since: nil), to: chat)
+        await chat.send("What is on today?")
+        XCTAssertEqual(chat.messages.map(\.role), [.user, .assistant])
+        let reply = try XCTUnwrap(chat.messages.last)
+        XCTAssertTrue(reply.text.contains("three events"), "the early text reached the new reply: \(reply.text)")
+        XCTAssertTrue(reply.finished)
+        XCTAssertEqual(reply.steps.map(\.name), ["upcoming_events"])
+        XCTAssertFalse(chat.isRunning, "a run_end that came early still ends the run, so the composer is free")
+        XCTAssertTrue(chat.canSend || chat.composer.isEmpty)
+    }
+
+    func testEarlyEventsOfASecondTurnNeverReachThePreviousReply() async throws {
+        let client = try await makeClient()
+        let chat = ChatStore(client: client, now: { self.now })
+        let first = client.events(since: nil)
+        await chat.send("What is on today?")
+        await pump(first, handle: chat.handle)
+        let previous = try XCTUnwrap(chat.messages.last)
+        deliverBeforeSendReturns(client, client.events(since: nil), to: chat)
+        await chat.send("What is on today?")
+        XCTAssertEqual(chat.messages.count, 4)
+        XCTAssertEqual(chat.messages[1], previous, "the earlier reply is unchanged")
+        XCTAssertTrue(chat.messages[3].text.contains("three events"))
+        XCTAssertTrue(chat.messages[3].finished)
+        XCTAssertFalse(chat.isRunning)
+    }
+
+    func testResyncRestoresTheLiveApprovalOfTheOpenConversation() async throws {
+        let client = try await makeClient()
+        let model = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!),
+                             userFirstName: "Sam", now: { self.now })
+        model.selection = .chat
+        let stream = client.events(since: nil)
+        await model.chat.send("Draft a reply to Maria")
+        // The app falls behind the bus: the approval event is never routed.
+        var missed: ApprovalRequest?
+        for await event in stream { if case .approval(let r) = event.kind { missed = r; break } }
+        let request = try XCTUnwrap(missed)
+        XCTAssertNil(model.chat.liveApproval)
+        let stale = ApprovalRequest(id: "gone", tool: "write_file", summary: "s", risk: "write", detail: "", alwaysRule: nil,
+                                    canAlways: false, canSession: false, tainted: false, outsideSource: nil, reason: nil, sessionID: "other")
+        model.approvals.add(stale)
+        await model.resynchronize()
+        XCTAssertEqual(model.chat.liveApproval?.id, request.id, "the sheet comes back, so the user can answer it")
+        XCTAssertTrue(model.chat.isRunning)
+        XCTAssertTrue(model.approvals.live.isEmpty, "the feed holds only what the core waits on now")
+        await model.chat.answer(.once)
+        XCTAssertNil(model.chat.liveApproval)
+        let live = try await client.liveApprovals()
+        XCTAssertTrue(live.isEmpty)
+    }
+
+    func testResyncPutsAnotherConversationsLiveApprovalInTheFeed() async throws {
+        let client = try await makeClient()
+        let model = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!),
+                             userFirstName: "Sam", now: { self.now })
+        let stream = client.events(since: nil)
+        model.selection = .chat
+        await model.chat.send("Draft a reply to Maria")
+        for await event in stream { if case .approval = event.kind { break } }
+        model.newConversation()
+        await model.resynchronize()
+        XCTAssertNil(model.chat.liveApproval)
+        XCTAssertEqual(model.approvals.live.count, 1)
+        let waiting = try XCTUnwrap(model.approvals.live.first)
+        try await client.approve(id: waiting.id, decision: .deny)
+    }
+
     func testChatLiveApprovalShowsThenContinuesAfterAnswer() async throws {
         let client = try await makeClient()
         let chat = ChatStore(client: client, now: { self.now })

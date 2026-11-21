@@ -118,6 +118,20 @@ public enum CoreWire {
 
     // MARK: Approvals
 
+    /// `GET /api/approvals/live`: each item is an `approval` event with its `session_id`, decoded the same way.
+    public static func liveApprovals(_ data: Data) throws -> [ApprovalRequest] {
+        guard let items = try JSONSerialization.jsonObject(with: data) as? [Any] else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "live approvals are a JSON array"))
+        }
+        return try items.map { item in
+            let one = try JSONSerialization.data(withJSONObject: item)
+            guard case .approval(let request)? = try envelope(one).event?.kind else {
+                throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "a live approval is an approval event"))
+            }
+            return request
+        }
+    }
+
     public static func parkedApprovals(_ data: Data) throws -> [ParkedApproval] {
         struct DTO: Decodable {
             var id: Int; var ts: Int; var sessionId: String; var tool: String; var summary: String; var detail: String
