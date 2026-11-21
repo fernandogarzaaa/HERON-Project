@@ -10492,6 +10492,59 @@
       "path": null
     }
   },
+  "U4e": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_swift",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "macos/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "U4d",
+      "SYNC36"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "U4e",
+    "integration_for": null,
+    "intent": {
+      "completion": "swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac",
+      "constraints": "The approved spec is docs/designs/heron-v1.md; its Non-Goals and the owner's decisions in Open Questions are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates; Python is standard library only and runs as python3 -I. Toolchain is pinned by rust-toolchain.toml. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test to pass; never fake measurement output. If the spec is wrong or impossible, stop and say exactly why instead of diverging. Run swift build and swift test bare: no pipes, no &&, no 2>&1, no cd, or they lose the sandbox exemption. Snapshot reference images must not be re-recorded.",
+      "context": "Spec: docs/designs/heron-v1.md item 35w. opencode-cli is deferred from v1 Tier 1 (not configured or tested yet) and is experimental in the registry since U8f; the core sends experimental and supported in /api/providers.",
+      "goal": "Implement the Mac app bullet of spec item 35w (search '##### 35w', bullet 'The Mac app shows the label (U4e)').\n1. In macos/HeronMac/Sources/HeronCore/Models.swift add a public computed property ProviderStatus.signedInLine: String. For a non-experimental provider it returns exactly what SettingsView's rowLine builds today for .signedIn: [\"Version <version or unknown>\", testedRange.map { \"tested range \\($0)\" }, authKind] compacted and joined with \" \u00b7 \". For an experimental provider it returns [\"Version <version or unknown>\", \"experimental, not tested yet\", authKind] joined the same way, never mentioning the tested range. Empty authKind must not leave a trailing separator if today's code doesn't (match today's compactMap behaviour exactly for the non-experimental case).\n2. In macos/HeronMac/Sources/HeronUI/Views/SettingsView.swift make rowLine's .signedIn case return p.signedInLine. Change nothing else in the view.\n3. Tests in macos/HeronMac/Tests/HeronCoreTests (add to an existing file or a new ProviderStatusTests.swift): an experimental provider with a tested range (like opencode: version 2.1.4, testedRange \">=2.1.4 <3.0.0\") gives 'Version 2.1.4 \u00b7 experimental, not tested yet \u00b7 <auth>' and does not contain 'tested range'; a non-experimental provider with a range gives the old wording exactly; version nil gives 'Version unknown'.\n4. Do not re-record snapshot reference images; if a snapshot test fails, stop and say which and why.\nRun swift build --package-path macos/HeronMac and swift test --package-path macos/HeronMac yourself, bare, before stopping."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Mac Settings row labels experimental providers (35w)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "U6": {
     "attempts": [
       {
