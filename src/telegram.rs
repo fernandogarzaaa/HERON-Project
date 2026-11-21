@@ -947,13 +947,16 @@ mod tests {
         // Model spawn_if_configured capturing the old credential and generation,
         // followed by a replacement bump before Tokio first polls the task.
         let captured_generation = generation(&app);
-        let stale_gateway = tokio::spawn(run_with_generation(
+        let stale_future = run_with_generation(
             app.clone(),
             base,
             "OLD-TOKEN".into(),
             captured_generation,
-        ));
+        );
+        // Do not schedule the future until after the generation changes: this
+        // deterministically exercises the delayed-first-poll window.
         bump_generation(&app);
+        let stale_gateway = tokio::spawn(stale_future);
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         assert!(stale_gateway.is_finished(), "a stale gateway must exit before polling");
