@@ -10574,29 +10574,44 @@
     }
   },
   "U4e__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "91ade4be762447b091c0d7dec15d2110",
+        "ended_at": "2026-11-21T07:36:39.463616+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-21T07:36:39.121089+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "91ade4be762447b091c0d7dec15d2110",
-      "base_branch": "skein/U4e__integrate__integrate-base",
-      "claim_token": "b3bf3af7f19c4c3fb48fd7dd4ccacda7",
-      "claimed_at": "2026-11-21T07:36:39.121089+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-21T07:36:39.121089+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U4d",
       "SYNC36"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 304958a9d0e462fbd24059ab98cf35cd8ca58cae",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['5157a943992fd5656bb3efe0d496570aa6186d0f', '304958a9d0e462fbd24059ab98cf35cd8ca58cae'] into skein/U4e__integrate-base.",
     "id": "U4e__integrate",
     "integration_for": "U4e",
     "intent": {
@@ -10608,16 +10623,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "5157a943992fd5656bb3efe0d496570aa6186d0f",
+      "changed_files": [],
+      "commit": "04fdd9476b50d3b7cdd3e998dff1f6f8b376ba83",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of U4e",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/U4e__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "5157a943992fd5656bb3efe0d496570aa6186d0f",
+      "branch": "skein/U4e__integrate-base",
       "path": null
     }
   },
