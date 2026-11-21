@@ -10566,9 +10566,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Mac Settings row labels experimental providers (35w)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/U4e__integrate-base",
       "branch": null,
       "path": null
     }
