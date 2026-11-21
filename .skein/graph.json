@@ -12104,10 +12104,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/heron-v1": {
+        "base_commit": "2fc29889c39e141715d6867bca143b24f9ae4ec8",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "827ea55fa765dfcdba1fb3f25e98e7d7d0e58113",
+        "result_commit": "c99e7f452dbbdd09210b0b1dfb9d3771a7ea8985",
+        "shipped_at": "2026-11-21T07:29:29.444066+00:00",
+        "target_branch": "feat/heron-v1"
+      }
+    },
     "status": "done",
     "title": "opencode-cli labelled experimental, range kept (35w)",
-    "version": 11,
+    "version": 12,
     "worktree": {
       "base_branch": "skein/U8f__integrate-base",
       "base_commit": "2fc29889c39e141715d6867bca143b24f9ae4ec8",
