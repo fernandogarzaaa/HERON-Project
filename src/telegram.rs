@@ -393,15 +393,25 @@ pub fn unpair(app: &App) {
     // after their durable enqueue, so no old-epoch write can race in behind
     // a purge that happened while the previous pairing was still valid.
     // A new pairing must never inherit a previous owner's messages.
-    let _ = app.store.kv_set("telegram_session", "");
-    // Preserve the update cursor for the *same bot*: replaying old owner
-    // commands on re-pairing can re-run non-idempotent tool actions.
-    let _ = app.store.kv_set("telegram_inbox_last", "0");
-    let _ = app.store.kv_set("telegram_chat", "");
-    let _ = app.store.kv_set("telegram_code", &new_code());
-    rotate_pairing_epoch(app);
-    let _ = app.store.kv_set("telegram_wrong", "0");
-    let _ = app.store.kv_set("telegram_locked", "");
+    // Persist the ownership revocation and its new epoch in one SQLite
+    // transaction. A crash must never leave an unpaired chat with the old
+    // epoch, or an old queued reply could become valid after re-pairing.
+    let epoch = uuid::Uuid::new_v4().simple().to_string();
+    let code = new_code();
+    if let Err(err) = app.store.kv_set_many(&[
+        ("telegram_session", ""),
+        // Preserve the update cursor for the *same bot*: replaying old owner
+        // commands on re-pairing can re-run non-idempotent tool actions.
+        ("telegram_inbox_last", "0"),
+        ("telegram_chat", ""),
+        ("telegram_code", code.as_str()),
+        ("telegram_pairing_epoch", epoch.as_str()),
+        ("telegram_wrong", "0"),
+        ("telegram_locked", ""),
+    ]) {
+        eprintln!("HERON Telegram: could not commit pairing revocation: {err}");
+        return;
+    }
     if let Some(token) = token {
         purge_token_spool(app, &token);
     }
@@ -1143,10 +1153,12 @@ mod tests {
         app.store.kv_set("telegram_offset", "982").unwrap();
         app.store.kv_set("telegram_chat", "42").unwrap();
         app.store.kv_set("telegram_session", "abc").unwrap();
+        app.store.kv_set("telegram_pairing_epoch", "old-epoch").unwrap();
         unpair(&app);
         assert_eq!(app.store.kv_get("telegram_offset").as_deref(), Some("982"));
         assert_eq!(app.store.kv_get("telegram_session").as_deref(), Some(""));
         assert!(paired_chat(&app).is_none());
+        assert_ne!(pairing_epoch(&app), "old-epoch", "unpair atomically revokes the prior pairing epoch");
     }
 
     #[tokio::test]
