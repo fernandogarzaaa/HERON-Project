@@ -222,8 +222,19 @@ fn account_subject(provider: Provider, client_id: &str, token: &Value) -> Result
         bail!("The provider returned an expired or invalid ID token. Connect again.");
     }
 
-    claims["sub"].as_str().filter(|sub| !sub.is_empty() && sub.len() <= 255)
-        .map(str::to_string).ok_or_else(unreadable)
+    let subject = claims["sub"].as_str()
+        .filter(|sub| !sub.is_empty() && sub.len() <= 255)
+        .ok_or_else(unreadable)?;
+    match provider {
+        Provider::Google => Ok(subject.to_string()),
+        // Microsoft subjects are interpreted within their issuer/tenant.
+        // Keep the tenant in the stored account key to prevent cross-tenant
+        // subject collisions from being treated as the same account.
+        Provider::Microsoft => {
+            let tenant = claims.get("tid").and_then(Value::as_str).ok_or_else(unreadable)?;
+            Ok(format!("{tenant}:{subject}"))
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -521,9 +532,17 @@ mod tests {
             account_subject(Provider::Google, "app", &token(valid_claims(Provider::Google, "app", "user-1"))).unwrap(),
             "user-1"
         );
-        assert_eq!(
-            account_subject(Provider::Microsoft, "app", &token(valid_claims(Provider::Microsoft, "app", "user-2"))).unwrap(),
-            "user-2"
+        let microsoft = valid_claims(Provider::Microsoft, "app", "user-2");
+        let microsoft_subject = account_subject(Provider::Microsoft, "app", &token(microsoft.clone())).unwrap();
+        assert_eq!(microsoft_subject, "11111111-2222-3333-4444-555555555555:user-2");
+        let mut other_tenant = microsoft;
+        let other_tid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        other_tenant["tid"] = serde_json::json!(other_tid);
+        other_tenant["iss"] = serde_json::json!(format!("https://login.microsoftonline.com/{other_tid}/v2.0"));
+        assert_ne!(
+            account_subject(Provider::Microsoft, "app", &token(other_tenant)).unwrap(),
+            microsoft_subject,
+            "the same sub in a different tenant is a different Microsoft account"
         );
 
         let mut wrong_issuer = valid_claims(Provider::Google, "app", "user-1");
