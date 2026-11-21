@@ -574,6 +574,34 @@ impl ChannelStore {
         Ok(())
     }
 
+    /// Discard legacy outbox rows that predate pairing-epoch scoping.
+    pub fn purge_outbox_account(&self, kind: ChannelKind, account: &str) -> Result<usize> {
+        check_id(account)?;
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = Self::write_tx(&mut db)?;
+        let removed = tx.execute(
+            "DELETE FROM channel_outbox WHERE kind=?1 AND account_id=?2",
+            params![kind.name(), account],
+        )?;
+        tx.commit()?;
+        Ok(removed)
+    }
+
+    /// Revoke all pairing-scoped outbox accounts belonging to one bot token.
+    /// Inbound deduplication remains keyed by the token account itself.
+    pub fn purge_outbox_account_prefix(&self, kind: ChannelKind, prefix: &str) -> Result<usize> {
+        check_id(prefix)?;
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = Self::write_tx(&mut db)?;
+        let removed = tx.execute(
+            "DELETE FROM channel_outbox
+             WHERE kind=?1 AND substr(account_id, 1, length(?2))=?2",
+            params![kind.name(), prefix],
+        )?;
+        tx.commit()?;
+        Ok(removed)
+    }
+
     pub fn count_pending(&self) -> Result<i64> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.query_row("SELECT COUNT(*) FROM channel_outbox WHERE status IN ('pending','leased')", [], |r| r.get(0))
