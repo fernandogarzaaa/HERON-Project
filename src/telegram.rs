@@ -387,7 +387,7 @@ pub(crate) fn purge_token_spool(app: &App, token: &str) {
     }
 }
 
-pub fn unpair(app: &App) {
+pub fn unpair(app: &App) -> Result<()> {
     let token = app.cfg().secret("telegram_token");
     // Revoke the pairing before purging. Detached turns check this state
     // after their durable enqueue, so no old-epoch write can race in behind
@@ -398,7 +398,7 @@ pub fn unpair(app: &App) {
     // epoch, or an old queued reply could become valid after re-pairing.
     let epoch = uuid::Uuid::new_v4().simple().to_string();
     let code = new_code();
-    if let Err(err) = app.store.kv_set_many(&[
+    app.store.kv_set_many(&[
         ("telegram_session", ""),
         // Preserve the update cursor for the *same bot*: replaying old owner
         // commands on re-pairing can re-run non-idempotent tool actions.
@@ -408,13 +408,11 @@ pub fn unpair(app: &App) {
         ("telegram_pairing_epoch", epoch.as_str()),
         ("telegram_wrong", "0"),
         ("telegram_locked", ""),
-    ]) {
-        eprintln!("HERON Telegram: could not commit pairing revocation: {err}");
-        return;
-    }
+    ])?;
     if let Some(token) = token {
         purge_token_spool(app, &token);
     }
+    Ok(())
 }
 
 fn session_for(app: &App, fresh: bool) -> Result<Session> {
@@ -1109,7 +1107,7 @@ mod tests {
         assert!(bot.is_current_owner(42));
         // Simulate disconnect/replacement after the turn started but before
         // the LLM requested tool permission.
-        unpair(&app);
+        unpair(&app).unwrap();
         assert!(!bot.is_current_owner(42));
         let shared = Arc::<Shared>::default();
         let approver = TelegramApprover { bot, chat: 42, shared: shared.clone() };
@@ -1140,6 +1138,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unpair_reports_transaction_failure_without_partially_revoking_pairing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        let app = App::assemble(
+            cfg,
+            dir.path().join("ws"),
+            Store::in_memory().unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap();
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        app.store.kv_set("telegram_session", "session-before-unpair").unwrap();
+        app.store.kv_set("telegram_pairing_epoch", "old-epoch").unwrap();
+        app.store.execute_batch_for_test(
+            "CREATE TRIGGER reject_pairing_epoch BEFORE INSERT ON kv
+             WHEN NEW.k = 'telegram_pairing_epoch'
+             BEGIN SELECT RAISE(ABORT, 'injected revocation failure'); END;",
+        );
+
+        assert!(unpair(&app).is_err(), "a failed revocation must be reported to the caller");
+        assert_eq!(app.store.kv_get("telegram_chat").as_deref(), Some("42"));
+        assert_eq!(app.store.kv_get("telegram_session").as_deref(), Some("session-before-unpair"));
+        assert_eq!(pairing_epoch(&app), "old-epoch");
+    }
+
+    #[tokio::test]
     async fn unpair_does_not_replay_old_updates_for_the_same_bot() {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = Config::default();
@@ -1154,7 +1178,7 @@ mod tests {
         app.store.kv_set("telegram_chat", "42").unwrap();
         app.store.kv_set("telegram_session", "abc").unwrap();
         app.store.kv_set("telegram_pairing_epoch", "old-epoch").unwrap();
-        unpair(&app);
+        unpair(&app).unwrap();
         assert_eq!(app.store.kv_get("telegram_offset").as_deref(), Some("982"));
         assert_eq!(app.store.kv_get("telegram_session").as_deref(), Some(""));
         assert!(paired_chat(&app).is_none());
