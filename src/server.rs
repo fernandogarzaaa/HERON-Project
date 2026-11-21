@@ -1085,16 +1085,19 @@ async fn remove_telegram(State(st): S) -> ApiResult {
         return Err(err.into());
     }
     let cfg = st.app.cfg();
+    // Remove the legacy plaintext copy first. If the file is damaged or cannot
+    // be rewritten, retain the native credential so the gateway can recover.
+    if let Err(err) = cfg.clear_legacy_secret("telegram_token") {
+        crate::telegram::spawn_if_configured(&st.app);
+        return Err(err.into());
+    }
     if let Err(err) = cfg.delete_vault_only_secret("telegram_token") {
         crate::telegram::spawn_if_configured(&st.app);
         return Err(err.into());
     }
-    // Clear any legacy fallback that may predate the secure connector vault.
-    let clear_legacy = cfg.store_secret("telegram_token", "");
     // Invalidate a gateway that may have captured the old credential between
     // the initial stop signal and successful vault/fallback removal.
     crate::telegram::bump_generation(&st.app);
-    clear_legacy?;
     Ok(Json(json!({"configured": false, "paired": false})))
 }
 

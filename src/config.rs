@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+// Serialize read-modify-write operations on the legacy secrets file.
+static LEGACY_SECRETS_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -415,9 +418,8 @@ impl Config {
 
     /// Save (or with an empty value, remove) a secret.
     pub fn store_secret(&self, name: &str, value: &str) -> Result<()> {
-        // One writer at a time: two saves must not each read the file and then overwrite the other's key.
-        static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _one_at_a_time = WRITING.lock().unwrap_or_else(|e| e.into_inner());
+        // Serialize read-modify-write operations so concurrent saves cannot lose keys.
+        let _one_at_a_time = LEGACY_SECRETS_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         self.ensure_home()?;
         let value = value.trim();
         let mut file = self.read_file_secrets()?;
@@ -432,6 +434,19 @@ impl Config {
         self.write_file_secrets(&file)
     }
 
+    /// Remove only the legacy plaintext copy of a secret, without touching
+    /// the native credential vault. Call this before deleting the vault item
+    /// so a failed file cleanup cannot leave a stale plaintext credential.
+    pub fn clear_legacy_secret(&self, name: &str) -> Result<()> {
+        let _one_at_a_time = LEGACY_SECRETS_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        self.ensure_home()?;
+        let mut file = self.read_file_secrets()?;
+        if file.remove(name).is_some() {
+            self.write_file_secrets(&file)?;
+        }
+        Ok(())
+    }
+
     /// Where secrets are kept on this computer, for display.
     pub fn secret_storage(&self) -> &'static str {
         vault::NAME
@@ -444,6 +459,7 @@ impl Config {
     /// on Linux, until a native Secret Service or encrypted vault backend is
     /// implemented, storing a new connector API key is refused.
     pub fn store_vault_only_secret(&self, name: &str, value: &str) -> Result<()> {
+        let _one_at_a_time = LEGACY_SECRETS_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         if !cfg!(any(target_os = "macos", windows)) {
             anyhow::bail!("Secure connector vault is not available on this OS. A native Secret Service or encrypted vault must be configured first.");
         }
@@ -882,5 +898,45 @@ mod tests {
             None => std::env::remove_var("HERON_API_KEY"),
         }
         assert_eq!(got.as_deref(), Some("sk-configured"));
+    }
+}
+
+
+#[cfg(test)]
+mod legacy_secret_cleanup_tests {
+    use super::*;
+
+    #[test]
+    fn clear_legacy_secret_removes_only_the_requested_file_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().to_path_buf();
+        std::fs::create_dir_all(&cfg.home).unwrap();
+        std::fs::write(
+            cfg.secrets_path(),
+            serde_json::json!({
+                "telegram_token": "legacy-token",
+                "other_secret": "keep-me"
+            }).to_string(),
+        ).unwrap();
+
+        cfg.clear_legacy_secret("telegram_token").unwrap();
+
+        let remaining = cfg.read_file_secrets().unwrap();
+        assert!(!remaining.contains_key("telegram_token"));
+        assert_eq!(remaining.get("other_secret").and_then(|v| v.as_str()), Some("keep-me"));
+    }
+
+    #[test]
+    fn clear_legacy_secret_fails_closed_on_a_damaged_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().to_path_buf();
+        std::fs::create_dir_all(&cfg.home).unwrap();
+        let path = cfg.secrets_path();
+        std::fs::write(&path, "{damaged").unwrap();
+
+        assert!(cfg.clear_legacy_secret("telegram_token").is_err());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "{damaged");
     }
 }
