@@ -383,6 +383,12 @@ impl CliSpec {
     }
 }
 
+/// CLIs the owner deferred from v1 Tier 1: "not configured or tested yet" (design item 35w in
+/// `docs/designs/heron-v1.md`). They keep their code and their supported range, so the version gate
+/// still applies, but they carry the `experimental` label. The same list is `DEFERRED` in
+/// `eval/containment/check.py`, and a test keeps the two equal.
+pub const DEFERRED_FROM_TIER1: &[&str] = &["opencode-cli"];
+
 /// The provider registry. T3 Code's list (Claude, Codex, Cursor, Grok,
 /// OpenCode, Antigravity, Kiro, Pi, Muse, fx, ACP) plus the free-model
 /// routers the user asked for (Cline, Copilot, Qwen, Gemini, Goose) and a
@@ -393,7 +399,7 @@ pub fn providers() -> Vec<CliSpec> {
         CliSpec { id: "codex-cli", display_name: "Codex (ChatGPT subscription)", binary: "codex", login_command: "codex login", install_hint: "npm install -g @openai/codex", auth_kind: "ChatGPT Plus/Pro/Team subscription", cost_note: "Draws on the ChatGPT plan. A stray OPENAI_API_KEY would flip billing to metered API; Heron removes it from the child env.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CODEX_HOME"), config_dirs: &["~/.codex"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (0, 169, 0), below: (1, 0, 0) }), input: PromptInput::Stdin, output: OutputKind::JsonLines },
         CliSpec { id: "cursor-cli", display_name: "Cursor (subscription)", binary: "cursor-agent", login_command: "agent login", install_hint: "curl https://cursor.com/install -fsS | bash", auth_kind: "Cursor subscription", cost_note: "Draws on the Cursor plan's usage pool.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cursor"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
         CliSpec { id: "grok-cli", display_name: "Grok Build (subscription)", binary: "grok", login_command: "grok login", install_hint: "brew install --cask grok-build (macOS) or the Grok Build installer", auth_kind: "Grok Build subscription", cost_note: "Draws on the Grok plan.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.grok"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cache/opencode", "~/.config/opencode", "~/.local/share/opencode", "~/.local/state/opencode", "~/.opencode"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (2, 1, 4), below: (3, 0, 0) }), input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cache/opencode", "~/.config/opencode", "~/.local/share/opencode", "~/.local/state/opencode", "~/.opencode"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (2, 1, 4), below: (3, 0, 0) }), input: PromptInput::Arg, output: OutputKind::JsonLines },
         CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini", "~/.antigravity"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonSingle },
         CliSpec { id: "cline-cli", display_name: "Cline (router, free models)", binary: "cline", login_command: "cline auth <provider>", install_hint: "npm install -g cline", auth_kind: "Whatever Cline is configured with: cline / openai-codex / oca OAuth, API keys, Ollama", cost_note: "Free when routed to a free or local model. One-shot defaults to yolo, so this provider needs cli_allow_agent_tools = true.", experimental: true, needs_allow_agent_tools: true, config_dir_env: None, config_dirs: &["~/.cline"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
         CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.copilot", "~/.config/github-copilot"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonLines },
@@ -4359,8 +4365,9 @@ mod tests {
 
     /// U2w: the registry is the recorded containment results (`eval/containment/*.json`) applied.
     /// A candidate is Tier 1 when it passed, its folders are confirmed, and (gemini-cli) antigravity-cli
-    /// did not pass. Tier 1 gets a range from the recorded version and is not experimental; every other
-    /// entry has no range and is experimental.
+    /// did not pass. Such a candidate gets a range from the recorded version, and is not experimental
+    /// unless the owner deferred it from v1 Tier 1 (item 35w, `DEFERRED_FROM_TIER1`): a deferred one is
+    /// experimental and keeps its range. Every other entry has no range and is experimental.
     #[test]
     fn tier1_candidates_have_ranges() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("eval/containment");
@@ -4381,6 +4388,23 @@ mod tests {
         }
         assert!(tier1.contains(&"claude-cli"), "claude-cli is the default provider and must be Tier 1: {tier1:?}");
 
+        // The deferred list is the one `eval/containment/check.py` keeps: the keys of its `DEFERRED`
+        // dict, the quoted ids at the start of an entry between `DEFERRED = {` and the closing `}`.
+        let check_py = std::fs::read_to_string(dir.join("check.py")).expect("eval/containment/check.py is readable");
+        let block = check_py.split("DEFERRED = {").nth(1).expect("check.py defines DEFERRED").split('}').next().unwrap();
+        let mut deferred_in_check_py: Vec<&str> = block
+            .lines()
+            .filter_map(|line| {
+                let rest = line.trim().strip_prefix('"')?;
+                let (key, after) = rest.split_once('"')?;
+                after.trim_start().starts_with(':').then_some(key)
+            })
+            .collect();
+        deferred_in_check_py.sort_unstable();
+        let mut deferred = DEFERRED_FROM_TIER1.to_vec();
+        deferred.sort_unstable();
+        assert_eq!(deferred_in_check_py, deferred, "DEFERRED_FROM_TIER1 and DEFERRED in eval/containment/check.py must name the same CLIs");
+
         for spec in providers() {
             if !tier1.contains(&spec.id) {
                 assert!(spec.supported.is_none(), "{} is not Tier 1 and must have no range", spec.id);
@@ -4398,7 +4422,11 @@ mod tests {
             if min.2 > 0 {
                 assert!(!range.contains((min.0, min.1, min.2 - 1)), "{}: the lower bound is inclusive and tight", spec.id);
             }
-            assert!(!spec.experimental, "{} is Tier 1 and must not be experimental", spec.id);
+            if DEFERRED_FROM_TIER1.contains(&spec.id) {
+                assert!(spec.experimental, "{} is deferred from v1 Tier 1 (35w) and must be experimental", spec.id);
+            } else {
+                assert!(!spec.experimental, "{} is Tier 1 and must not be experimental", spec.id);
+            }
             let want = if rec["credential_store"] == "macos-keychain" { CredentialStore::MacosKeychain } else { CredentialStore::HomeFolder };
             assert_eq!(spec.credential_store, want, "{}: credential_store follows the record", spec.id);
 
@@ -4426,6 +4454,23 @@ mod tests {
             let spec = spec_for(id).unwrap();
             assert!(spec.supported.is_none() && spec.experimental, "{id} did not pass its containment check");
         }
+    }
+
+    /// 35w: a deferred CLI is labelled experimental, but its range stays: the tools-off agent and
+    /// `OPENCODE_DISABLE_PROJECT_CONFIG` were checked on 2.x only, so other versions still need the
+    /// user's acceptance.
+    #[test]
+    fn deferred_cli_keeps_its_range_but_is_experimental() {
+        assert_eq!(DEFERRED_FROM_TIER1, &["opencode-cli"]);
+        let spec = spec_for("opencode-cli").unwrap();
+        assert!(spec.experimental, "opencode-cli is deferred from v1 Tier 1");
+        assert_eq!(spec.supported, Some(VersionRange { min: (2, 1, 4), below: (3, 0, 0) }), "the range stays");
+        assert_eq!(check_version(&spec, "opencode v2.1.4", None), Ok(()), "the lower bound is accepted");
+        assert_eq!(check_version(&spec, "opencode v2.9.0", None), Ok(()));
+        let untested = check_version(&spec, "opencode v3.0.0", None).unwrap_err();
+        assert_eq!((untested.id.as_str(), untested.found.as_str()), ("opencode-cli", "3.0.0"));
+        assert!(check_version(&spec, "opencode v2.1.3", None).is_err(), "below the range is refused too");
+        assert_eq!(check_version(&spec, "opencode v3.0.0", Some("3.0.0")), Ok(()), "accepted by the user");
     }
 
     #[test]
