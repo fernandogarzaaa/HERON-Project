@@ -117,7 +117,7 @@ impl Bot {
     /// this Bot. Detached agent turns cannot send to a revoked owner.
     fn is_current_owner(&self, chat: i64) -> bool {
         paired_chat(&self.app) == Some(chat)
-            && self.app.store.kv_get("telegram_code").as_deref()
+            && self.app.store.kv_get("telegram_pairing_epoch").as_deref()
                 == Some(self.pairing_epoch.as_str())
     }
 
@@ -329,6 +329,23 @@ pub fn pairing_code(app: &App) -> String {
     code
 }
 
+/// Stable, non-user-visible generation for queued replies. Unlike the short
+/// pairing code, this UUID is not reused when a later owner pairs the same chat.
+fn pairing_epoch(app: &App) -> String {
+    if let Some(epoch) = app.store.kv_get("telegram_pairing_epoch").filter(|e| !e.is_empty()) {
+        return epoch;
+    }
+    let epoch = uuid::Uuid::new_v4().simple().to_string();
+    let _ = app.store.kv_set("telegram_pairing_epoch", &epoch);
+    epoch
+}
+
+fn rotate_pairing_epoch(app: &App) -> String {
+    let epoch = uuid::Uuid::new_v4().simple().to_string();
+    let _ = app.store.kv_set("telegram_pairing_epoch", &epoch);
+    epoch
+}
+
 /// The code, for showing in the app. Looking at it there is what re-opens pairing after too many
 /// wrong guesses: only someone at the computer can do that.
 pub fn show_pairing_code(app: &App) -> String {
@@ -353,6 +370,7 @@ fn wrong_code(app: &App) -> bool {
         return false;
     }
     let _ = app.store.kv_set("telegram_code", &new_code());
+    rotate_pairing_epoch(app);
     let _ = app.store.kv_set("telegram_locked", "1");
     true
 }
@@ -381,6 +399,7 @@ pub fn unpair(app: &App) {
     let _ = app.store.kv_set("telegram_inbox_last", "0");
     let _ = app.store.kv_set("telegram_chat", "");
     let _ = app.store.kv_set("telegram_code", &new_code());
+    rotate_pairing_epoch(app);
     let _ = app.store.kv_set("telegram_wrong", "0");
     let _ = app.store.kv_set("telegram_locked", "");
     if let Some(token) = token {
@@ -600,7 +619,7 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
         base: format!("{}/bot{token}", api_base.trim_end_matches('/')),
         app: app.clone(),
         account_id: format!("{:x}", Sha256::digest(token.as_bytes())),
-        pairing_epoch: pairing_code(&app),
+        pairing_epoch: pairing_epoch(&app),
         spool,
         dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
@@ -640,7 +659,7 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
     let mut outbox_bot = bot.clone();
     let _outbox_worker = AbortTaskOnDrop(tokio::spawn(async move {
         loop {
-            let current_epoch = pairing_code(&outbox_bot.app);
+            let current_epoch = pairing_epoch(&outbox_bot.app);
             if current_epoch != outbox_bot.pairing_epoch {
                 // Drop rows from the previous pairing. A late detached task
                 // may still enqueue under that old epoch, but the new worker
@@ -728,7 +747,7 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
                                 // The running transport adopts the new pairing code;
                                 // older cloned Bots retain their previous epoch and cannot
                                 // send queued results after re-pairing.
-                                bot.pairing_epoch = pairing_code(&app);
+                                bot.pairing_epoch = pairing_epoch(&app);
                                 let last_inbox = app.store.inbox(false, 1).ok().and_then(|i| i.first().map(|m| m.id)).unwrap_or(0);
                                 let _ = app.store.kv_set("telegram_inbox_last", &last_inbox.to_string());
                                 bot.send(chat, "Paired. This chat now talks to your Heron, and nobody else's messages will be answered.").await;
@@ -863,6 +882,7 @@ mod tests {
     async fn paired_heron(root: &std::path::Path) -> Arc<App> {
         let app = heron_process(root).await;
         let _ = pairing_code(&app);
+        let _ = pairing_epoch(&app);
         app.store.kv_set("telegram_chat", "42").unwrap();
         app
     }
@@ -870,7 +890,7 @@ mod tests {
     fn queue_test_replies(app: &App, token: &str, count: usize) {
         let spool = ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap();
         let token_account = format!("{:x}", Sha256::digest(token.as_bytes()));
-        let epoch = app.store.kv_get("telegram_code").unwrap();
+        let epoch = pairing_epoch(&app);
         let identity = ChannelIdentity {
             kind: ChannelKind::Telegram,
             account_id: format!("{token_account}:{epoch}"),
@@ -920,8 +940,8 @@ mod tests {
         let app = paired_heron(dir.path()).await;
         let token = "OUTBOX-OLD-EPOCH";
         queue_test_replies(&app, token, 1);
-        let old_epoch = app.store.kv_get("telegram_code").unwrap();
-        app.store.kv_set("telegram_code", "NEWCODE88").unwrap();
+        let old_epoch = pairing_epoch(&app);
+        let new_epoch = rotate_pairing_epoch(&app);
 
         let gateway = tokio::spawn(run(app.clone(), base, token.into()));
         tokio::time::sleep(Duration::from_millis(600)).await;
@@ -935,7 +955,7 @@ mod tests {
         assert_eq!(spool.count_pending().unwrap(), 1, "the old row is not visible to the new epoch");
         purge_token_spool(&app, token);
         assert_eq!(spool.count_pending().unwrap(), 0, "token revocation purges every pairing-scoped outbox row");
-        assert_ne!(old_epoch, app.store.kv_get("telegram_code").unwrap());
+        assert_ne!(old_epoch, new_epoch);
     }
 
     #[tokio::test]
@@ -1064,14 +1084,15 @@ mod tests {
             Store::in_memory().unwrap(),
             Arc::new(ScriptedLlm::new(vec![])),
         ).await.unwrap());
-        let code = pairing_code(&app);
+        let _code = pairing_code(&app);
+        let epoch = pairing_epoch(&app);
         app.store.kv_set("telegram_chat", "42").unwrap();
         let bot = Bot {
             client: reqwest::Client::new(),
             base: "http://127.0.0.1:1/botDISABLED".into(),
             app: app.clone(),
             account_id: "disposable-bot".into(),
-            pairing_epoch: code,
+            pairing_epoch: epoch,
             spool: ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap(),
             dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
         };
