@@ -12634,6 +12634,14 @@
         "holder": "agent-1",
         "outcome": "failed",
         "started_at": "2026-11-19T22:23:03.300114+00:00"
+      },
+      {
+        "attempt_id": "ace1e0a677984a1484b9df98c5a7627a",
+        "ended_at": "2026-11-21T13:17:17.207615+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-21T07:41:27.435224+00:00"
       }
     ],
     "attempts_used": 1,
@@ -12647,15 +12655,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "ace1e0a677984a1484b9df98c5a7627a",
-      "base_branch": "skein/verify__integrate-base",
-      "claim_token": "36ae408d1d2f433eb8a48a203fa32f48",
-      "claimed_at": "2026-11-21T07:41:27.435224+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-21T07:41:27.435224+00:00",
-      "node_version": 1371,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "U0",
@@ -12707,17 +12715,17 @@
     "evidence": [
       {
         "command": "bash scripts/verify-v1.sh",
-        "duration_ms": 35956157,
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/verify_20261119T222320866428_0.log"
+        "duration_ms": 20134015,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/verify_20261121T074143062757_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/verify_20261120T101110373859_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/evidence/verify_20261121T131717148545_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: Next: run `bash -n scripts/verify-v1.sh` yourself, or let the supervisor run `bash scripts/verify-v1.sh`. That run will catch any syntax error.",
     "id": "verify",
     "integration_for": null,
     "intent": {
@@ -12729,13 +12737,19 @@
     "max_retries": 2,
     "rejected_count": 1,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "ace1e0a677984a1484b9df98c5a7627a",
+      "base_commit": "e8bf4fac79fb876ab5bb8cc1457a04628d5fb68e",
+      "changed_files": [],
+      "commit": "e8bf4fac79fb876ab5bb8cc1457a04628d5fb68e",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Full gate on the final branch",
-    "version": 1373,
+    "version": 2043,
     "worktree": {
       "base_branch": "skein/verify__integrate-base",
       "base_commit": "4ae08905b90e43c8f2c1e8d8483d5933b26da68f",
