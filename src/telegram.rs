@@ -1156,6 +1156,7 @@ mod tests {
         cfg.home = dir.path().join("home");
         let app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
         let code = pairing_code(&app);
+        let initial_epoch = pairing_epoch(&app);
         assert_eq!(code.len(), 8);
         assert_eq!(pairing_code(&app), code, "the code is stable until it is used or replaced");
         assert!(same_code(&format!(" {}-{} ", code[..4].to_lowercase(), &code[4..]), &code), "spacing and case do not matter");
@@ -1167,6 +1168,7 @@ mod tests {
         assert!(!pairing_locked(&app));
         assert!(wrong_code(&app), "the last allowed guess locks pairing");
         assert!(pairing_locked(&app));
+        assert_ne!(pairing_epoch(&app), initial_epoch, "locking pairing also invalidates old queued replies");
         let replaced = pairing_code(&app);
         assert_ne!(replaced, code, "the code a guesser was closing in on is gone");
         // Only showing the code in the app (which needs the computer) opens pairing again.
