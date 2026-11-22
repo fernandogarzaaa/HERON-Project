@@ -1111,7 +1111,16 @@
     }
   },
   "B6r": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "bf497d35e10e429a9c58595581226f35",
+        "ended_at": "2026-11-22T07:45:17.044256+00:00",
+        "error": "human edited claimed node",
+        "holder": "agent-3",
+        "outcome": "interrupted",
+        "started_at": "2026-11-22T07:42:34.203692+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1123,19 +1132,20 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "bf497d35e10e429a9c58595581226f35",
-      "base_branch": "skein/B6r__integrate-base",
-      "claim_token": "31ee07de5ea442ff9378eaa9e667cf17",
-      "claimed_at": "2026-11-22T07:42:34.203692+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T07:45:04.771748+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "B6",
-      "B2-fix-1"
+      "B2-fix-1",
+      "B2-fix-2"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -1154,9 +1164,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "needs_human",
     "title": "Base gate re-run with B2-fix-1",
-    "version": 9,
+    "version": 10,
     "worktree": {
       "base_branch": "skein/B6r__integrate-base",
       "base_commit": "18584e51f09d0064a925956ca99bc1d2b342bba5",
