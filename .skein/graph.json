@@ -289,11 +289,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "scripts/verify-selfheal.sh (item 21)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "8087860abc6c3c4b34603a867248b2f8eac56f34",
-      "branch": null,
-      "path": null
+      "base_commit": "8087860abc6c3c4b34603a867248b2f8eac56f34",
+      "branch": "skein/H4",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/worktrees/H4"
     }
   },
   "H5": {
