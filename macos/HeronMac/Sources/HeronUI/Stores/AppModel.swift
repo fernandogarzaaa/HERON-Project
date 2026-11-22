@@ -80,6 +80,8 @@ public final class AppModel {
         self.now = now
         // "Quick entry" is on until the owner turns it off (QF3); the Features list reads it just below.
         QuickEntrySettings.registerDefaults()
+        // "Look at a window" is on too (QF3); it only ever runs from its button.
+        ScreenTextSettings.registerDefaults()
         quickEntry = QuickEntryController(model: QuickEntryModel(client: client, now: now), preferences: preferences,
                                           openMain: { _ in })  // wired to the main window at the end of init
         avatar = AvatarModel()

@@ -152,6 +152,7 @@ struct QuickEntryView: View {
                 .onSubmit { Task { await model.submit() } }
                 .accessibilityLabel("Ask Heron")
             if let chip = model.chip { ChipRow(chip: chip, remove: { model.removeChip() }) }
+            ScreenTextNotice(screenText: model.screenText)
             if !model.reply.isEmpty {
                 RowDivider()
                 ScrollView { MarkdownText(markdown: model.reply).frame(maxWidth: .infinity, alignment: .leading) }
@@ -160,6 +161,9 @@ struct QuickEntryView: View {
             HStack(spacing: Spacing.s2) {
                 statusText
                 Spacer()
+                if model.screenText.isEnabled {
+                    LookAtWindowButton(screenText: model.screenText) { Task { await model.lookAtWindow() } }
+                }
                 Button("Open in Heron") { model.openInHeron() }
                     .buttonStyle(HButtonStyle(.secondary))
                     .accessibilityHint("Continues this conversation in the main window")
