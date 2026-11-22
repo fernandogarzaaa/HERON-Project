@@ -8,7 +8,15 @@ public protocol NotificationPoster: Sendable {
     func requestAuthorization() async -> Bool
     /// Whether macOS currently lets the app post.
     func isAuthorized() async -> Bool
+    /// Whether the user has refused notifications, so nothing can be posted and macOS will not ask again. Not the
+    /// same as `!isAuthorized()`: before the first request the answer is "not yet", and a notice may still ask.
+    func isDenied() async -> Bool
     func post(title: String, body: String, identifier: String) async throws
+}
+
+extension NotificationPoster {
+    /// A poster that cannot tell is treated as not denied, so the core's notices are not handed over blindly.
+    public func isDenied() async -> Bool { false }
 }
 
 /// The real center. `UNUserNotificationCenter.current()` is read only when a method runs, so building this in a
@@ -32,6 +40,12 @@ public struct SystemNotificationPoster: NotificationPoster {
         case .authorized, .provisional: return true
         default: return false
         }
+    }
+
+    public func isDenied() async -> Bool {
+        // Without an app bundle nothing can ever be posted, so the core must keep posting its own notices.
+        guard Self.hasAppBundle else { return true }
+        return await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
     }
 
     /// The request `post` hands to the center. It sets a title and a body and nothing else: no category and so no
