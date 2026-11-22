@@ -3614,7 +3614,7 @@
       "claim_token": "1ebbd4862d714ed793af5970c100da0d",
       "claimed_at": "2026-11-22T11:27:15.477449+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:28:16.025947+00:00",
+      "last_heartbeat": "2026-11-22T11:32:16.652245+00:00",
       "node_version": 7,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -3646,7 +3646,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: runs",
-    "version": 11,
+    "version": 19,
     "worktree": {
       "base_branch": "skein/F3g__integrate-base",
       "base_commit": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
@@ -4251,7 +4251,16 @@
     }
   },
   "F5-fix-2": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "767786f5deb741d289b48c794db2778c",
+        "ended_at": "2026-11-22T11:32:19.215505+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T11:27:32.789518+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -4263,21 +4272,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "767786f5deb741d289b48c794db2778c",
-      "base_branch": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
-      "claim_token": "a7e664de634949258fe30e22a2fef4d5",
-      "claimed_at": "2026-11-22T11:27:32.789518+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T11:28:03.206913+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F5g"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib --bins -- telegram_shows_or_refuses_a_once_only_tools_full_detail terminal_shows_the_full_input_of_a_once_only_tool",
+        "duration_ms": 114837,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5-fix-2_20261122T113024212434_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5-fix-2_20261122T113219051617_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F5-fix-2",
     "integration_for": null,
     "intent": {
@@ -4289,13 +4310,26 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "767786f5deb741d289b48c794db2778c",
+      "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
+      "changed_files": [
+        "src/telegram.rs"
+      ],
+      "commit": "964c5e128d181a81a67f5ba43e475c2a6b5b9e0e",
+      "diff_stats": {
+        "src/telegram.rs": {
+          "added": 93,
+          "deleted": 2
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Fix: Telegram shows a once-only tool's full detail or refuses",
-    "version": 4,
+    "version": 13,
     "worktree": {
       "base_branch": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
       "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
