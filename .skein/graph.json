@@ -69,7 +69,7 @@
       "claim_token": "01c5e2a09927475c8532032daa9ec6ff",
       "claimed_at": "2026-11-22T15:52:53.721881+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T15:52:53.721881+00:00",
+      "last_heartbeat": "2026-11-22T15:58:25.907594+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -92,9 +92,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Replay suite, grader, genesis adapter, required-tests list, gate-script tests (item 20)",
-    "version": 3,
+    "version": 14,
     "worktree": {
       "base_branch": "feat/harness2-1a",
       "base_commit": "cdd31f0a74e17ca4fa541f854133abffa680e1ac",
@@ -155,7 +155,16 @@
     }
   },
   "H5": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "cd84027b7f92400381e5236b89f4e87a",
+        "ended_at": "2026-11-22T15:58:30.215222+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T15:53:00.419292+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -167,19 +176,31 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "cd84027b7f92400381e5236b89f4e87a",
-      "base_branch": "feat/harness2-1a",
-      "claim_token": "f629fc38c7d546259106c72b75513363",
-      "claimed_at": "2026-11-22T15:53:00.419292+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T15:53:00.419292+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash -n packaging/macos/build-app.sh && ! grep -qE '^[^#]*--deep' packaging/macos/build-app.sh && bash packaging/macos/build-app.sh --unsigned --no-dmg --host-arch && test -d dist/Heron.app/Contents/Resources/connectors && test ! -e dist/Heron-macos-universal.dmg && test -x dist/Heron.app/Contents/MacOS/heron-cli && codesign --verify dist/Heron.app",
+        "duration_ms": 253524,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/evidence/H5_20261122T155416518088_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/evidence/H5_20261122T155830045651_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run the completion check command unsandboxed, or approve a `bash -n packaging/macos/build-app.sh` so I can at least confirm the syntax.",
     "id": "H5",
     "integration_for": null,
     "intent": {
@@ -191,13 +212,26 @@
     "max_retries": 2,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "cd84027b7f92400381e5236b89f4e87a",
+      "base_commit": "d3b15bc83dbba37a5ee269eb8cbd62e902fb8bd2",
+      "changed_files": [
+        "packaging/macos/build-app.sh"
+      ],
+      "commit": "26590c8e1ca75e60361296d754f23f6d939cea11",
+      "diff_stats": {
+        "packaging/macos/build-app.sh": {
+          "added": 55,
+          "deleted": 13
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "packaging/macos/build-app.sh (item 22)",
-    "version": 3,
+    "version": 14,
     "worktree": {
       "base_branch": "feat/harness2-1a",
       "base_commit": "d3b15bc83dbba37a5ee269eb8cbd62e902fb8bd2",
