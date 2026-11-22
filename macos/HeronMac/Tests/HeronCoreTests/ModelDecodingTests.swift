@@ -68,15 +68,24 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(s.workspace, "/tmp/heron-fixture/ws")
     }
 
-    func testStateWithoutAModelLabelFallsBackToTheModel() throws {
+    func testStateModelLabelIsDecodedFromTheRecording() throws {
         let s = try CoreWire.state(try Fixtures.data("state.json"))
+        XCTAssertEqual(s.modelLabel, "anthropic/claude-sonnet-5.5", "the recorded core serves model_label")
+        XCTAssertEqual(s.modelDisplayName, s.modelLabel)
+    }
+
+    func testStateWithoutAModelLabelFallsBackToTheModel() throws {
+        // A core from before model_label: the same recording with the key removed.
+        let lines = String(decoding: try Fixtures.data("state.json"), as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
+        let json = lines.filter { !$0.contains("\"model_label\"") }.joined(separator: "\n")
+        let s = try CoreWire.state(Data(json.utf8))
         XCTAssertNil(s.modelLabel, "an older core doesn't serve it")
         XCTAssertEqual(s.modelDisplayName, "anthropic/claude-sonnet-5.5")
     }
 
-    func testStateModelLabelIsUsedWhenServed() throws {
+    func testStateModelLabelIsUsedWhenItDiffersFromTheModel() throws {
         let json = String(decoding: try Fixtures.data("state.json"), as: UTF8.self)
-            .replacingOccurrences(of: "\"model\":", with: "\"model_label\": \"Claude Code\", \"model\":")
+            .replacingOccurrences(of: "\"model_label\": \"anthropic/claude-sonnet-5.5\"", with: "\"model_label\": \"Claude Code\"")
         let s = try CoreWire.state(Data(json.utf8))
         XCTAssertEqual(s.modelLabel, "Claude Code")
         XCTAssertEqual(s.modelDisplayName, "Claude Code")
