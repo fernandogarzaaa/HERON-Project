@@ -276,12 +276,21 @@ async fn get_state(State(st): S) -> ApiResult {
     let unread = st.app.store.inbox(true, 100)?.len();
     let usage = st.app.usage.lock().unwrap().clone();
     Ok(Json(json!({
-        "name": cfg.agent.name, "version": env!("CARGO_PKG_VERSION"), "model": cfg.llm.model, "mode": st.app.policy.mode().name(),
+        "name": cfg.agent.name, "version": env!("CARGO_PKG_VERSION"), "model": cfg.llm.model, "model_label": model_label(&cfg), "mode": st.app.policy.mode().name(),
         "workspace": st.app.workspace.display().to_string(), "has_key": cfg.api_key().is_some() || is_local(&cfg.llm.base_url) || crate::llm::is_demo(&cfg), "demo": crate::llm::is_demo(&cfg),
         "memories": st.app.store.memory_count(), "unread": unread, "paused": st.app.paused(), "waiting": st.app.store.pending_approvals()?.len(), "onboarded": st.app.store.kv_get("onboarded").is_some(), "suggestions": st.app.store.list_suggestions(true, 50)?.len(), "mcp": st.app.mcp_status, "usage": usage,
         "tools": st.app.tools.names().len(), "os": std::env::consts::OS, "sandbox": crate::sandbox::active(&cfg).name(),
         "risk_notice_accepted": crate::risk_notice::accepted(&st.app.store), "risk_notice_required": crate::risk_notice::required(),
     })))
+}
+
+/// What the app shows as "the model": the CLI provider's short name ("Claude Code") when a CLI
+/// provider is in use, since `llm.model` is then unused, and the model name otherwise.
+fn model_label(cfg: &Config) -> String {
+    match crate::cli_llm::spec_for(&cfg.llm.provider) {
+        Some(spec) => spec.display_name.split(" (").next().unwrap_or(spec.display_name).to_string(),
+        None => cfg.llm.model.clone(),
+    }
 }
 
 fn is_local(base_url: &str) -> bool {
@@ -1675,6 +1684,31 @@ mod tests {
         let served = router(app.clone(), "test-token".into());
         tokio::spawn(async move { axum::serve(Pipes(incoming), served).await });
         Harness { dir, app, connect }
+    }
+
+    #[test]
+    fn model_label_names_the_cli_provider_or_the_model() {
+        let mut cfg = Config::default();
+        cfg.llm.model = "gpt-4o".into();
+        assert_eq!(model_label(&cfg), "gpt-4o", "the default http provider shows its model");
+        cfg.llm.provider = "claude-cli".into();
+        assert_eq!(model_label(&cfg), "Claude Code", "a CLI provider shows its short name, not llm.model");
+        cfg.llm.provider = "codex-cli".into();
+        assert_eq!(model_label(&cfg), "Codex");
+        cfg.llm.provider = "custom-cli".into();
+        assert_eq!(model_label(&cfg), "Custom CLI", "a name with no suffix is kept whole");
+    }
+
+    #[tokio::test]
+    async fn state_serves_the_model_label() {
+        let h = harness(scripted(vec![]), true, |c| {
+            c.llm.model = "gpt-4o".into();
+            c.llm.provider = "claude-cli".into();
+        })
+        .await;
+        let state = h.json("GET", "/state", Value::Null).await;
+        assert_eq!(state["model"], "gpt-4o");
+        assert_eq!(state["model_label"], "Claude Code");
     }
 
     fn scripted(answers: Vec<Message>) -> Arc<dyn Llm> {
