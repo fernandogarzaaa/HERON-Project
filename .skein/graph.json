@@ -533,11 +533,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fix: REPL reads feature keys changed by another process",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "f8f67f9b99a9c69a5e928423769c3f993166c897",
-      "branch": null,
-      "path": null
+      "base_commit": "f8f67f9b99a9c69a5e928423769c3f993166c897",
+      "branch": "skein/B2-fix-2",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/B2-fix-2"
     }
   },
   "B2t": {
