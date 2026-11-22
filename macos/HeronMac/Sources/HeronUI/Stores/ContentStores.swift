@@ -181,7 +181,7 @@ public final class MemoryStore {
     public func undoForget() async {
         guard let m = lastForgotten else { return }
         lastForgotten = nil
-        _ = try? await client.addMemory(content: m.content, kind: m.kind)
+        await restore(m, content: m.content)
         await load()
     }
 
@@ -191,9 +191,16 @@ public final class MemoryStore {
     public func edit(_ m: Memory, content: String) async {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count >= 3, text != m.content else { return }
-        _ = try? await client.addMemory(content: text, kind: m.kind)
+        await restore(m, content: text)
         try? await client.deleteMemory(id: m.id)
         await load()
+    }
+
+    /// Saves `content` with `m`'s source, so a fact from outside keeps its standing; one the owner
+    /// had confirmed is confirmed again.
+    private func restore(_ m: Memory, content: String) async {
+        guard let id = try? await client.addMemory(content: content, kind: m.kind, source: m.source) else { return }
+        if m.confirmed { try? await client.confirmMemory(id: id) }
     }
 
     public func add(_ content: String, kind: String = "fact") async {

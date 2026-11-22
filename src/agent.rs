@@ -454,8 +454,9 @@ impl Agent {
 
     fn push(&self, session: &mut Session, msg: Message) {
         // Only addresses the user gave count as theirs. One that arrived inside a web page, an email
-        // or a tool's output was chosen by whoever wrote that, so it does not.
-        if msg.role == "user" {
+        // or a tool's output was chosen by whoever wrote that, so it does not. A sub-agent's "user"
+        // message is the task its parent model wrote.
+        if msg.role == "user" && self.depth == 0 {
             session.seen_urls.note(&crate::util::without_untrusted(msg.text()));
         }
         if session.persist {
@@ -690,18 +691,18 @@ impl Agent {
                 grant_for_session(ctx, name, &summary, target.as_deref());
             }
             let (ok, text) = match outcome {
-                Ok(t) => {
-                    let t = truncate_middle(&t, self.cfg.agent.max_tool_output_chars);
-                    if tool.untrusted_output() {
-                        if !ctx.tainted.swap(true, std::sync::atomic::Ordering::SeqCst) {
-                            let _ = ctx.store.kv_set(&format!("tainted:{}", ctx.session_id), "1");
-                        }
-                        (true, wrap_untrusted(name, &t))
-                    } else {
-                        (true, t)
-                    }
-                }
+                Ok(t) => (true, t),
                 Err(e) => (false, format!("Error: {e:#}")),
+            };
+            let text = truncate_middle(&text, self.cfg.agent.max_tool_output_chars);
+            // A failing tool's message can carry outside text too (an MCP server's error result).
+            let text = if tool.untrusted_output() {
+                if !ctx.tainted.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                    let _ = ctx.store.kv_set(&format!("tainted:{}", ctx.session_id), "1");
+                }
+                wrap_untrusted(name, &text)
+            } else {
+                text
             };
             self.audit(&ctx.session_id, name, &audit_args, decision, &redact_secrets(&preview(&text, 300)));
             sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok, preview: preview(&text, 200) });

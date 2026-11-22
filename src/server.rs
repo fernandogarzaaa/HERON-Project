@@ -874,7 +874,13 @@ async fn list_memories(State(st): S, Query(q): Query<SearchQuery>) -> ApiResult 
 async fn add_memory(State(st): S, Json(b): Json<Value>) -> ApiResult {
     let content = b.get("content").and_then(|c| c.as_str()).map(str::trim).filter(|c| c.len() >= 3).ok_or_else(|| bad("Write what Heron should remember."))?;
     let kind = b.get("kind").and_then(|c| c.as_str()).unwrap_or("fact");
-    let out = st.app.memory.save(content, kind, "", 0.7, "user").await?;
+    // The app sends a forgotten or edited row back with its own source, so an outside fact keeps
+    // its standing. Any source but `user` can only lower trust: `user` is what this route gives.
+    let source = b.get("source").and_then(|s| s.as_str()).unwrap_or("user");
+    if source.len() > 32 || !source.bytes().all(|c| c.is_ascii_lowercase() || c == b'_') {
+        return Err(bad("Unknown memory source."));
+    }
+    let out = st.app.memory.save(content, kind, "", 0.7, source).await?;
     Ok(Json(json!({"id": out.id()})))
 }
 
