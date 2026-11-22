@@ -1390,11 +1390,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Kill or justify the base gate's surviving mutants",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "a7f473fe9ee0229555abcfc2145dac47f3fed85e",
+      "branch": "skein/Bmut",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/Bmut"
     }
   },
   "SYNC10": {
