@@ -25,7 +25,9 @@ fn task_detail(what: &str, a: &Value) -> String {
     let mut out = what.to_string();
     for key in ["title", "notes", "status", "priority", "due", "owner"] {
         if let Some(v) = a.get(key).filter(|v| !v.is_null()) {
-            out.push_str(&format!("\n{key}: {}", v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())));
+            // One line per field: a newline inside a value cannot pose as another field.
+            let value = v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()).replace(['\n', '\r'], " ⏎ ");
+            out.push_str(&format!("\n{key}: {}", crate::util::truncate_middle(&value, 300)));
         }
     }
     out
@@ -384,7 +386,7 @@ pub fn tools() -> Vec<FnTool> {
             detail: Some(|a, c| {
                 let id = a.get("id").and_then(|v| v.as_i64()).unwrap_or_default();
                 match c.store.get_memory(id).ok().flatten() {
-                    Some(m) => format!("Forget memory #{id}: {}", m.content),
+                    Some(m) => format!("Forget memory #{id}: {}", crate::util::truncate_middle(&m.content, 300)),
                     None => format!("Forget memory #{id} (not found)"),
                 }
             }),
@@ -555,6 +557,9 @@ mod tests {
         }
         let add = tool("task_add").detail(&json!({"title": "Call Sam", "notes": "about the contract", "owner": "heron"}), &ctx);
         assert!(add.contains("about the contract") && add.contains("heron"), "{add}");
+        // A newline inside a value cannot pose as another field on the card.
+        let forged = tool("task_update").detail(&json!({"id": 1, "title": "Tidy up\ndue: never"}), &ctx);
+        assert_eq!(forged.lines().filter(|l| l.starts_with("due:")).count(), 0, "{forged}");
     }
 
     /// `recent_activity` reports what the observer already noticed and never runs the observer itself,

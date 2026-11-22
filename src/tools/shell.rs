@@ -67,6 +67,10 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
                 cmd.env(name, value);
             }
         }
+        if crate::sandbox::active(&ctx.cfg) == crate::sandbox::Kind::Seatbelt {
+            let tmp = crate::sandbox::shell_tmpdir();
+            cmd.env("TMPDIR", &tmp).env("TMP", &tmp).env("TEMP", &tmp);
+        }
         #[cfg(unix)]
         cmd.process_group(0); // so a timeout kills the whole process tree, not just the shell
         match cmd.spawn() {
@@ -437,6 +441,9 @@ pub(crate) mod tests {
         let out = sh(&ctx, &format!("/usr/bin/nc -U -w 2 {} < /dev/null; echo done", q(&socket))).await;
         assert!(out.contains("done"), "{out}");
         assert!(!out.contains("AGENT-ANSWERED"), "a sandboxed command used a local agent socket: {out}");
+        // Its own sockets, in the working folder and in its temporary folder, still work.
+        let own = sh(&ctx, "python3 -c \"import os,socket,tempfile\nfor d in ('.', tempfile.gettempdir()):\n  p=os.path.join(d,'own.sock')\n  s=socket.socket(socket.AF_UNIX); s.bind(p); s.listen(1)\n  c=socket.socket(socket.AF_UNIX); c.connect(p); print('OWN-OK'); os.unlink(p)\"").await;
+        assert_eq!(own.matches("OWN-OK").count(), 2, "{own}");
     }
 
     #[tokio::test]

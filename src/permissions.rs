@@ -646,7 +646,7 @@ fn forbidden_patterns() -> &'static Vec<Regex> {
     regexes(
         &C,
         &[
-            r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR][a-zA-Z]*\s+(-[a-zA-Z-]*\s+)*(/|~|\$HOME|/\*|~/\*|/(bin|boot|etc|home|lib|usr|var|root|sys|proc|dev))/?(\s|$|;|&|\|)",
+            r"\brm\s+(-[a-zA-Z-]*\s+)*-[a-zA-Z]*[rR][a-zA-Z]*\s+(-[a-zA-Z-]*\s+)*(/|~|\$HOME|/\*|~/\*|/(bin|boot|etc|home|lib|usr|var|root|sys|proc|dev))/?(\s|$|;|&|\|)",
             r"--no-preserve-root",
             r"\bmkfs(\.\w+)?\b",
             r"\bdd\b[^|;&]*\bof=/dev/(sd|nvme|hd|vd|disk|mmcblk)",
@@ -674,7 +674,8 @@ fn danger_patterns() -> &'static Vec<Regex> {
             r"\b(curl|wget|fetch)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da|k)?sh\b",
             r"\bchmod\b[^|;&]*(-R|777)",
             r"\bchown\b[^|;&]*-R",
-            r"\bgit\b[^|;&]*\b(push\b[^|;&]*(--force|-f\b)|reset\s+--hard|clean\b[^|;&]*\s-[a-z]*f|branch\s+-D)",
+            r"\bgit\b[^|;&]*\b(push\b[^|;&]*(--force|-f\b|\s\+\S)|reset\s+--hard|clean\b[^|;&]*\s-[a-z]*f|branch\s+-D)",
+            r"(?i)\bgit\b[^|;&]*-c\s*clean\.requireforce",
             r"\b(kill|pkill|killall)\b",
             r"\b(crontab|systemctl|launchctl|service)\b",
             r"\b(shred|truncate)\b",
@@ -769,15 +770,25 @@ fn names_sensitive_path(cmd: &str) -> bool {
 }
 
 /// Classify a shell command. Conservative: anything not provably read-only is at least `Exec`.
-/// `cmd` with the long spellings of the destructive flags written short (`--recursive` as `-r`), so
-/// the patterns below see `rm --recursive --force` as they see `rm -rf`. Used only for matching.
+/// `cmd` as the patterns below should see it: each word without its quotes and backslashes, and the
+/// long spellings of the destructive flags written short, including the abbreviations GNU tools and
+/// git accept (`--rec`, `--forc`), so `rm "--recursive" --force` reads as `rm -Rr -f`. Used only for
+/// matching.
 fn short_flags(cmd: &str) -> String {
+    let long = |w: &str, full: &str| w.len() >= 5 && w.starts_with("--") && full.starts_with(&w[2..]);
     cmd.split_whitespace()
-        .map(|w| match w {
-            "--recursive" => "-r",
-            "--force" => "-f",
-            "--dir" => "-d",
-            other => other,
+        .map(|w| {
+            let w: String = w.chars().filter(|c| !matches!(c, '\'' | '"' | '\\')).collect();
+            let name = w.split('=').next().unwrap_or("");
+            if long(name, "recursive") {
+                "-Rr".to_string()
+            } else if long(name, "force") {
+                "-f".to_string()
+            } else if long(name, "dir") || name == "--dir" {
+                "-d".to_string()
+            } else {
+                w
+            }
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -1337,11 +1348,16 @@ mod tests {
 
     #[test]
     fn long_option_spellings_are_as_dangerous_as_short_ones() {
-        for c in ["rm --recursive --force ~", "rm --force --recursive /", "rm -r --force ~/*"] {
+        for c in ["rm --recursive --force ~", "rm --force --recursive /", "rm -r --force ~/*", "rm '-rf' ~", "rm \"--recursive\" \"--force\" ~", "rm --rec --for ~", "rm --verbose -rf ~", "rm --verbose --recursive --force ~"] {
             assert_eq!(classify_shell(c), Effect::Forbidden, "{c}");
         }
-        for c in ["rm --recursive build", "rm --force notes.txt", "rm --dir --recursive out", "git clean --force -d", "git clean -d --force", "git clean -xdf", "git push origin main --force-with-lease"] {
+        for c in ["rm --recursive build", "rm --force notes.txt", "rm --dir --recursive out", "git clean --force -d", "git clean -d --force", "git clean -xdf", "git push origin main --force-with-lease",
+            "git clean --forc -dx", "git -c clean.requireForce=false clean -dx", "git push origin +main", "chown --recursive me .", "rm \\-rf build"] {
             assert_eq!(classify_shell(c), Effect::Privileged, "{c}");
+        }
+        // Unrelated long options keep their meaning.
+        for c in ["git log --oneline -5", "ls --color=auto", "cargo build --release"] {
+            assert_ne!(classify_shell(c), Effect::Privileged, "{c}");
         }
     }
 
