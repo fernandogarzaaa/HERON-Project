@@ -3644,9 +3644,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "blocked",
+    "status": "unclaimed",
     "title": "Gate: runs",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": null,
       "branch": null,
@@ -4544,7 +4544,7 @@
       "claim_token": "d6eba2ac22574a3aa970b93716ba54ed",
       "claimed_at": "2026-11-22T11:04:41.231540+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:15:44.077637+00:00",
+      "last_heartbeat": "2026-11-22T11:16:44.242756+00:00",
       "node_version": 5,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4576,7 +4576,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: shortcuts",
-    "version": 29,
+    "version": 31,
     "worktree": {
       "base_branch": "skein/F5g__integrate-base",
       "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
