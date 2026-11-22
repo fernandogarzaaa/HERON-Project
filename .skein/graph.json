@@ -197,11 +197,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "packaging/macos/build-app.sh (item 22)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/harness2-1a",
-      "branch": null,
-      "path": null
+      "base_commit": "d3b15bc83dbba37a5ee269eb8cbd62e902fb8bd2",
+      "branch": "skein/H5",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/worktrees/H5"
     }
   },
   "SYNC10": {
