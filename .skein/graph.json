@@ -1592,11 +1592,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fix F1 guide: App Intent is v1.1",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "2940415acadfeac08c0b156d671b488b26b9ac49",
-      "branch": null,
-      "path": null
+      "base_commit": "2940415acadfeac08c0b156d671b488b26b9ac49",
+      "branch": "skein/F1-fix-2",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F1-fix-2"
     }
   },
   "F1a": {
