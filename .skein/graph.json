@@ -4627,9 +4627,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Gate: undo_files",
-    "version": 7,
+    "version": 8,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/F4g__integrate-base",
       "branch": null,
       "path": null
     }
