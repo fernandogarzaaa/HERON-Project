@@ -4311,29 +4311,44 @@
     }
   },
   "F4-fix-3__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "ccf034f9ec774721bc9af57d3274631d",
+        "ended_at": "2026-11-22T14:04:12.644725+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-22T14:04:11.313357+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "ccf034f9ec774721bc9af57d3274631d",
-      "base_branch": "skein/F4-fix-3__integrate__integrate-base",
-      "claim_token": "81f7da99518d4e8fb21a2adc506f0aed",
-      "claimed_at": "2026-11-22T14:04:11.313357+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-22T14:04:11.313357+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F4-fix-1",
       "F4-fix-2"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge d257e33f859d4399eda687349577ccc7940be506",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['1ddaa93bcf6a5251147f2ddc30d8ccc0acf72961', 'd257e33f859d4399eda687349577ccc7940be506'] into skein/F4-fix-3__integrate-base.",
     "id": "F4-fix-3__integrate",
     "integration_for": "F4-fix-3",
     "intent": {
@@ -4345,16 +4360,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "1ddaa93bcf6a5251147f2ddc30d8ccc0acf72961",
+      "changed_files": [],
+      "commit": "060bd92660be1401009057da9a987622b5ebdba6",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of F4-fix-3",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/F4-fix-3__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "1ddaa93bcf6a5251147f2ddc30d8ccc0acf72961",
+      "branch": "skein/F4-fix-3__integrate-base",
       "path": null
     }
   },
