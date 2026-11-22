@@ -1956,11 +1956,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F2: taint chip, why on the sheet",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "4b4660347f30da79dd80c1558592a62bd120f123",
-      "branch": null,
-      "path": null
+      "base_commit": "4b4660347f30da79dd80c1558592a62bd120f123",
+      "branch": "skein/F2a",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F2a"
     }
   },
   "F2c": {
