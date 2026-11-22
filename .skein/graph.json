@@ -5013,11 +5013,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F7: dictation button, spoken replies",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
-      "branch": null,
-      "path": null
+      "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
+      "branch": "skein/F7a",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F7a"
     }
   },
   "F7g": {
