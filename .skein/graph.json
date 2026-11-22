@@ -3772,7 +3772,7 @@
       "claim_token": "e3df20df716f4587b6d0bfa8489b53ea",
       "claimed_at": "2026-11-22T12:13:10.853447+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T12:19:14.875142+00:00",
+      "last_heartbeat": "2026-11-22T12:25:50.861395+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -3799,7 +3799,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Kill or justify F3's surviving mutants",
-    "version": 15,
+    "version": 28,
     "worktree": {
       "base_branch": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
       "base_commit": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
@@ -4025,7 +4025,16 @@
     }
   },
   "F4a": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "d6093fb89a70418fbcf443246c06c179",
+        "ended_at": "2026-11-22T12:26:06.105943+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-22T12:19:24.761725+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -4037,21 +4046,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "d6093fb89a70418fbcf443246c06c179",
-      "base_branch": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
-      "claim_token": "11fde3582fa34c79a64b2d4e20cbe914",
-      "claimed_at": "2026-11-22T12:19:24.761725+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T12:19:24.761725+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F4t"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q UndoRunTests",
+        "duration_ms": 89503,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F4a_20261122T122436501420_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F4a_20261122T122606006576_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "F4a",
     "integration_for": null,
     "intent": {
@@ -4064,12 +4085,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-22T12:26:54.864888+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "F4: undo button and lists",
-    "version": 3,
+    "version": 16,
     "worktree": {
       "base_branch": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
       "base_commit": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
@@ -7174,7 +7195,7 @@
       "claim_token": "dc2b3627dd024f04ab135894f0c3b6f9",
       "claimed_at": "2026-11-22T12:10:41.357285+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T12:19:16.444621+00:00",
+      "last_heartbeat": "2026-11-22T12:25:54.280787+00:00",
       "node_version": 7,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -7203,7 +7224,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: screen_text",
-    "version": 26,
+    "version": 39,
     "worktree": {
       "base_branch": "skein/F9g__integrate-base",
       "base_commit": "a7999060f5b42e756de22f56de47d7e440e1b840",
