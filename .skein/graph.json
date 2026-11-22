@@ -3030,7 +3030,16 @@
     }
   },
   "F3-fix-1": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "26cc34e5ec574a8cade1a5214f51d97a",
+        "ended_at": "2026-11-22T11:00:03.517786+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:38:14.133449+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -3042,21 +3051,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "26cc34e5ec574a8cade1a5214f51d97a",
-      "base_branch": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
-      "claim_token": "161ce386a4bd44f7b2da37ff35b42617",
-      "claimed_at": "2026-11-22T10:38:14.133449+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:59:18.038792+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F3a"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib --bins -- unfinished_runs_are_closed_on_restart delegated_file_edits_reach_the_run_record parked_write_during_a_run_is_not_claimed_by_it undo_during_a_failed_edit_attaches_nothing a_cancelled_new_chat_keeps_its_title",
+        "duration_ms": 33432,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F3-fix-1_20261122T105929896169_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F3-fix-1_20261122T110003329269_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F3-fix-1",
     "integration_for": null,
     "intent": {
@@ -3068,13 +3089,51 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "26cc34e5ec574a8cade1a5214f51d97a",
+      "base_commit": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
+      "changed_files": [
+        "src/agent.rs",
+        "src/events.rs",
+        "src/runs.rs",
+        "src/server.rs",
+        "src/tools/fs.rs",
+        "src/tools/mod.rs"
+      ],
+      "commit": "e482ba5257f63a33b92fe985a160aa58776e9bc7",
+      "diff_stats": {
+        "src/agent.rs": {
+          "added": 270,
+          "deleted": 13
+        },
+        "src/events.rs": {
+          "added": 9,
+          "deleted": 2
+        },
+        "src/runs.rs": {
+          "added": 42,
+          "deleted": 3
+        },
+        "src/server.rs": {
+          "added": 67,
+          "deleted": 6
+        },
+        "src/tools/fs.rs": {
+          "added": 5,
+          "deleted": 0
+        },
+        "src/tools/mod.rs": {
+          "added": 23,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Fix F3 review findings (core)",
-    "version": 45,
+    "version": 47,
     "worktree": {
       "base_branch": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
       "base_commit": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
