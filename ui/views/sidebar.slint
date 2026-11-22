@@ -2,7 +2,8 @@
 // the views only through its own forwarded properties and callbacks, so
 // each view keeps its own file and its own component.
 
-import { ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { PageScroll } from "../components/page_scroll.slint";
 import { Button } from "../components/button.slint";
 import { SessionRow, Spacer } from "common.slint";
 import { NavItem } from "../components/atoms.slint";
@@ -22,13 +23,19 @@ export component Sidebar inherits Rectangle {
     // the connection state. The Shell posts it from its state poll.
     in property <string> status-text: "";
     in property <[SessionRow]> sessions;
+    out property <length> sessions-overflow-x: sessions-scroll.overflow-x;
+    out property <length> sessions-overflow-y: sessions-scroll.overflow-y;
+    // Where the sidebar's last line ends, so a test can check that the
+    // fixed sidebar fits in the window.
+    out property <length> content-bottom: tail.absolute-position.y + tail.height;
     callback navigate(string);
     callback open-session(string);
     callback new-conversation();
 
+    // No explicit size: the box fills the sidebar anyway, and without one
+    // its minimum height reaches the window, so the window cannot be made
+    // shorter than the sidebar's content.
     VerticalBox {
-        width: parent.width;
-        height: parent.height;
         padding: 18px;
         spacing: 6px;
         HorizontalBox {
@@ -50,6 +57,8 @@ export component Sidebar inherits Rectangle {
             clicked => { root.new-conversation(); }
         }
         VerticalBox {
+            // Spare height goes to the conversation list, not here.
+            vertical-stretch: 0;
             spacing: 1px;
             padding-top: 8px;
             NavItem { icon: @image-url("../icons/chat.svg"); label: root.waiting-count > 0 ? "Conversation ({root.waiting-count})" : "Conversation"; selected: root.current-view == "chat"; reduce-motion: root.reduce-motion; clicked => { root.navigate("chat"); } }
@@ -71,8 +80,12 @@ export component Sidebar inherits Rectangle {
         // The session list scrolls independently. Without this bounded
         // region many sessions push the model/status footer off-screen
         // at the window's minimum height.
-        ScrollView {
+        // It may shrink to nothing: at the minimum window height, with
+        // wider Linux and Windows fonts, the fixed sidebar otherwise
+        // made the window taller than the screen allows.
+        sessions-scroll := PageScroll {
             vertical-stretch: 1;
+            min-height: 0px;
             vertical-scrollbar-policy: as-needed;
             VerticalBox {
                 width: parent.width;
@@ -96,17 +109,26 @@ export component Sidebar inherits Rectangle {
             }
         }
         Spacer { height: 10px; }
-        Text {
-            text: root.footer-text;
-            font-size: 12px;
-            color: Theme.muted;
-            wrap: TextWrap.word-wrap;
-        }
-        if root.status-text != "": Text {
-            text: root.status-text;
-            font-size: 12px;
-            color: Theme.muted;
-            wrap: TextWrap.word-wrap;
+        tail := VerticalLayout {
+            spacing: 6px;
+            Text {
+                text: root.footer-text;
+                font-size: 12px;
+                color: Theme.muted;
+                wrap: TextWrap.word-wrap;
+            }
+            // At most two lines, ending in "…": a long connection error
+            // wrapped to five lines and pushed the sidebar past the
+            // bottom of the window at its minimum height.
+            status := Text {
+                visible: root.status-text != "";
+                height: root.status-text != "" ? min(self.preferred-height, 2 * self.font-size * 1.25) : 0px;
+                text: root.status-text;
+                font-size: 12px;
+                color: Theme.muted;
+                wrap: TextWrap.word-wrap;
+                overflow: elide;
+            }
         }
     }
 }

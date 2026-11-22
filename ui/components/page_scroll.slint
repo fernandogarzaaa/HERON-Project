@@ -1,0 +1,10 @@
+// The scroll region every view and list uses. It reports how far its
+// content runs past the visible area, so the headless tests can assert
+// that text wraps (no horizontal overflow) and long content scrolls.
+
+import { ScrollView } from "std-widgets.slint";
+
+export component PageScroll inherits ScrollView {
+    out property <length> overflow-x: max(0px, self.content-width - self.visible-width);
+    out property <length> overflow-y: max(0px, self.content-height - self.visible-height);
+}

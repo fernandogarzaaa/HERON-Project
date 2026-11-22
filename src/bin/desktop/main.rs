@@ -14,6 +14,8 @@ mod setup;
 mod setup_bridge;
 mod setup_glue;
 mod sse;
+#[cfg(test)]
+mod ui_scroll_tests;
 mod ui_state;
 mod views_bridge;
 mod views_slint;
@@ -767,7 +769,7 @@ mod window_layout_tests {
     use slint::{ComponentHandle, PhysicalSize, PlatformError};
     use std::rc::Rc;
 
-    struct HeadlessPlatform(Rc<MinimalSoftwareWindow>);
+    pub(crate) struct HeadlessPlatform(pub(crate) Rc<MinimalSoftwareWindow>);
 
     impl Platform for HeadlessPlatform {
         fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, PlatformError> {
@@ -777,7 +779,7 @@ mod window_layout_tests {
 
     // Uncompressed 32-bit BMP output requires no extra dependencies and
     // can be opened by macOS Preview and Windows Photos for visual review.
-    fn write_bmp(
+    pub(crate) fn write_bmp(
         path: &std::path::Path,
         width: u32,
         height: u32,
