@@ -947,6 +947,10 @@ Low findings from the build's independent reviews that were left as they are. Me
 *   **F9: a Screen Recording refusal is matched by error code without its domain (low).** Whether macOS reports a denial that way is UNVERIFIED.
 *   **F3: an untitled run looks up its session's title on every event (low).** While a record's title is empty, each event reads the session title under the bus lock. A run whose input is empty never gets one.
 *   **F3: two app lines have no test (low).** The first notification-authorization refresh and the `didBecomeActive` observer can be removed without a test failing; a refused request refreshes it anyway.
+*   **F8: the 2,000-character body cap doesn't bound the URL's length (low).** Four-byte characters encode to about 24,000 URL characters. A mail app that cuts a long `mailto:` URL loses only the end of the body, never a recipient.
+*   **F8: Settings reports "allow" for a hand-edited `draft_email:*` rule (low, fail-safe).** The rule is ignored and the call still asks once.
+*   **F8: the tests don't pin a few address shapes (low).** A leading or trailing space, a trailing newline and non-ASCII look-alikes are refused today by the ASCII-only, anchored regex, but no test names them.
+*   **F5 and F8: the terminal and Telegram show a once-only tool's full detail, fixed on F5's branch (merge order).** F5-fix-1 (terminal) and F5-fix-2 (Telegram) key on `permissions::once_only`, which covers `draft_email` too, so F8's pull request must merge after F5's.
 *   **F3: a core notice body can reach the lock screen (low).** A `notification` event's body holds up to 180 characters of a schedule's result. The app posts it as is, so the lock screen shows it when macOS allows previews. The core's own desktop notice showed the same text before F3, so nothing new leaks; only the app's own "needs your OK" and "finished" notices are limited to the tool name and the owner's title.
 *   **F3: run records are written under the event bus's lock (low).** `RunLog` writes kv inside `publish`, as the design asks, so a long store operation elsewhere briefly stalls every publisher. Nothing awaits under the lock.
 
