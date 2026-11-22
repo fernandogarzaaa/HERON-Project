@@ -3432,7 +3432,16 @@
     }
   },
   "F8a": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "4a0f51e824854b8680117c7bf7f00720",
+        "ended_at": "2026-11-22T09:42:29.163704+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:41:22.320794+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -3444,19 +3453,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "4a0f51e824854b8680117c7bf7f00720",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "85c6e6fa100c4322b6a5c0960fc08885",
-      "claimed_at": "2026-11-22T09:41:22.320794+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T09:42:22.828551+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift test --package-path macos/HeronMac && grep -q email_drafts macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift",
+        "duration_ms": 26416,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8a_20261122T094202649953_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8a_20261122T094229068485_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: **Next:** run `swift test --package-path macos/HeronMac` outside the sandbox. If it fails, paste the first error.",
     "id": "F8a",
     "integration_for": null,
     "intent": {
@@ -3468,13 +3489,31 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "4a0f51e824854b8680117c7bf7f00720",
+      "base_commit": "cbc32169e16fa3fb67935fe443f4766546e13beb",
+      "changed_files": [
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift",
+        "macos/HeronMac/Tests/HeronUITests/Features/EmailDraftsRowTests.swift"
+      ],
+      "commit": "98d9c9b9642d8b3fc0e38d90bbb6ede7f0451602",
+      "diff_stats": {
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift": {
+          "added": 4,
+          "deleted": 1
+        },
+        "macos/HeronMac/Tests/HeronUITests/Features/EmailDraftsRowTests.swift": {
+          "added": 22,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "F8: Email drafts row",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "cbc32169e16fa3fb67935fe443f4766546e13beb",
