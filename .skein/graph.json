@@ -3143,11 +3143,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F5: run_shortcut, shortcuts routes, key",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "a5c863430fd6d88e8fe59e19063303332f903064",
+      "branch": "skein/F5s",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F5s"
     }
   },
   "F5t": {
