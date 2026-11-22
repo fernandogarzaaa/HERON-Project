@@ -68,6 +68,16 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
         with { $0.sessions[id] = session }
     }
 
+    /// Adds a short conversation that has read outside content (F2): `tainted` is set and `source` says what first
+    /// tainted it, as `GET /api/sessions/{id}` does. A nil `source` is a conversation tainted before sources were recorded.
+    public func seedTaintedConversation(id: String = "s-tainted", source: TaintSource? = TaintSource(kind: "chat_context", name: "selection", detail: "Preview")) {
+        var session = PreviewSession(id: id, title: "What does this say?", now: now)
+        session.append(role: "user", content: "What does this say?", now: now)
+        session.detail.tainted = true
+        session.detail.taintSource = source
+        with { $0.sessions[id] = session }
+    }
+
     /// Adds a delivered Inbox item whose body (`PreviewDemo.longInboxBody`) is far taller than the detail pane.
     public func seedLongInboxItem(id: Int = 100) {
         let item = InboxItem(id: id, timestamp: now, title: "Quarterly review results", body: PreviewDemo.longInboxBody, read: false)

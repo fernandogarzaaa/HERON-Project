@@ -16,6 +16,12 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if model.showsTaintChip {
+                TaintChip(source: chat.taintSource)
+                    .frame(maxWidth: Spacing.chatColumn)
+                    .padding(.horizontal, Spacing.s6).padding(.top, Spacing.s3)
+                    .frame(maxWidth: .infinity)
+            }
             if chat.messages.isEmpty && !chat.isRunning {
                 firstConversation
             } else {

@@ -941,6 +941,74 @@ async fn api_run_survives_client_disconnect() {
     assert_eq!(api.get_json(&format!("/sessions/{sid}")).await["busy"], false);
 }
 
+/// `interrupted` and `busy` of `GET /api/sessions/{id}`.
+async fn interrupted_and_busy(api: &Api, sid: &str) -> (Value, Value) {
+    let session = api.get_json(&format!("/sessions/{sid}")).await;
+    (session["interrupted"].clone(), session["busy"].clone())
+}
+
+#[tokio::test]
+async fn api_session_reports_an_interrupted_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = scripted_app(dir.path(), vec![], |_| {}).await;
+    let store = app.store.clone();
+    let api = serve(app).await;
+    let sid = store.create_session("", "user").unwrap();
+    let (not_interrupted, not_busy) = (json!(false), json!(false));
+
+    // Nothing was said yet: there is nothing to pick up.
+    assert_eq!(interrupted_and_busy(&api, &sid).await, (not_interrupted.clone(), not_busy.clone()), "an empty conversation");
+
+    // The last stored message is the question, and no reply is running: the reply was cut short.
+    store.append_message(&sid, &Message::user("write it")).unwrap();
+    assert_eq!(interrupted_and_busy(&api, &sid).await, (json!(true), not_busy.clone()), "last message is a user message");
+
+    // The model asked for a tool and the run stopped before it answered.
+    let call = ScriptedLlm::tool_call("write_file", json!({"path": "a.txt", "content": "one"}));
+    let call_id = call.tool_calls[0].id.clone();
+    assert!(call.role == "assistant" && !call.tool_calls.is_empty(), "the stored message is an assistant message with tool calls");
+    store.append_message(&sid, &call).unwrap();
+    assert_eq!(interrupted_and_busy(&api, &sid).await, (json!(true), not_busy.clone()), "last message is an assistant message with tool calls");
+
+    // The tool ran and its result was saved, but the model never saw it.
+    store.append_message(&sid, &Message::tool(call_id, "wrote a.txt")).unwrap();
+    assert_eq!(interrupted_and_busy(&api, &sid).await, (json!(true), not_busy.clone()), "last message is a tool message");
+
+    // The reply was finished: a plain assistant message ends the turn.
+    store.append_message(&sid, &Message::assistant("Wrote it.")).unwrap();
+    assert_eq!(interrupted_and_busy(&api, &sid).await, (not_interrupted.clone(), not_busy.clone()), "last message is a plain assistant reply");
+
+    // A new question after it is a turn that has not been answered.
+    store.append_message(&sid, &Message::user("and again")).unwrap();
+    assert_eq!(interrupted_and_busy(&api, &sid).await, (json!(true), not_busy), "a new user message after a finished reply");
+}
+
+#[tokio::test]
+async fn api_session_is_not_interrupted_while_busy() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = scripted_app(dir.path(), vec![write_call("held.txt", "later"), Message::assistant("Done.")], |_| {}).await;
+    heron::risk_notice::accept_current(&app.store).unwrap();
+    let api = serve(app).await;
+
+    // The reply waits for an answer to its approval, so it is running.
+    let mut chat = api.chat(json!({"message": "write held.txt"})).await;
+    let sid = chat.next().await.unwrap()["id"].as_str().unwrap().to_string();
+    let approval = chat.until("approval").await.pop().unwrap();
+    let running = api.get_json(&format!("/sessions/{sid}")).await;
+    assert_eq!(running["busy"], true, "{running}");
+    // What is stored now would read as an interrupted reply if nothing were running.
+    let last = running["messages"].as_array().unwrap().last().unwrap().clone();
+    assert!(last["role"] == "user" || last["role"] == "tool" || last["tool_calls"].as_array().is_some_and(|c| !c.is_empty()), "the stored tail looks interrupted: {last}");
+    assert_eq!(running["interrupted"], false, "a reply that is running is not interrupted: {running}");
+
+    // Once the reply is finished it is neither busy nor interrupted.
+    api.approve(&approval["id"], "once").await;
+    chat.until("run_end").await;
+    let finished = api.get_json(&format!("/sessions/{sid}")).await;
+    assert_eq!((&finished["busy"], &finished["interrupted"]), (&json!(false), &json!(false)), "{finished}");
+    assert_eq!(finished["messages"].as_array().unwrap().last().unwrap()["content"], "Done.");
+}
+
 #[tokio::test]
 async fn api_approval_waits_on_the_bus_then_parks_on_timeout() {
     let dir = tempfile::tempdir().unwrap();
@@ -1197,11 +1265,64 @@ async fn risk_notice_blocks_chat_until_accepted() {
     assert_eq!(api.get_json("/sessions").await.as_array().unwrap().len(), 1);
 }
 
+// ---------- why it asks (heron-v1-features F2) ----------
+
+/// Every `approval` event says why it asks, in the core's words: one sentence when nothing outside
+/// is in the conversation, and a second naming what is when something is. The session reports the
+/// same taint, and switching `ask_reasons` off over HTTP drops `why` from the next approval.
+#[tokio::test]
+async fn api_approval_carries_why() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = vec![write_call("a.txt", "a"), Message::assistant("Done a."), write_call("b.txt", "b"), Message::assistant("Done b."), write_call("c.txt", "c"), Message::assistant("Done c.")];
+    let app = scripted_app(dir.path(), script, |_| {}).await;
+    heron::risk_notice::accept_current(&app.store).unwrap();
+    let api = serve(app.clone()).await;
+    let mode = app.policy.mode().name();
+
+    // Nothing outside in the conversation: the first sentence only, and the session is clean.
+    let mut chat = api.chat(json!({"message": "write a"})).await;
+    let events = chat.until("approval").await;
+    let clean_sid = events[0]["id"].as_str().unwrap().to_string();
+    let approval = events.last().unwrap();
+    assert_eq!(approval["tainted"], false, "{approval}");
+    assert_eq!(approval["why"], format!("Heron asks before this in {mode} mode."), "{approval}");
+    assert_eq!(api.get_json(&format!("/sessions/{clean_sid}")).await["taint"], json!({"tainted": false, "source": null}));
+    api.approve(&approval["id"], "deny").await;
+    chat.all().await;
+
+    // Text from another app taints the conversation: the second sentence names it, and the session agrees.
+    let context = json!([{"kind": "selection", "app": "Preview", "text": "a page of a PDF"}]);
+    let mut chat = api.chat(json!({"message": "write b", "context": context})).await;
+    let events = chat.until("approval").await;
+    let tainted_sid = events[0]["id"].as_str().unwrap().to_string();
+    let approval = events.last().unwrap();
+    assert_eq!(approval["tainted"], true, "{approval}");
+    assert_eq!(approval["why"], format!("Heron asks before this in {mode} mode. Heron has read text from Preview in this conversation, so changes and sends ask first."), "{approval}");
+    let session = api.get_json(&format!("/sessions/{tainted_sid}")).await;
+    let taint = &session["taint"];
+    assert_eq!(taint["tainted"], true, "{taint}");
+    assert_eq!((taint["source"]["kind"].as_str(), taint["source"]["name"].as_str(), taint["source"]["detail"].as_str()), (Some("chat_context"), Some("selection"), Some("Preview")), "{taint}");
+    api.approve(&approval["id"], "deny").await;
+    chat.all().await;
+
+    // Off: the next approval has no `why`, and keeps the `tainted` field it always had.
+    assert_eq!(api.post_json("/features/ask_reasons", json!({"on": false})).await, json!({"key": "ask_reasons", "on": false}));
+    // Saving a feature rebuilds the model client from config, which drops the scripted one: put a script
+    // holding what is left of the original back in, so the third chat never reaches a real provider.
+    app.llm.swap(Arc::new(ScriptedLlm::new(vec![write_call("c.txt", "c"), Message::assistant("Done c.")])));
+    let mut chat = api.chat(json!({"session_id": tainted_sid, "message": "write c"})).await;
+    let approval = chat.until("approval").await.pop().unwrap();
+    assert_eq!(approval["tainted"], true, "{approval}");
+    assert!(approval.get("why").is_none(), "ask_reasons is off: {approval}");
+    api.approve(&approval["id"], "deny").await;
+    chat.all().await;
+}
+
 // ---------- the features table, chat context and notices (heron-v1-features B2) ----------
 
 /// `GET /api/features` lists every core key, `POST /api/features/{key}` saves one through the
 /// running core, and an unknown key is a 404 that saves nothing. The test follows whatever keys
-/// `features::KEYS` holds (B2 itself ships none outside unit tests; each feature appends its own).
+/// `features::KEYS` holds, and names `ask_reasons` (F2), the first key a feature added.
 #[tokio::test]
 async fn api_features_lists_and_sets_keys() {
     let dir = tempfile::tempdir().unwrap();
@@ -1218,6 +1339,25 @@ async fn api_features_lists_and_sets_keys() {
     for (item, key) in items.iter().zip(keys) {
         assert_eq!(item.as_object().unwrap().keys().map(String::as_str).collect::<BTreeSet<_>>(), ["key", "on", "title"].into_iter().collect(), "{item}");
         assert_eq!((item["key"].as_str(), item["title"].as_str(), item["on"].as_bool()), (Some(key.key), Some(key.title), Some(key.default)), "a key starts at its default: {item}");
+    }
+
+    // F2 ships `ask_reasons`, so the list cannot be empty, and the key is there with its title and default.
+    assert!(!keys.is_empty(), "the core has no feature keys");
+    assert!(!items.is_empty(), "{listed}");
+    assert!(keys.iter().any(|k| k.key == "ask_reasons"), "F2's key is missing from features::KEYS");
+    let ask = items.iter().find(|i| i["key"] == "ask_reasons").unwrap_or_else(|| panic!("ask_reasons is not listed: {listed}"));
+    assert_eq!(*ask, json!({"key": "ask_reasons", "title": "Explain approvals", "on": true}), "approval reasons start on");
+
+    // `ask_reasons` off and on again, over HTTP: each reply, the next GET and config.toml say the same.
+    for on in [false, true] {
+        let reply = api.post_json("/features/ask_reasons", json!({"on": on})).await;
+        assert_eq!(reply, json!({"key": "ask_reasons", "on": on}));
+        let listed = api.get_json("/features").await;
+        let item = listed["features"].as_array().unwrap().iter().find(|i| i["key"] == "ask_reasons").unwrap_or_else(|| panic!("ask_reasons left the list: {listed}"));
+        assert_eq!(item["on"], on, "the next GET shows it: {listed}");
+        assert_eq!(app.cfg().feature_on("ask_reasons"), on, "the running core sees it at once");
+        assert_eq!(Config::read_saved(&home).unwrap().feature_on("ask_reasons"), on, "config.toml holds it");
+        assert_eq!(Config::read_saved(&home).unwrap().features.flags.get("ask_reasons"), Some(&on), "config.toml says so in words, not by default");
     }
 
     // Each key is switched both ways: the reply, the list and the running core agree, and the file keeps it.

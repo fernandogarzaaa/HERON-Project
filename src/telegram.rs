@@ -291,8 +291,7 @@ struct TelegramApprover {
 impl Approver for TelegramApprover {
     async fn approve(&self, req: &ApprovalRequest) -> Approval {
         if req.risk.high() || req.tainted {
-            let why = if req.tainted { "Heron has read outside content in this conversation" } else { "it is a risky action" };
-            self.bot.send(self.chat, &format!("Heron wanted to use {} but did not: {why}, so it can only be approved at your computer.", req.tool)).await;
+            self.bot.send(self.chat, &refusal_message(&self.bot.app, req)).await;
             return Approval::Deny(Some("this can only be approved at the user's computer, not from a phone".into()));
         }
         // Approval questions are deliberately NOT placed in the durable
@@ -323,6 +322,19 @@ impl Approver for TelegramApprover {
             Err(_) => Approval::Deny(Some("no answer within ten minutes".into())),
         }
     }
+}
+
+/// What the phone is told when an ask is refused outright: it is risky, or outside content is in the
+/// conversation. A tainted refusal says what tainted it while `ask_reasons` is on.
+fn refusal_message(app: &App, req: &ApprovalRequest) -> String {
+    let why = if req.tainted { "Heron has read outside content in this conversation" } else { "it is a risky action" };
+    let mut text = format!("Heron wanted to use {} but did not: {why}, so it can only be approved at your computer.", req.tool);
+    if req.tainted && app.cfg().feature_on(crate::features::ASK_REASONS) {
+        let source = crate::approval_text::TaintSource::load(&app.store, &req.session_id);
+        text.push(' ');
+        text.push_str(&crate::approval_text::taint_sentence(source.as_ref()));
+    }
+    text
 }
 
 /// The question a phone is asked. It offers yes or no, nothing else: a yes approves this one call
@@ -955,6 +967,84 @@ mod tests {
         assert_eq!(saved.len(), 1, "{saved:?}");
         assert_eq!((saved[0].content.as_str(), saved[0].source.as_str(), saved[0].confirmed), (fact, "outside", false), "{saved:?}");
         assert!(app.memory.core(10).unwrap().is_empty(), "{:?}", app.memory.core(10).unwrap());
+    }
+
+    /// F2: Telegram refuses a tainted ask outright, and the refusal says what tainted the
+    /// conversation, unless the owner has turned `ask_reasons` off.
+    #[tokio::test]
+    async fn telegram_refusal_names_the_taint_source() {
+        use crate::permissions::Effect;
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(vec![]))).await.unwrap());
+        assert!(app.cfg().feature_on("ask_reasons"), "on by default");
+        let req = |session: &str, risk: Effect, tainted: bool| ApprovalRequest {
+            tool: "write_file".into(),
+            summary: "change a file".into(),
+            risk,
+            detail: String::new(),
+            tainted,
+            args: json!({"path": "notes.txt"}),
+            session_id: session.into(),
+            always_rule: None,
+        };
+        let refused = "Heron wanted to use write_file but did not: Heron has read outside content in this conversation, so it can only be approved at your computer.";
+        let sink = crate::agent::null_sink();
+        let flag = std::sync::atomic::AtomicBool::new(false);
+        let fetched = app.store.create_session("", "telegram").unwrap();
+        crate::taint::mark(&app.store, &sink, &flag, &fetched, crate::agent::ContentEntry::ToolOutput { untrusted: true }, "web_fetch", "example.com");
+        assert_eq!(
+            refusal_message(&app, &req(&fetched, Effect::WorkspaceWrite, true)),
+            format!("{refused} Heron has read example.com in this conversation, so changes and sends ask first.")
+        );
+        let forwarded = app.store.create_session("", "telegram").unwrap();
+        crate::taint::mark(&app.store, &sink, &flag, &forwarded, crate::agent::ContentEntry::TelegramForward, "telegram", "");
+        assert_eq!(
+            refusal_message(&app, &req(&forwarded, Effect::WorkspaceWrite, true)),
+            format!("{refused} Heron has read a forwarded Telegram message in this conversation, so changes and sends ask first.")
+        );
+        // Tainted before sources were recorded: today's tainted sentence.
+        let old = app.store.create_session("", "telegram").unwrap();
+        app.store.kv_set(&crate::taint::key(&old), "1").unwrap();
+        assert_eq!(refusal_message(&app, &req(&old, Effect::WorkspaceWrite, true)), format!("{refused} {}", crate::ui::chat::approval_warning("x", "", true)));
+        // A risky ask in a clean conversation has nothing to name.
+        let clean = app.store.create_session("", "telegram").unwrap();
+        assert_eq!(
+            refusal_message(&app, &req(&clean, Effect::Privileged, false)),
+            "Heron wanted to use write_file but did not: it is a risky action, so it can only be approved at your computer."
+        );
+        // The approver refuses the tainted ask, and that refusal is what reaches the paired phone.
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        let bot = Bot {
+            client: reqwest::Client::new(),
+            base: "http://127.0.0.1:1/botOFFLINE".into(),
+            app: app.clone(),
+            account_id: "f2-bot".into(),
+            pairing_epoch: pairing_code(&app),
+            spool: ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap(),
+            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        let spool = ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap();
+        let approver = TelegramApprover { bot, chat: 42, shared: Arc::<Shared>::default() };
+        let sent_to_phone = || async {
+            let queued = spool.due(ChannelKind::Telegram, "f2-bot", crate::util::now_ts() + 1_000_000, 10).unwrap();
+            for m in &queued {
+                spool.delivered(m.id, &m.identity, &m.lease, None).unwrap();
+            }
+            queued.into_iter().map(|m| m.text).collect::<Vec<_>>()
+        };
+        let denied = approver.approve(&req(&fetched, Effect::WorkspaceWrite, true)).await;
+        assert!(matches!(&denied, Approval::Deny(Some(reason)) if reason.contains("computer")), "{denied:?}");
+        assert_eq!(sent_to_phone().await, vec![format!("{refused} Heron has read example.com in this conversation, so changes and sends ask first.")]);
+        // With `ask_reasons` off the sentence is left out, and the refusal is what it was.
+        app.update_config(crate::app::ConfigChange::edit(|c| {
+            c.features.flags.insert("ask_reasons".into(), false);
+        }))
+        .unwrap();
+        assert_eq!(refusal_message(&app, &req(&fetched, Effect::WorkspaceWrite, true)), refused);
+        assert!(matches!(approver.approve(&req(&fetched, Effect::WorkspaceWrite, true)).await, Approval::Deny(Some(_))));
+        assert_eq!(sent_to_phone().await, vec![refused.to_string()]);
     }
 
     /// What each surface offers for a once-only tool. The terminal prompt offers "[a]lways" only when

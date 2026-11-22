@@ -106,6 +106,8 @@ public final class ChatStore {
     /// What outside content the conversation has read, once known. Non-nil means the violet chip shows.
     public private(set) var outsideSource: String?
     public private(set) var isOutsideContent = false
+    /// What first tainted the open conversation, from the `tainted` event or the session. Nil when unknown.
+    public private(set) var taintSource: TaintSource?
     /// "Answered from your phone", shown for 3 seconds after an approval was answered elsewhere.
     public private(set) var answeredElsewhere = false
     /// A composer-level error (busy, risk notice).
@@ -160,6 +162,7 @@ public final class ChatStore {
             }
             isRunning = detail.busy
             isOutsideContent = detail.tainted
+            taintSource = detail.taintSource
             outsideSource = nil
             liveApproval = nil
             composerError = nil
@@ -175,6 +178,7 @@ public final class ChatStore {
         isRunning = false
         liveApproval = nil
         isOutsideContent = false
+        taintSource = nil
         outsideSource = nil
         composerError = nil
         composer = ""
@@ -325,6 +329,10 @@ public final class ChatStore {
             liveApproval = nil
             mutateAssistant { $0.finished = true }
             Task { await loadSessions() }
+        case .tainted(let source):
+            // Once per session; the first source stays, as in the core.
+            isOutsideContent = true
+            if taintSource == nil { taintSource = source }
         case .usage, .model, .notice, .learned, .resync:
             break
         }

@@ -16,8 +16,13 @@ pub struct FeatureKey {
     pub default: bool,
 }
 
+/// F2: each approval says why it was asked, and Telegram's refusal names what tainted the
+/// conversation.
+pub const ASK_REASONS: &str = "ask_reasons";
+
 /// Every core key. Each feature appends its one entry.
 pub static KEYS: &[FeatureKey] = &[
+    FeatureKey { key: ASK_REASONS, title: "Explain approvals", default: true },
     #[cfg(test)]
     FeatureKey { key: "test_key", title: "Test feature", default: false },
 ];

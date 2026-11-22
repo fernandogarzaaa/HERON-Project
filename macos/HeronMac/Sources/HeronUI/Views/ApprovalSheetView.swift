@@ -56,6 +56,12 @@ public enum ApprovalCopy {
         return "This conversation has read outside content\(what). Check that this is what you asked for."
     }
 
+    /// The core's one or two sentences on why it is asking (`approval.why`). Nil when it sent none or an empty one.
+    public static func whyLine(_ r: ApprovalRequest) -> String? {
+        guard let why = r.why?.trimmingCharacters(in: .whitespacesAndNewlines), !why.isEmpty else { return nil }
+        return why
+    }
+
     /// "Always in ~/Work/drafts", from the rule the core offers.
     public static func alwaysTitle(_ r: ApprovalRequest) -> String {
         guard let rule = r.alwaysRule, let colon = rule.firstIndex(of: ":") else { return "Always allow this" }
@@ -108,6 +114,7 @@ public struct ApprovalSheetView: View {
                     if showDetails { rawDetails }
                 }
             }
+            if let why = ApprovalCopy.whyLine(request) { whyText(why) }
             impact
             scopeSection
             footer
@@ -143,6 +150,17 @@ public struct ApprovalSheetView: View {
             .padding(Spacing.s3)
             .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(theme.raised))
             .textSelection(.enabled)
+    }
+
+    /// Why Heron is asking, in the core's words (F2).
+    private func whyText(_ why: String) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.s1) {
+            SectionLabel("Why Heron is asking")
+            Text(why).font(HeronFont.callout).foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Why Heron is asking. \(why)")
     }
 
     private var impact: some View {

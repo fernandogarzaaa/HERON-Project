@@ -95,9 +95,11 @@ final class ModelDecodingTests: XCTestCase {
         // The recording has four raw messages (user, assistant with a call, the tool result, assistant text);
         // the chat shows two: the question, and one reply carrying its step.
         let detail = try CoreWire.session(try Fixtures.data("session.json"))
-        XCTAssertEqual(detail.id, "d7b37882d0ad")
+        XCTAssertEqual(detail.id, "06da7f7a8650", "session.json was re-recorded for F2, so its id differs from sessions.json's")
         XCTAssertFalse(detail.busy)
         XCTAssertFalse(detail.interrupted)
+        XCTAssertFalse(detail.tainted, "the recording's `taint` is {tainted: false, source: null}")
+        XCTAssertNil(detail.taintSource)
         XCTAssertEqual(detail.messages.map(\.role), ["user", "assistant"])
         XCTAssertEqual(detail.messages[0].content, "Save a plan as plan.md")
         XCTAssertEqual(detail.messages[1].content, "Done. Here is the result:\n\n```\nwrote 75 bytes to plan.md\n```")
@@ -258,6 +260,7 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertTrue(request.canAlways)
         XCTAssertTrue(request.canSession)
         XCTAssertFalse(request.tainted)
+        XCTAssertEqual(request.why, "Heron asks before this in ask mode.", "the recording carries the core's `why`")
         XCTAssertEqual(request.sessionID, "session-1")
         XCTAssertTrue(request.detail.hasPrefix("Create plan.md (75 bytes)\n"))
 

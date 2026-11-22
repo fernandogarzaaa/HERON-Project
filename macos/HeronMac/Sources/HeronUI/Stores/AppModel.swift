@@ -106,6 +106,10 @@ public final class AppModel {
     /// `client.endpoint` isn't observable and is only the real endpoint once the core has answered, so the banner waits for `hasBootstrapped`.
     public var showsAnotherHeronBanner: Bool { hasBootstrapped && !client.endpoint.backgroundOwner && !dismissedAnotherHeronBanner }
 
+    /// F2: the chip at the top of the chat. It shows for a conversation that has read outside content, unless the
+    /// owner switched "Explain approvals" off (or the core hasn't said yet).
+    public var showsTaintChip: Bool { chat.isOutsideContent && features.isOn(coreKey: AskReasonsFeature.key) }
+
     /// Items waiting for the user: live approvals (including the open conversation's), parked ones, and unread suggestions are separate.
     public var waitingCount: Int { approvals.waitingCount + (chat.liveApproval == nil ? 0 : 1) }
 
@@ -160,7 +164,8 @@ public final class AppModel {
         async let d: Void = memory.load()
         async let e: Void = tasks.load()
         async let f: Void = schedules.load()
-        _ = await (a, b, c, d, e, f)
+        async let g: Void = features.load()
+        _ = await (a, b, c, d, e, f, g)
     }
 
     public func refreshState() async {
@@ -193,6 +198,10 @@ public final class AppModel {
             }
         case .resync:
             Task { await resynchronize() }
+        case .tainted:
+            chat.handle(event)
+            // The chip reads the `ask_reasons` key; ask the core again if it hadn't answered when the app started.
+            if features.loadState != .loaded { Task { await features.load() } }
         case .runEnd, .approvalParked:
             chat.handle(event)
             approvals.handle(event)

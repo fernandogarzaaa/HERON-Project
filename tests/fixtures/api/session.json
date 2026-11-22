@@ -1,6 +1,6 @@
 {
   "busy": false,
-  "id": "d7b37882d0ad",
+  "id": "06da7f7a8650",
   "interrupted": false,
   "messages": [
     {
@@ -15,7 +15,7 @@
             "arguments": "{\"content\":\"# Plan\\n\\n1. Connect a real model in Settings\\n2. Ask Heron for the real plan\\n\",\"path\":\"plan.md\"}",
             "name": "write_file"
           },
-          "id": "call_c29142fee4f44a15a4097848e0210174",
+          "id": "call_0fecaa401c2f4de09d55413a4b9cfbb8",
           "type": "function"
         }
       ]
@@ -23,12 +23,16 @@
     {
       "content": "wrote 75 bytes to plan.md",
       "role": "tool",
-      "tool_call_id": "call_c29142fee4f44a15a4097848e0210174"
+      "tool_call_id": "call_0fecaa401c2f4de09d55413a4b9cfbb8"
     },
     {
       "content": "Done. Here is the result:\n\n```\nwrote 75 bytes to plan.md\n```",
       "role": "assistant"
     }
   ],
+  "taint": {
+    "source": null,
+    "tainted": false
+  },
   "title": "Save a plan as plan.md"
 }
