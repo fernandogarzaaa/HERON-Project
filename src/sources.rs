@@ -498,8 +498,8 @@ async fn learn_one(app: &App, source: &str) -> Result<Vec<String>> {
         let req = ChatRequest { messages: vec![Message::user(prompt)], tools: vec![], model: Some(cfg.fast_model().to_string()), max_tokens: Some(900) };
         let reply = app.llm.chat(req, &|_| {}).await?;
         let text = reply.message.text();
-        if let (Some(a), Some(b)) = (text.find('['), text.rfind(']')) {
-            for it in serde_json::from_str::<Vec<serde_json::Value>>(&text[a..=b]).unwrap_or_default().iter().take(8) {
+        if let Some(span) = crate::util::json_array_span(text) {
+            for it in serde_json::from_str::<Vec<serde_json::Value>>(span).unwrap_or_default().iter().take(8) {
                 let Some(content) = it["content"].as_str().filter(|c| c.len() > 10) else { continue };
                 let kind = it["kind"].as_str().filter(|k| ["profile", "preference", "workflow", "project", "person", "fact"].contains(k)).unwrap_or("fact");
                 // What the user wrote about themselves is trusted; what arrived from outside is capped lower.

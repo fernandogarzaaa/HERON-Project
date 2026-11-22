@@ -1100,7 +1100,13 @@ fn decode_json_string(bytes: &[u8], text: &str, start: usize) -> Option<(String,
                         }
                         k += 4;
                     }
-                    other => out.push(other as char),
+                    other if other.is_ascii() => out.push(other as char),
+                    // An unknown escape before a letter outside ASCII: keep the whole letter.
+                    _ => {
+                        let ch = text[k + 1..].chars().next()?;
+                        out.push(ch);
+                        k += ch.len_utf8() - 1;
+                    }
                 }
                 k += 2;
             }
@@ -3313,6 +3319,8 @@ mod tests {
 
     #[test]
     fn envelope_text_prefix_decodes_incrementally() {
+        // A stray backslash before a letter outside ASCII (LaTeX, a Windows path) keeps the letter.
+        assert_eq!(envelope_text_prefix("{\"text\": \"caf\\é \\→ ok\"}"), Some(("café → ok".to_string(), true)));
         assert_eq!(envelope_text_prefix(""), None);
         assert_eq!(envelope_text_prefix("{\"te"), None);
         assert_eq!(
