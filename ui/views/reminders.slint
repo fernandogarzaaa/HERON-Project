@@ -3,6 +3,7 @@
 // each view keeps its own file and its own component.
 
 import { CheckBox, ComboBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { PageScroll } from "../components/page_scroll.slint";
 import { LineEdit } from "../components/line_edit.slint";
 import { Button } from "../components/button.slint";
 import { ScheduleRow, RunStepRow, InboxRow, SectionTitle, SectionIntro, RowMeta, EmptyNote, Spacer, RowCard } from "common.slint";
@@ -31,7 +32,11 @@ export component RemindersView inherits Rectangle {
     callback fill-daily-briefing();
     callback fill-inbox-watch();
 
-    ScrollView {
+    out property <length> overflow-x: scroll.overflow-x;
+    out property <length> overflow-y: scroll.overflow-y;
+    public function scroll-to-end() { scroll.content-y = -scroll.overflow-y; }
+
+    scroll := PageScroll {
         width: parent.width;
         height: parent.height;
         VerticalBox {

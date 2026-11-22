@@ -232,7 +232,19 @@ pub async fn attach(registry: &mut ToolRegistry, name: &str, cfg: &McpServerConf
 pub const SERVED_TOOLS: &[&str] = &["search_knowledge", "remember", "recall", "forget", "task_add", "task_list", "task_update", "schedule_add", "schedule_list", "schedule_remove"];
 
 /// Serve MCP on the given streams until EOF.
-pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mut writer: W, registry: &ToolRegistry, ctx: &ToolCtx, policy: &crate::permissions::Policy) -> Result<()> {
+pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, writer: W, registry: &ToolRegistry, ctx: &ToolCtx, policy: &crate::permissions::Policy) -> Result<()> {
+    serve_with(reader, writer, registry, ctx, policy, &|| {}).await
+}
+
+/// `heron mcp-serve`: serve `app`'s tools, deciding each call by its live policy. Another Heron on
+/// this home may have revoked a rule or set a tool to "never" since the last call, so the rules are
+/// reloaded before each tool call, as they are at the start of every turn.
+pub async fn serve_app<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, writer: W, app: &crate::app::App, ctx: &ToolCtx) -> Result<()> {
+    serve_with(reader, writer, &app.tools, ctx, &app.policy, &|| app.reload_rules()).await
+}
+
+/// [`serve`], calling `before_call` before each tool call is decided.
+async fn serve_with<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mut writer: W, registry: &ToolRegistry, ctx: &ToolCtx, policy: &crate::permissions::Policy, before_call: &(dyn Fn() + Sync)) -> Result<()> {
     // What another program sends is outside content: the connection is tainted from the start, so
     // every state write asks, and with nobody here to answer, is refused (M-2).
     if !ctx.tainted.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -267,6 +279,7 @@ pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mu
                     // here to approve, so anything that would need approval is refused, not run. What
                     // another program sends is outside content.
                     Some(tool) => {
+                        before_call();
                         let (effect, summary, target) = (tool.risk(&args, ctx), tool.summary(&args), tool.read_target(&args, ctx));
                         let verdict = policy.decide(&crate::permissions::Call { tool: name, summary: &summary, effect, read_target: target.as_deref() }, ctx);
                         let audit_args = crate::util::redact_secrets(&crate::util::preview(&args.to_string(), 600));
@@ -295,61 +308,6 @@ pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mu
     Ok(())
 }
 
-/// What every `tools/call` gets from the refuse-all server.
-pub const REFUSE_ALL_TEXT: &str = "Heron runs this tool itself.";
-
-/// Read the tool schemas the refuse-all server advertises: a JSON array of
-/// `{name, description, inputSchema}`.
-pub fn read_refuse_all_schemas(path: &std::path::Path) -> Result<Vec<Value>> {
-    let text = std::fs::read_to_string(path).with_context(|| format!("could not read the tool schemas in {}", path.display()))?;
-    let list: Vec<Value> = serde_json::from_str(&text).with_context(|| format!("{} is not a JSON array of tool schemas", path.display()))?;
-    Ok(list
-        .into_iter()
-        .filter_map(|t| {
-            let name = t.get("name").and_then(|n| n.as_str())?.to_string();
-            let description = t.get("description").and_then(|d| d.as_str()).unwrap_or("").to_string();
-            let schema = t.get("inputSchema").cloned().filter(|s| s.is_object()).unwrap_or_else(|| json!({"type": "object", "properties": {}}));
-            Some(json!({"name": name, "description": description, "inputSchema": schema}))
-        })
-        .collect())
-}
-
-/// The MCP server a CLI child talks to in the hybrid topology. It advertises the given tool schemas,
-/// so the CLI can ask for Heron's tools by name, and refuses every call: Heron runs the tool itself,
-/// after its own permission check. It reads no config and opens no database, because both are
-/// Refused inside the CLI's sandbox.
-pub async fn serve_refuse_all<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mut writer: W, schemas: &[Value]) -> Result<()> {
-    let mut lines = reader.lines();
-    while let Some(line) = lines.next_line().await? {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let msg: Value = match serde_json::from_str(&line) {
-            Ok(v) => v,
-            Err(_) => {
-                writer.write_all(format!("{}\n", json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": "parse error"}})).as_bytes()).await?;
-                writer.flush().await?;
-                continue;
-            }
-        };
-        let Some(id) = msg.get("id").cloned().filter(|i| !i.is_null()) else { continue }; // notification
-        let result: std::result::Result<Value, (i64, String)> = match msg.get("method").and_then(|m| m.as_str()).unwrap_or("") {
-            "initialize" => Ok(json!({"protocolVersion": PROTOCOL_VERSION, "capabilities": {"tools": {}}, "serverInfo": {"name": "heron", "version": env!("CARGO_PKG_VERSION")}})),
-            "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({"tools": schemas})),
-            "tools/call" => Ok(json!({"content": [{"type": "text", "text": REFUSE_ALL_TEXT}], "isError": true})),
-            other => Err((-32601, format!("method not found: {other}"))),
-        };
-        let resp = match result {
-            Ok(r) => json!({"jsonrpc": "2.0", "id": id, "result": r}),
-            Err((code, message)) => json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}),
-        };
-        writer.write_all(format!("{resp}\n").as_bytes()).await?;
-        writer.flush().await?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,46 +315,6 @@ mod tests {
     use crate::memory::Memory;
     use crate::store::Store;
 
-    #[tokio::test]
-    async fn mcp_refuse_all_advertises_given_schemas_and_refuses_calls() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("tools.json");
-        let given = json!([
-            {"name": "read_file", "description": "Read a file", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
-            {"name": "delegate", "description": "Hand work to a helper", "inputSchema": {"type": "object", "properties": {"task": {"type": "string"}}}},
-        ]);
-        std::fs::write(&file, given.to_string()).unwrap();
-        let schemas = read_refuse_all_schemas(&file).unwrap();
-        let input = [
-            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
-            json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
-            json!({"jsonrpc":"2.0","id":2,"method":"ping"}),
-            json!({"jsonrpc":"2.0","id":3,"method":"tools/list"}),
-            json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"/etc/hosts"}}}),
-            json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"not_advertised","arguments":{}}}),
-            json!({"jsonrpc":"2.0","id":6,"method":"resources/list"}),
-        ]
-        .iter()
-        .map(|v| v.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-        let mut out = Vec::new();
-        serve_refuse_all(BufReader::new(input.as_bytes()), &mut out, &schemas).await.unwrap();
-        let resps: Vec<Value> = String::from_utf8(out).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-        assert_eq!(resps.len(), 6, "the notification gets no answer: {resps:?}");
-        assert_eq!(resps[0]["result"]["serverInfo"]["name"], "heron");
-        assert_eq!(resps[1]["result"], json!({}));
-        assert_eq!(resps[2]["result"]["tools"], given, "the advertised tools are exactly the given schemas");
-        for call in [&resps[3], &resps[4]] {
-            assert_eq!(call["result"]["isError"], true, "{call}");
-            assert_eq!(call["result"]["content"][0]["text"], REFUSE_ALL_TEXT, "{call}");
-        }
-        assert_eq!(resps[5]["error"]["code"], -32601);
-        // A file that is not a list of schemas is an error, not an empty server.
-        std::fs::write(&file, "{\"name\": \"x\"}").unwrap();
-        assert!(read_refuse_all_schemas(&file).is_err());
-        assert!(read_refuse_all_schemas(&dir.path().join("missing.json")).is_err());
-    }
     #[tokio::test]
     async fn server_speaks_mcp() {
         let store = Store::in_memory().unwrap();
@@ -496,5 +414,66 @@ mod tests {
             assert!(store.kv_get(&format!("tainted:{session}")).is_some());
             assert!(store.audit_log(10).unwrap().iter().all(|a| a.session_id == session), "{mode:?}");
         }
+    }
+
+    /// `heron mcp-serve` runs `serve_app`; a revoke or a "never" set on another core over the same
+    /// home reaches the connection's next call.
+    #[tokio::test]
+    async fn mcp_serve_reloads_rules_before_each_call() {
+        use crate::app::App;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let mut saved = Config { home: home.clone(), ..Default::default() };
+        saved.agent.auto_memory = false;
+        saved.permissions.allow = vec!["shell:git *".into()];
+        saved.save().unwrap();
+        let core = || async {
+            let cfg = Config::read_saved(&home).unwrap();
+            let store = Store::open(&cfg.db_path()).unwrap();
+            crate::risk_notice::accept_current(&store).unwrap();
+            Arc::new(App::assemble(cfg, dir.path().join("ws"), store, Arc::new(crate::llm::ScriptedLlm::new(vec![]))).await.unwrap())
+        };
+        let (a, b) = (core().await, core().await);
+        let has_git = |app: &App| app.policy.allow_rules().iter().any(|r| r == "shell:git *");
+        assert!(has_git(&a));
+
+        // One connection to A's serve path, kept open across the calls.
+        let ctx = a.agent(Arc::new(crate::permissions::DenyAll)).tool_ctx("mcp-reload");
+        let (client, server) = tokio::io::duplex(1 << 16);
+        let (server_read, server_write) = tokio::io::split(server);
+        let serving = tokio::spawn({
+            let a = a.clone();
+            async move { serve_app(BufReader::new(server_read), server_write, &a, &ctx).await }
+        });
+        let (client_read, mut client_write) = tokio::io::split(client);
+        let mut replies = BufReader::new(client_read).lines();
+        let mut recall = async |id: u32| -> Value {
+            let call = json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": "recall", "arguments": {"query": "anything"}}});
+            client_write.write_all(format!("{call}\n").as_bytes()).await.unwrap();
+            let line = tokio::time::timeout(std::time::Duration::from_secs(20), replies.next_line()).await.expect("no reply").unwrap().unwrap();
+            serde_json::from_str(&line).unwrap()
+        };
+
+        let first = recall(1).await;
+        assert_eq!(first["result"]["isError"], false, "{first}");
+
+        // On B: the config rule is revoked and recall is set to "never". A has not looked yet.
+        assert!(b.revoke_grant("shell:git *").unwrap());
+        b.set_tool_setting("recall", "never").unwrap();
+        assert!(has_git(&a), "A has not reloaded yet");
+        assert_eq!(a.policy.tool_setting("recall"), "ask");
+
+        // A's next call over the same connection is decided by the rules as they are now.
+        let second = recall(2).await;
+        assert_eq!(second["result"]["isError"], true, "{second}");
+        assert!(second["result"]["content"][0]["text"].as_str().unwrap().contains("Not allowed"), "{second}");
+        assert!(!has_git(&a), "{:?}", a.policy.allow_rules());
+        assert_eq!(a.policy.tool_setting("recall"), "never");
+
+        // Closing the connection (both halves) ends the serve loop.
+        drop(recall);
+        drop((client_write, replies));
+        tokio::time::timeout(std::time::Duration::from_secs(20), serving).await.expect("serve did not end at EOF").unwrap().unwrap();
     }
 }

@@ -455,6 +455,12 @@ impl SwappableLlm {
 #[async_trait]
 impl Llm for SwappableLlm {
     async fn chat(&self, req: ChatRequest, on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
+        // Every model call an App makes comes through here, including the ones that are not turns
+        // (reflection, proactive passes, automation `ask` steps): none runs before the risk notice
+        // is accepted (M14).
+        if let Some(store) = self.1.get() {
+            crate::risk_notice::check(store)?;
+        }
         // Some servers do not report usage. An estimate from the text keeps the record meaningful.
         let rough_prompt: usize = req.messages.iter().map(|m| crate::util::estimate_tokens(m.text()) + m.tool_calls.iter().map(|c| crate::util::estimate_tokens(&c.function.arguments)).sum::<usize>() + 4).sum::<usize>()
             // The tool descriptions and their parameter schemas are part of what is sent.
@@ -474,6 +480,10 @@ impl Llm for SwappableLlm {
         Ok(resp)
     }
     async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        // Embeddings send memory text to the provider: gated like chat.
+        if let Some(store) = self.1.get() {
+            crate::risk_notice::check(store)?;
+        }
         self.current().embed(texts).await
     }
     fn audit_identity(&self) -> (String, String) {

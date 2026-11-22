@@ -71,8 +71,7 @@ pub enum Profile<'a> {
     /// A shell command. `grants` are the folders and single paths the user granted for reading.
     Shell { grants: Vec<ReadGrant> },
     /// A CLI provider child. `binary_dir` is the install folder of its binary. `extra_read` holds the
-    /// interpreter's folder when the binary is a script, and in debug builds the folder of Heron's own
-    /// executable when the hybrid topology is on.
+    /// interpreter's folder when the binary is a script.
     Cli { spec: &'a CliSpec, binary_dir: PathBuf, extra_read: Vec<PathBuf> },
 }
 
@@ -485,12 +484,23 @@ impl ReadGrant {
 /// What the user granted for reading: the standing `read:` rules, plus the `read:` and `read=:` grants
 /// of one conversation when `session_id` is given. Too-broad folders and relative paths are left out.
 pub fn read_grants(cfg: &Config, store: &crate::store::Store, session_id: Option<&str>) -> Vec<ReadGrant> {
+    read_grants_from(standing_rules(cfg, store), store, session_id)
+}
+
+/// The standing rules: those in the settings, and the saved "always" answers as they are now.
+pub fn standing_rules(cfg: &Config, store: &crate::store::Store) -> Vec<String> {
     let mut rules: Vec<String> = cfg.permissions.allow.clone();
-    let keys = std::iter::once("allow_rules".to_string()).chain(session_id.map(|s| format!("grants:{s}")));
-    for key in keys {
-        if let Some(saved) = store.kv_get(&key) {
-            rules.extend(serde_json::from_str::<Vec<String>>(&saved).unwrap_or_default());
-        }
+    if let Some(saved) = store.kv_get("allow_rules") {
+        rules.extend(serde_json::from_str::<Vec<String>>(&saved).unwrap_or_default());
+    }
+    rules
+}
+
+/// [`read_grants`], with the standing rules given.
+pub fn read_grants_from(standing: Vec<String>, store: &crate::store::Store, session_id: Option<&str>) -> Vec<ReadGrant> {
+    let mut rules = standing;
+    if let Some(saved) = session_id.and_then(|s| store.kv_get(&format!("grants:{s}"))) {
+        rules.extend(serde_json::from_str::<Vec<String>>(&saved).unwrap_or_default());
     }
     let mut out: Vec<ReadGrant> = vec![];
     for rule in rules {
@@ -566,14 +576,16 @@ mod tests {
     fn git_config_files_are_the_excludes_attributes_and_include_paths() {
         let home = tempfile::tempdir().unwrap();
         let h = home.path();
+        // `/srv/attrs` has no drive on Windows, so a git config there names it with one.
+        let attrs = if cfg!(windows) { "C:/srv/attrs" } else { "/srv/attrs" };
         std::fs::write(
             h.join(".gitconfig"),
-            "[user]\n\tname = x\n[core]\n\texcludesfile = ~/.gitignore_global\n\tattributesFile = \"/srv/attrs\" # comment\n\teditor = vim\n[include]\n\tpath = extra.inc\n[includeIf \"gitdir:~/work/\"]\n\tpath = ~/.gitconfig-work\n[credential]\n\thelper = osxkeychain\n",
+            format!("[user]\n\tname = x\n[core]\n\texcludesfile = ~/.gitignore_global\n\tattributesFile = \"{attrs}\" # comment\n\teditor = vim\n[include]\n\tpath = extra.inc\n[includeIf \"gitdir:~/work/\"]\n\tpath = ~/.gitconfig-work\n[credential]\n\thelper = osxkeychain\n"),
         )
         .unwrap();
         let cfg = Config { home: h.join(".heron-test-home"), ..Default::default() };
         let ws = h.join("project");
-        assert_eq!(git_config_files(&cfg, h, &ws), vec![h.join(".gitignore_global"), PathBuf::from("/srv/attrs"), h.join("extra.inc"), h.join(".gitconfig-work")]);
+        assert_eq!(git_config_files(&cfg, h, &ws), vec![h.join(".gitignore_global"), PathBuf::from(attrs), h.join("extra.inc"), h.join(".gitconfig-work")]);
         assert!(git_config_files(&cfg, &h.join("nowhere"), &ws).is_empty());
         // An include that names a secret or a Refused file is not opened.
         let real = real_home();
@@ -591,6 +603,7 @@ mod tests {
         dunce::canonicalize(&h).unwrap_or(h)
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn shell_profile_has_the_designed_order() {
         let home = real_home();
@@ -630,6 +643,7 @@ mod tests {
         assert_eq!(data_volume_alias(Path::new("relative/path")), None);
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn cli_profile_is_narrower_and_opens_only_its_own_config() {
         let home = real_home();
@@ -699,6 +713,7 @@ mod tests {
         no_bare_file_rules(&seatbelt_profile(&cfg, &home, Path::new("/tmp/ws"), &Profile::Shell { grants: vec![] }));
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn shell_profile_refuses_every_registry_config_folder() {
         // The text half of `every_registry_config_dir_is_refused_in_the_sandbox`, which runs only
@@ -733,19 +748,22 @@ mod tests {
     #[test]
     fn shell_grants_come_from_standing_rules_and_this_conversation() {
         let store = crate::store::Store::in_memory().unwrap();
+        // A grant must be an absolute path, and `/srv/x` has no drive on Windows, so a Windows fixture
+        // names one.
+        let abs = |p: &str| if cfg!(windows) { format!("C:{p}") } else { p.to_string() };
         let mut cfg = Config::default();
-        cfg.permissions.allow = vec!["read:/srv/docs/**".into(), "shell:git *".into(), "read:/**".into()];
-        store.kv_set("allow_rules", &serde_json::to_string(&["read:/srv/saved/**"]).unwrap()).unwrap();
-        store.kv_set("grants:s1", &serde_json::to_string(&["read:/srv/talk/**", "read=:/srv/one/file.txt", "write_file:*"]).unwrap()).unwrap();
-        store.kv_set("grants:s2", &serde_json::to_string(&["read:/srv/other/**"]).unwrap()).unwrap();
+        cfg.permissions.allow = vec![format!("read:{}/**", abs("/srv/docs")), "shell:git *".into(), "read:/**".into()];
+        store.kv_set("allow_rules", &serde_json::to_string(&[format!("read:{}/**", abs("/srv/saved"))]).unwrap()).unwrap();
+        store.kv_set("grants:s1", &serde_json::to_string(&[format!("read:{}/**", abs("/srv/talk")), format!("read=:{}", abs("/srv/one/file.txt")), "write_file:*".to_string()]).unwrap()).unwrap();
+        store.kv_set("grants:s2", &serde_json::to_string(&[format!("read:{}/**", abs("/srv/other"))]).unwrap()).unwrap();
         let grants = shell_grants(&cfg, &store, "s1", false);
         assert_eq!(
             grants,
             vec![
-                ReadGrant::Folder(PathBuf::from("/srv/docs")),
-                ReadGrant::Folder(PathBuf::from("/srv/saved")),
-                ReadGrant::Folder(PathBuf::from("/srv/talk")),
-                ReadGrant::Exact(PathBuf::from("/srv/one/file.txt")),
+                ReadGrant::Folder(PathBuf::from(abs("/srv/docs"))),
+                ReadGrant::Folder(PathBuf::from(abs("/srv/saved"))),
+                ReadGrant::Folder(PathBuf::from(abs("/srv/talk"))),
+                ReadGrant::Exact(PathBuf::from(abs("/srv/one/file.txt"))),
             ],
             "a too-broad rule and another conversation's grant are left out"
         );
@@ -763,7 +781,13 @@ mod tests {
         assert!(own_config_dirs(&cfg, &cli_spec("claude-cli"), &home).contains(&acct));
         cfg.llm.provider = "codex-cli".into();
         assert!(own_config_dirs(&cfg, &codex, &home).contains(&acct));
-        for broad in ["~", "/", "/Users", home.parent().unwrap().to_str().unwrap()] {
+        // `/Users` is the folder a macOS home folder sits in. On Windows it has no drive, so it becomes
+        // a folder of the current drive, which is not the profile's parent: `home.parent()` is that case.
+        let mut broad_folders = vec!["~", "/", home.parent().unwrap().to_str().unwrap()];
+        if !cfg!(windows) {
+            broad_folders.push("/Users");
+        }
+        for broad in broad_folders {
             cfg.llm.cli_config_dir = broad.into();
             let normalized = PathBuf::from(crate::cli_llm::normalize_config_dir(broad));
             assert!(!own_config_dirs(&cfg, &codex, &home).contains(&normalized), "{broad} must not become a CLI's own folder");
@@ -773,6 +797,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn secrets_and_refused_ancestors_are_write_denied_in_both_profiles() {
         // The text half of `secrets_and_refused_paths_cannot_be_renamed_out_of_their_rules`.

@@ -1,7 +1,8 @@
 name: CI
 on:
   push:
-    branches: [main]
+    # feat/heron-v1 is the v1 integration branch: CI on all three OSes must be green on it before the v1 PR.
+    branches: [main, feat/heron-v1]
   pull_request:
 permissions:
   contents: read
@@ -18,8 +19,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Rust toolchain
-        run: rustup update stable && rustup default stable
       - name: Linux libraries for the Slint window
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libfontconfig-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb-shape0-dev libxcb-xfixes0-dev libx11-dev libx11-xcb-dev libxcursor-dev libxi-dev libssl-dev pkg-config
@@ -65,7 +64,23 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Rust toolchain
-        run: rustup update stable && rustup default stable
       - name: Memory evaluation with the neural model
         run: cargo test --locked --features neural --lib -- --ignored neural --nocapture
+  macos-app:
+    # The native macOS app: Rust lints, Swift tests, the unsigned bundle and the upgrade test.
+    name: macOS app
+    if: github.event_name == 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history, so make-upgrade-fixture.sh --binary-only can reach commit 9253959.
+          fetch-depth: 0
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Swift tests
+        run: swift test --package-path macos/HeronMac
+      - name: Build the unsigned app
+        run: bash packaging/macos/build-app.sh --unsigned
+      - name: Upgrade test
+        run: bash packaging/macos/upgrade-test.sh

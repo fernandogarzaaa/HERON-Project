@@ -1,0 +1,321 @@
+import XCTest
+@testable import HeronCore
+
+/// Answers every request the client makes, so no port is opened. The body is read from `httpBodyStream`:
+/// URLSession moves `httpBody` into a stream before the protocol sees the request.
+final class StubProtocol: URLProtocol, @unchecked Sendable {
+    struct Reply {
+        var status = 200
+        var headers: [String: String] = ["Content-Type": "application/json"]
+        var body = Data()
+        init(_ status: Int = 200, json: String = "{}", contentType: String = "application/json") {
+            self.status = status
+            self.headers = ["Content-Type": contentType]
+            self.body = Data(json.utf8)
+        }
+    }
+
+    struct Seen: Equatable {
+        var method: String
+        var path: String
+        var query: String?
+        var token: String?
+        var contentType: String?
+        var body: String?
+    }
+
+    nonisolated(unsafe) static var handler: (@Sendable (Seen) -> Reply)?
+    nonisolated(unsafe) static var requests: [Seen] = []
+    private static let lock = NSLock()
+
+    static func reset(_ handler: @escaping @Sendable (Seen) -> Reply) {
+        lock.withLock {
+            self.handler = handler
+            requests = []
+        }
+    }
+
+    static var seen: [Seen] { lock.withLock { requests } }
+
+    static func session() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubProtocol.self]
+        return URLSession(configuration: configuration)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        var body: Data?
+        if let stream = request.httpBodyStream {
+            stream.open()
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let n = stream.read(&buffer, maxLength: buffer.count)
+                if n <= 0 { break }
+                data.append(buffer, count: n)
+            }
+            stream.close()
+            body = data
+        } else {
+            body = request.httpBody
+        }
+        let url = request.url!
+        let seen = Seen(method: request.httpMethod ?? "GET", path: url.path, query: url.query(percentEncoded: true),
+                        token: request.value(forHTTPHeaderField: "x-heron-token"),
+                        contentType: request.value(forHTTPHeaderField: "Content-Type"),
+                        body: body.map { String(decoding: $0, as: UTF8.self) })
+        let reply: Reply = Self.lock.withLock {
+            Self.requests.append(seen)
+            return Self.handler?(seen) ?? Reply(404)
+        }
+        let response = HTTPURLResponse(url: url, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: reply.headers)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if !reply.body.isEmpty { client?.urlProtocol(self, didLoad: reply.body) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+final class CoreClientTests: XCTestCase {
+    private let endpoint = CoreEndpoint(port: 4242, token: "secret-token", backgroundOwner: true, version: "0.3.1")
+
+    private func makeClient(_ handler: @escaping @Sendable (StubProtocol.Seen) -> StubProtocol.Reply) -> CoreClient {
+        StubProtocol.reset(handler)
+        return CoreClient(endpoint: endpoint, session: StubProtocol.session())
+    }
+
+    private func body(_ seen: StubProtocol.Seen) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(seen.body).utf8)) as? [String: Any])
+    }
+
+    func testEveryRequestCarriesTheToken() async throws {
+        let state = try Fixtures.text("state.json")
+        let client = makeClient { _ in .init(200, json: state) }
+        let s = try await client.state()
+        XCTAssertEqual(s.sandbox, "seatbelt")
+        XCTAssertEqual(StubProtocol.seen.count, 1)
+        XCTAssertEqual(StubProtocol.seen[0].method, "GET")
+        XCTAssertEqual(StubProtocol.seen[0].path, "/api/state")
+        XCTAssertEqual(StubProtocol.seen[0].token, "secret-token")
+    }
+
+    func testJSONBodiesAreSentWithAContentType() async throws {
+        let client = makeClient { _ in .init(200, json: #"{"ok":true}"#) }
+        try await client.approve(id: "approval-1", decision: .always)
+        let seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual(seen.method, "POST")
+        XCTAssertEqual(seen.path, "/api/approve")
+        XCTAssertEqual(seen.contentType, "application/json")
+        let json = try body(seen)
+        XCTAssertEqual(json["id"] as? String, "approval-1")
+        XCTAssertEqual(json["decision"] as? String, "always")
+    }
+
+    func testDeleteGrantSendsTheRuleInTheBody() async throws {
+        let client = makeClient { _ in .init(200, json: #"{"ok":true,"rule":"shell:git *"}"#) }
+        try await client.revokeGrant(rule: "shell:git *")
+        let seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual(seen.method, "DELETE")
+        XCTAssertEqual(seen.path, "/api/grants")
+        XCTAssertEqual(try body(seen)["rule"] as? String, "shell:git *")
+    }
+
+    func testNeversAreListedWithGetAndRemovedWithDeleteAndTheRule() async throws {
+        let list = try Fixtures.text("nevers.json")
+        let client = makeClient { _ in .init(200, json: list) }
+        let nevers = try await client.nevers()
+        XCTAssertEqual(nevers.map(\.rule), ["web_fetch:*"])
+        var seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual(seen.method, "GET")
+        XCTAssertEqual(seen.path, "/api/nevers")
+        XCTAssertEqual(seen.token, "secret-token")
+
+        let remover = makeClient { _ in .init(200, json: #"{"ok":true}"#) }
+        try await remover.removeNever(rule: "web_fetch:*example.com*")
+        seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual(seen.method, "DELETE")
+        XCTAssertEqual(seen.path, "/api/nevers")
+        XCTAssertEqual(seen.token, "secret-token")
+        XCTAssertEqual(seen.contentType, "application/json")
+        XCTAssertEqual(try body(seen)["rule"] as? String, "web_fetch:*example.com*")
+    }
+
+    func testRemovingARuleThatIsNotANeverIsNotFound() async throws {
+        let client = makeClient { _ in .init(404, json: #"{"error":"That rule is not a never."}"#) }
+        do { try await client.removeNever(rule: "nope:*"); XCTFail("expected 404") } catch {
+            XCTAssertEqual(error as? CoreError, .notFound)
+        }
+    }
+
+    func testStatusCodesBecomeTheErrorsScreensReactTo() async throws {
+        let busy = makeClient { _ in .init(409, json: #"{"error":"session_busy","message":"Heron is still replying."}"#) }
+        do { _ = try await busy.sendMessage(sessionID: "s1", message: "hi", title: nil); XCTFail("expected sessionBusy") } catch {
+            XCTAssertEqual(error as? CoreError, .sessionBusy)
+        }
+        let blocked = makeClient { _ in .init(428, json: #"{"error":"risk_notice_not_accepted"}"#) }
+        do { _ = try await blocked.sendMessage(sessionID: nil, message: "hi", title: nil); XCTFail("expected 428") } catch {
+            XCTAssertEqual(error as? CoreError, .riskNoticeNotAccepted)
+        }
+        let missing = makeClient { _ in .init(404, json: #"{"error":"That request is no longer waiting for an answer."}"#) }
+        do { try await missing.approve(id: "gone", decision: .once); XCTFail("expected 404") } catch {
+            XCTAssertEqual(error as? CoreError, .notFound)
+        }
+        let other = makeClient { _ in .init(400, json: #"{"error":"Type a message first."}"#) }
+        do { try await other.setPaused(true); XCTFail("expected a failure") } catch {
+            XCTAssertEqual(error as? CoreError, .failed("Type a message first."))
+        }
+    }
+
+    func testRiskNoticeAcceptanceHandles204And409() async throws {
+        let ok = makeClient { _ in .init(204, json: "") }
+        try await ok.acceptRiskNotice(version: 1)
+        XCTAssertEqual(try body(try XCTUnwrap(StubProtocol.seen.first))["version"] as? Int, 1)
+
+        let outdated = makeClient { _ in .init(409, json: #"{"error":"Version 1 is not the current risk notice (2). Reload it and read it again."}"#) }
+        do { try await outdated.acceptRiskNotice(version: 1); XCTFail("expected 409") } catch {
+            XCTAssertEqual(error as? CoreError, .riskNoticeOutdated)
+        }
+    }
+
+    func testSendMessageReturnsAtTheSessionEventAndSendsNoTitle() async throws {
+        let sse = """
+        id: 1
+        data: {"seq":1,"session_id":"sess-9","run_id":"run-9","type":"session","id":"sess-9"}
+
+        id: 2
+        data: {"seq":2,"session_id":"sess-9","run_id":"run-9","type":"text","text":"hi"}
+
+
+        """
+        let client = makeClient { _ in .init(200, json: sse, contentType: "text/event-stream") }
+        let start = try await client.sendMessage(sessionID: nil, message: "Hello", title: "Ignored title")
+        XCTAssertEqual(start, ChatStart(sessionID: "sess-9", runID: "run-9"))
+        let json = try body(try XCTUnwrap(StubProtocol.seen.first))
+        XCTAssertEqual(json["message"] as? String, "Hello")
+        XCTAssertNil(json["session_id"], "a new conversation sends no session id")
+        XCTAssertNil(json["title"], "/api/chat has no title field")
+    }
+
+    func testSendMessageIntoAnExistingConversation() async throws {
+        let sse = "id: 1\ndata: {\"seq\":1,\"session_id\":\"abc\",\"run_id\":\"r\",\"type\":\"session\",\"id\":\"abc\"}\n\n"
+        let client = makeClient { _ in .init(200, json: sse, contentType: "text/event-stream") }
+        _ = try await client.sendMessage(sessionID: "abc", message: "more", title: nil)
+        XCTAssertEqual(try body(try XCTUnwrap(StubProtocol.seen.first))["session_id"] as? String, "abc")
+    }
+
+    func testQueriesAndPaths() async throws {
+        let client = makeClient { _ in .init(200, json: "[]") }
+        _ = try await client.memories(query: "tea & milk")
+        _ = try await client.memories(query: "  ")
+        let seen = StubProtocol.seen
+        XCTAssertEqual(seen[0].path, "/api/memories")
+        XCTAssertEqual(seen[0].query, "q=tea%20%26%20milk", "the ampersand is escaped")
+        XCTAssertNil(seen[1].query, "a blank query is no query")
+    }
+
+    func testTaskDoneAndScheduleRoutes() async throws {
+        let client = makeClient { _ in .init(200, json: #"{"updated":true,"started":true,"id":5}"#) }
+        try await client.setTaskDone(id: 3, done: true)
+        try await client.runSchedule(id: 8)
+        try await client.answerParked(id: 2, action: .dismiss)
+        try await client.answerSuggestion(id: 4, answer: .accept)
+        let id = try await client.addTask(title: "File taxes", due: "2026-11-30")
+        XCTAssertEqual(id, 5)
+        let seen = StubProtocol.seen
+        XCTAssertEqual(seen.map(\.path), ["/api/tasks/3", "/api/schedules/8/run", "/api/approvals/2", "/api/suggestions/4", "/api/tasks"])
+        XCTAssertEqual(try body(seen[0])["status"] as? String, "done")
+        XCTAssertEqual(try body(seen[2])["action"] as? String, "dismiss")
+        XCTAssertEqual(try body(seen[3])["action"] as? String, "accept")
+        XCTAssertEqual(try body(seen[4])["due"] as? String, "2026-11-30")
+    }
+
+    func testSettingsRoutes() async throws {
+        let client = makeClient { _ in .init(200, json: "{}") }
+        try await client.selectProvider(id: "codex-cli")
+        try await client.setUnattendedSubscription(true)
+        try await client.setAwareness(true)
+        try await client.setOnboarded()
+        try await client.acceptProviderVersion(id: "claude-cli", version: "2.3.0")
+        let seen = StubProtocol.seen
+        XCTAssertEqual(seen.map(\.path), ["/api/settings", "/api/settings", "/api/awareness", "/api/onboarded", "/api/providers/claude-cli/accept-version"])
+        XCTAssertEqual(try body(seen[0])["provider"] as? String, "codex-cli")
+        XCTAssertEqual(try body(seen[1])["allow_unattended_subscription"] as? Bool, true)
+        XCTAssertEqual(try body(seen[2])["enabled"] as? Bool, true)
+        XCTAssertEqual(try body(seen[4])["version"] as? String, "2.3.0")
+    }
+
+    func testProvidersJoinTheSettingsRoute() async throws {
+        let providers = try Fixtures.text("providers.json")
+        let settings = try Fixtures.text("settings.json")
+        let client = makeClient { seen in seen.path == "/api/providers" ? .init(200, json: providers) : .init(200, json: settings) }
+        let list = try await client.providers()
+        XCTAssertEqual(list.first { $0.id == "claude-cli" }?.loginCommand, "claude auth login")
+    }
+
+    func testSettingsStillLoadWhenTheConnectionRoutesFail() async throws {
+        let settings = try Fixtures.text("settings.json")
+        let client = makeClient { seen in seen.path == "/api/settings" ? .init(200, json: settings) : .init(500, json: #"{"error":"boom"}"#) }
+        let s = try await client.settings()
+        XCTAssertEqual(s.connections, [])
+        XCTAssertFalse(s.awareness)
+    }
+
+    func testPausingASingleScheduleIsAKnownGap() async throws {
+        let client = makeClient { _ in .init(200) }
+        do { try await client.setScheduleEnabled(id: 1, enabled: false); XCTFail("expected an error") } catch {
+            guard case CoreError.failed(let message) = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(message.contains("can't pause or resume"), message)
+        }
+        XCTAssertEqual(StubProtocol.seen.count, 0, "no request that the core would answer with 400")
+    }
+
+    func testEventsConnectionAsksForSinceAndYieldsLines() async throws {
+        let client = makeClient { _ in .init(200, json: "id: 3\ndata: {\"seq\":3,\"type\":\"run_end\"}\n\n", contentType: "text/event-stream") }
+        let bytes = try await client.openEventConnection(since: 2)
+        var text = ""
+        for try await chunk in bytes { text += String(decoding: chunk, as: UTF8.self) }
+        XCTAssertEqual(text, "id: 3\ndata: {\"seq\":3,\"type\":\"run_end\"}\n\n")
+        XCTAssertEqual(StubProtocol.seen.first?.path, "/api/events")
+        XCTAssertEqual(StubProtocol.seen.first?.query, "since=2")
+        XCTAssertEqual(StubProtocol.seen.first?.token, "secret-token")
+    }
+}
+
+final class ManagedCoreClientTests: XCTestCase {
+    func testACallMadeBeforeTheEndpointWaitsForIt() async throws {
+        let core = try FakeCore(.waitForStdin)
+        let process = CoreProcess(launch: .init(executable: core.script))
+        defer { process.stop(grace: 1) }
+        let state = try Fixtures.text("state.json")
+        StubProtocol.reset { _ in .init(200, json: state) }
+        let managed = ManagedCoreClient(process: process, makeClient: { CoreClient(endpoint: $0, session: StubProtocol.session()) })
+
+        let pending = Task { try await managed.state() } // before the core was started
+        try await Task.sleep(for: .milliseconds(100))
+        process.start()
+        let s = try await pending.value
+        XCTAssertEqual(s.waiting, 1)
+        XCTAssertEqual(managed.endpoint.port, 9001)
+        XCTAssertEqual(StubProtocol.seen.first?.token, "token1", "the request used the endpoint the core printed")
+    }
+
+    func testCallsFailOnceTheCoreHasStoppedForGood() async throws {
+        let core = try FakeCore(.exitAtOnce)
+        let process = CoreProcess(launch: .init(executable: core.script), now: StepClock(step: 0).now)
+        defer { process.stop(grace: 0.2) }
+        let stream = process.statuses()
+        let managed = ManagedCoreClient(process: process, makeClient: { CoreClient(endpoint: $0, session: StubProtocol.session()) })
+        StubProtocol.reset { _ in .init(200, json: "{}") }
+        process.start()
+        _ = try await collect(stream, until: { isStopped($0.last) })
+        try await Task.sleep(for: .milliseconds(200))
+        do { _ = try await managed.sessions(); XCTFail("expected a failure") } catch {
+            guard case CoreError.failed(let message) = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(message.contains("exited with status 0"), message)
+        }
+    }
+}

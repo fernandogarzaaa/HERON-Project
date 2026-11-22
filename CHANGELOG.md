@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- v1 Tier 1 CLIs are Claude Code (`claude-cli`) and Codex (`codex-cli`). OpenCode (`opencode-cli`) is not configured or tested yet in v1 and is labelled experimental: it passed the containment check, but its task gate has not been run.
+
 ## 0.3.1 — 2026-11-14
 
 macOS packaging fix:

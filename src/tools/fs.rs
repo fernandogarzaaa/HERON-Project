@@ -737,9 +737,9 @@ fn path_forms(p: PathBuf) -> Vec<PathBuf> {
 impl WalkScope {
     fn new(root: &Path, root_effect: Effect, ctx: &ToolCtx) -> WalkScope {
         use crate::sandbox::ReadGrant;
-        let tainted = ctx.tainted.load(std::sync::atomic::Ordering::SeqCst);
         // A conversation grant stops applying once outside content is present, as it does for a read.
-        let grants = crate::sandbox::read_grants(&ctx.cfg, &ctx.store, (!tainted).then_some(ctx.session_id.as_str()));
+        // Standing rules come from the run's live policy: one revoked mid-run no longer opens files.
+        let grants = ctx.read_grants();
         let (mut folders, mut exact) = (vec![], vec![]);
         for grant in grants {
             match grant {
@@ -1545,11 +1545,20 @@ mod tier_tests {
     }
 
     /// A folder under the home folder, outside the working folder and not Refused: the Ask tier. It sits
-    /// in the build folder, so it is removed with the other build output if a run is cut short.
+    /// in the build folder, so it is removed with the other build output if a run is cut short. Where
+    /// the build folder is not in the user's own folders (a checkout on another drive on Windows, or
+    /// under `/private/tmp` on macOS), it sits in the home folder instead.
     fn ask_tier_dir() -> tempfile::TempDir {
+        let in_ask_tier = |dir: &Path| classify_path(&dir.join("probe.txt"), Path::new("heron-no-such-working-folder"), &Config::default(), false) == Effect::OutsideRead;
         let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
         std::fs::create_dir_all(&target).unwrap();
-        tempfile::Builder::new().prefix("heron-ask-tier-test").tempdir_in(target).unwrap()
+        let build = tempfile::Builder::new().prefix("heron-ask-tier-test").tempdir_in(target).unwrap();
+        if in_ask_tier(&dunce::canonicalize(build.path()).unwrap()) {
+            return build;
+        }
+        let home = tempfile::Builder::new().prefix(".heron-ask-tier-test").tempdir_in(dirs::home_dir().unwrap()).unwrap();
+        assert!(in_ask_tier(&dunce::canonicalize(home.path()).unwrap()), "{} must be in the Ask tier", home.path().display());
+        home
     }
 
     /// The Ask-tier entries a walk may open: those under a call that was itself an outside read (and
@@ -1665,6 +1674,7 @@ mod tier_tests {
     /// `/.vol/<device>/<inode>/...` opens a file by volume id, and `realpath` fails on it, so its
     /// written form says nothing about where it leads. Such a path is Refused for reads and writes in
     /// every mode, and the listing and search tools refuse it as a root.
+    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn volume_id_paths_are_refused() {
         let (_dir, ws, home) = dirs_for_test();
@@ -1736,6 +1746,7 @@ mod tier_tests {
     /// returns them unchanged, so like `/.vol` they are Refused for reads and writes in every mode:
     /// in any letter case, after `..` and `//`, behind the data and boot volume aliases, and through a
     /// link in the working folder. The listing and search tools refuse them as a root.
+    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn kernel_prefix_paths_are_refused() {
         use crate::permissions::DATA_VOLUME;

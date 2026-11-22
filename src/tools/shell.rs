@@ -17,9 +17,10 @@ fn risk(args: &Value, _ctx: &ToolCtx) -> Effect {
 }
 
 /// What the sandbox lets a command read besides the working folder: the standing `read:` rules
-/// always, and this conversation's grants only while no outside content is present, as for a read.
+/// always, taken from the run's live policy so a revoked one closes for the next command, and this
+/// conversation's grants only while no outside content is present, as for a read.
 fn sandbox_grants(ctx: &ToolCtx) -> Vec<crate::sandbox::ReadGrant> {
-    crate::sandbox::shell_grants(&ctx.cfg, &ctx.store, &ctx.session_id, ctx.tainted.load(std::sync::atomic::Ordering::SeqCst))
+    ctx.read_grants()
 }
 
 async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
@@ -365,6 +366,35 @@ pub(crate) mod tests {
     impl Drop for HomeTemp {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A temporary folder in the Ask tier (the user's own folders, outside `workspace`, not Refused)
+    /// wherever the checkout lives: in the build folder when that is in the Ask tier, and otherwise
+    /// (a checkout under `/private/tmp`, where reads are local) in the home folder. Removed when
+    /// dropped.
+    pub(crate) enum AskTierDir {
+        Build(tempfile::TempDir),
+        Home(HomeTemp),
+    }
+
+    impl AskTierDir {
+        pub(crate) fn new(cfg: &Config, workspace: &std::path::Path) -> AskTierDir {
+            use crate::permissions::{classify_path, Effect};
+            let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
+            std::fs::create_dir_all(&target).unwrap();
+            let build = tempfile::Builder::new().prefix("heron-ask-tier-test").tempdir_in(target).unwrap();
+            let in_ask_tier = |dir: &std::path::Path| classify_path(&dir.join("probe.txt"), workspace, cfg, false) == Effect::OutsideRead;
+            let dir = if in_ask_tier(&dunce::canonicalize(build.path()).unwrap()) { AskTierDir::Build(build) } else { AskTierDir::Home(HomeTemp::new()) };
+            assert!(in_ask_tier(&dir.path()), "{} must be in the Ask tier", dir.path().display());
+            dir
+        }
+
+        pub(crate) fn path(&self) -> std::path::PathBuf {
+            match self {
+                AskTierDir::Build(t) => dunce::canonicalize(t.path()).unwrap(),
+                AskTierDir::Home(h) => h.0.clone(),
+            }
         }
     }
 

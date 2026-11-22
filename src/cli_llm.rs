@@ -302,16 +302,20 @@ impl CliSpec {
                 model_arg("--model", &mut args);
                 args.extend(["--output-format".into(), "json".into()]);
             }
-            // OpenCode: the plan agent is the read-only one. OpenCode routes
-            // to whatever the user configured in opencode.json: a Claude Pro
-            // OAuth login, OpenRouter free models, or a local Ollama model.
+            // OpenCode runs as a plain text model: Heron's own `heron` agent (defined in the config
+            // file written into the run folder, see `opencode_config`) has every opencode tool off,
+            // and `--standalone` keeps the model calls in this contained child, not in a shared
+            // background service started outside Heron's sandbox. OpenCode routes to whatever the
+            // user configured in opencode.json: a Claude Pro OAuth login, OpenRouter free models,
+            // or a local Ollama model.
             "opencode-cli" => {
                 args.extend([
                     "run".into(),
+                    "--standalone".into(),
                     "--format".into(),
                     "json".into(),
                     "--agent".into(),
-                    "plan".into(),
+                    OPENCODE_AGENT.into(),
                 ]);
                 model_arg("--model", &mut args);
             }
@@ -379,22 +383,28 @@ impl CliSpec {
     }
 }
 
+/// CLIs the owner deferred from v1 Tier 1: "not configured or tested yet" (design item 35w in
+/// `docs/designs/heron-v1.md`). They keep their code and their supported range, so the version gate
+/// still applies, but they carry the `experimental` label. The same list is `DEFERRED` in
+/// `eval/containment/check.py`, and a test keeps the two equal.
+pub const DEFERRED_FROM_TIER1: &[&str] = &["opencode-cli"];
+
 /// The provider registry. T3 Code's list (Claude, Codex, Cursor, Grok,
 /// OpenCode, Antigravity, Kiro, Pi, Muse, fx, ACP) plus the free-model
 /// routers the user asked for (Cline, Copilot, Qwen, Gemini, Goose) and a
 /// generic escape hatch for anything else (Crush, Amp, Kimi, Droid, `llm`).
 pub fn providers() -> Vec<CliSpec> {
     vec![
-        CliSpec { id: "claude-cli", display_name: "Claude Code (subscription)", binary: "claude", login_command: "claude auth login", install_hint: "npm install -g @anthropic-ai/claude-code", auth_kind: "Claude Pro/Max subscription", cost_note: "Draws on the plan's usage window; Agent SDK use drains it faster than the CLI directly.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CLAUDE_CONFIG_DIR"), config_dirs: &["~/.claude", "~/.claude.json"], credential_store: CredentialStore::MacosKeychain, supported: None, input: PromptInput::Stdin, output: OutputKind::ClaudeStreamJson },
-        CliSpec { id: "codex-cli", display_name: "Codex (ChatGPT subscription)", binary: "codex", login_command: "codex login", install_hint: "npm install -g @openai/codex", auth_kind: "ChatGPT Plus/Pro/Team subscription", cost_note: "Draws on the ChatGPT plan. A stray OPENAI_API_KEY would flip billing to metered API; Heron removes it from the child env.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CODEX_HOME"), config_dirs: &["~/.codex"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Stdin, output: OutputKind::JsonLines },
-        CliSpec { id: "cursor-cli", display_name: "Cursor (subscription)", binary: "cursor-agent", login_command: "agent login", install_hint: "curl https://cursor.com/install -fsS | bash", auth_kind: "Cursor subscription", cost_note: "Draws on the Cursor plan's usage pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cursor"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "claude-cli", display_name: "Claude Code (subscription)", binary: "claude", login_command: "claude auth login", install_hint: "npm install -g @anthropic-ai/claude-code", auth_kind: "Claude Pro/Max subscription", cost_note: "Draws on the plan's usage window; Agent SDK use drains it faster than the CLI directly.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CLAUDE_CONFIG_DIR"), config_dirs: &["~/.claude", "~/.claude.json"], credential_store: CredentialStore::MacosKeychain, supported: Some(VersionRange { min: (2, 1, 327), below: (3, 0, 0) }), input: PromptInput::Stdin, output: OutputKind::ClaudeStreamJson },
+        CliSpec { id: "codex-cli", display_name: "Codex (ChatGPT subscription)", binary: "codex", login_command: "codex login", install_hint: "npm install -g @openai/codex", auth_kind: "ChatGPT Plus/Pro/Team subscription", cost_note: "Draws on the ChatGPT plan. A stray OPENAI_API_KEY would flip billing to metered API; Heron removes it from the child env.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CODEX_HOME"), config_dirs: &["~/.codex"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (0, 169, 0), below: (1, 0, 0) }), input: PromptInput::Stdin, output: OutputKind::JsonLines },
+        CliSpec { id: "cursor-cli", display_name: "Cursor (subscription)", binary: "cursor-agent", login_command: "agent login", install_hint: "curl https://cursor.com/install -fsS | bash", auth_kind: "Cursor subscription", cost_note: "Draws on the Cursor plan's usage pool.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cursor"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
         CliSpec { id: "grok-cli", display_name: "Grok Build (subscription)", binary: "grok", login_command: "grok login", install_hint: "brew install --cask grok-build (macOS) or the Grok Build installer", auth_kind: "Grok Build subscription", cost_note: "Draws on the Grok plan.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.grok"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.opencode", "~/.config/opencode", "~/.local/share/opencode", "~/.local/state/opencode"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
-        CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini", "~/.antigravity"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonSingle },
+        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cache/opencode", "~/.config/opencode", "~/.local/share/opencode", "~/.local/state/opencode", "~/.opencode"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (2, 1, 4), below: (3, 0, 0) }), input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini", "~/.antigravity"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonSingle },
         CliSpec { id: "cline-cli", display_name: "Cline (router, free models)", binary: "cline", login_command: "cline auth <provider>", install_hint: "npm install -g cline", auth_kind: "Whatever Cline is configured with: cline / openai-codex / oca OAuth, API keys, Ollama", cost_note: "Free when routed to a free or local model. One-shot defaults to yolo, so this provider needs cli_allow_agent_tools = true.", experimental: true, needs_allow_agent_tools: true, config_dir_env: None, config_dirs: &["~/.cline"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
-        CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.copilot", "~/.config/github-copilot"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonLines },
-        CliSpec { id: "qwen-cli", display_name: "Qwen Code (paid key or local)", binary: "qwen", login_command: "qwen (then /auth)", install_hint: "npm install -g @qwen-code/qwen-code", auth_kind: "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.", cost_note: "Free with a local model; otherwise the upstream's price.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.qwen"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
-        CliSpec { id: "gemini-cli", display_name: "Gemini CLI (API key)", binary: "gemini", login_command: "gemini (then pick Gemini API Key)", install_hint: "npm install -g @google/gemini-cli", auth_kind: "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.", cost_note: "Free tier on the API key; otherwise Google's pricing.", experimental: false, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
+        CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.copilot", "~/.config/github-copilot"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonLines },
+        CliSpec { id: "qwen-cli", display_name: "Qwen Code (paid key or local)", binary: "qwen", login_command: "qwen (then /auth)", install_hint: "npm install -g @qwen-code/qwen-code", auth_kind: "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.", cost_note: "Free with a local model; otherwise the upstream's price.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.qwen"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
+        CliSpec { id: "gemini-cli", display_name: "Gemini CLI (API key)", binary: "gemini", login_command: "gemini (then pick Gemini API Key)", install_hint: "npm install -g @google/gemini-cli", auth_kind: "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.", cost_note: "Free tier on the API key; otherwise Google's pricing.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
         CliSpec { id: "pi-cli", display_name: "Pi (ACP agent)", binary: "pi", login_command: "pi (then sign in)", install_hint: "Install Pi from https://github.com/badlogic/pi", auth_kind: "Pi's own providers", cost_note: "Whatever Pi is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.pi"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
         CliSpec { id: "fx-cli", display_name: "fx (ACP agent)", binary: "fx", login_command: "fx login", install_hint: "Install fx from its releases", auth_kind: "fx's own providers", cost_note: "Whatever fx is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.fx"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
         CliSpec { id: "kiro-cli", display_name: "Kiro (ACP agent)", binary: "kiro-cli", login_command: "kiro-cli (then sign in)", install_hint: "Install Kiro CLI", auth_kind: "Kiro's own providers", cost_note: "Whatever Kiro is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.kiro"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
@@ -783,6 +793,7 @@ async fn capture(mut cmd: Command, path: &Path, timeout_secs: u64) -> Result<Str
     // overlayfs even after the writer has closed. This also affects
     // user-installed CLI wrappers that have just been replaced. Retry
     // only that transient Unix errno; other spawn errors fail normally.
+    #[cfg(unix)]
     let mut attempt = 0;
     let mut child = loop {
         match cmd.spawn() {
@@ -857,6 +868,10 @@ async fn capture(mut cmd: Command, path: &Path, timeout_secs: u64) -> Result<Str
     }
 }
 
+/// Tool-rules sentence added only when the request offers `web_fetch`, so a
+/// request without it never names a tool the model cannot call.
+const PAGE_READ_RULE: &str = "To read a web page, call web_fetch; do not use shell (curl, wget or similar) to fetch pages.";
+
 /// Render a chat request as one prompt. The CLI gets the full conversation
 /// and the tool inventory, and is told to answer with the JSON envelope and
 /// to use no tools of its own: Heron is the agent, the CLI is the model.
@@ -887,6 +902,10 @@ pub fn render_prompt(req: &ChatRequest) -> String {
         out.push_str("Tools you may call, as JSON schemas. Call them only by listing them in your reply envelope; do not run anything yourself:\n");
         for t in &req.tools {
             out.push_str(&format!("{}\n", t));
+        }
+        if valid_tool_names(req).iter().any(|n| n == "web_fetch") {
+            out.push_str(PAGE_READ_RULE);
+            out.push('\n');
         }
         out.push('\n');
     }
@@ -1168,6 +1187,159 @@ fn skip_json_value(bytes: &[u8], text: &str, mut i: usize) -> Option<usize> {
     }
 }
 
+/// The agent Heron defines for opencode, and the file in the run folder that defines it.
+const OPENCODE_AGENT: &str = "heron";
+const OPENCODE_CONFIG_FILE: &str = "heron-opencode.json";
+
+/// opencode's config with one agent, `heron`: a short neutral prompt, every tool switched off and
+/// edit, bash and web fetch denied. The model does all file, shell and web work through Heron's
+/// envelope tools, which run in the task folder under Heron's approvals and sandbox. (opencode's
+/// built-in `plan` agent refused writing tasks and the model used its own tools in the run folder.)
+fn opencode_config() -> Value {
+    let tools: serde_json::Map<String, Value> = ["*", "bash", "edit", "write", "multiedit", "patch", "read", "grep", "glob", "list", "lsp", "webfetch", "websearch", "codesearch", "todowrite", "todoread", "task", "skill"]
+        .iter()
+        .map(|t| (t.to_string(), Value::Bool(false)))
+        .collect();
+    serde_json::json!({
+        "agent": {
+            OPENCODE_AGENT: {
+                "description": "Answers from the conversation it is given. Has no tools of its own.",
+                "mode": "primary",
+                "prompt": "Follow the instructions in the user's message and answer in the format it asks for.",
+                "tools": tools,
+                "permission": { "edit": "deny", "bash": "deny", "webfetch": "deny" }
+            }
+        }
+    })
+}
+
+fn write_opencode_config(run_dir: &Path) -> Result<()> {
+    let path = run_dir.join(OPENCODE_CONFIG_FILE);
+    std::fs::write(&path, serde_json::to_vec(&opencode_config())?).map_err(|e| anyhow!("could not write {}: {e}", path.display()))
+}
+
+/// What a provider error event in opencode's stdout says: its type, message and HTTP status, and
+/// nothing else, so no header, request body or key reaches a failure message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProviderError {
+    kind: String,
+    message: String,
+    status: Option<u64>,
+}
+
+/// True when `text` names a provider limit by one of a fixed set of phrases, each on a word
+/// boundary (spec 35u). Loose word combinations such as "limit" with "rate" or "usage" do not
+/// count, and neither does a phrase inside a longer word: a real failure ("the rate of change
+/// exceeds the limit", "usage: heron --limit N", `RateLimiter`, `rate_limits`) must never be taken
+/// for a limit. "quota exceeded" right after "disk " or "disc " is a full disk quota, not a limit.
+fn names_a_provider_limit(text: &str) -> bool {
+    const PHRASES: [&str; 22] = [
+        "rate limit",
+        "rate-limit",
+        "rate limited",
+        "rate-limited",
+        "rate_limit",
+        "rate_limit_error",
+        "rate_limit_exceeded",
+        "ratelimiterror",
+        "too many requests",
+        "usage limit",
+        "usage_limit",
+        "free-limit",
+        "free usage",
+        "spend limit",
+        "temporarily limiting",
+        "credit balance is too low",
+        "insufficient_quota",
+        "resource_exhausted",
+        "exceeded your quota",
+        "exceeded your current quota",
+        "out of quota",
+        "quota exceeded",
+    ];
+    // ASCII lowercasing keeps byte offsets, and every phrase is ASCII.
+    let lower = text.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    PHRASES.iter().any(|phrase| {
+        lower.match_indices(phrase).any(|(start, _)| {
+            let end = start + phrase.len();
+            let bounded = !start.checked_sub(1).is_some_and(|i| bytes[i].is_ascii_alphanumeric()) && !bytes.get(end).is_some_and(u8::is_ascii_alphanumeric);
+            let full_disk = *phrase == "quota exceeded" && (lower[..start].ends_with("disk ") || lower[..start].ends_with("disc "));
+            bounded && !full_disk
+        })
+    })
+}
+
+/// Replaces what looks like an API key a provider echoed back with `[redacted]` (spec 35v): a
+/// `Bearer <token>`, a token that starts with `sk-`, and any run of 32 or more letters, digits,
+/// `-` and `_` that holds at least one ASCII letter and one ASCII digit (so a long run of one
+/// repeated letter is prose, not a key).
+fn redact_secrets(text: &str) -> String {
+    static PATTERNS: std::sync::OnceLock<[regex::Regex; 3]> = std::sync::OnceLock::new();
+    let patterns = PATTERNS.get_or_init(|| {
+        [
+            regex::Regex::new(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+").unwrap(),
+            regex::Regex::new(r"\bsk-[A-Za-z0-9_-]*").unwrap(),
+            regex::Regex::new(r"[A-Za-z0-9_-]{32,}").unwrap(),
+        ]
+    });
+    let acc = patterns[0].replace_all(text, "[redacted]").into_owned();
+    let acc = patterns[1].replace_all(&acc, "[redacted]").into_owned();
+    patterns[2]
+        .replace_all(&acc, |caps: &regex::Captures| {
+            let run = &caps[0];
+            if run.bytes().any(|b| b.is_ascii_alphabetic()) && run.bytes().any(|b| b.is_ascii_digit()) {
+                "[redacted]".to_string()
+            } else {
+                run.to_string()
+            }
+        })
+        .into_owned()
+}
+
+/// How Heron words a [`ProviderError`].
+enum ErrorClass {
+    LoggedOut,
+    Limit,
+    Other,
+}
+
+impl ProviderError {
+    /// `{"type":"error","error":{"type":"provider.auth","message":"...","status":401}}`
+    fn from_opencode_line(line: &str) -> Option<Self> {
+        let v: Value = serde_json::from_str(line).ok()?;
+        if v.get("type").and_then(|t| t.as_str()) != Some("error") {
+            return None;
+        }
+        let e = v.get("error")?;
+        let text = |v: Option<&Value>| v.and_then(|t| t.as_str()).map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
+        Some(ProviderError {
+            kind: text(e.get("type")).or_else(|| text(e.get("name"))).unwrap_or_else(|| "error".into()),
+            message: text(e.get("message")).or_else(|| text(e.get("data").and_then(|d| d.get("message")))).unwrap_or_default(),
+            status: e.get("status").or_else(|| e.get("statusCode")).or_else(|| e.get("data").and_then(|d| d.get("statusCode"))).and_then(|s| s.as_u64()),
+        })
+    }
+
+    /// `<type>: <message>` with echoed keys redacted, at most 300 bytes.
+    fn summary(&self) -> String {
+        let s = if self.message.is_empty() { self.kind.clone() } else { format!("{}: {}", self.kind, self.message) };
+        // Redact before the cut, so a key that straddles byte 300 is not left half-shown.
+        truncate_str(&redact_secrets(&s), 300).to_string()
+    }
+
+    fn class(&self) -> ErrorClass {
+        if self.status == Some(401) {
+            ErrorClass::LoggedOut
+        } else if self.status == Some(429) || names_a_provider_limit(&format!("{} {}", self.kind, self.message)) {
+            ErrorClass::Limit
+        } else if self.kind.to_lowercase().contains("auth") {
+            ErrorClass::LoggedOut
+        } else {
+            ErrorClass::Other
+        }
+    }
+}
+
 /// Truncate to at most `max` bytes without splitting a UTF-8 character.
 /// Slicing `&s[..max]` panics when byte `max` falls inside a multibyte
 /// character, which a localized diagnostic can easily do.
@@ -1325,12 +1497,6 @@ pub fn api_key_vars(id: &str) -> &'static [&'static str] {
     }
 }
 
-/// The topology switch of the measurement spike, compiled into debug builds only.
-#[cfg(debug_assertions)]
-fn hybrid_topology(spec: &CliSpec) -> bool {
-    spec.id == "claude-cli" && std::env::var("HERON_CLI_TOPOLOGY").is_ok_and(|v| v.eq_ignore_ascii_case("hybrid"))
-}
-
 impl CliLlm {
     pub fn from_config(cfg: std::sync::Arc<Config>, store: Option<crate::store::Store>) -> Result<Self> {
         let id = cfg.llm.provider.trim();
@@ -1413,6 +1579,13 @@ impl CliLlm {
             } else if let Some(v) = get(var) {
                 env.push((var.to_string(), v));
             }
+        }
+        if self.spec.id == "opencode-cli" {
+            // Survives `env_clear`: the file `write_opencode_config` puts in the run folder.
+            env.push(("OPENCODE_CONFIG".into(), run_dir.join(OPENCODE_CONFIG_FILE).to_string_lossy().into_owned()));
+            // opencode otherwise applies every `opencode.json` and `.opencode/` from its cwd up to `/`
+            // after that file; the run folder's parent is the user's `$TMPDIR` (spec 35v).
+            env.push(("OPENCODE_DISABLE_PROJECT_CONFIG".into(), "1".into()));
         }
         if self.spec.id == "claude-cli" {
             // Never let the CLI update itself past its tested version or upload feedback mid-session.
@@ -1636,6 +1809,8 @@ struct Accumulator {
     /// A pretty-printed single JSON document arrives over many lines;
     /// it is only decoded once the whole document is there.
     json_buf: String,
+    /// The last provider error event opencode printed on stdout (it exits 1 with an empty stderr).
+    provider_error: Option<ProviderError>,
 }
 
 impl Accumulator {
@@ -1649,6 +1824,7 @@ impl Accumulator {
             stream_mode: StreamMode::Unknown,
             emitted: 0,
             json_buf: String::new(),
+            provider_error: None,
         }
     }
 
@@ -1733,6 +1909,12 @@ impl Accumulator {
         let line = line.trim();
         if line.is_empty() {
             return None;
+        }
+        if spec.id == "opencode-cli" {
+            if let Some(e) = ProviderError::from_opencode_line(line) {
+                self.provider_error = Some(e);
+                return None;
+            }
         }
         match spec.output {
             OutputKind::ClaudeStreamJson => self.claude_line(line, on_delta),
@@ -2048,6 +2230,9 @@ impl CliLlm {
     /// One turn in a run folder the caller made and removes.
     async fn turn_in(&self, req: ChatRequest, on_delta: DeltaFn<'_>, run_dir: &Path) -> Result<ChatResponse> {
         let run_dir = run_dir.to_path_buf();
+        if self.spec.id == "opencode-cli" {
+            write_opencode_config(&run_dir)?;
+        }
         let prompt = render_prompt(&req);
         // The agent routes simple and background requests to the fast model
         // through ChatRequest.model; that override wins over cli_model, so
@@ -2057,20 +2242,8 @@ impl CliLlm {
             .as_deref()
             .filter(|m| !m.trim().is_empty())
             .unwrap_or(self.model.as_str());
-        #[allow(unused_mut)]
-        let (path, mut args) = self.argv(&prompt, model)?;
-        #[allow(unused_mut)]
-        let (binary_dir, mut extra_read) = self.binary_dirs(&path);
-        #[cfg(debug_assertions)]
-        if hybrid_topology(&self.spec) {
-            let mcp_config = write_hybrid_files(&run_dir, &req)?;
-            if let Some(dir) = std::env::current_exe().ok().and_then(|e| dunce::canonicalize(e).ok()).and_then(|e| e.parent().map(Path::to_path_buf)) {
-                extra_read.push(dir);
-            }
-            // Built-in tools stay off (`--tools ""`) and the turn is already held to one
-            // (`--max-turns 1` is in the base argv).
-            args.extend(["--mcp-config".to_string(), mcp_config.to_string_lossy().into_owned(), "--strict-mcp-config".to_string()]);
-        }
+        let (path, args) = self.argv(&prompt, model)?;
+        let (binary_dir, extra_read) = self.binary_dirs(&path);
         let profile = crate::sandbox::Profile::Cli { spec: &self.spec, binary_dir, extra_read };
         let sandbox = crate::sandbox::wrap(&self.cfg, &run_dir, &profile);
         if sandbox.is_none() && crate::sandbox::required() {
@@ -2210,14 +2383,21 @@ impl CliLlm {
         let text_len = acc.text.trim().len();
         if !status.success() {
             let err = stderr.trim();
+            // opencode prints provider errors on stdout and leaves stderr empty.
+            let err = match (&acc.provider_error, err.is_empty()) {
+                (Some(e), true) => e.summary(),
+                (Some(e), false) => format!("{} ({err})", e.summary()),
+                (None, _) => err.to_string(),
+            };
             let preview = if err.len() > 600 {
-                format!("{}...", truncate_str(err, 600))
+                format!("{}...", truncate_str(&err, 600))
             } else {
-                err.to_string()
+                err
             };
             // Hermes accepts error_max_turns with a complete batch; the same
             // applies here: a finished answer survives a non-zero exit.
             let recoverable = text_len > 0
+                && acc.provider_error.is_none()
                 && (preview.contains("max_turns")
                     || preview.contains("max turns")
                     || status.code() == Some(1))
@@ -2236,6 +2416,12 @@ impl CliLlm {
                         }
                     }
                 }
+                let limit_msg = |preview: &str| format!("{} refused the request: {}. The subscription's usage window may be exhausted; wait or check the plan.", self.spec.display_name, preview);
+                match acc.provider_error.as_ref().map(ProviderError::class) {
+                    Some(ErrorClass::LoggedOut) => bail!("{logged_out}, then try again. (CLI said: {preview})"),
+                    Some(ErrorClass::Limit) => bail!("{}", limit_msg(&preview)),
+                    _ => {}
+                }
                 let lower = preview.to_lowercase();
                 if lower.contains("auth")
                     || lower.contains("not logged in")
@@ -2246,10 +2432,8 @@ impl CliLlm {
                 }
                 // A CLI with no login probe cannot say; the hint goes with the failure.
                 let hint = if parse_login_output(self.spec.id, "").0.is_none() { format!(" If {logged_out}.") } else { String::new() };
-                if lower.contains("rate limit")
-                    || lower.contains("limit") && lower.contains("usage")
-                {
-                    bail!("{} refused the request: {}. The subscription's usage window may be exhausted; wait or check the plan.", self.spec.display_name, preview);
+                if names_a_provider_limit(&lower) {
+                    bail!("{}", limit_msg(&preview));
                 }
                 if text_len == 0 {
                     bail!("{} failed (exit {}): {}. Check `{}` and run `heron providers` to re-check the install.{hint}", self.spec.display_name, status.code().unwrap_or(-1), preview, self.spec.login_command);
@@ -2259,7 +2443,8 @@ impl CliLlm {
             // Recoverable: fall through and return the answer we have.
         }
         if text_len == 0 {
-            let preview = stderr.trim();
+            let event = acc.provider_error.as_ref().map(ProviderError::summary);
+            let preview = event.as_deref().unwrap_or(stderr.trim());
             bail!(
                 "{} returned no text. {}",
                 self.spec.display_name,
@@ -2332,28 +2517,6 @@ fn script_interpreter(real: &Path) -> Option<PathBuf> {
     }
 }
 
-/// The two files of the hybrid topology, written into the run folder: `tools.json`, the turn's tools
-/// as MCP schemas, and `mcp.json`, naming one server, `heron`, which is this executable running
-/// `mcp-serve --refuse-all`. Returns the `mcp.json` path.
-#[cfg(debug_assertions)]
-fn write_hybrid_files(run_dir: &Path, req: &ChatRequest) -> Result<PathBuf> {
-    let tools: Vec<Value> = req
-        .tools
-        .iter()
-        .filter_map(|t| {
-            let f = t.get("function")?;
-            Some(serde_json::json!({"name": f.get("name")?, "description": f.get("description").cloned().unwrap_or(Value::String(String::new())), "inputSchema": f.get("parameters").cloned().unwrap_or_else(|| serde_json::json!({"type": "object", "properties": {}}))}))
-        })
-        .collect();
-    let schemas = run_dir.join("tools.json");
-    std::fs::write(&schemas, serde_json::to_string(&tools)?)?;
-    let exe = std::env::current_exe()?;
-    let config = serde_json::json!({"mcpServers": {"heron": {"command": exe, "args": ["mcp-serve", "--refuse-all", "--schemas", schemas]}}});
-    let file = run_dir.join("mcp.json");
-    std::fs::write(&file, serde_json::to_string(&config)?)?;
-    Ok(file)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2366,12 +2529,34 @@ mod tests {
     /// because Windows cannot execute a `#!/bin/sh` script and fails with "not
     /// a valid Win32 application". The parsing logic they cover is
     /// platform-independent.
+    /// A Tier 1 binary has a version range (U2w), so a turn reads its `--version` first, as it does
+    /// with the real CLI. The fake answers with a version inside the range, unless the script handles
+    /// `version` itself (the tests of the version check do), so a script that ignores its arguments
+    /// is not asked to be a version printer.
+    fn with_version_answer(name: &str, script: &str) -> String {
+        let answer = match name {
+            "claude" => "2.1.327 (Claude Code)",
+            "codex" => "codex-cli 0.169.0",
+            "opencode" => "opencode v2.1.4",
+            _ => return script.to_string(),
+        };
+        if script.contains("version") {
+            return script.to_string();
+        }
+        match script.split_once('\n') {
+            Some((shebang, rest)) if shebang.starts_with("#!") => {
+                format!("{shebang}\nif [ \"$1\" = \"--version\" ]; then echo '{answer}'; exit 0; fi\n{rest}")
+            }
+            _ => script.to_string(),
+        }
+    }
+
     fn fake_bin(dir: &std::path::Path, name: &str, script: &str) -> PathBuf {
         let dir = dir.join("bin");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(name);
         let mut f = std::fs::File::create(&path).unwrap();
-        f.write_all(script.as_bytes()).unwrap();
+        f.write_all(with_version_answer(name, script).as_bytes()).unwrap();
         // Flush before returning: exec of a still-open file fails with
         // "Text file busy" on some filesystems.
         f.sync_all().unwrap();
@@ -2418,6 +2603,8 @@ mod tests {
                     "--allow-all",
                     "auto-approve",
                     "--auto-approve",
+                    // opencode's own auto-approve switch.
+                    "--auto",
                 ] {
                     assert!(
                         !lower.contains(banned),
@@ -2549,6 +2736,37 @@ mod tests {
         assert!(prompt.contains("list_dir"));
         assert!(prompt.contains("tool_calls"));
         assert!(prompt.contains("Do not run commands"));
+    }
+
+    #[test]
+    fn cli_prompt_steers_page_reads_to_web_fetch() {
+        let tool = |name: &str| {
+            serde_json::json!({"type": "function", "function": {"name": name, "parameters": {}}})
+        };
+        let with = ChatRequest {
+            messages: vec![Message::user("read example.com")],
+            tools: vec![tool("web_fetch"), tool("shell")],
+            ..Default::default()
+        };
+        let prompt = render_prompt(&with);
+        assert!(
+            prompt.contains("To read a web page, call web_fetch"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("do not use shell (curl, wget or similar) to fetch pages"),
+            "{prompt}"
+        );
+
+        let without = ChatRequest {
+            messages: vec![Message::user("read example.com")],
+            tools: vec![tool("shell"), tool("list_dir")],
+            ..Default::default()
+        };
+        let prompt = render_prompt(&without);
+        assert!(!prompt.contains("web_fetch"), "{prompt}");
+        assert!(!prompt.contains("to fetch pages"), "{prompt}");
+        assert!(!prompt.contains("curl"), "{prompt}");
     }
 
     #[test]
@@ -2722,6 +2940,331 @@ mod tests {
             !cwd.starts_with(here.to_str().unwrap()),
             "CLI must not run in the test workspace, ran in {cwd}"
         );
+    }
+
+    /// A fake `opencode` that records how it was started: its argv (reduced to a safe alphabet), its
+    /// working folder and `OPENCODE_CONFIG`, and keeps a copy of the config file it was pointed at in
+    /// its working folder. It reports through its reply because the sandbox only lets it write there.
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn opencode_runs_a_heron_agent_with_its_own_tools_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\ncp \"$OPENCODE_CONFIG\" ./seen-config.json\nargs=$(for a in \"$@\"; do printf '<%s>' \"$a\"; done | tr -cd 'a-zA-Z0-9<>_.:/-')\nprintf '%s\\n' \"{\\\"type\\\":\\\"text\\\",\\\"part\\\":{\\\"text\\\":\\\"pwd=$(pwd) cfg=$OPENCODE_CONFIG args=$args\\\"}}\"\n";
+        let bin = fake_bin(dir.path(), "opencode", script);
+        let mut cfg = test_cfg(dir.path(), "opencode-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(std::sync::Arc::new(cfg), None).unwrap();
+        let run_dir = make_run_folder().unwrap();
+        let r = llm.turn_in(hi(), &|_| {}, &run_dir).await;
+        let seen_config = std::fs::read_to_string(run_dir.join("seen-config.json"));
+        let canonical = std::fs::canonicalize(&run_dir).unwrap();
+        let _ = remove_temp_dir(&run_dir);
+        let text = r.unwrap().message.text().to_string();
+        let field = |name: &str| text.split(' ').find_map(|w| w.strip_prefix(name)).unwrap_or_else(|| panic!("no {name} in {text}")).to_string();
+        // The agent is Heron's own, never opencode's `plan`, and the model calls stay in this child.
+        let args = field("args=");
+        assert!(args.starts_with("<run>"), "{args}");
+        assert!(args.contains("<--agent><heron>"), "{args}");
+        assert!(args.contains("<--standalone>"), "{args}");
+        assert!(args.contains("<--format><json>"), "{args}");
+        assert!(!args.contains("<plan>"), "{args}");
+        // The child runs in the throwaway run folder, not in a task folder or the workspace.
+        assert_eq!(std::path::PathBuf::from(field("pwd=")), canonical);
+        // The config reached the child through the variable, and it is the file in the run folder.
+        assert_eq!(std::path::PathBuf::from(field("cfg=")), run_dir.join(OPENCODE_CONFIG_FILE));
+        let config: Value = serde_json::from_str(&seen_config.expect("the child could not read OPENCODE_CONFIG")).unwrap();
+        let agent = &config["agent"]["heron"];
+        assert_eq!(agent["mode"], "primary", "{config}");
+        assert!(agent["prompt"].as_str().is_some_and(|p| !p.is_empty() && p.len() < 300), "{config}");
+        let tools = agent["tools"].as_object().expect("tools");
+        for tool in ["*", "bash", "edit", "write", "read", "grep", "glob", "list", "patch", "webfetch", "websearch", "task", "todowrite"] {
+            assert_eq!(tools.get(tool), Some(&Value::Bool(false)), "tool {tool} is not switched off: {config}");
+        }
+        assert!(tools.values().all(|v| v == &Value::Bool(false)), "a tool is on: {config}");
+        for permission in ["edit", "bash", "webfetch"] {
+            assert_eq!(agent["permission"][permission], "deny", "{permission} is not denied: {config}");
+        }
+    }
+
+    /// A fake `opencode` that prints `event` on stdout and exits 1 with an empty stderr.
+    #[cfg(not(windows))]
+    async fn opencode_failure_with(event: &str) -> String {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_bin(dir.path(), "opencode", &format!("#!/bin/sh\nprintf '%s\\n' '{event}'\nexit 1\n"));
+        let mut cfg = test_cfg(dir.path(), "opencode-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(std::sync::Arc::new(cfg), None).unwrap();
+        llm.chat(hi(), &|_| {}).await.unwrap_err().to_string()
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn opencode_failure_shows_its_error_event() {
+        // The header and body are in the event, as a provider's error data carries them.
+        let event = r#"{"type":"error","error":{"type":"provider.auth","message":"API key expired.","status":401,"data":{"responseHeaders":{"authorization":"Bearer sk-live-secret"},"responseBody":"Bearer sk-live-secret"}}}"#;
+        let err = opencode_failure_with(event).await;
+        assert!(err.contains("provider.auth: API key expired."), "{err}");
+        assert!(err.contains("is logged out: run `opencode auth login"), "{err}");
+        assert!(!err.contains("Bearer") && !err.contains("sk-live-secret"), "{err}");
+        assert!(!err.contains("exit 1): ."), "the reason must not be empty: {err}");
+        // A 401 with a neutral type is still logged out, and the failure starts with that wording,
+        // not only a generic hint further along that mentions it.
+        let err = opencode_failure_with(r#"{"type":"error","error":{"type":"provider.error","message":"denied","status":401}}"#).await;
+        assert!(err.starts_with("OpenCode (router) is logged out: run `opencode auth login"), "{err}");
+        assert!(err.contains("provider.error: denied"), "{err}");
+        // Text, then an error event, then exit 1: a failure, never the partial text as an answer.
+        let err = opencode_failure_with("{\"type\":\"text\",\"part\":{\"text\":\"partial answer\"}}\n{\"type\":\"error\",\"error\":{\"type\":\"provider.error\",\"message\":\"boom\"}}").await;
+        assert!(err.contains("provider.error: boom") && err.contains("The reply was incomplete"), "{err}");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn opencode_failure_redacts_an_echoed_key() {
+        let err = opencode_failure_with(r#"{"type":"error","error":{"type":"provider.auth","message":"Invalid API key sk-live-XYZ123 for org","status":401}}"#).await;
+        assert!(err.contains("[redacted]") && err.contains("for org"), "{err}");
+        assert!(!err.contains("sk-live-XYZ123") && !err.contains("XYZ123"), "{err}");
+        // A bearer token, and a long token with no `sk-` prefix, in a message with a neutral type.
+        let err = opencode_failure_with(r#"{"type":"error","error":{"type":"provider.error","message":"rejected Authorization: Bearer abc.def-123 and key AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd"}}"#).await;
+        assert!(err.contains("[redacted]"), "{err}");
+        assert!(!err.contains("abc.def-123") && !err.contains("AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd"), "{err}");
+        // 31 characters is an ordinary word, not a key.
+        let err = opencode_failure_with(r#"{"type":"error","error":{"type":"provider.error","message":"see AbCdEfGhIjKlMnOpQrStUvWxYz01234 here"}}"#).await;
+        assert!(err.contains("AbCdEfGhIjKlMnOpQrStUvWxYz01234"), "{err}");
+    }
+
+    #[test]
+    fn echoed_keys_are_redacted_before_the_300_byte_cut() {
+        assert_eq!(redact_secrets("Invalid API key sk-live-XYZ123 for org"), "Invalid API key [redacted] for org");
+        assert_eq!(redact_secrets("Authorization: Bearer abc.def-123 rejected"), "Authorization: [redacted] rejected");
+        assert_eq!(redact_secrets("key AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd here"), "key [redacted] here");
+        assert_eq!(redact_secrets("AbCdEfGhIjKlMnOpQrStUvWxYz01234"), "AbCdEfGhIjKlMnOpQrStUvWxYz01234", "31 characters is not a key");
+        assert_eq!(redact_secrets("an ordinary message"), "an ordinary message");
+        // A long run with no digit, or no letter, is prose or a number, not a key.
+        let letters = "z".repeat(40);
+        assert_eq!(redact_secrets(&letters), letters);
+        let digits = "7".repeat(40);
+        assert_eq!(redact_secrets(&digits), digits);
+        // A key that would straddle byte 300 is gone before the cut, not left half shown.
+        let e = ProviderError { kind: "provider.error".into(), message: format!("{} sk-{}", "x ".repeat(140), "a1".repeat(10)), status: None };
+        let s = e.summary();
+        assert!(!s.contains("sk-") && !s.contains("a1a1"), "{s}");
+        assert!(s.len() <= 300 && s.len() > 250, "{s}");
+    }
+
+    /// A fake `opencode` that reports two of its environment variables through its reply.
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn opencode_ignores_config_above_its_run_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\nprintf '%s\\n' \"{\\\"type\\\":\\\"text\\\",\\\"part\\\":{\\\"text\\\":\\\"disable=[$OPENCODE_DISABLE_PROJECT_CONFIG] cfg=[$OPENCODE_CONFIG]\\\"}}\"\n";
+        let bin = fake_bin(dir.path(), "opencode", script);
+        let mut cfg = test_cfg(dir.path(), "opencode-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(std::sync::Arc::new(cfg), None).unwrap();
+        let text = llm.chat(hi(), &|_| {}).await.unwrap().message.text().to_string();
+        assert!(text.contains("disable=[1]"), "{text}");
+        assert!(text.contains(&format!("{OPENCODE_CONFIG_FILE}]")), "{text}");
+        // The child's variables are exactly the allowlist plus these two, as for claude-cli.
+        let parent: std::collections::HashMap<String, String> = CHILD_ENV_ALLOWED
+            .iter()
+            .map(|k| (k.to_string(), format!("value-of-{k}")))
+            .chain(["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OPENAI_API_KEY", "OPENCODE_CONFIG_DIR", "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_CONFIG", "TMPDIR"].map(|k| (k.to_string(), "must-not-pass".to_string())))
+            .collect();
+        let run = Path::new("/the/run/folder");
+        let env = llm.child_env_from(run, &|k| parent.get(k).cloned());
+        let names: std::collections::BTreeSet<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
+        let mut expected: std::collections::BTreeSet<&str> = CHILD_ENV_ALLOWED.iter().copied().collect();
+        expected.extend(["TMPDIR", "OPENCODE_CONFIG", "OPENCODE_DISABLE_PROJECT_CONFIG"]);
+        assert_eq!(names, expected);
+        assert_eq!(env.len(), names.len(), "no variable twice: {env:?}");
+        assert!(!env.iter().any(|(_, v)| v == "must-not-pass"), "{env:?}");
+        assert!(env.contains(&("OPENCODE_DISABLE_PROJECT_CONFIG".into(), "1".into())), "{env:?}");
+        assert!(env.contains(&("OPENCODE_CONFIG".into(), run.join(OPENCODE_CONFIG_FILE).display().to_string())), "{env:?}");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn opencode_rate_and_usage_limits_show_the_provider_limit_message() {
+        for event in [
+            r#"{"type":"error","error":{"type":"provider.request","message":"Too many requests","status":429}}"#,
+            r#"{"type":"error","error":{"type":"provider.rate_limit","message":"Slow down"}}"#,
+            r#"{"type":"error","error":{"type":"provider.quota","message":"Usage limit reached for this plan"}}"#,
+        ] {
+            let err = opencode_failure_with(event).await;
+            assert!(err.contains("refused the request") && err.contains("usage window may be exhausted"), "{event}: {err}");
+            assert!(!err.contains("logged out"), "{event}: {err}");
+        }
+    }
+
+    /// A fake `codex` (the generic failure path: no error event) that prints `stderr` and exits 1
+    /// with an empty stdout.
+    #[cfg(not(windows))]
+    async fn generic_failure_with(stderr: &str) -> String {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_bin(dir.path(), "codex", &format!("#!/bin/sh\nprintf '%s\\n' '{stderr}' >&2\nexit 1\n"));
+        let mut cfg = test_cfg(dir.path(), "codex-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(std::sync::Arc::new(cfg), None).unwrap();
+        llm.chat(hi(), &|_| {}).await.unwrap_err().to_string()
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn genuine_rate_and_quota_errors_are_limits() {
+        for event in [
+            // The status alone makes a limit.
+            r#"{"type":"error","error":{"type":"provider.request","message":"Slow down","status":429}}"#,
+            // So does the type alone.
+            r#"{"type":"error","error":{"type":"provider.rate_limit","message":"Slow down"}}"#,
+            // And so does the message alone.
+            r#"{"type":"error","error":{"type":"provider.error","message":"Usage limit reached for this plan"}}"#,
+            r#"{"type":"error","error":{"type":"provider.error","message":"quota exceeded"}}"#,
+            // 35u: a limit named by the type, with a message that names none.
+            r#"{"type":"error","error":{"type":"provider.free-limit","message":"Free usage exceeded"}}"#,
+            r#"{"type":"error","error":{"type":"provider.error","message":"Rate-limited, retry later"}}"#,
+            r#"{"type":"error","error":{"type":"provider.error","message":"insufficient_quota"}}"#,
+        ] {
+            let err = opencode_failure_with(event).await;
+            assert!(err.contains("refused the request") && err.contains("usage window may be exhausted"), "{event}: {err}");
+            assert!(!err.contains("logged out"), "{event}: {err}");
+        }
+        // The generic failure path of any CLI tells the same phrases apart.
+        for stderr in ["Rate limit reached, retry later", "quota exceeded", "You hit your usage limit", "Rate-limited, retry later", "insufficient_quota", "Free usage exceeded"] {
+            let err = generic_failure_with(stderr).await;
+            assert!(err.contains("refused the request") && err.contains("usage window may be exhausted"), "{stderr}: {err}");
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn ordinary_failures_that_mention_rate_or_limit_are_not_limits() {
+        for text in [
+            "file size limit exceeded",
+            "generate a rate table",
+            "the rate of change exceeds the limit",
+            "usage: heron [options] --limit N",
+            "Disc quota exceeded (os error 69)",
+            "Disk quota exceeded",
+            "credit balance column missing",
+            "cannot find type RateLimiter in this scope",
+            "test rate_limiter::tests::burst ... FAILED",
+            r#"invalid event: {"rate_limits":{}}"#,
+        ] {
+            let not_a_limit = |err: &str, how: &str| {
+                assert!(err.contains(text), "{how} {text}: the failure must show its text: {err}");
+                assert!(!err.contains("refused the request") && !err.contains("usage window"), "{how} {text}: {err}");
+            };
+            for status in ["", r#","status":500"#] {
+                // The message goes through serde_json so a quote in `text` is escaped in the event.
+                let message = serde_json::to_string(text).unwrap();
+                let event = format!(r#"{{"type":"error","error":{{"type":"provider.error","message":{message}{status}}}}}"#);
+                not_a_limit(&opencode_failure_with(&event).await, "opencode event");
+            }
+            not_a_limit(&generic_failure_with(text).await, "generic CLI");
+        }
+    }
+
+    #[test]
+    fn only_a_fixed_set_of_phrases_names_a_provider_limit() {
+        // The list is spec 35u's, which replaced 35t's (it had bare "quota", "ratelimit" and
+        // "credit balance"); this is the list under test, not a loosened expectation.
+        for text in [
+            "Rate Limit hit",
+            "rate-limit",
+            "Rate limited",
+            "Rate-limited, retry later",
+            "provider.rate_limit",
+            "rate_limit_error",
+            "rate_limit_exceeded",
+            "RateLimitError",
+            "Too Many Requests",
+            "usage limit",
+            "usage_limit",
+            "provider.free-limit",
+            "Free usage exceeded",
+            "Spend limit reached",
+            "temporarily limiting requests",
+            "Your credit balance is too low",
+            "insufficient_quota",
+            "RESOURCE_EXHAUSTED",
+            "You exceeded your quota",
+            "You exceeded your current quota",
+            "out of quota",
+            "quota exceeded",
+            "Quota exceeded.",
+            "(quota exceeded)",
+            "disk full: quota exceeded",
+        ] {
+            assert!(names_a_provider_limit(text), "{text}");
+        }
+        for text in [
+            "",
+            "limit",
+            "rate",
+            "usage",
+            "QUOTA",
+            "quota",
+            "credit balance",
+            "file size limit exceeded",
+            "the rate of change exceeds the limit",
+            "usage: heron --limit N",
+            "limit of usage",
+            "rate the limit",
+            // A phrase inside a longer word or identifier is not on a word boundary.
+            "RateLimiter",
+            "rate_limits",
+            "rate_limiter",
+            "ratelimit",
+            "myquota exceeded",
+            "quota exceededs",
+            "quota exceeded2",
+            "ratelimiterrors",
+            // A full disk is not a limit.
+            "disk quota exceeded",
+            "Disc quota exceeded (os error 69)",
+        ] {
+            assert!(!names_a_provider_limit(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn provider_error_class_checks_401_then_limit_then_auth() {
+        let class = |event: &str| ProviderError::from_opencode_line(event).expect("an error event").class();
+        let auth_naming_a_limit = r#"{"type":"error","error":{"type":"provider.auth","message":"quota exceeded for this key"}}"#;
+        assert!(matches!(class(auth_naming_a_limit), ErrorClass::Limit));
+        // An auth type with no limit phrase and no 401 is still logged out.
+        assert!(matches!(class(r#"{"type":"error","error":{"type":"provider.auth","message":"key expired"}}"#), ErrorClass::LoggedOut));
+        // 401 wins over a limit phrase, and 429 alone is a limit.
+        assert!(matches!(class(r#"{"type":"error","error":{"type":"provider.auth","message":"quota exceeded","status":401}}"#), ErrorClass::LoggedOut));
+        assert!(matches!(class(r#"{"type":"error","error":{"type":"provider.request","message":"Slow down","status":429}}"#), ErrorClass::Limit));
+        // A phrase in the type names a limit when the message does not.
+        assert!(matches!(class(r#"{"type":"error","error":{"type":"provider.free-limit","message":"Free usage exceeded"}}"#), ErrorClass::Limit));
+        assert!(matches!(class(r#"{"type":"error","error":{"type":"provider.error","message":"Disk quota exceeded"}}"#), ErrorClass::Other));
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn an_auth_typed_event_naming_a_limit_is_worded_as_a_limit() {
+        // The type says "auth", but the message names a limit and there is no 401: a limit.
+        let event = r#"{"type":"error","error":{"type":"provider.auth","message":"quota exceeded for this key"}}"#;
+        let err = opencode_failure_with(event).await;
+        assert!(err.contains("refused the request") && err.contains("usage window may be exhausted"), "{err}");
+        assert!(!err.contains("logged out"), "{err}");
+        // A 401 is still checked first.
+        let event = r#"{"type":"error","error":{"type":"provider.auth","message":"quota exceeded for this key","status":401}}"#;
+        let err = opencode_failure_with(event).await;
+        assert!(err.contains("logged out") && !err.contains("refused the request"), "{err}");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn opencode_other_errors_show_type_and_message_cut_to_300_chars() {
+        let event = format!(r#"{{"type":"error","error":{{"type":"provider.timeout","message":"{}","status":504}}}}"#, "z".repeat(1000));
+        let err = opencode_failure_with(&event).await;
+        assert!(err.contains("provider.timeout: zzz"), "{err}");
+        let zs = err.matches('z').count();
+        assert!(zs > 200 && zs < 300, "{zs} z's in {err}");
+        assert!(!err.contains("then try again") && !err.contains("refused the request"), "{err}");
     }
 
     #[tokio::test]
@@ -3258,7 +3801,9 @@ mod tests {
         // a probe does (`run_contained`, inside the CLI's sandbox where
         // there is one), so it records its pid in its run folder: `TMPDIR`.
         let dir = tempfile::tempdir().unwrap();
-        let bin = fake_bin(dir.path(), "claude", "#!/bin/sh\necho $$ > \"$TMPDIR/probe.pid\"\nsleep 30\n");
+        // Not named `claude`: a fake with a Tier 1 name answers `--version` at once (`fake_bin`), and
+        // this one has to hang on it.
+        let bin = fake_bin(dir.path(), "hanging-probe", "#!/bin/sh\necho $$ > \"$TMPDIR/probe.pid\"\nsleep 30\n");
         let mut cfg = test_cfg(dir.path(), "claude-cli");
         cfg.llm.cli_command = bin.to_string_lossy().to_string();
         let llm = CliLlm::for_probe(&cfg, &spec_for("claude-cli").unwrap());
@@ -3771,7 +4316,7 @@ mod tests {
         let codex = argv("codex-cli");
         assert!(has(&codex, &["-a", "never"]) && has(&codex, &["--sandbox", "read-only"]), "{codex:?}");
         let opencode = argv("opencode-cli");
-        assert!(has(&opencode, &["--agent", "plan"]), "{opencode:?}");
+        assert!(has(&opencode, &["--agent", OPENCODE_AGENT]) && !opencode.iter().any(|a| a == "plan"), "{opencode:?}");
         // Cline has no flag that turns its tools off: it runs only when the user accepted that.
         let mut cline = test_cfg(dir.path(), "cline-cli");
         cline.llm.cli_command = "/usr/bin/true".into();
@@ -3780,7 +4325,7 @@ mod tests {
         for id in ["claude-cli", "codex-cli", "opencode-cli", "cline-cli", "gemini-cli", "antigravity-cli"] {
             for arg in argv(id) {
                 let lower = arg.to_lowercase();
-                for banned in ["--yolo", "--force", "--dangerously-skip-permissions", "--allow-all-tools", "auto-approve", "bypasspermissions", "--approval-mode=yolo"] {
+                for banned in ["--yolo", "--force", "--dangerously-skip-permissions", "--allow-all-tools", "auto-approve", "bypasspermissions", "--approval-mode=yolo", "--auto"] {
                     assert!(!lower.contains(banned), "{id} passes {arg}");
                 }
             }
@@ -3818,6 +4363,116 @@ mod tests {
         assert_ne!(PathBuf::from(again), cwd);
     }
 
+    /// U2w: the registry is the recorded containment results (`eval/containment/*.json`) applied.
+    /// A candidate is Tier 1 when it passed, its folders are confirmed, and (gemini-cli) antigravity-cli
+    /// did not pass. Such a candidate gets a range from the recorded version, and is not experimental
+    /// unless the owner deferred it from v1 Tier 1 (item 35w, `DEFERRED_FROM_TIER1`): a deferred one is
+    /// experimental and keeps its range. Every other entry has no range and is experimental.
+    #[test]
+    fn tier1_candidates_have_ranges() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("eval/containment");
+        let record = |id: &str| -> Value {
+            let text = std::fs::read_to_string(dir.join(format!("{id}.json"))).unwrap_or_else(|e| panic!("no containment record for {id}: {e}"));
+            serde_json::from_str(&text).unwrap()
+        };
+        let status = |id: &str| record(id)["status"].as_str().unwrap_or("").to_string();
+        let candidates = ["claude-cli", "codex-cli", "gemini-cli", "antigravity-cli", "cline-cli", "opencode-cli"];
+        let mut tier1 = vec![];
+        for id in candidates {
+            let rec = record(id);
+            let folders_ok = rec["config_dirs_confirmed"] == true && rec["config_dirs"].as_array().is_some_and(|d| !d.is_empty());
+            let gemini_blocked = id == "gemini-cli" && status("antigravity-cli") == "passed";
+            if status(id) == "passed" && folders_ok && !gemini_blocked {
+                tier1.push(id);
+            }
+        }
+        assert!(tier1.contains(&"claude-cli"), "claude-cli is the default provider and must be Tier 1: {tier1:?}");
+
+        // The deferred list is the one `eval/containment/check.py` keeps: the keys of its `DEFERRED`
+        // dict, the quoted ids at the start of an entry between `DEFERRED = {` and the closing `}`.
+        let check_py = std::fs::read_to_string(dir.join("check.py")).expect("eval/containment/check.py is readable");
+        let block = check_py.split("DEFERRED = {").nth(1).expect("check.py defines DEFERRED").split('}').next().unwrap();
+        let mut deferred_in_check_py: Vec<&str> = block
+            .lines()
+            .filter_map(|line| {
+                let rest = line.trim().strip_prefix('"')?;
+                let (key, after) = rest.split_once('"')?;
+                after.trim_start().starts_with(':').then_some(key)
+            })
+            .collect();
+        deferred_in_check_py.sort_unstable();
+        let mut deferred = DEFERRED_FROM_TIER1.to_vec();
+        deferred.sort_unstable();
+        assert_eq!(deferred_in_check_py, deferred, "DEFERRED_FROM_TIER1 and DEFERRED in eval/containment/check.py must name the same CLIs");
+
+        for spec in providers() {
+            if !tier1.contains(&spec.id) {
+                assert!(spec.supported.is_none(), "{} is not Tier 1 and must have no range", spec.id);
+                assert!(spec.experimental, "{} has no range, so it must be experimental", spec.id);
+                continue;
+            }
+            let rec = record(spec.id);
+            let min = extract_version(rec["version_output"].as_str().unwrap()).expect("the recorded --version output has a version");
+            assert_eq!(Some(min), extract_version(rec["version"].as_str().unwrap()), "{}: version and version_output agree", spec.id);
+            let range = spec.supported.unwrap_or_else(|| panic!("{} is Tier 1 and needs a range", spec.id));
+            assert_eq!(range.min, min, "{}: the lower bound is the version that passed", spec.id);
+            assert_eq!(range.below, (min.0 + 1, 0, 0), "{}: the upper bound is the next major version", spec.id);
+            assert!(range.contains(min), "{}: the recorded version is inside its own range", spec.id);
+            assert!(!range.contains(range.below), "{}: the upper bound is exclusive", spec.id);
+            if min.2 > 0 {
+                assert!(!range.contains((min.0, min.1, min.2 - 1)), "{}: the lower bound is inclusive and tight", spec.id);
+            }
+            if DEFERRED_FROM_TIER1.contains(&spec.id) {
+                assert!(spec.experimental, "{} is deferred from v1 Tier 1 (35w) and must be experimental", spec.id);
+            } else {
+                assert!(!spec.experimental, "{} is Tier 1 and must not be experimental", spec.id);
+            }
+            let want = if rec["credential_store"] == "macos-keychain" { CredentialStore::MacosKeychain } else { CredentialStore::HomeFolder };
+            assert_eq!(spec.credential_store, want, "{}: credential_store follows the record", spec.id);
+
+            // The folders: every one the registry names was recorded or is a named extra, and every
+            // recorded path is under one of them or is a parent folder of one (`~/.cache` above
+            // `~/.cache/opencode`). An extra is a folder an older release of the CLI made, which the
+            // fresh-`HOME` check did not create; it stays Refused (item 22).
+            let extras: &[&str] = if spec.id == "opencode-cli" { &["~/.opencode"] } else { &[] };
+            for extra in extras {
+                assert!(spec.config_dirs.contains(extra), "{}: the extra folder {extra} must stay in config_dirs", spec.id);
+            }
+            let recorded: Vec<String> = rec["config_dirs"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+            for d in spec.config_dirs {
+                assert!(recorded.iter().any(|r| r == d) || extras.contains(d), "{}: {d} was not recorded", spec.id);
+            }
+            for r in &recorded {
+                let covered = spec.config_dirs.iter().any(|d| r == d || r.starts_with(&format!("{d}/")));
+                let parent = spec.config_dirs.iter().any(|d| d.starts_with(&format!("{r}/")));
+                assert!(covered || parent, "{}: recorded path {r} is not in config_dirs", spec.id);
+            }
+        }
+
+        // A candidate that did not pass has no range, whatever else is true of it.
+        for id in ["gemini-cli", "antigravity-cli", "cline-cli"] {
+            let spec = spec_for(id).unwrap();
+            assert!(spec.supported.is_none() && spec.experimental, "{id} did not pass its containment check");
+        }
+    }
+
+    /// 35w: a deferred CLI is labelled experimental, but its range stays: the tools-off agent and
+    /// `OPENCODE_DISABLE_PROJECT_CONFIG` were checked on 2.x only, so other versions still need the
+    /// user's acceptance.
+    #[test]
+    fn deferred_cli_keeps_its_range_but_is_experimental() {
+        assert_eq!(DEFERRED_FROM_TIER1, &["opencode-cli"]);
+        let spec = spec_for("opencode-cli").unwrap();
+        assert!(spec.experimental, "opencode-cli is deferred from v1 Tier 1");
+        assert_eq!(spec.supported, Some(VersionRange { min: (2, 1, 4), below: (3, 0, 0) }), "the range stays");
+        assert_eq!(check_version(&spec, "opencode v2.1.4", None), Ok(()), "the lower bound is accepted");
+        assert_eq!(check_version(&spec, "opencode v2.9.0", None), Ok(()));
+        let untested = check_version(&spec, "opencode v3.0.0", None).unwrap_err();
+        assert_eq!((untested.id.as_str(), untested.found.as_str()), ("opencode-cli", "3.0.0"));
+        assert!(check_version(&spec, "opencode v2.1.3", None).is_err(), "below the range is refused too");
+        assert_eq!(check_version(&spec, "opencode v3.0.0", Some("3.0.0")), Ok(()), "accepted by the user");
+    }
+
     #[test]
     fn version_extraction_reads_first_semver() {
         assert_eq!(extract_version("2.1.327 (Claude Code)"), Some((2, 1, 327)));
@@ -3845,7 +4500,9 @@ mod tests {
         assert!(check_version(&spec, "codex-cli 3.0.2", Some("3.0.1")).is_err(), "asked again when the version changes");
         assert_eq!(check_version(&spec, "\n  weird build\nmore", None).unwrap_err().found, "weird build", "no version: the first line");
         assert_eq!(check_version(&spec, "weird build", Some("weird build")), Ok(()));
-        assert_eq!(check_version(&spec_for("codex-cli").unwrap(), "codex-cli 9.9.9", None), Ok(()), "no range pinned: no prompt");
+        assert!(spec_for("cursor-cli").unwrap().supported.is_none(), "cursor-cli is not Tier 1");
+        assert_eq!(check_version(&spec_for("cursor-cli").unwrap(), "cursor 9.9.9", None), Ok(()), "no range pinned: no prompt");
+        assert!(check_version(&spec_for("codex-cli").unwrap(), "codex-cli 9.9.9", None).is_err(), "Tier 1 codex-cli has a range: 9.9.9 is outside it");
         // Through the provider: the version is read from the CLI and the acceptance from the store.
         #[cfg(not(windows))]
         {
@@ -3879,6 +4536,42 @@ mod tests {
             ensure().await.unwrap();
             assert_eq!(llm.audit_identity(), ("codex-cli".to_string(), "2.2.0".to_string()));
         }
+    }
+
+    /// CUJ 5, through the turn: a Tier 1 CLI whose `--version` is outside the registry entry's own
+    /// range is refused before it is sent a prompt, and runs once that exact version is accepted.
+    /// The range is the registry's (`llm.spec.supported` is not touched), and the fake answers
+    /// `--version` itself (its script says "version"), so `with_version_answer` adds no in-range
+    /// answer. Without the `ensure_version` call in `turn_in` the first turn would succeed.
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn turn_on_an_untested_registry_version_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        // Any prompt run prints a finished reply; a refused turn never gets that far.
+        let script = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"3.4.0 (Claude Code)\"\n  exit 0\nfi\ncat > /dev/null\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"the prompt ran\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}'\n";
+        let bin = fake_bin(dir.path(), "claude", script);
+        let mut cfg = test_cfg(dir.path(), "claude-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        // Where the CLI must run sandboxed (macOS) and Seatbelt cannot start, no turn runs at all.
+        if crate::sandbox::required() && !cli_seatbelt(&cfg) {
+            return;
+        }
+        let store = crate::store::Store::in_memory().unwrap();
+        let llm = CliLlm::from_config(std::sync::Arc::new(cfg), Some(store.clone())).unwrap();
+        let range = llm.spec.supported.expect("claude-cli is Tier 1 and has a range in the registry");
+        assert!(!range.contains((3, 4, 0)), "the fake's version must be outside the registry's own range");
+
+        let err = llm.chat(hi(), &|_| {}).await.expect_err("an untested version must not run a turn");
+        let untested = err.downcast_ref::<CliVersionUntested>().unwrap_or_else(|| panic!("not a CliVersionUntested: {err:#}"));
+        assert_eq!((untested.id.as_str(), untested.found.as_str()), ("claude-cli", "3.4.0"));
+
+        // Accepting another version does not help: the acceptance is for exactly one version.
+        store.kv_set(&version_ok_key("claude-cli"), "3.4.1").unwrap();
+        assert!(llm.chat(hi(), &|_| {}).await.unwrap_err().downcast_ref::<CliVersionUntested>().is_some());
+
+        store.kv_set(&version_ok_key("claude-cli"), "3.4.0").unwrap();
+        let reply = llm.chat(hi(), &|_| {}).await.expect("the accepted version runs the same turn");
+        assert_eq!(reply.message.text(), "the prompt ran");
     }
 
     /// `--version` on the turn path runs as the turn does: allowlisted environment, run folder,
@@ -3947,7 +4640,7 @@ mod tests {
                     Err(e) => format!("{e:#}"),
                 };
                 let env_names: Vec<String> = llm.child_env(&run_dir).into_iter().map(|(k, _)| k).collect();
-                let allowed: Vec<&str> = CHILD_ENV_ALLOWED.iter().copied().chain(["TMPDIR", "DISABLE_AUTOUPDATER", "DISABLE_FEEDBACK_COMMAND"]).chain(llm.spec.config_dir_env).collect();
+                let allowed: Vec<&str> = CHILD_ENV_ALLOWED.iter().copied().chain(["TMPDIR", "DISABLE_AUTOUPDATER", "DISABLE_FEEDBACK_COMMAND"]).chain(llm.spec.config_dir_env).chain((llm.spec.id == "opencode-cli").then_some("OPENCODE_CONFIG")).chain((llm.spec.id == "opencode-cli").then_some("OPENCODE_DISABLE_PROJECT_CONFIG")).collect();
                 let env_ok = env_names.iter().all(|n| allowed.contains(&n.as_str()));
                 let result = llm.turn_in(ChatRequest { messages: vec![Message::user(prompt)], ..Default::default() }, &|_| {}, &run_dir).await;
                 let inside_written = run_dir.join("heron-canary.txt").exists();

@@ -189,8 +189,6 @@ def core_env(home, topology):
     env = {k: v for k, v in os.environ.items() if not k.startswith("HERON_")}
     env["HERON_HOME"] = home
     env["HERON_ALLOW_LOCAL_FETCH"] = "1"
-    if topology == "hybrid":
-        env["HERON_CLI_TOPOLOGY"] = "hybrid"
     return env
 
 
@@ -537,8 +535,8 @@ def validate_options(opts, all_tasks):
         raise UsageError("--runs must be at least 1")
     if opts.provider != "demo" and opts.provider not in PROVIDER_BINARIES:
         raise UsageError("unknown provider %r; use demo or one of: %s" % (opts.provider, ", ".join(sorted(PROVIDER_BINARIES))))
-    if opts.topology == "hybrid" and opts.build != "debug":
-        raise UsageError("--topology hybrid needs --build debug")
+    if opts.topology == "hybrid":
+        raise UsageError("--topology hybrid was removed in U2w: the envelope won the spike (eval/spike/topology.md), and the core no longer has a hybrid mode")
     if opts.heron_bin and not os.path.isfile(opts.heron_bin):
         raise UsageError("--heron-bin %s is not a file" % opts.heron_bin)
     known = [t["id"] for t in all_tasks]

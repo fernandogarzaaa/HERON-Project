@@ -48,6 +48,8 @@ pub struct Store {
     conn: Arc<Mutex<Connection>>,
     /// Where the database file is; `None` for one that lives only in memory.
     path: Option<PathBuf>,
+    /// The live permission policy of the app that owns this store (see [`Store::live_policy`]).
+    live_policy: Arc<std::sync::RwLock<std::sync::Weak<crate::permissions::Policy>>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -358,6 +360,52 @@ fn snapshot_to(conn: &Connection, to: &Path) -> Result<()> {
     made.with_context(|| format!("cannot save a copy of the database to {}", to.display()))
 }
 
+/// What to do about a damaged database at `db`, as every message about one says it: move it aside
+/// first (`heron restore` refuses over a database it cannot read, as it would lose the permission
+/// rules kept there), then restore a copy.
+pub fn damaged_database_guidance(db: &Path) -> String {
+    let name = db.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "heron.db".into());
+    format!(
+        "Close Heron, move {} aside (with {name}-wal and {name}-shm beside it, if they are there), then restore a copy from {} with `heron restore <file>`. The rules kept only in the damaged file (\"never\" and \"always\") are not brought back; check them in Heron's settings afterwards",
+        db.display(),
+        backup_dir(db).display()
+    )
+}
+
+/// The read-only connection [`Store::peek`] reads through. It waits for a busy database as
+/// [`Store::open`] does: a read that gave up at once would be taken for a database that cannot be
+/// read.
+fn peek_connection(path: &Path) -> Result<Connection> {
+    let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).with_context(|| format!("cannot open {}", path.display()))?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    Ok(conn)
+}
+
+/// Every trigger, view or other schema object (anything but a table or an index, whatever the case of
+/// its type) in a database that Heron's own schema does not have, as `"<type> <name>"`.
+/// A copy holding one could run its own SQL on every later write (a trigger on `kv` could reset the
+/// permission rules), so it is never restored.
+fn foreign_schema(conn: &Connection) -> Result<Vec<String>> {
+    static OWN: std::sync::OnceLock<Vec<(String, String, String)>> = std::sync::OnceLock::new();
+    let read = |conn: &Connection| -> Result<Vec<(String, String, String)>> {
+        // Anything that is not a table or an index, by any spelling of its type: SQLite loads a row typed
+        // `TRIGGER` or `VIEW` (set through `writable_schema`) as a working trigger or view.
+        let mut st = conn.prepare("SELECT type, name, coalesce(sql, '') FROM sqlite_master WHERE lower(type) NOT IN ('table', 'index')")?;
+        let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?;
+        // Compared without regard to spacing, which SQLite keeps as written.
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().map(|(t, n, sql)| (t, n, sql.split_whitespace().collect::<Vec<_>>().join(" "))).collect())
+    };
+    let own = match OWN.get() {
+        Some(own) => own,
+        None => {
+            let fresh = Store::in_memory()?;
+            let own = read(&fresh.db())?;
+            OWN.get_or_init(|| own)
+        }
+    };
+    Ok(read(conn)?.into_iter().filter(|item| !own.contains(item)).map(|(t, n, _)| format!("{t} {n}")).collect())
+}
+
 /// Move a database that SQLite cannot read out of the way, exactly as it is, together with its log
 /// files, into the `backups` folder. Nothing in it is changed, so whatever a repair tool could still
 /// recover remains recoverable. Returns where the main file went.
@@ -545,7 +593,7 @@ impl Store {
             // SQLite saying the file itself is broken: say what can be done about it.
             let broken = e.chain().filter_map(|c| c.downcast_ref::<rusqlite::Error>()).any(|c| matches!(c.sqlite_error_code(), Some(rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase)));
             if broken {
-                e.context(format!("{} is damaged and cannot be read. Restore a copy from {} with `heron restore <file>`; the damaged file is kept when you do.", path.display(), backup_dir(path).display()))
+                e.context(format!("{} is damaged and cannot be read. {}.", path.display(), damaged_database_guidance(path)))
             } else {
                 e
             }
@@ -571,7 +619,7 @@ impl Store {
             if has_data(&conn)? {
                 let problems = damage(&conn).unwrap_or_else(|e| vec![e.to_string()]);
                 if !problems.is_empty() {
-                    bail!("{} is damaged and was not upgraded ({}). Restore a copy from {} with `heron restore`.", path.display(), problems.join("; "), backup_dir(path).display());
+                    bail!("{} is damaged and was not upgraded ({}). {}.", path.display(), problems.join("; "), damaged_database_guidance(path));
                 }
                 let copy = snapshot(&conn, path, &format!("before-upgrade-from-v{found}"))?;
                 // Another program may have finished the upgrade while the copy was being made. Then the
@@ -585,7 +633,7 @@ impl Store {
                 migrate(&mut conn, STEPS)?;
             }
         }
-        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: Some(path.to_path_buf()) })
+        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: Some(path.to_path_buf()), live_policy: Default::default() })
     }
 
     #[cfg(test)]
@@ -598,7 +646,7 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(PRAGMAS)?;
         migrate(&mut conn, STEPS)?;
-        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: None })
+        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: None, live_policy: Default::default() })
     }
 
     /// The data format of the open database.
@@ -647,6 +695,11 @@ impl Store {
         if !problems.is_empty() {
             bail!("{} is damaged and was not restored ({})", from.display(), problems.join("; "));
         }
+        // Checked before anything is copied: the upgrade below writes, and would set them off.
+        let foreign = foreign_schema(&source)?;
+        if !foreign.is_empty() {
+            bail!("{} was not restored: it holds SQL that Heron's own data does not ({}), which could change your permission rules behind your back. Restore a copy Heron made", from.display(), foreign.join(", "));
+        }
         if let Some(p) = path.parent() {
             std::fs::create_dir_all(p)?;
         }
@@ -682,6 +735,24 @@ impl Store {
         Ok(previous)
     }
 
+    /// The value of `k` in the kv table of the database at `path`, read without opening it as Heron
+    /// does (no upgrade, nothing written). `None` when there is no database or no such value. While
+    /// another program is writing, it waits as [`Store::open`] does before it gives up with an error.
+    pub fn peek_kv(path: &Path, k: &str) -> Result<Option<String>> {
+        Ok(Self::peek(path, |conn| conn.query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional())?.flatten())
+    }
+
+    /// Run `read` on the database at `path`, opened read-only without opening it as Heron does (no
+    /// upgrade, nothing written). `None` when there is no database. While another program is
+    /// writing, it waits as [`Store::open`] does before it gives up with an error.
+    pub fn peek<T>(path: &Path, read: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> Result<Option<T>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        let conn = peek_connection(path)?;
+        Ok(Some(read(&conn)?))
+    }
+
     /// Housekeeping for a long-running process: fold the write-ahead log back into the main file so it
     /// cannot grow without limit, and let SQLite refresh its query statistics.
     pub fn maintain(&self) -> Result<()> {
@@ -690,6 +761,18 @@ impl Store {
         db.execute_batch("PRAGMA optimize;")?;
         db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).optional()?;
         Ok(())
+    }
+
+    /// The live permission policy of the app that owns this store, while that app exists. A tool
+    /// call reads its standing `read:` rules from here rather than from its settings snapshot, so a
+    /// rule revoked during a run is gone for the run's next command.
+    pub fn live_policy(&self) -> Option<Arc<crate::permissions::Policy>> {
+        self.live_policy.read().unwrap_or_else(|e| e.into_inner()).upgrade()
+    }
+
+    /// Make `policy` the one [`Store::live_policy`] returns, for this store and its clones.
+    pub(crate) fn set_live_policy(&self, policy: &Arc<crate::permissions::Policy>) {
+        *self.live_policy.write().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(policy);
     }
 
     fn db(&self) -> MutexGuard<'_, Connection> {
@@ -892,19 +975,30 @@ impl Store {
     /// Vectors of current facts made by one embedder. Vectors from different embedders live in
     /// different spaces and must never be compared with each other.
     pub fn memory_embeddings(&self, embedder: &str) -> Result<Vec<(i64, Vec<u8>)>> {
+        self.memory_embeddings_where(embedder, None)
+    }
+
+    /// As `memory_embeddings`, keeping only confirmed (`Some(true)`) or only unconfirmed (`Some(false)`) facts.
+    pub fn memory_embeddings_where(&self, embedder: &str, confirmed: Option<bool>) -> Result<Vec<(i64, Vec<u8>)>> {
         let db = self.db();
-        let mut st = db.prepare("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL AND invalid_at IS NULL AND embedder=?")?;
-        let v = st.query_map([embedder], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        let mut st = db.prepare("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL AND invalid_at IS NULL AND embedder=?1 AND (?2 IS NULL OR confirmed=?2)")?;
+        let v = st.query_map(params![embedder, confirmed.map(|c| c as i64)], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
         Ok(v)
     }
 
     /// Full-text search over current facts; returns ids ordered best-first.
     pub fn fts_memories(&self, match_expr: &str, limit: usize) -> Result<Vec<i64>> {
+        self.fts_memories_where(match_expr, limit, None)
+    }
+
+    /// As `fts_memories`, keeping only confirmed (`Some(true)`) or only unconfirmed (`Some(false)`) facts,
+    /// chosen in the query so the other kind cannot use up the `limit`.
+    pub fn fts_memories_where(&self, match_expr: &str, limit: usize, confirmed: Option<bool>) -> Result<Vec<i64>> {
         let db = self.db();
         let mut st = db.prepare(
-            "SELECT f.rowid FROM memories_fts f JOIN memories m ON m.id=f.rowid WHERE memories_fts MATCH ? AND m.invalid_at IS NULL ORDER BY bm25(memories_fts) LIMIT ?",
+            "SELECT f.rowid FROM memories_fts f JOIN memories m ON m.id=f.rowid WHERE memories_fts MATCH ?1 AND m.invalid_at IS NULL AND (?3 IS NULL OR m.confirmed=?3) ORDER BY bm25(memories_fts) LIMIT ?2",
         )?;
-        let v = st.query_map(params![match_expr, limit as i64], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        let v = st.query_map(params![match_expr, limit as i64, confirmed.map(|c| c as i64)], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
         Ok(v)
     }
 
@@ -1586,9 +1680,33 @@ impl Store {
         self.db().query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).ok()
     }
 
+    /// [`Store::kv_get`], where a database that cannot be read is an error, not "no value".
+    pub fn kv_read(&self, k: &str) -> Result<Option<String>> {
+        Ok(self.db().query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional()?)
+    }
+
     pub fn kv_set(&self, k: &str, v: &str) -> Result<()> {
         self.db().execute("INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", params![k, v])?;
         Ok(())
+    }
+
+    /// Remove `k`, so it reads as no value at all.
+    pub fn kv_delete(&self, k: &str) -> Result<()> {
+        self.db().execute("DELETE FROM kv WHERE k=?", [k])?;
+        Ok(())
+    }
+
+    /// Read a value and write what `change` makes of it, holding the database's write lock from the
+    /// read to the write, so another program on the same database cannot write in between. Returns
+    /// what was written.
+    pub fn kv_update(&self, k: &str, change: impl FnOnce(Option<String>) -> String) -> Result<String> {
+        let mut db = self.db();
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let old: Option<String> = tx.query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional()?;
+        let new = change(old);
+        tx.execute("INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", params![k, new])?;
+        tx.commit()?;
+        Ok(new)
     }
 }
 
