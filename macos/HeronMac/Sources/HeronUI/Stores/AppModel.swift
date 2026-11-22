@@ -50,6 +50,7 @@ public final class AppModel {
     public let persona: PersonaStore
     public let firstRun: FirstRunStore
     public let features: FeaturesSettingsStore
+    public let shortcuts: ShortcutsPickerStore
 
     public var selection: Destination = .today
     public var settingsTab: SettingsTab = .general
@@ -70,7 +71,8 @@ public final class AppModel {
 
     public init(client: any CoreClientProtocol, preferences: DisplayPreferences? = nil,
                 userFirstName: String? = nil, now: @escaping () -> Date = Date.init,
-                features featuresClient: (any FeaturesClientProtocol)? = nil) {
+                features featuresClient: (any FeaturesClientProtocol)? = nil,
+                shortcuts shortcutsClient: (any ShortcutsClientProtocol)? = nil) {
         self.client = client
         self.preferences = preferences ?? DisplayPreferences()
         self.now = now
@@ -96,6 +98,15 @@ public final class AppModel {
             featuresBackend = FeaturesClient(endpoint: { [client] in client.endpoint })
         }
         features = FeaturesSettingsStore(client: featuresBackend)
+        let shortcutsBackend: any ShortcutsClientProtocol
+        if let shortcutsClient {
+            shortcutsBackend = shortcutsClient
+        } else if client is PreviewCoreClient {
+            shortcutsBackend = PreviewShortcutsClient()
+        } else {
+            shortcutsBackend = ShortcutsClient(endpoint: { [client] in client.endpoint })
+        }
+        shortcuts = ShortcutsPickerStore(client: shortcutsBackend)
         chat.onOtherApproval = { [weak self] event in self?.addToFeed(event) }
     }
 

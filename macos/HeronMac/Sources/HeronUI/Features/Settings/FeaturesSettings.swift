@@ -129,6 +129,8 @@ public final class FeaturesSettingsStore {
 /// The Features tab: one `RowGroup` of switches. A denied row names its permission and opens its System Settings pane.
 struct FeaturesSettingsView: View {
     let store: FeaturesSettingsStore
+    /// F5's picker, shown under the list while "Run your Shortcuts" is on.
+    let shortcuts: ShortcutsPickerStore
     @Environment(\.heronTheme) private var theme
 
     var body: some View {
@@ -153,6 +155,9 @@ struct FeaturesSettingsView: View {
             }
             if let message = store.errorMessage {
                 Text(message).font(HeronFont.callout).foregroundStyle(theme.danger).fixedSize(horizontal: false, vertical: true)
+            }
+            if items.first(where: { $0.row.key == ShortcutsFeature.row.key })?.on == true {
+                ShortcutsPickerView(store: shortcuts)
             }
         }
         .task { await store.load() }

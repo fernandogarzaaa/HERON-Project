@@ -137,8 +137,14 @@ compile until that test names it.
 Any new way content enters a turn joins `ContentEntry`, as trusted or tainting, and gets a row here.
 
 Processes Heron starts outside the shell tool, the model CLIs, MCP server programs and
-`notify_command`: none yet. A feature that starts one adds a row here with the binary, its
+`notify_command` are listed below. A feature that starts one adds a line here with the binary, its
 argument shapes, and why it does not run under the OS sandbox.
+
+- /usr/bin/shortcuts (list; run <ticked name>): runs outside the sandbox; every run asks once.
+  - Why: a shortcut's actions run inside the Shortcuts service, not in this process, so a sandbox
+    around this process would contain nothing. `run` takes only a name on `shortcuts_allowed`, plus
+    `--input-path` and `--output-path` files in a private temporary folder that is removed afterwards.
+    In Yolo mode on a clean conversation it runs without asking.
 
 ## Known weaknesses (not mitigated)
 

@@ -36,6 +36,7 @@ final class ModelDecodingTests: XCTestCase {
             "providers.json": { _ = try CoreWire.providers($0, settings: nil) },
             "risk-notice.json": { _ = try CoreWire.riskNotice($0) },
             "settings.json": { _ = try CoreWire.settings($0) },
+            "shortcuts.json": { _ = try ShortcutsWire.list($0) },
             "today.json": { _ = try CoreWire.today($0) },
             "events-approval.jsonl": { _ = try CoreWire.events(jsonLines: String(decoding: $0, as: UTF8.self)) },
             "events-error.jsonl": { _ = try CoreWire.events(jsonLines: String(decoding: $0, as: UTF8.self)) },

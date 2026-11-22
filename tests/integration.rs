@@ -1391,6 +1391,107 @@ async fn api_events_notify_flag_routes_notices() {
     }
 }
 
+// ---------- Run your Shortcuts (heron-v1-features F5) ----------
+
+/// While this lives, `HERON_SHORTCUTS_BIN` names a fake `shortcuts` binary (a debug build reads it on
+/// every call). The variable is process-wide, so the guard also holds a lock: tests that use it take turns.
+struct FakeShortcuts {
+    _lock: tokio::sync::MutexGuard<'static, ()>,
+    _dir: tempfile::TempDir,
+}
+
+static FAKE_SHORTCUTS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// The fake lists "Get Notes", "Add Reminder" and "Send Message" (with a blank line between), and fails
+/// every other call, as the real tool would for a subcommand it does not know.
+const FAKE_SHORTCUTS_LIST: &str = "#!/bin/sh\n[ \"$1\" = list ] || exit 2\nprintf 'Get Notes\\nAdd Reminder\\n\\nSend Message\\n'\n";
+
+impl FakeShortcuts {
+    /// A fake binary with `script` as its whole file, or, with `None`, a path with nothing at it.
+    async fn new(script: Option<&str>) -> FakeShortcuts {
+        let lock = FAKE_SHORTCUTS_LOCK.lock().await;
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("shortcuts");
+        if let Some(script) = script {
+            std::fs::write(&bin, script).unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        std::env::set_var("HERON_SHORTCUTS_BIN", &bin);
+        FakeShortcuts { _lock: lock, _dir: dir }
+    }
+}
+
+impl Drop for FakeShortcuts {
+    fn drop(&mut self) {
+        std::env::remove_var("HERON_SHORTCUTS_BIN");
+    }
+}
+
+/// `GET /api/shortcuts` lists what `shortcuts list` gives and what is ticked, `POST
+/// /api/shortcuts/allowed` saves only names that exist (to the file and the running core), and unticking
+/// everything is saved too. Without the binary the list is empty and nothing can be ticked; with the key
+/// off both routes answer 409. Run against a fake binary, over a real socket.
+#[tokio::test]
+async fn api_shortcuts_lists_and_saves_the_allowlist() {
+    let fake = FakeShortcuts::new(Some(FAKE_SHORTCUTS_LIST)).await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = scripted_app(dir.path(), vec![], |_| {}).await;
+    let home = app.cfg().home.clone();
+    let api = serve(app.clone()).await;
+    let saved = || Config::read_saved(&home).unwrap().features.shortcuts_allowed;
+
+    // Nothing is ticked at first; the blank line in the listing is not a shortcut.
+    assert_eq!(api.get_json("/shortcuts").await, json!({"available": true, "shortcuts": ["Get Notes", "Add Reminder", "Send Message"], "allowed": []}));
+
+    // Ticking saves in order, drops a repeat, and the running core sees it at once.
+    let reply = api.post_json("/shortcuts/allowed", json!({"names": ["Add Reminder", "Get Notes", "Get Notes"]})).await;
+    assert_eq!(reply, json!({"allowed": ["Add Reminder", "Get Notes"]}));
+    assert_eq!(saved(), ["Add Reminder", "Get Notes"], "config.toml holds it");
+    assert_eq!(app.cfg().features.shortcuts_allowed, ["Add Reminder", "Get Notes"]);
+    assert_eq!(api.get_json("/shortcuts").await["allowed"], json!(["Add Reminder", "Get Notes"]));
+
+    // A name `shortcuts list` does not give (a different case or spacing included) is a 400, and
+    // nothing changes, the other names in the request included.
+    for bad in ["Delete Everything", "get notes", "Get Notes ", ""] {
+        let reply = api.post("/shortcuts/allowed").json(&json!({"names": ["Send Message", bad]})).send().await.unwrap();
+        assert_eq!(reply.status(), 400, "{bad:?}");
+        let body: Value = reply.json().await.unwrap();
+        assert_eq!(body["error"], "unknown_shortcut", "{bad:?}: {body}");
+        assert!(body["message"].as_str().is_some_and(|m| m.contains(&format!("\"{bad}\""))), "{body}");
+        assert_eq!(saved(), ["Add Reminder", "Get Notes"], "{bad:?}: nothing was saved");
+        assert_eq!(app.cfg().features.shortcuts_allowed, ["Add Reminder", "Get Notes"]);
+    }
+
+    // The routes need the token like every other.
+    assert_eq!(api.http.get(format!("{}/api/shortcuts", api.base)).send().await.unwrap().status(), 401);
+    assert_eq!(api.http.post(format!("{}/api/shortcuts/allowed", api.base)).json(&json!({"names": []})).send().await.unwrap().status(), 401);
+    assert_eq!(saved(), ["Add Reminder", "Get Notes"]);
+
+    // Unticking every one is saved.
+    assert_eq!(api.post_json("/shortcuts/allowed", json!({"names": []})).await, json!({"allowed": []}));
+    assert!(saved().is_empty(), "the empty list reached config.toml");
+    assert!(app.cfg().features.shortcuts_allowed.is_empty());
+    api.post_json("/shortcuts/allowed", json!({"names": ["Get Notes"]})).await;
+
+    // Without the binary: not available, the ticked name is still reported, and nothing can be ticked.
+    drop(fake);
+    let _missing = FakeShortcuts::new(None).await;
+    assert_eq!(api.get_json("/shortcuts").await, json!({"available": false, "shortcuts": [], "allowed": ["Get Notes"]}));
+    assert_eq!(api.status_of_post("/shortcuts/allowed", json!({"names": ["Send Message"]})).await, 400);
+    assert_eq!(saved(), ["Get Notes"], "a refused request saves nothing");
+
+    // With the key off, both routes answer 409 and nothing is saved.
+    api.post_json("/features/shortcuts", json!({"on": false})).await;
+    let reply = api.get("/shortcuts").send().await.unwrap();
+    assert_eq!(reply.status(), 409);
+    assert_eq!(reply.json::<Value>().await.unwrap()["error"], "feature_off");
+    let reply = api.post("/shortcuts/allowed").json(&json!({"names": []})).send().await.unwrap();
+    assert_eq!(reply.status(), 409);
+    assert_eq!(reply.json::<Value>().await.unwrap()["error"], "feature_off");
+    assert_eq!(saved(), ["Get Notes"]);
+}
+
 // ---------- the recorded API fixtures (U4 decodes these) ----------
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/api");
@@ -1629,6 +1730,9 @@ async fn api_fixtures_match_the_live_core() {
     let app = Arc::new(App::build(demo_config("home"), dir.path().join("ws")).await.unwrap());
     heron::risk_notice::accept_current(&app.store).unwrap();
     let api = serve(app.clone()).await;
+    // F5: the shortcuts list comes from a fake binary with one name ticked, so the recording has items.
+    let _shortcuts = FakeShortcuts::new(Some(FAKE_SHORTCUTS_LIST)).await;
+    api.post_json("/shortcuts/allowed", json!({"names": ["Get Notes"]})).await;
     let approval_run = record_run(&api, "Save a plan as plan.md").await;
     let kinds = types(&approval_run);
     for wanted in ["session", "approval", "approval_resolved", "tool_start", "tool_end", "done", "run_end"] {
@@ -1660,9 +1764,10 @@ async fn api_fixtures_match_the_live_core() {
         ("audit.json", api.get_json("/audit").await),
         ("nevers.json", api.get_json("/nevers").await),
         ("features.json", api.get_json("/features").await),
+        ("shortcuts.json", api.get_json("/shortcuts").await),
     ];
     // A recording with an empty list would teach U4's decoder nothing about its items.
-    for (name, list) in [("sessions.json", &responses[1].1), ("approvals.json", &responses[3].1), ("providers.json", &responses[4].1), ("grants.json", &responses[5].1), ("audit.json", &responses[10].1["entries"]), ("nevers.json", &responses[11].1)] {
+    for (name, list) in [("sessions.json", &responses[1].1), ("approvals.json", &responses[3].1), ("providers.json", &responses[4].1), ("grants.json", &responses[5].1), ("audit.json", &responses[10].1["entries"]), ("nevers.json", &responses[11].1), ("shortcuts.json", &responses[13].1["shortcuts"]), ("shortcuts.json", &responses[13].1["allowed"])] {
         assert!(!list.as_array().unwrap().is_empty(), "{name} has no items to record");
     }
     // M9: the activity log says which model acted.

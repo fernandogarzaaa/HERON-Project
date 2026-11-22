@@ -20,6 +20,8 @@ pub struct FeatureKey {
 pub static KEYS: &[FeatureKey] = &[
     #[cfg(test)]
     FeatureKey { key: "test_key", title: "Test feature", default: false },
+    // F5. On, but nothing runs until the owner ticks a shortcut: `shortcuts_allowed` starts empty.
+    FeatureKey { key: crate::tools::shortcuts::KEY, title: "Run your Shortcuts", default: true },
 ];
 
 /// The key named `key`, if there is one.

@@ -177,7 +177,10 @@ fn terminal_ask(req: &ApprovalRequest, st: Style, input: &mut dyn std::io::BufRe
     if req.tainted {
         let _ = writeln!(out, "  {}", st.yellow("Content from outside (a web page, email or connected app) is in this conversation and may have influenced this request."));
     }
-    for line in req.detail.lines().take(30) {
+    // A once-only tool's input is the thing being approved (a shortcut's input can carry injected
+    // text far below its first lines), so it is shown whole; other tools show their first 30 lines.
+    let shown = if heron::permissions::once_only(&req.tool) { usize::MAX } else { 30 };
+    for line in req.detail.lines().take(shown) {
         let _ = writeln!(out, "  {line}");
     }
     let can_always = req.can_always();
@@ -1108,6 +1111,38 @@ mod tests {
             "failed printing to stdout: Input/output error (os error 5)"
         ));
         assert!(!is_broken_pipe_print("something else entirely"));
+    }
+
+    /// A once-only tool's whole detail is shown, so injected text after line 30 of a shortcut's input
+    /// is seen before the owner says yes; an ordinary tool still shows its first 30 lines.
+    #[test]
+    fn terminal_shows_the_full_input_of_a_once_only_tool() {
+        use heron::permissions::{ApprovalRequest, Effect};
+        let detail = format!("Run the shortcut \"Get Notes\" with this input:\n{}\nINJECTED-AT-THE-END", (1..=40).map(|i| format!("harmless {i}")).collect::<Vec<_>>().join("\n"));
+        let req = |tool: &str| ApprovalRequest {
+            tool: tool.into(),
+            summary: "Get Notes".into(),
+            risk: Effect::ExternalWrite,
+            detail: detail.clone(),
+            tainted: true,
+            args: serde_json::json!({"name": "Get Notes"}),
+            session_id: "s".into(),
+            always_rule: None,
+        };
+        let shown = |tool: &str| {
+            let mut out = Vec::new();
+            terminal_ask(&req(tool), Style { on: false }, &mut "n\n".as_bytes(), &mut out);
+            String::from_utf8(out).unwrap()
+        };
+        for tool in ["run_shortcut", "draft_email"] {
+            let text = shown(tool);
+            for line in detail.lines() {
+                assert!(text.contains(&format!("  {line}\n")), "{tool}: {line:?} missing from {text}");
+            }
+        }
+        // An ordinary tool is cut at 30 lines, as before.
+        let text = shown("write_file");
+        assert!(text.contains("  harmless 29\n") && !text.contains("harmless 30") && !text.contains("INJECTED-AT-THE-END"), "{text}");
     }
 
     /// What the terminal prompt (`TerminalApprover`'s question) and Telegram offer for a once-only

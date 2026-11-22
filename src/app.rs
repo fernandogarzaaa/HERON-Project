@@ -1896,6 +1896,10 @@ impl App {
         let tainted_now = sees_conversation_grants && self.store.kv_get(&format!("tainted:{}", parked.session_id)).is_some();
         ctx.tainted = Arc::new(std::sync::atomic::AtomicBool::new(parked.tainted || tainted_now));
         // Re-check against today's rules: what was allowed to be asked then may be blocked now.
+        if let Some(reason) = tool.refusal(&args, &ctx) {
+            self.store.resolve_approval(id, "blocked", Some(&reason))?;
+            anyhow::bail!("Heron cannot do this: {reason}");
+        }
         let risk = tool.risk(&args, &ctx);
         let (summary, target) = (tool.summary(&args), tool.read_target(&args, &ctx));
         let call = crate::permissions::Call { tool: &parked.tool, summary: &summary, effect: risk, read_target: target.as_deref() };
@@ -2683,6 +2687,29 @@ mod tests {
         let on = park();
         assert_eq!(app.run_parked(on).await.unwrap(), "the test feature ran");
         assert_eq!(app.store.get_approval(on).unwrap().status, "approved");
+    }
+
+    /// F5: a shortcut call parked while the shortcut was ticked is refused, not run, once the owner
+    /// has unticked it; and runs once it is ticked again.
+    #[tokio::test]
+    async fn parked_shortcut_unticked_since_is_refused() {
+        use crate::tools::shortcuts::{recording_bin, test_bin, NOT_ALLOWED};
+        let (dir, bins, rec) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let _fake = test_bin::fake(recording_bin(bins.path(), rec.path())).await;
+        let app = plain_app(dir.path(), vec![], |c| c.features.shortcuts_allowed = vec!["Get Notes".into()]).await;
+        let session = Session::create(&app.store, "").unwrap();
+        let tick = |names: Vec<String>| app.update_config(ConfigChange::edit(move |c| c.features.shortcuts_allowed = names)).unwrap();
+        let park = || app.store.park_approval(&session.id, "run_shortcut", "{\"name\":\"Get Notes\"}", "Get Notes", "", "external", false, "a job").unwrap();
+        let unticked = park();
+        tick(vec![]);
+        let err = app.run_parked(unticked).await.unwrap_err().to_string();
+        assert!(err.contains(NOT_ALLOWED), "{err}");
+        assert_eq!(app.store.get_approval(unticked).unwrap().status, "blocked");
+        assert!(!rec.path().join("argv").exists(), "it never ran");
+        tick(vec!["Get Notes".into()]);
+        let ticked = park();
+        assert_eq!(app.run_parked(ticked).await.unwrap(), "done");
+        assert_eq!(app.store.get_approval(ticked).unwrap().status, "approved");
     }
 
     #[tokio::test]

@@ -4,6 +4,7 @@
 pub mod fs;
 pub mod personal;
 pub mod shell;
+pub mod shortcuts;
 pub mod web;
 
 use crate::config::Config;
@@ -122,6 +123,12 @@ pub trait Tool: Send + Sync {
     fn feature(&self) -> Option<&'static str> {
         None
     }
+    /// Why this call is refused before the decision function runs, whatever the mode, rules or
+    /// grants say (`run_shortcut` with a name the owner has not ticked). `None` for a call that goes
+    /// on to the decision function.
+    fn refusal(&self, _args: &Value, _ctx: &ToolCtx) -> Option<String> {
+        None
+    }
     async fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<String>;
 }
 
@@ -194,6 +201,7 @@ impl ToolRegistry {
         for t in fs::tools().into_iter().chain(shell::tools()).chain(web::tools()).chain(personal::tools()) {
             r.register(Arc::new(t));
         }
+        r.register(Arc::new(shortcuts::RunShortcut));
         #[cfg(test)]
         r.register(Arc::new(test_feature_tool()));
         r
