@@ -1513,7 +1513,7 @@
       "claim_token": "4bafa9a67ed846819d1820dc75c7913d",
       "claimed_at": "2026-11-22T09:26:45.215217+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T09:27:45.716070+00:00",
+      "last_heartbeat": "2026-11-22T09:28:45.824056+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1538,7 +1538,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 5,
+    "version": 7,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -1632,7 +1632,16 @@
     }
   },
   "F1d": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "6009d18b3c6d409f89e2e5fe5198ad26",
+        "ended_at": "2026-11-22T09:29:03.477027+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:27:25.270063+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1644,19 +1653,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "6009d18b3c6d409f89e2e5fe5198ad26",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "d5732699b8a641d5b0383870a76ec01b",
-      "claimed_at": "2026-11-22T09:27:25.270063+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:27:55.721089+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "test -s docs/features/quick_entry.md && grep -qxF -- '- ChatContext (Services selection, App Intent text, window text): outside content; taints the session.' docs/engineering/SECURITY_THREAT_MODEL.md",
+        "duration_ms": 238,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1d_20261122T092903145648_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1d_20261122T092903384582_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: F1g runs after F1a, F1c and F1p finish.",
     "id": "F1d",
     "integration_for": null,
     "intent": {
@@ -1668,13 +1689,36 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "6009d18b3c6d409f89e2e5fe5198ad26",
+      "base_commit": "bd770b9c1018a4cad0baa4ed0aebe15e56c4ab43",
+      "changed_files": [
+        "docs/engineering/SECURITY_THREAT_MODEL.md",
+        "docs/features/README.md",
+        "docs/features/quick_entry.md"
+      ],
+      "commit": "2940415acadfeac08c0b156d671b488b26b9ac49",
+      "diff_stats": {
+        "docs/engineering/SECURITY_THREAT_MODEL.md": {
+          "added": 4,
+          "deleted": 0
+        },
+        "docs/features/README.md": {
+          "added": 2,
+          "deleted": 0
+        },
+        "docs/features/quick_entry.md": {
+          "added": 65,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "F1: guide, threat-model line, index line",
-    "version": 4,
+    "version": 7,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "bd770b9c1018a4cad0baa4ed0aebe15e56c4ab43",
@@ -1997,7 +2041,7 @@
       "claim_token": "4f24bda6e109434cb4029f3ac436505d",
       "claimed_at": "2026-11-22T09:28:07.903394+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:28:07.903394+00:00",
+      "last_heartbeat": "2026-11-22T09:28:38.335441+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -2020,9 +2064,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F2: why text, session taint, Telegram sentence",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "60f8a3020282ed59e863bc50a0796511e74daddb",
