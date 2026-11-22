@@ -3909,7 +3909,16 @@
     }
   },
   "F5-fix-1": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "f4dbec8d9bc54d4abfb9baaeb271b07f",
+        "ended_at": "2026-11-22T11:03:45.186044+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T11:00:03.653676+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -3921,21 +3930,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "f4dbec8d9bc54d4abfb9baaeb271b07f",
-      "base_branch": "271ce07d639562a10b67169cb722d64080194bdf",
-      "claim_token": "cf317b355394452687973eb9ae8a71fa",
-      "claimed_at": "2026-11-22T11:00:03.653676+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T11:01:34.199912+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F5a"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib --bins -- terminal_shows_the_full_input_of_a_once_only_tool shortcut_name_starting_with_a_dash_is_refused",
+        "duration_ms": 83236,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5-fix-1_20261122T110221767281_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5-fix-1_20261122T110345004779_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F5-fix-1",
     "integration_for": null,
     "intent": {
@@ -3947,13 +3968,36 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "f4dbec8d9bc54d4abfb9baaeb271b07f",
+      "base_commit": "271ce07d639562a10b67169cb722d64080194bdf",
+      "changed_files": [
+        "src/main.rs",
+        "src/server.rs",
+        "src/tools/shortcuts.rs"
+      ],
+      "commit": "65ff096ca16825c452ce26e792bb1bf3b34ce326",
+      "diff_stats": {
+        "src/main.rs": {
+          "added": 36,
+          "deleted": 1
+        },
+        "src/server.rs": {
+          "added": 18,
+          "deleted": 1
+        },
+        "src/tools/shortcuts.rs": {
+          "added": 39,
+          "deleted": 2
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Fix F5 review findings (core)",
-    "version": 6,
+    "version": 11,
     "worktree": {
       "base_branch": "271ce07d639562a10b67169cb722d64080194bdf",
       "base_commit": "271ce07d639562a10b67169cb722d64080194bdf",
@@ -5717,7 +5761,7 @@
       "claim_token": "8652251692664f638a17e7fb2908e553",
       "claimed_at": "2026-11-22T11:01:38.350224+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:01:38.350224+00:00",
+      "last_heartbeat": "2026-11-22T11:03:39.051724+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -5742,9 +5786,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Fix F9 review findings (app)",
-    "version": 3,
+    "version": 7,
     "worktree": {
       "base_branch": "506fbcd40983a0cf95c8663d1a34d1bcd9434db5",
       "base_commit": "506fbcd40983a0cf95c8663d1a34d1bcd9434db5",
