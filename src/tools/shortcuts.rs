@@ -599,6 +599,84 @@ exit 3"#,
         }
     }
 
+    /// `list` answers `None` ("no such binary", which `GET /api/shortcuts` shows as `available: false`)
+    /// only when the binary is missing. A binary that is there but cannot be started (not executable,
+    /// or a folder) is an error, so a broken install is not reported as a Mac without Shortcuts.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_binary_that_cannot_start_is_not_a_missing_binary() {
+        use std::os::unix::fs::PermissionsExt;
+        let bins = tempfile::tempdir().unwrap();
+        let limit = Duration::from_secs(20);
+
+        // The control: a missing binary is `None` for `list`, and an error naming the start for `run`.
+        let missing = bins.path().join("not-there");
+        assert_eq!(list(&missing, &env).await.unwrap(), None);
+        assert!(run(&missing, "Get Notes", None, limit, &env).await.unwrap_err().to_string().contains("could not start"));
+
+        // A file that exists but has no execute permission, and a folder.
+        let not_executable = bins.path().join("not-executable");
+        std::fs::write(&not_executable, "#!/bin/sh\necho 'Get Notes'\n").unwrap();
+        std::fs::set_permissions(&not_executable, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let folder = bins.path().join("a-folder");
+        std::fs::create_dir(&folder).unwrap();
+        for bin in [&not_executable, &folder] {
+            let err = list(bin, &env).await.expect_err(&format!("{bin:?}: a binary that exists is never reported as missing")).to_string();
+            assert!(err.contains("could not start") && err.contains(&bin.display().to_string()), "{err}");
+            let err = run(bin, "Get Notes", None, limit, &env).await.unwrap_err().to_string();
+            assert!(err.contains("could not start"), "{err}");
+        }
+    }
+
+    /// An output file that cannot be read for a reason other than "it is not there" is an error. Only a
+    /// missing file means a shortcut with no output (an empty result).
+    #[tokio::test]
+    async fn an_unreadable_output_file_is_an_error_not_an_empty_result() {
+        let bins = tempfile::tempdir().unwrap();
+        let limit = Duration::from_secs(20);
+        // The shortcut exits 0 and leaves a folder where the output file should be.
+        let bin = fake_bin(bins.path(), "for a in \"$@\"; do out=\"$a\"; done\nmkdir \"$out\"");
+        let err = run(&bin, "Get Notes", None, limit, &env).await.unwrap_err().to_string();
+        assert!(err.contains("could not read the output of shortcut Get Notes"), "{err}");
+
+        // The control: no file at all is an empty result.
+        let bin = fake_bin(bins.path(), "exit 0");
+        assert_eq!(run(&bin, "Get Notes", None, limit, &env).await.unwrap(), "");
+    }
+
+    /// A child's stdout is kept up to 1 MiB (`PIPE_CAP`) and the rest is read and dropped. `list` shows
+    /// it: one very long line comes back as exactly the first 1,048,576 bytes, a line of exactly that
+    /// size comes back whole, and the child is never blocked on a full pipe.
+    #[tokio::test]
+    async fn child_output_is_kept_up_to_one_mebibyte() {
+        let bins = tempfile::tempdir().unwrap();
+        let cap = 1024 * 1024;
+        let one_line = |bytes: usize| fake_bin(bins.path(), &format!("head -c {bytes} /dev/zero | tr '\\0' a"));
+
+        for (written, kept) in [(cap - 1, cap - 1), (cap, cap), (cap + 1, cap), (cap + 100_000, cap), (cap * 3, cap)] {
+            let names = tokio::time::timeout(Duration::from_secs(20), list(&one_line(written), &env)).await.expect("the child was not blocked").unwrap().unwrap();
+            assert_eq!(names.len(), 1, "{written}");
+            assert_eq!(names[0].len(), kept, "{written} bytes written");
+            assert!(names[0].bytes().all(|b| b == b'a'));
+        }
+        // Well under the cap, several lines of more than 2 KiB in all come back whole.
+        let bin = fake_bin(bins.path(), "i=0; while [ $i -lt 300 ]; do echo \"Shortcut number $i\"; i=$((i+1)); done");
+        let names = list(&bin, &env).await.unwrap().unwrap();
+        assert_eq!((names.len(), names[0].as_str(), names[299].as_str()), (300, "Shortcut number 0", "Shortcut number 299"));
+    }
+
+    /// What the model is told: it can run only shortcuts the owner ticked in Settings, by their exact
+    /// name, and should ask the user when it is unsure of one.
+    #[test]
+    fn the_description_tells_the_model_which_shortcuts_can_run() {
+        let d = RunShortcut.description();
+        assert!(d.contains("Shortcuts"), "{d}");
+        for must in ["Only shortcuts the user has ticked", "Settings › Features › Shortcuts", "exact name", "ask the user", "input", "outputs"] {
+            assert!(d.contains(must), "the description should say {must:?}: {d}");
+        }
+        assert!(d.len() > 100 && d.ends_with('.'), "{d}");
+    }
+
     #[tokio::test]
     async fn run_shortcut_is_external_write_with_untrusted_output() {
         let registry = crate::tools::ToolRegistry::builtin();
