@@ -15,6 +15,8 @@ pub struct Config {
     pub mcp: McpConfig,
     pub sources: SourcesConfig,
     pub telegram: TelegramConfig,
+    /// Core feature keys (see [`crate::features`]).
+    pub features: FeaturesConfig,
     #[serde(skip)]
     pub home: PathBuf,
     /// The standing rules as [`Config::read_saved`] read them from `config.toml`; None when these
@@ -27,6 +29,18 @@ pub struct Config {
     /// that is still current (see `App::update_config`).
     #[serde(skip)]
     pub revision: u64,
+}
+
+/// The `[features]` table: one flag per core key, and the Shortcuts F5 may run.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FeaturesConfig {
+    /// `key = true|false` for each core key that `config.toml` sets. A key it leaves out takes its
+    /// default from [`crate::features::KEYS`].
+    #[serde(flatten)]
+    pub flags: BTreeMap<String, bool>,
+    /// The Shortcuts `run_shortcut` may run, by name. Read only by F5.
+    pub shortcuts_allowed: Vec<String>,
 }
 
 /// `permissions.allow` and `permissions.deny` as they are in `config.toml`.
@@ -257,6 +271,21 @@ pub struct McpServerConfig {
     pub trust: bool,
 }
 
+impl Config {
+    /// Whether the core key `key` is on: its flag in `[features]`, or the key's default when the flag
+    /// is missing. A key that is not in [`crate::features::KEYS`] is off.
+    pub fn feature_on(&self, key: &str) -> bool {
+        crate::features::find(key).is_some_and(|known| self.features.on(known))
+    }
+}
+
+impl FeaturesConfig {
+    /// Whether `key` is on: its flag, or its default when the flag is missing.
+    pub fn on(&self, key: &crate::features::FeatureKey) -> bool {
+        self.flags.get(key.key).copied().unwrap_or(key.default)
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -267,6 +296,7 @@ impl Default for Config {
             mcp: McpConfig::default(),
             sources: SourcesConfig::default(),
             telegram: TelegramConfig::default(),
+            features: FeaturesConfig::default(),
             home: default_home(),
             loaded_rules: None,
             revision: 0,
@@ -1005,6 +1035,34 @@ port = 7878
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_feature_key_takes_its_default() {
+        use crate::features::FeatureKey;
+        let test_key = crate::features::find("test_key").expect("the test-only key is registered");
+        let parse = |text: &str| -> Config { toml::from_str(text).unwrap() };
+        // No `[features]` table, or one that sets other things only: the key's default.
+        for text in ["", "[features]\n", "[features]\nshortcuts_allowed = [\"Get Notes\"]\n"] {
+            let cfg = parse(text);
+            assert_eq!(cfg.feature_on("test_key"), test_key.default, "{text:?}");
+            assert!(cfg.features.flags.is_empty(), "{text:?}: {:?}", cfg.features.flags);
+        }
+        assert_eq!(parse("[features]\nshortcuts_allowed = [\"Get Notes\"]\n").features.shortcuts_allowed, vec!["Get Notes".to_string()]);
+        // A flag that is set wins over the default, either way.
+        for on in [true, false] {
+            assert_eq!(parse(&format!("[features]\ntest_key = {on}\n")).feature_on("test_key"), on);
+        }
+        // The default is the key's own, whichever it is.
+        let none = FeaturesConfig::default();
+        for default in [true, false] {
+            assert_eq!(none.on(&FeatureKey { key: "some_key", title: "Some key", default }), default);
+        }
+        let set = parse("[features]\nsome_key = false\n").features;
+        assert!(!set.on(&FeatureKey { key: "some_key", title: "Some key", default: true }));
+        // A key Heron does not know is off, even when the file turns it on.
+        assert!(!parse("[features]\nno_such_feature = true\n").feature_on("no_such_feature"));
+        assert!(!Config::default().feature_on("no_such_feature"));
+    }
 
     /// Run explicitly on an authorized interactive macOS/Windows desktop.
     /// A mock backend cannot establish the OS vault's availability or ACLs.

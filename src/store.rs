@@ -1696,6 +1696,12 @@ impl Store {
         Ok(())
     }
 
+    /// Write `v` under `k` only if `k` has no value yet, in one statement, so two writers cannot
+    /// both see it missing. True when this call wrote it.
+    pub fn kv_insert_if_absent(&self, k: &str, v: &str) -> Result<bool> {
+        Ok(self.db().execute("INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO NOTHING", params![k, v])? == 1)
+    }
+
     /// Read a value and write what `change` makes of it, holding the database's write lock from the
     /// read to the write, so another program on the same database cannot write in between. Returns
     /// what was written.

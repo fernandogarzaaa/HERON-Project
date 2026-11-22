@@ -306,6 +306,9 @@ impl Policy {
         if setting == "allow" && READ_TOOLS.contains(&tool) {
             bail!("reads outside the working folder are granted per folder");
         }
+        if setting == "allow" && once_only(tool) {
+            bail!("{tool} is approved one call at a time, so it cannot be set to allow");
+        }
         Ok(Glob::new(&format!("{tool}:*")).map_err(|e| anyhow!("bad tool name: {e}"))?.compile_matcher())
     }
 
@@ -413,7 +416,8 @@ impl Policy {
         let allowed = if effect == Effect::OutsideRead {
             read_target.is_some_and(|target| allow.iter().any(|(rule, _)| !revoked(rule) && read_rule_covers(rule, target)))
         } else {
-            !effect.high() && allow.iter().any(|(rule, g)| !rule.starts_with("read:") && allow_rule_covers(rule, g, tool, summary, &key))
+            // A once-only tool is never covered by a standing rule, `*` and `tool:*` included.
+            !effect.high() && !once_only(tool) && allow.iter().any(|(rule, g)| !rule.starts_with("read:") && allow_rule_covers(rule, g, tool, summary, &key))
         };
         drop(allow);
         if allowed {
@@ -479,11 +483,19 @@ pub struct ApprovalRequest {
 }
 
 impl ApprovalRequest {
-    /// Whether "always" may be offered: there is a rule to add, the action is not serious, and no
-    /// outside content may have shaped the request.
+    /// Whether "always" may be offered: there is a rule to add, the action is not serious, no
+    /// outside content may have shaped the request, and the tool is not approved once at a time.
+    /// The web approver, the terminal prompt and Telegram all read this.
     pub fn can_always(&self) -> bool {
-        self.always_rule.is_some() && !self.risk.high() && !self.tainted
+        self.always_rule.is_some() && !self.risk.high() && !self.tainted && !once_only(&self.tool)
     }
+}
+
+/// Tools that are approved one call at a time, whatever the mode: no standing rule covers them, no
+/// conversation grant reaches them, "always" is never offered, and they cannot be set to "allow".
+/// A shortcut or an email draft does something different each time it runs.
+pub fn once_only(tool: &str) -> bool {
+    matches!(tool, "run_shortcut" | "draft_email")
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1320,6 +1332,46 @@ pub async fn check_url(raw: &str) -> Result<url::Url> {
 mod tests {
     use super::*;
 
+    /// A standing rule never covers a once-only tool, `*` and the tool's own `tool:*` included. The
+    /// same rules cover an ordinary tool with the same effect, and the user's "never" still applies.
+    #[test]
+    fn once_only_tools_ignore_star_rules() {
+        let rules: Vec<String> = ["*", "run_shortcut:*", "draft_email:*", "write_file:*"].iter().map(|r| r.to_string()).collect();
+        let p = Policy::new(Mode::Ask, &rules, &[]);
+        // Effects that Ask mode asks about, so only a rule could allow them.
+        for effect in [Effect::WorkspaceWrite, Effect::ProcessExec, Effect::ExternalWrite] {
+            for tool in ["run_shortcut", "draft_email"] {
+                assert_eq!(decide_for(&p, tool, "Get Notes", effect, false), Verdict::Ask, "{tool} {effect:?}");
+            }
+            assert_eq!(decide_for(&p, "write_file", "notes.md", effect, false), Verdict::Allow, "the control: write_file {effect:?}");
+        }
+        assert_eq!(decide_for(&Policy::new(Mode::Ask, &["*".to_string()], &[]), "task_add", "x", Effect::WorkspaceWrite, false), Verdict::Allow, "the control: `*` alone");
+        assert!(once_only("run_shortcut") && once_only("draft_email"));
+        assert!(!once_only("write_file") && !once_only("shell") && !once_only("run_shortcuts"));
+        // A "never" for one still refuses it.
+        let never = Policy::new(Mode::Ask, &rules, &["run_shortcut:*".to_string()]);
+        assert!(matches!(decide_for(&never, "run_shortcut", "Get Notes", Effect::WorkspaceWrite, false), Verdict::Deny(_)));
+    }
+
+    #[test]
+    fn once_only_tools_cannot_be_set_to_allow() {
+        let p = Policy::new(Mode::Ask, &[], &[]);
+        for tool in ["run_shortcut", "draft_email"] {
+            let err = Policy::check_tool_setting(tool, "allow").unwrap_err().to_string();
+            assert!(err.contains("one call at a time"), "{err}");
+            assert!(p.set_tool_setting(tool, "allow").is_err());
+            assert!(p.allow_rules().is_empty(), "{:?}", p.allow_rules());
+            // Asking each time, or never, may still be chosen.
+            Policy::check_tool_setting(tool, "ask").unwrap();
+            p.set_tool_setting(tool, "never").unwrap();
+            assert_eq!(p.tool_setting(tool), "never");
+            p.set_tool_setting(tool, "ask").unwrap();
+        }
+        // The control: an ordinary tool may be set to allow.
+        p.set_tool_setting("write_file", "allow").unwrap();
+        assert_eq!(p.allow_rules(), vec!["write_file:*"]);
+    }
+
     #[test]
     fn shell_classification() {
         for c in ["format C:", "rd /s /q C:\\", "Remove-Item -Recurse -Force C:\\", "del /s /q c:\\ "] {
@@ -1826,7 +1878,7 @@ mod tests {
         let llm = Arc::new(crate::llm::ScriptedLlm::new(vec![crate::llm::Message::assistant("this reply must never be produced")]));
         let app = crate::app::App::assemble(cfg.clone(), cfg.home.join("skills"), crate::store::Store::in_memory().unwrap(), llm.clone()).await.unwrap();
         let mut session = crate::agent::Session::create(&app.store, "refused working folder").unwrap();
-        let err = app.agent(Arc::new(DenyAll)).run_turn(&mut session, "list the files here", &crate::agent::null_sink()).await.unwrap_err();
+        let err = app.agent(Arc::new(DenyAll)).run_turn(&mut session, "list the files here", &[], &crate::agent::null_sink()).await.unwrap_err();
         let text = err.to_string();
         assert!(text.starts_with("the working folder is inside ") && text.ends_with("heron-home, which Heron never reads"), "{text}");
         assert!(llm.requests.lock().unwrap().is_empty(), "the model was asked before the working folder was checked");
@@ -1872,7 +1924,7 @@ mod tests {
         // `assemble` creates and canonicalizes the folder, which a prefixed name can't survive.
         app.workspace = by("/.nofollow", &cfg.home);
         let mut session = crate::agent::Session::create(&app.store, "prefixed working folder").unwrap();
-        let err = app.agent(Arc::new(DenyAll)).run_turn(&mut session, "list the files here", &crate::agent::null_sink()).await.unwrap_err();
+        let err = app.agent(Arc::new(DenyAll)).run_turn(&mut session, "list the files here", &[], &crate::agent::null_sink()).await.unwrap_err();
         assert!(err.downcast_ref::<WorkspaceRefused>().is_some(), "{err:#}");
         assert!(llm.requests.lock().unwrap().is_empty(), "the model was asked before the working folder was checked");
     }

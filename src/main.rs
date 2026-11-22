@@ -226,6 +226,8 @@ fn terminal_sink() -> EventSink {
                 let _ = writeln!(out, "{}", st.dim(&format!("  {n}")));
             }
             Event::Usage(_) => {}
+            // The approval prompt already says when outside content is in the conversation.
+            Event::Tainted { .. } => {}
             Event::Model { name, why } => {
                 let _ = writeln!(out, "{}", st.dim(&format!("  model: {name} ({why})")));
             }
@@ -286,7 +288,7 @@ async fn turn(app: &App, agent: &Agent, session: &mut Session, input: &str) -> R
     // What another Heron on this home granted or revoked since the last turn applies to this one.
     app.reload_rules();
     let result = tokio::select! {
-        r = agent.run_turn(session, input, &sink) => r,
+        r = agent.run_turn(session, input, &[], &sink) => r,
         _ = tokio::signal::ctrl_c() => {
             println!("\n{}", style().dim("  stopped"));
             return Ok(String::new());

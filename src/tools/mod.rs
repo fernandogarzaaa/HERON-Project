@@ -116,6 +116,12 @@ pub trait Tool: Send + Sync {
     fn read_target(&self, _args: &Value, _ctx: &ToolCtx) -> Option<PathBuf> {
         None
     }
+    /// The core feature key this tool belongs to (see [`crate::features`]). While that key is off the
+    /// tool is hidden from the model, refused, and rejected by automations. `None` for a tool that is
+    /// always there.
+    fn feature(&self) -> Option<&'static str> {
+        None
+    }
     async fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<String>;
 }
 
@@ -130,6 +136,8 @@ pub struct FnTool {
     pub untrusted: bool,
     /// For the file-reading tools: the canonical path the call reads.
     pub target: Option<fn(&Value, &ToolCtx) -> PathBuf>,
+    /// The core feature key the tool belongs to, or `None`.
+    pub feature: Option<&'static str>,
     pub run: for<'a> fn(&'a Value, &'a ToolCtx) -> BoxFuture<'a, Result<String>>,
 }
 
@@ -162,6 +170,9 @@ impl Tool for FnTool {
     fn read_target(&self, args: &Value, ctx: &ToolCtx) -> Option<PathBuf> {
         self.target.map(|f| f(args, ctx))
     }
+    fn feature(&self) -> Option<&'static str> {
+        self.feature
+    }
     async fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<String> {
         (self.run)(args, ctx).await
     }
@@ -183,6 +194,8 @@ impl ToolRegistry {
         for t in fs::tools().into_iter().chain(shell::tools()).chain(web::tools()).chain(personal::tools()) {
             r.register(Arc::new(t));
         }
+        #[cfg(test)]
+        r.register(Arc::new(test_feature_tool()));
         r
     }
 
@@ -195,16 +208,49 @@ impl ToolRegistry {
         self.tools.iter().find(|t| t.name() == name).cloned()
     }
 
+    /// Every registered tool's name, whatever its feature key says. What the model, the agent and
+    /// automations may use is [`ToolRegistry::names_for`].
     pub fn names(&self) -> Vec<String> {
         self.tools.iter().map(|t| t.name().to_string()).collect()
     }
 
-    /// OpenAI-format tool definitions.
-    pub fn schemas(&self) -> Vec<Value> {
-        self.tools
-            .iter()
-            .map(|t| json!({"type": "function", "function": {"name": t.name(), "description": t.description(), "parameters": t.parameters()}}))
-            .collect()
+    /// The names of the tools `cfg` makes available: every tool with no feature key, and each tool
+    /// whose key is on. Read when a turn starts, so a key changed in the settings applies from the
+    /// next turn, with no restart.
+    pub fn names_for(&self, cfg: &Config) -> Vec<String> {
+        self.available(cfg).map(|t| t.name().to_string()).collect()
+    }
+
+    /// The tool called `name`, if `cfg` makes it available (see [`ToolRegistry::names_for`]).
+    pub fn get_for(&self, cfg: &Config, name: &str) -> Option<Arc<dyn Tool>> {
+        self.available(cfg).find(|t| t.name() == name).cloned()
+    }
+
+    fn available<'a>(&'a self, cfg: &'a Config) -> impl Iterator<Item = &'a Arc<dyn Tool>> + 'a {
+        self.tools.iter().filter(move |t| t.feature().is_none_or(|key| cfg.feature_on(key)))
+    }
+
+    /// OpenAI-format definitions of the tools `cfg` makes available.
+    pub fn schemas_for(&self, cfg: &Config) -> Vec<Value> {
+        self.available(cfg).map(|t| json!({"type": "function", "function": {"name": t.name(), "description": t.description(), "parameters": t.parameters()}})).collect()
+    }
+}
+
+/// A test-only tool that belongs to the test-only feature key `test_key`, so the switches can be
+/// tested before any feature exists.
+#[cfg(test)]
+pub(crate) fn test_feature_tool() -> FnTool {
+    FnTool {
+        name: "test_feature_tool",
+        description: "A tool that exists only in tests, behind the feature key test_key.",
+        parameters: schema(json!({}), &[]),
+        summary: |_| "the test feature".into(),
+        risk: |_, _| Effect::LocalRead,
+        detail: None,
+        untrusted: false,
+        target: None,
+        feature: Some("test_key"),
+        run: |_, _| Box::pin(async { Ok("the test feature ran".to_string()) }),
     }
 }
 

@@ -198,6 +198,7 @@ pub fn tools() -> Vec<FnTool> {
         risk,
         detail: None,
         untrusted: false,
+        feature: None,
         target: None,
         run: |a, c| Box::pin(run(a, c)),
     }]
