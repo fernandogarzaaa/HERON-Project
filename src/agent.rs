@@ -1359,6 +1359,176 @@ mod tests {
         assert_eq!(rec.audit_ids.len(), 1, "{rec:?}");
     }
 
+    /// A run's sink that publishes to a recording bus and also keeps every event it saw.
+    fn recorded_run_with_events(store: &Store, session_id: &str) -> (crate::events::EventBus, String, EventSink, Arc<Mutex<Vec<Event>>>) {
+        let (bus, run, publish) = recorded_run(store, session_id);
+        let seen = Arc::new(Mutex::new(vec![]));
+        let keep = seen.clone();
+        let sink: EventSink = Arc::new(move |e| {
+            keep.lock().unwrap().push(e.clone());
+            publish(e);
+        });
+        (bus, run, sink, seen)
+    }
+
+    /// The `tool_end`s of `delegate` calls among `events`: (ok, preview, what it carried).
+    fn delegate_ends(events: &Mutex<Vec<Event>>) -> Vec<(bool, String, Delegated)> {
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                Event::ToolEnd { name, ok, preview, delegated, .. } if name == DELEGATE => Some((*ok, preview.clone(), delegated.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn finished_delegation_ends_once_with_its_outcome_and_what_it_did() {
+        let ws = tempfile::tempdir().unwrap();
+        let script = ScriptedLlm::new(vec![
+            ScriptedLlm::tool_call("delegate", json!({"task": "write one"})),
+            ScriptedLlm::tool_call("write_file", json!({"path": "sub.txt", "content": "one"})),
+            Message::assistant("sub-agent says tidied"),
+            // A second delegation whose sub-agent calls no tool.
+            ScriptedLlm::tool_call("delegate", json!({"task": "think"})),
+            Message::assistant("nothing to do"),
+            Message::assistant("done"),
+        ]);
+        let (agent, _) = agent_with(script, Mode::Auto, Arc::new(DenyAll), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let (bus, run, sink, seen) = recorded_run_with_events(&agent.store, &s.id);
+        agent.run_turn(&mut s, "go", &[], &sink).await.unwrap();
+        let ends = delegate_ends(&seen);
+        // Each delegation sends exactly one `tool_end`, and it is a success carrying the sub-agent's reply.
+        assert_eq!(ends.len(), 2, "{ends:?}");
+        let (ok, preview, delegated) = &ends[0];
+        assert!(*ok, "a delegation that finished is not reported as stopped: {ends:?}");
+        assert_eq!(preview, "sub-agent says tidied");
+        assert_eq!(delegated.audit_ids.len(), 1, "{delegated:?}");
+        assert_eq!(delegated.checkpoints.len(), 1, "{delegated:?}");
+        assert!(delegated.checkpoints[0].path.ends_with("sub.txt"));
+        // One that did nothing still ends, and carries nothing.
+        assert_eq!(ends[1], (true, "nothing to do".to_string(), Delegated::default()));
+        // The run record lists the sub-agent's row and checkpoint once, and counts both delegations.
+        bus.publish(&s.id, &run, json!({"type": "done", "text": "done"}));
+        let rec = record_of(&bus, &run);
+        assert_eq!((rec.tool_calls, rec.audit_ids.len(), rec.checkpoints.len()), (2, 1, 1), "{rec:?}");
+    }
+
+    static STUCK_WITH_NOTHING_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static STUCK_AFTER_A_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    #[tokio::test]
+    async fn cancelled_delegation_that_did_nothing_sends_no_end() {
+        let ws = tempfile::tempdir().unwrap();
+        let script = ScriptedLlm::new(vec![ScriptedLlm::tool_call("delegate", json!({"task": "read"})), ScriptedLlm::tool_call("read_file", json!({"path": "notes.md"})), Message::assistant("never reached")]);
+        let (mut agent, _) = agent_with(script, Mode::Auto, Arc::new(DenyAll), ws.path());
+        // The sub-agent's first call never finishes, so it has appended and saved nothing when the run stops.
+        let stuck: Meanwhile = |_, _| {
+            STUCK_WITH_NOTHING_DONE.store(true, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(std::future::pending())
+        };
+        interleave(&mut agent, "read_file", Some(stuck), None);
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let session_id = s.id.clone();
+        let (bus, run, sink, seen) = recorded_run_with_events(&agent.store, &s.id);
+        let store = agent.store.clone();
+        let task = tokio::spawn(async move { agent.run_turn(&mut s, "go", &[], &sink).await });
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !STUCK_WITH_NOTHING_DONE.load(std::sync::atomic::Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the sub-agent reached its call");
+        task.abort();
+        let _ = task.await;
+        bus.publish(&session_id, &run, json!({"type": "cancelled"}));
+        // The delegation was dropped unsent: it had nothing to hand the run record.
+        assert_eq!(delegate_ends(&seen), vec![], "no end for a delegation that did nothing");
+        let rec = record_of(&bus, &run);
+        assert_eq!((rec.status.as_str(), rec.tool_calls, rec.audit_ids.len(), rec.checkpoints.len()), ("cancelled", 0, 0, 0), "{rec:?}");
+        assert!(store.audit_log(5).unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancelled_delegation_that_only_read_still_lists_its_audit_rows() {
+        let ws = tempfile::tempdir().unwrap();
+        std::fs::write(ws.path().join("notes.md"), "alpha\n").unwrap();
+        let script = ScriptedLlm::new(vec![
+            ScriptedLlm::tool_call("delegate", json!({"task": "read twice"})),
+            ScriptedLlm::tool_call("read_file", json!({"path": "notes.md"})),
+            ScriptedLlm::tool_call("read_file", json!({"path": "stuck.txt"})),
+            Message::assistant("never reached"),
+        ]);
+        let (mut agent, _) = agent_with(script, Mode::Auto, Arc::new(DenyAll), ws.path());
+        // The first read finishes (an audit row, no checkpoint); the second never does.
+        let stuck: Meanwhile = |_, args| {
+            if args["path"] == "stuck.txt" {
+                STUCK_AFTER_A_READ.store(true, std::sync::atomic::Ordering::SeqCst);
+                Box::pin(std::future::pending())
+            } else {
+                Box::pin(async {})
+            }
+        };
+        interleave(&mut agent, "read_file", Some(stuck), None);
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let session_id = s.id.clone();
+        let (bus, run, sink, seen) = recorded_run_with_events(&agent.store, &s.id);
+        let task = tokio::spawn(async move { agent.run_turn(&mut s, "go", &[], &sink).await });
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !STUCK_AFTER_A_READ.load(std::sync::atomic::Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the sub-agent reached its second read");
+        task.abort();
+        let _ = task.await;
+        bus.publish(&session_id, &run, json!({"type": "cancelled"}));
+        // The stopped delegation still reports the row its finished read appended, as a failure.
+        let ends = delegate_ends(&seen);
+        let [(ok, preview, delegated)] = ends.as_slice() else { panic!("{ends:?}") };
+        assert!(!ok);
+        assert_eq!(preview, "stopped before it finished");
+        assert_eq!((delegated.audit_ids.len(), delegated.checkpoints.len()), (1, 0), "{delegated:?}");
+        let rec = record_of(&bus, &run);
+        assert_eq!((rec.status.as_str(), rec.tool_calls, rec.audit_ids.len(), rec.checkpoints.len()), ("cancelled", 1, 1, 0), "{rec:?}");
+    }
+
+    /// Run one call of `tool` that takes 1.5 s before it starts, with `tool_timeout_secs` at 1.
+    async fn takes_1500ms_with_a_1s_limit(tool: &str, args: Value) -> (bool, String) {
+        let ws = tempfile::tempdir().unwrap();
+        let script = ScriptedLlm::new(vec![ScriptedLlm::tool_call(tool, args), Message::assistant("done")]);
+        let (mut agent, _) = agent_with(script, Mode::Auto, Arc::new(DenyAll), ws.path());
+        let mut cfg = (*agent.cfg).clone();
+        cfg.agent.tool_timeout_secs = 1;
+        agent.cfg = Arc::new(cfg);
+        let slow: Meanwhile = |_, _| Box::pin(tokio::time::sleep(Duration::from_millis(1500)));
+        interleave(&mut agent, tool, Some(slow), None);
+        let ends = tool_ends(&agent).await;
+        let [Event::ToolEnd { ok, preview, .. }] = ends.as_slice() else { panic!("{ends:?}") };
+        (*ok, preview.clone())
+    }
+
+    #[tokio::test]
+    async fn a_tool_is_cut_off_at_the_configured_limit() {
+        let (ok, preview) = takes_1500ms_with_a_1s_limit("read_file", json!({"path": "missing.txt"})).await;
+        assert!(!ok);
+        assert!(preview.contains("tool timed out after 1s"), "{preview}");
+    }
+
+    #[tokio::test]
+    async fn the_shell_is_not_cut_off_at_the_configured_limit() {
+        // The shell enforces its own timeout, so the agent gives it far longer than `tool_timeout_secs`.
+        // Whether the shell then runs depends on the sandbox being available here, so only the
+        // agent's own cut-off is checked: it must not have happened.
+        let (_, preview) = takes_1500ms_with_a_1s_limit("shell", json!({"command": "echo hi"})).await;
+        assert!(!preview.contains("timed out"), "{preview}");
+    }
+
     #[tokio::test]
     async fn risk_notice_blocks_turns_until_accepted() {
         let ws = tempfile::tempdir().unwrap();

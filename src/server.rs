@@ -2193,6 +2193,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn serve_starts_the_core_and_then_keeps_serving() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let store = Store::in_memory().unwrap();
+        let left = crate::runs::RunRecord { run_id: "r-left".into(), session_id: "s".into(), title: "t".into(), origin: "user".into(), status: "running".into(), started: 1000, ended: None, tool_calls: 0, checkpoints: vec![], audit_ids: vec![] };
+        store.kv_set("run:r-left", &serde_json::to_string(&left).unwrap()).unwrap();
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), store.clone(), scripted(vec![])).await.unwrap());
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(serve(app, listener, "tok".into()));
+        // The server answers on the listener it was given...
+        let mut conn = tokio::time::timeout(Duration::from_secs(10), tokio::net::TcpStream::connect(addr)).await.expect("connect stalled").unwrap();
+        conn.write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").await.unwrap();
+        let mut reply = String::new();
+        tokio::time::timeout(Duration::from_secs(10), conn.read_to_string(&mut reply)).await.expect("the reply stalled").unwrap();
+        assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+        // ...it started the core first, so the run a stopped core left is now cancelled...
+        let saved: crate::runs::RunRecord = serde_json::from_str(&store.kv_get("run:r-left").unwrap()).unwrap();
+        assert_eq!(saved.status, "cancelled", "{saved:?}");
+        assert!(saved.ended.is_some());
+        // ...and it keeps serving: the task does not end on its own.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!server.is_finished());
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn unfinished_runs_are_not_closed_by_a_second_core() {
         let dir = tempfile::tempdir().unwrap();
         let cfg = Config { home: dir.path().join("home"), ..Default::default() };

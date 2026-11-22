@@ -326,6 +326,67 @@ mod tests {
         assert_eq!(waiting, 1, "{listed}");
     }
 
+    #[test]
+    fn close_unfinished_ends_only_the_runs_that_never_ended() {
+        let store = Store::in_memory().unwrap();
+        let bus = bus_over(&store);
+        let (sid_a, run_a) = started(&store, &bus, "user", "running one");
+        bus.publish(&sid_a, &run_a, json!({"type": "tool_end", "id": "c", "name": "write_file", "ok": true, "preview": "", "audit_id": 21, "checkpoint": checkpoint(6)}));
+        let (sid_b, run_b) = started(&store, &bus, "telegram", "waiting one");
+        bus.publish(&sid_b, &run_b, json!({"type": "approval", "id": "a1", "tool": "shell"}));
+        let (sid_c, run_c) = started(&store, &bus, "user", "finished one");
+        bus.publish(&sid_c, &run_c, json!({"type": "done", "text": "ok", "title": "Finished"}));
+        let finished_before = record_of(&store, &run_c);
+        assert_eq!((record_of(&store, &run_b).status.as_str(), record_of(&store, &run_a).status.as_str()), ("waiting", "running"));
+
+        let log = bus.runs().unwrap();
+        // It reports how many it ended: the running run and the waiting one, not the finished one.
+        assert_eq!(log.close_unfinished(), 2);
+        for run in [&run_a, &run_b] {
+            let rec = record_of(&store, run);
+            assert_eq!(rec.status, "cancelled", "{rec:?}");
+            assert!(rec.ended.is_some_and(|e| e >= rec.started), "{rec:?}");
+        }
+        // What a closed run had recorded is kept; a finished run is left exactly as it was.
+        let a = record_of(&store, &run_a);
+        assert_eq!((a.tool_calls, a.audit_ids.clone(), a.checkpoints.len(), a.title.as_str()), (1, vec![21], 1, "running one"));
+        assert_eq!(record_of(&store, &run_c), finished_before);
+        assert_eq!(log.list().iter().filter(|r| r.ended.is_none()).count(), 0);
+        // Nothing is left to close, and a record closed once stays closed after a restart.
+        assert_eq!(log.close_unfinished(), 0);
+        assert_eq!(RunLog::open(store.clone()).close_unfinished(), 0);
+        // An answer that arrives for the closed, waiting run does not reopen it.
+        bus.publish(&sid_b, &run_b, json!({"type": "approval_resolved", "id": "a1", "decision": "once"}));
+        assert_eq!(record_of(&store, &run_b).status, "cancelled");
+        // With no records at all there is nothing to end.
+        assert_eq!(RunLog::open(Store::in_memory().unwrap()).close_unfinished(), 0);
+    }
+
+    #[test]
+    fn an_event_with_no_run_id_starts_and_changes_no_record() {
+        let store = Store::in_memory().unwrap();
+        let bus = bus_over(&store);
+        let sid = store.create_session("t", "user").unwrap();
+        // A session event that names no run starts nothing.
+        bus.publish(&sid, "", json!({"type": "session", "id": sid, "run_id": ""}));
+        assert!(store.kv_list_prefix("run:").unwrap().is_empty());
+        assert!(bus.runs().unwrap().list().is_empty());
+
+        // An event the bus marks as belonging to no run is not followed, even with a run id on it.
+        let log = RunLog::open(store.clone());
+        let event = |no_run: bool, json: Value| BusEvent { seq: 1, session_id: sid.clone(), run_id: "r1".into(), json, no_session: false, no_run };
+        log.record(&event(true, json!({"type": "session", "id": sid, "run_id": "r1"})));
+        assert!(log.list().is_empty() && store.kv_get("run:r1").is_none());
+        log.record(&event(false, json!({"type": "session", "id": sid, "run_id": "r1"})));
+        assert_eq!(log.list().len(), 1);
+        log.record(&event(true, json!({"type": "tool_end", "id": "c", "name": "x", "ok": true, "preview": "", "audit_id": 3})));
+        log.record(&event(true, json!({"type": "done", "text": "ok"})));
+        let rec = record_of(&store, "r1");
+        assert_eq!((rec.tool_calls, rec.audit_ids.len(), rec.status.as_str(), rec.ended), (0, 0, "running", None));
+        log.record(&event(false, json!({"type": "tool_end", "id": "c", "name": "x", "ok": true, "preview": "", "audit_id": 3})));
+        assert_eq!(record_of(&store, "r1").audit_ids, vec![3]);
+    }
+
     #[tokio::test]
     async fn run_record_is_written_before_run_end() {
         let store = Store::in_memory().unwrap();
