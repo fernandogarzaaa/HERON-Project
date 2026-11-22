@@ -4857,15 +4857,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "da5f09a04f5b4783990093a06d5beff5",
+      "base_branch": "964c5e128d181a81a67f5ba43e475c2a6b5b9e0e",
+      "claim_token": "938e4d9d2c17451cac0d603eb701977c",
+      "claimed_at": "2026-11-22T11:32:19.433023+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T11:32:19.433023+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "F5-fix-2"
@@ -4887,11 +4887,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Kill or justify F5's surviving mutants",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "964c5e128d181a81a67f5ba43e475c2a6b5b9e0e",
       "branch": null,
       "path": null
     }
