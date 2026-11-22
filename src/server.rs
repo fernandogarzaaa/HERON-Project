@@ -1862,7 +1862,10 @@ mod tests {
     #[tokio::test]
     async fn features_routes_list_and_set_keys() {
         let h = harness(scripted(vec![]), true, |_| {}).await;
-        assert_eq!(h.json("GET", "/features", Value::Null).await, json!({"features": [{"key": "test_key", "title": "Test feature", "on": false}]}));
+        assert_eq!(
+            h.json("GET", "/features", Value::Null).await,
+            json!({"features": [{"key": "test_key", "title": "Test feature", "on": false}, {"key": "email_drafts", "title": "Email drafts", "on": true}]})
+        );
         assert_eq!(h.json("POST", "/features/test_key", json!({"on": true})).await, json!({"key": "test_key", "on": true}));
         assert_eq!(h.json("GET", "/features", Value::Null).await["features"][0]["on"], true);
         assert!(h.app.cfg().feature_on("test_key"), "the running core sees it at once");

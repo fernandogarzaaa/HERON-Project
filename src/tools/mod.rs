@@ -2,6 +2,7 @@
 //! policy layer can decide without knowing tool internals.
 
 pub mod fs;
+pub mod mail_draft;
 pub mod personal;
 pub mod shell;
 pub mod web;
@@ -122,6 +123,13 @@ pub trait Tool: Send + Sync {
     fn feature(&self) -> Option<&'static str> {
         None
     }
+    /// Why this call is refused outright, before the permission decision: arguments the tool never
+    /// accepts, so nobody is asked to approve them. `None` for a call that may go on to the decision.
+    /// A tool that refuses here checks again in [`Tool::call`], which a call approved later reaches
+    /// without passing the agent.
+    fn refusal(&self, _args: &Value, _ctx: &ToolCtx) -> Option<String> {
+        None
+    }
     async fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<String>;
 }
 
@@ -194,6 +202,7 @@ impl ToolRegistry {
         for t in fs::tools().into_iter().chain(shell::tools()).chain(web::tools()).chain(personal::tools()) {
             r.register(Arc::new(t));
         }
+        r.register(Arc::new(mail_draft::DraftEmail::from_env()));
         #[cfg(test)]
         r.register(Arc::new(test_feature_tool()));
         r

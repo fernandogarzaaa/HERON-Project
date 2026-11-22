@@ -20,6 +20,8 @@ pub struct FeatureKey {
 pub static KEYS: &[FeatureKey] = &[
     #[cfg(test)]
     FeatureKey { key: "test_key", title: "Test feature", default: false },
+    // F8: `draft_email`.
+    FeatureKey { key: "email_drafts", title: "Email drafts", default: true },
 ];
 
 /// The key named `key`, if there is one.
