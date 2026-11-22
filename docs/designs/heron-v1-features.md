@@ -532,7 +532,8 @@ Today's warning line has three limits:
 *   **What the record lists.**
     *   `checkpoints` lists the checkpoints the run's file tools saved, each as `{id, path, after_hash, ts, prev_hash}`. `prev_hash` is the hash of the file's earlier contents, or `absent`, computed the way `fs::confirmation` computes it.
     *   `audit_ids` lists the audit rows the run's tool calls appended.
-    *   Both reach the record on the `tool_end` event. After the agent executes a call for this run, it adds `audit_id` (the id `Store::audit_row` returns) to `tool_end`, and, for `write_file` and `edit_file`, `checkpoint`. The agent reads the session's newest checkpoint with `Store::checkpoint_row(Store::last_checkpoint(session_id))` both before and after the call. It attaches `checkpoint` only when the two differ, so a call that saved nothing attaches nothing (an `edit_file` whose `old_string` is missing returns before it saves a checkpoint), and an older checkpoint from an earlier call or run is never claimed. A session has one active run, so a checkpoint that appears during the call is the call's own. Clients ignore the two extra fields. A parked call that `run_parked` executes later isn't part of a run, so it emits no `tool_end` for this run and isn't counted.
+    *   Both reach the record on the `tool_end` event. After the agent executes a call for this run, it adds `audit_id` (the id `Store::audit_row` returns) to `tool_end`, and, for `write_file` and `edit_file`, `checkpoint`: the checkpoint that call itself saved, which the file tool reports through a per-call slot. A call that saved nothing attaches nothing (an `edit_file` whose `old_string` is missing returns before it saves a checkpoint). The agent never infers a checkpoint by comparing the session's newest checkpoint before and after the call, because a parked call approved in the inbox or `POST /api/undo` can change that during the call. A sub-agent's calls under `delegate` reach the parent run's record through `delegated_audit_ids` and `delegated_checkpoints` on the delegate's own `tool_end`, present only when non-empty. Clients ignore these extra fields. A parked call that `run_parked` executes later isn't part of a run, so it emits no `tool_end` for this run and isn't counted.
+    *   **After a restart,** the process that owns the background lock marks every record still `running` or `waiting` as `cancelled`, with `ended` set. Another process opening the same store, a second core or `mcp-serve`, never does, so it can't close a live run.
     *   The core deletes records beyond the newest 500.
 *   **`GET /api/runs`** returns `{"runs": [record, …]}`, newest first, without the two lists.
 *   **The app** adds a Runs screen, and a badge on the menu bar extra with the number of runs in `waiting`.
@@ -545,7 +546,7 @@ Today's warning line has three limits:
 
 | Check | Answer |
 |---|---|
-| Switch and default | App setting "Runs and notifications"; on once done. Off, the app doesn't open the stream with `notify=1`, so the core keeps posting its own notices |
+| Switch and default | App setting "Runs and notifications"; on once done. Off, or while macOS notifications are denied, the app doesn't open the stream with `notify=1`, so the core keeps posting its own notices |
 | New tools | none |
 | Decision-table rows | none |
 | Prompt blocks | none |
@@ -944,6 +945,8 @@ Low findings from the build's independent reviews that were left as they are. Me
 *   **F9: `test_usesTheWindowPicker` checks the configuration and call order with fakes (low).** It doesn't prove the default model uses the system picker.
 *   **F9: the panel can stay on "Looking" if macOS closes the picker without a callback (low, inferred).** Reopening the app clears it.
 *   **F9: a Screen Recording refusal is matched by error code without its domain (low).** Whether macOS reports a denial that way is UNVERIFIED.
+*   **F3: an untitled run looks up its session's title on every event (low).** While a record's title is empty, each event reads the session title under the bus lock. A run whose input is empty never gets one.
+*   **F3: two app lines have no test (low).** The first notification-authorization refresh and the `didBecomeActive` observer can be removed without a test failing; a refused request refreshes it anyway.
 *   **F3: a core notice body can reach the lock screen (low).** A `notification` event's body holds up to 180 characters of a schedule's result. The app posts it as is, so the lock screen shows it when macOS allows previews. The core's own desktop notice showed the same text before F3, so nothing new leaks; only the app's own "needs your OK" and "finished" notices are limited to the tool name and the owner's title.
 *   **F3: run records are written under the event bus's lock (low).** `RunLog` writes kv inside `publish`, as the design asks, so a long store operation elsewhere briefly stalls every publisher. Nothing awaits under the lock.
 
