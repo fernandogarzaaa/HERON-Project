@@ -2123,6 +2123,58 @@
       "path": null
     }
   },
+  "F1g__integrate": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F1c",
+      "F1a",
+      "F1p",
+      "F1d",
+      "F1-fix-1",
+      "F1-fix-2"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F1g__integrate",
+    "integration_for": "F1g",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['F1c', 'F1a', 'F1p', 'F1d', 'F1-fix-1', 'F1-fix-2'] into one base branch for F1g."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Integrate parents of F1g",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F1p": {
     "attempts": [
       {
@@ -2468,7 +2520,7 @@
       "claim_token": "1f014c3a96984528ab2ff113b628355d",
       "claimed_at": "2026-11-22T10:20:18.264975+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T10:32:51.066111+00:00",
+      "last_heartbeat": "2026-11-22T10:33:21.173391+00:00",
       "node_version": 7,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -2498,7 +2550,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: ask_reasons",
-    "version": 34,
+    "version": 35,
     "worktree": {
       "base_branch": "skein/F2g__integrate-base",
       "base_commit": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
