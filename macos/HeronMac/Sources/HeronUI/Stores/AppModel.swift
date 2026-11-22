@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import HeronCore
@@ -50,6 +51,8 @@ public final class AppModel {
     public let persona: PersonaStore
     public let firstRun: FirstRunStore
     public let features: FeaturesSettingsStore
+    /// F1: the quick-entry panel's model and the controller that shows it.
+    public let quickEntry: QuickEntryController
 
     public var selection: Destination = .today
     public var settingsTab: SettingsTab = .general
@@ -72,8 +75,13 @@ public final class AppModel {
                 userFirstName: String? = nil, now: @escaping () -> Date = Date.init,
                 features featuresClient: (any FeaturesClientProtocol)? = nil) {
         self.client = client
-        self.preferences = preferences ?? DisplayPreferences()
+        let preferences = preferences ?? DisplayPreferences()
+        self.preferences = preferences
         self.now = now
+        // "Quick entry" is on until the owner turns it off (QF3); the Features list reads it just below.
+        QuickEntrySettings.registerDefaults()
+        quickEntry = QuickEntryController(model: QuickEntryModel(client: client, now: now), preferences: preferences,
+                                          openMain: { _ in })  // wired to the main window at the end of init
         avatar = AvatarModel()
         chat = ChatStore(client: client)
         approvals = ApprovalsStore(client: client)
@@ -97,6 +105,19 @@ public final class AppModel {
         }
         features = FeaturesSettingsStore(client: featuresBackend)
         chat.onOtherApproval = { [weak self] event in self?.addToFeed(event) }
+        quickEntry.openMain = { [weak self] id in self?.showMain(conversation: id) }
+    }
+
+    /// "Open in Heron" from the quick-entry panel: the main window comes forward, on the panel's conversation if it has one.
+    private func showMain(conversation id: String?) {
+        NSApp.activate(ignoringOtherApps: true)
+        // A closed main window is reopened the way a Dock click reopens it.
+        if let window = NSApp.windows.first(where: { $0.title == "Heron" && !($0 is NSPanel) }) {
+            window.makeKeyAndOrderFront(nil)
+        } else if Bundle.main.bundleURL.pathExtension == "app" {
+            NSWorkspace.shared.open(Bundle.main.bundleURL)
+        }
+        if let id { Task { await openConversation(id) } } else { newConversation() }
     }
 
     // MARK: Derived
@@ -183,6 +204,7 @@ public final class AppModel {
     /// Sends one event to the avatar and the stores. Public so tests and U4b's replay can drive it directly.
     public func route(_ event: CoreEvent) {
         avatar.handle(event)
+        quickEntry.model.handle(event)
         switch event.kind {
         case .approval:
             if selection == .chat, chat.isStartingTurn || event.sessionID == chat.currentSessionID {

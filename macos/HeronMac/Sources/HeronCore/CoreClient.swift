@@ -121,9 +121,10 @@ public final class CoreClient: CoreClientProtocol, Sendable {
     /// `POST /api/chat` answers with the run's events as SSE. This reads only up to its `session` event and then
     /// drops the response: the run goes on without it (heron-v1.md §3), and its events reach the app once, on `events(since:)`.
     /// The core has no title field on `/api/chat`: `title` is accepted for the protocol and not sent (DESIGN-CHOICES.md).
-    public func sendMessage(sessionID: String?, message: String, title: String?) async throws -> ChatStart {
+    public func sendMessage(sessionID: String?, message: String, title: String?, context: [ChatContext]) async throws -> ChatStart {
         var body: [String: Any] = ["message": message]
         if let sessionID { body["session_id"] = sessionID }
+        if !context.isEmpty { body["context"] = context.map(\.json) }
         let (bytes, http) = try await open(try urlRequest("POST", "/chat", body: body))
         guard (200..<300).contains(http.statusCode) else {
             var data = Data()

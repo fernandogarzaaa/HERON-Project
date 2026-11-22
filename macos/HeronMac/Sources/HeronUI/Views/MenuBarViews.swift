@@ -105,6 +105,9 @@ private struct Panel: View {
             }
             RowDivider()
             VStack(alignment: .leading, spacing: Spacing.s1) {
+                if model.quickEntry.isEnabled {
+                    action("Ask Heron…", symbol: "text.bubble") { model.quickEntry.show() }
+                }
                 action("Prep my day", symbol: "sun.max") { Task { await model.prepMyDay() }; openMain() }
                 action("New conversation", symbol: "square.and.pencil", shortcut: "⌘N") { model.newConversation(); openMain() }
                 action("Open Heron", symbol: "macwindow") { openMain() }

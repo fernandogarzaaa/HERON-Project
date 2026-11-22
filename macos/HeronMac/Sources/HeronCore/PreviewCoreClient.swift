@@ -105,7 +105,7 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
         with { _ = $0.sessions.removeValue(forKey: id) }
     }
 
-    public func sendMessage(sessionID: String?, message: String, title: String?) async throws -> ChatStart {
+    public func sendMessage(sessionID: String?, message: String, title: String?, context: [ChatContext]) async throws -> ChatStart {
         let accepted = with { $0.riskNotice.acceptedVersion == $0.riskNotice.version }
         guard accepted else { throw CoreError.riskNoticeNotAccepted }
         let sid = sessionID ?? "s-\(UUID().uuidString.prefix(8).lowercased())"
