@@ -257,15 +257,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "e3af9af32800425f8fa5facc53297187",
+      "base_branch": "8087860abc6c3c4b34603a867248b2f8eac56f34",
+      "claim_token": "4fcf0977d84c43d99912a376ec289ac5",
+      "claimed_at": "2026-11-22T16:26:40.901635+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T16:26:40.901635+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "H3"
@@ -287,11 +287,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "scripts/verify-selfheal.sh (item 21)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "8087860abc6c3c4b34603a867248b2f8eac56f34",
       "branch": null,
       "path": null
     }
