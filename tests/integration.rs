@@ -569,7 +569,7 @@ async fn browser_reads_pages_follows_links_and_fills_in_forms() {
     // Nobody is there to approve anything.
     let agent = app.agent(Arc::new(heron::permissions::DenyAll));
     let mut session = heron::agent::Session::create(&app.store, "").unwrap();
-    agent.run_turn(&mut session, &format!("look at {base}/"), &heron::agent::null_sink()).await.unwrap();
+    agent.run_turn(&mut session, &format!("look at {base}/"), &[], &heron::agent::null_sink()).await.unwrap();
     let page = session.messages[2].text().to_string();
     assert!(page.contains("Rendered by script"), "scripts ran: {page}");
     assert!(page.contains(&format!("[1] link \"Second page\" -> {base}/second")), "{page}");
@@ -655,11 +655,11 @@ async fn usage_is_recorded_and_shapes_model_choice_and_effort() {
     let mut session = heron::agent::Session::create(&app.store, "").unwrap();
     let models = |llm: &ScriptedLlm| llm.requests.lock().unwrap().iter().map(|r| r.model.clone().unwrap_or_else(|| "main".into())).collect::<Vec<_>>();
 
-    agent.run_turn(&mut session, "hi there", &sink).await.unwrap();
+    agent.run_turn(&mut session, "hi there", &[], &sink).await.unwrap();
     assert_eq!(models(&llm), vec!["small"]);
-    agent.run_turn(&mut session, "what's on my list?", &sink).await.unwrap();
+    agent.run_turn(&mut session, "what's on my list?", &[], &sink).await.unwrap();
     assert_eq!(models(&llm)[1..], ["small", "small", "main", "main"], "two steps on the cheaper model, then the main one takes over");
-    agent.run_turn(&mut session, "Research the best way to learn Rust in a month and write a plan", &sink).await.unwrap();
+    agent.run_turn(&mut session, "Research the best way to learn Rust in a month and write a plan", &[], &sink).await.unwrap();
     assert_eq!(models(&llm).last().unwrap(), "main");
     {
         let e = events.lock().unwrap();
@@ -682,7 +682,7 @@ async fn usage_is_recorded_and_shapes_model_choice_and_effort() {
     // update_config swaps in a client built from the settings; put the stand-in back for the test.
     app.llm.swap(llm.clone());
     let agent = app.agent(Arc::new(heron::permissions::DenyAll));
-    agent.run_turn(&mut session, "Research the best way to learn Go and write a plan", &sink).await.unwrap();
+    agent.run_turn(&mut session, "Research the best way to learn Go and write a plan", &[], &sink).await.unwrap();
     let calls_so_far = {
         let requests = llm.requests.lock().unwrap();
         let last = requests.last().unwrap();
@@ -1197,6 +1197,200 @@ async fn risk_notice_blocks_chat_until_accepted() {
     assert_eq!(api.get_json("/sessions").await.as_array().unwrap().len(), 1);
 }
 
+// ---------- the features table, chat context and notices (heron-v1-features B2) ----------
+
+/// `GET /api/features` lists every core key, `POST /api/features/{key}` saves one through the
+/// running core, and an unknown key is a 404 that saves nothing. The test follows whatever keys
+/// `features::KEYS` holds (B2 itself ships none outside unit tests; each feature appends its own).
+#[tokio::test]
+async fn api_features_lists_and_sets_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = scripted_app(dir.path(), vec![], |_| {}).await;
+    let home = app.cfg().home.clone();
+    let api = serve(app.clone()).await;
+    let keys = heron::features::KEYS;
+
+    // The list: one entry per key, in order, each with exactly `key`, `title` and `on`.
+    let listed = api.get_json("/features").await;
+    assert_eq!(listed.as_object().unwrap().keys().collect::<Vec<_>>(), ["features"], "{listed}");
+    let items = listed["features"].as_array().unwrap_or_else(|| panic!("features is not a list: {listed}"));
+    assert_eq!(items.len(), keys.len(), "{listed}");
+    for (item, key) in items.iter().zip(keys) {
+        assert_eq!(item.as_object().unwrap().keys().map(String::as_str).collect::<BTreeSet<_>>(), ["key", "on", "title"].into_iter().collect(), "{item}");
+        assert_eq!((item["key"].as_str(), item["title"].as_str(), item["on"].as_bool()), (Some(key.key), Some(key.title), Some(key.default)), "a key starts at its default: {item}");
+    }
+
+    // Each key is switched both ways: the reply, the list and the running core agree, and the file keeps it.
+    for key in keys {
+        for on in [!key.default, key.default] {
+            let reply = api.post_json(&format!("/features/{}", key.key), json!({"on": on})).await;
+            assert_eq!(reply, json!({"key": key.key, "on": on}));
+            let listed = api.get_json("/features").await;
+            let item = listed["features"].as_array().unwrap().iter().find(|i| i["key"] == key.key).unwrap_or_else(|| panic!("{} left the list: {listed}", key.key));
+            assert_eq!(item["on"], on, "{listed}");
+            assert_eq!(app.cfg().feature_on(key.key), on, "the running core sees it at once");
+            assert_eq!(Config::read_saved(&home).unwrap().feature_on(key.key), on, "config.toml holds it");
+        }
+    }
+
+    // A key that is not in the table: 404 with a code and a message, and nothing is saved.
+    let before = app.cfg().features.clone();
+    let reply = api.post("/features/no_such_feature").json(&json!({"on": true})).send().await.unwrap();
+    assert_eq!(reply.status(), 404);
+    let body: Value = reply.json().await.unwrap();
+    assert_eq!(body["error"], "unknown_feature", "{body}");
+    assert!(body["message"].as_str().is_some_and(|m| m.contains("no_such_feature")), "{body}");
+    assert_eq!(app.cfg().features, before, "an unknown key saves nothing");
+    assert!(!app.cfg().features.flags.contains_key("no_such_feature"));
+    assert!(!api.get_json("/features").await["features"].as_array().unwrap().iter().any(|i| i["key"] == "no_such_feature"));
+    // Without the token it is refused like every other route.
+    assert_eq!(api.http.get(format!("{}/api/features", api.base)).send().await.unwrap().status(), 401);
+}
+
+/// Text the owner points Heron at in another app goes to the model as outside content, taints the
+/// session before the model's first word, and stays tainted for later turns. Bad context is
+/// refused before anything starts.
+#[tokio::test]
+async fn api_chat_context_taints_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let llm = Arc::new(ScriptedLlm::new(vec![write_call("note.txt", "x"), Message::assistant("Wrote it."), write_call("again.txt", "y"), Message::assistant("And again."), Message::assistant("Hello.")]));
+    let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+    cfg.llm.api_key_env = "HERON_TEST_NO_SUCH_KEY".into();
+    cfg.agent.auto_memory = false;
+    cfg.agent.ambient_context = false;
+    let store = Store::open(&dir.path().join("home/heron.db")).unwrap();
+    let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), store, llm.clone()).await.unwrap());
+    heron::risk_notice::accept_current(&app.store).unwrap();
+    let ws = app.workspace.clone();
+    let api = serve(app.clone()).await;
+
+    // Refused up front: an unknown kind, too many items. No session is made.
+    for context in [json!([{"kind": "clipboard", "app": "Mail", "text": "a"}]), Value::Array(vec![json!({"kind": "selection", "app": "Mail", "text": "a"}); 4])] {
+        let reply = api.post("/chat").json(&json!({"message": "look", "context": context})).send().await.unwrap();
+        assert_eq!(reply.status(), 400);
+        let body: Value = reply.json().await.unwrap();
+        assert_eq!(body["error"], "bad_context", "{body}");
+    }
+    assert!(api.get_json("/sessions").await.as_array().unwrap().is_empty(), "a refused message made no session");
+    assert!(llm.requests.lock().unwrap().is_empty());
+
+    // Typed message plus context. The first turn asks to write, so the approval shows the taint.
+    let typed = "Summarize the selection for me";
+    let mut chat = api.chat(json!({"message": typed, "context": [{"kind": "selection", "app": "Mail", "text": "SECRET-CONTEXT the PIN is 4321"}]})).await;
+    let events = chat.until("approval").await;
+    let sid = events[0]["id"].as_str().unwrap().to_string();
+    let tainted: Vec<&Value> = events.iter().filter(|e| e["type"] == "tainted").collect();
+    assert_eq!(tainted.len(), 1, "{:?}", types(&events));
+    assert_eq!((tainted[0]["source"]["kind"].as_str(), tainted[0]["source"]["name"].as_str(), tainted[0]["source"]["detail"].as_str()), (Some("chat_context"), Some("selection"), Some("Mail")));
+    let at_taint = events.iter().position(|e| e["type"] == "tainted").unwrap();
+    assert!(events[..at_taint].iter().all(|e| e["type"] != "tool_start" && e["type"] != "text"), "tainted comes before the model acts: {:?}", types(&events));
+    let approval = events.last().unwrap();
+    assert_eq!((approval["tainted"].as_bool(), approval["can_session"].as_bool()), (Some(true), Some(false)), "a tainted session gets no conversation grant: {approval}");
+    api.approve(&approval["id"], "once").await;
+    let rest = chat.all().await;
+    assert_eq!(find(&rest, "done")["text"], "Wrote it.");
+    assert_eq!(find(&rest, "done")["title"], typed, "the session is titled from the typed message");
+    assert_eq!(std::fs::read_to_string(ws.join("note.txt")).unwrap(), "x");
+
+    // What the model saw: the typed message, then the context wrapped as outside content.
+    {
+        let requests = llm.requests.lock().unwrap();
+        let last_user = requests[0].messages.last().unwrap().text();
+        assert!(last_user.starts_with(typed) && last_user.contains("SECRET-CONTEXT") && last_user.contains("untrusted_content"), "{last_user}");
+    }
+    // The session keeps the mark, and with the first source only.
+    assert!(heron::taint::is_tainted(&app.store, &sid));
+    let source = heron::taint::source(&app.store, &sid).expect("the source is recorded");
+    assert_eq!((source["kind"].as_str(), source["name"].as_str(), source["detail"].as_str()), (Some("chat_context"), Some("selection"), Some("Mail")), "{source}");
+
+    // A later turn with no context is still tainted: no new `tainted` event, and still no grant.
+    let mut chat = api.chat(json!({"session_id": sid, "message": "and once more"})).await;
+    let events = chat.until("approval").await;
+    assert!(!events.iter().any(|e| e["type"] == "tainted"), "the mark is announced once: {:?}", types(&events));
+    let approval = events.last().unwrap();
+    assert_eq!((approval["tainted"].as_bool(), approval["can_session"].as_bool()), (Some(true), Some(false)), "{approval}");
+    api.approve(&approval["id"], "deny").await;
+    chat.all().await;
+
+    // A conversation with no context is clean, and says nothing about taint.
+    let clean = api.chat(json!({"message": "hi"})).await.all().await;
+    assert!(!clean.iter().any(|e| e["type"] == "tainted"), "{:?}", types(&clean));
+    assert!(!heron::taint::is_tainted(&app.store, clean[0]["id"].as_str().unwrap()));
+}
+
+/// While a client holds `GET /api/events?notify=1` open, Heron's notices go to the bus as
+/// `notification` events for it to post; without one they do not. A configured `notify_command`
+/// runs either way. (The core's own desktop notice is not exercised here, so the test sets one.)
+#[tokio::test]
+async fn api_events_notify_flag_routes_notices() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("notified.txt");
+    let command = format!("printf '%s|%s\\n' \"$HERON_TITLE\" \"$HERON_MESSAGE\" >> '{}'", out.display());
+    let app = scripted_app(dir.path(), vec![Message::assistant("Time to stretch.")], |c| c.agent.notify_command = command).await;
+    heron::risk_notice::accept_current(&app.store).unwrap();
+    let api = serve(app.clone()).await;
+    let lines_after = |n: usize| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let lines: Vec<String> = std::fs::read_to_string(&out).unwrap_or_default().lines().map(str::to_string).collect();
+            if lines.len() >= n {
+                return lines;
+            }
+            assert!(Instant::now() < deadline, "notify_command did not run {n} times: {lines:?}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+
+    // A stream without the flag, or with another value, is not a notifying client.
+    let mut plain = api.events(None).await;
+    let mut zero = Sse::open(api.get("/events?notify=0")).await;
+    app.notify("Before", "nobody is listening", "automation", None, None);
+    assert_eq!(lines_after(1), vec!["Before|Before: nobody is listening"], "the command runs with no client");
+    assert!(plain.next_within(Duration::from_millis(400)).await.is_err(), "no notification without a notifying client");
+    assert!(zero.next_within(Duration::from_millis(100)).await.is_err());
+
+    // With `?notify=1` open the notice reaches the bus (every stream sees it), and the command still runs.
+    let mut stream = Sse::open(api.get("/events?notify=1")).await;
+    app.notify("Digest", "Three new items", "automation", None, None);
+    let notice = stream.until("notification").await.pop().unwrap();
+    let keys: BTreeSet<&str> = notice.as_object().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(keys, ["body", "run_id", "seq", "session_id", "source", "title", "type"].into_iter().collect(), "{notice}");
+    assert_eq!((notice["title"].as_str(), notice["body"].as_str(), notice["source"].as_str()), (Some("Digest"), Some("Three new items"), Some("automation")));
+    assert!(notice["session_id"].is_null() && notice["run_id"].is_null(), "a notice outside a run has null ids: {notice}");
+    assert_eq!(plain.until("notification").await.pop().unwrap()["title"], "Digest");
+    assert_eq!(lines_after(2)[1], "Digest|Digest: Three new items", "the command runs as well");
+
+    // A scheduled job's notice carries its run's ids.
+    app.store.add_schedule("stretch", "", "remind me to stretch", 1, "").unwrap();
+    assert_eq!(app.run_due_schedules().await, 1);
+    let events = stream.until("notification").await;
+    let start = find(&events, "session");
+    let notice = events.last().unwrap();
+    assert_eq!((notice["title"].as_str(), notice["source"].as_str()), (Some("stretch"), Some("schedule")), "{notice}");
+    assert_eq!((&notice["session_id"], &notice["run_id"]), (&start["id"], &start["run_id"]), "{notice}");
+
+    // Once that stream is gone, notices stay off the bus again. Closing is noticed on the next write.
+    drop(stream);
+    while plain.next_within(Duration::from_millis(50)).await.map(|e| e.is_some()).unwrap_or(false) {}
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        app.notify("Later", "after the app closed", "suggestion", None, None);
+        match plain.next_within(Duration::from_millis(300)).await {
+            Err(_) => break,
+            Ok(Some(e)) => assert_eq!(e["type"], "notification", "{e}"),
+            Ok(None) => panic!("the plain stream ended"),
+        }
+        assert!(Instant::now() < deadline, "the closed stream is still counted");
+    }
+    // The command ran for every notice above; wait for the last one (spawned commands finish in any order).
+    app.notify("Last", "no client", "suggestion", None, None);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !std::fs::read_to_string(&out).unwrap_or_default().lines().any(|l| l == "Last|Last: no client") {
+        assert!(Instant::now() < deadline, "notify_command did not run with no client");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 // ---------- the recorded API fixtures (U4 decodes these) ----------
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/api");
@@ -1465,6 +1659,7 @@ async fn api_fixtures_match_the_live_core() {
         ("today.json", api.get_json("/today").await),
         ("audit.json", api.get_json("/audit").await),
         ("nevers.json", api.get_json("/nevers").await),
+        ("features.json", api.get_json("/features").await),
     ];
     // A recording with an empty list would teach U4's decoder nothing about its items.
     for (name, list) in [("sessions.json", &responses[1].1), ("approvals.json", &responses[3].1), ("providers.json", &responses[4].1), ("grants.json", &responses[5].1), ("audit.json", &responses[10].1["entries"]), ("nevers.json", &responses[11].1)] {

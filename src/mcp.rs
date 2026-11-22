@@ -233,23 +233,23 @@ pub const SERVED_TOOLS: &[&str] = &["search_knowledge", "remember", "recall", "f
 
 /// Serve MCP on the given streams until EOF.
 pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, writer: W, registry: &ToolRegistry, ctx: &ToolCtx, policy: &crate::permissions::Policy) -> Result<()> {
-    serve_with(reader, writer, registry, ctx, policy, &|| {}).await
+    serve_with(reader, writer, registry, ctx, policy, &|| {}, &crate::agent::null_sink()).await
 }
 
 /// `heron mcp-serve`: serve `app`'s tools, deciding each call by its live policy. Another Heron on
 /// this home may have revoked a rule or set a tool to "never" since the last call, so the rules are
-/// reloaded before each tool call, as they are at the start of every turn.
+/// reloaded before each tool call, as they are at the start of every turn. The connection's first
+/// taint is published on `app`'s bus for its session.
 pub async fn serve_app<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, writer: W, app: &crate::app::App, ctx: &ToolCtx) -> Result<()> {
-    serve_with(reader, writer, &app.tools, ctx, &app.policy, &|| app.reload_rules()).await
+    serve_with(reader, writer, &app.tools, ctx, &app.policy, &|| app.reload_rules(), &app.session_sink(&ctx.session_id)).await
 }
 
-/// [`serve`], calling `before_call` before each tool call is decided.
-async fn serve_with<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mut writer: W, registry: &ToolRegistry, ctx: &ToolCtx, policy: &crate::permissions::Policy, before_call: &(dyn Fn() + Sync)) -> Result<()> {
+/// [`serve`], calling `before_call` before each tool call is decided, and publishing the
+/// connection's first taint on `sink`.
+async fn serve_with<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mut writer: W, registry: &ToolRegistry, ctx: &ToolCtx, policy: &crate::permissions::Policy, before_call: &(dyn Fn() + Sync), sink: &crate::agent::EventSink) -> Result<()> {
     // What another program sends is outside content: the connection is tainted from the start, so
     // every state write asks, and with nobody here to answer, is refused (M-2).
-    if !ctx.tainted.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        let _ = ctx.store.kv_set(&format!("tainted:{}", ctx.session_id), "1");
-    }
+    crate::taint::mark(&ctx.store, sink, &ctx.tainted, &ctx.session_id, crate::agent::ContentEntry::McpCall, "mcp", &ctx.session_id);
     let mut lines = reader.lines();
     while let Some(line) = lines.next_line().await? {
         if line.trim().is_empty() {
@@ -412,6 +412,8 @@ mod tests {
             // The connection is marked as carrying outside content, under its own session id.
             assert!(ctx.tainted.load(std::sync::atomic::Ordering::SeqCst));
             assert!(store.kv_get(&format!("tainted:{session}")).is_some());
+            let src = crate::taint::source(&store, &session).expect("the source is recorded");
+            assert_eq!((src["kind"].as_str(), src["name"].as_str(), src["detail"].as_str()), (Some("mcp"), Some("mcp"), Some(session.as_str())), "{mode:?}");
             assert!(store.audit_log(10).unwrap().iter().all(|a| a.session_id == session), "{mode:?}");
         }
     }
@@ -475,5 +477,31 @@ mod tests {
         drop(recall);
         drop((client_write, replies));
         tokio::time::timeout(std::time::Duration::from_secs(20), serving).await.expect("serve did not end at EOF").unwrap().unwrap();
+    }
+
+    /// `heron mcp-serve` taints the connection's session from the start, and publishes that first
+    /// taint on the app's bus for the session (no run), once.
+    #[tokio::test]
+    async fn mcp_serve_publishes_the_first_taint() {
+        use crate::events::Item;
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        let app = crate::app::App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(crate::llm::ScriptedLlm::new(vec![]))).await.unwrap();
+        let mut bus = app.events.subscribe(None);
+        let ctx = app.agent(Arc::new(crate::permissions::DenyAll)).tool_ctx("mcp-taint");
+        for _ in 0..2 {
+            let mut out = Vec::new();
+            serve_app(BufReader::new(&b""[..]), &mut out, &app, &ctx).await.unwrap();
+        }
+        let mut events = vec![];
+        while let Ok(Some(Item::Event(e))) = tokio::time::timeout(std::time::Duration::from_millis(200), bus.next()).await {
+            events.push(e);
+        }
+        assert_eq!(events.len(), 1, "{events:?}");
+        let wire = events[0].envelope();
+        assert_eq!((wire["type"].as_str(), wire["source"]["kind"].as_str(), wire["source"]["detail"].as_str()), (Some("tainted"), Some("mcp"), Some("mcp-taint")), "{wire}");
+        assert_eq!((wire["session_id"].as_str(), wire["run_id"].is_null()), (Some("mcp-taint"), true), "{wire}");
+        assert!(crate::taint::is_tainted(&app.store, "mcp-taint"));
     }
 }

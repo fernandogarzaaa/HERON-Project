@@ -766,8 +766,8 @@ pub async fn probe_status(cfg: &Config, spec: &CliSpec) -> ProviderStatus {
 /// allowlisted environment (`child_env`, which carries the account-folder override), inside the CLI's
 /// sandbox, and refused on macOS when there is no sandbox.
 async fn run_capture(llm: &CliLlm, path: &Path, args: &[&str], timeout_secs: u64) -> Result<String> {
-    let run_dir = make_run_folder()?;
-    let _dir_guard = RemoveTempDirOnDrop { dir: run_dir.clone() };
+    let dir_guard = private_temp_dir()?;
+    let run_dir = dir_guard.dir.clone();
     let (binary_dir, extra_read) = llm.binary_dirs(path);
     let sandbox = crate::sandbox::wrap(&llm.cfg, &run_dir, &crate::sandbox::Profile::Cli { spec: &llm.spec, binary_dir, extra_read });
     if sandbox.is_none() && crate::sandbox::required() {
@@ -1483,8 +1483,13 @@ impl std::fmt::Debug for CliLlm {
     }
 }
 
-/// Variables every CLI child gets from Heron's own environment (when set). Nothing else is passed.
-pub const CHILD_ENV_ALLOWED: &[&str] = &["PATH", "HOME", "LANG", "USER", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE"];
+/// Variables every CLI child gets from Heron's own environment (when set); see [`crate::child`].
+pub use crate::child::CHILD_ENV_ALLOWED;
+use crate::child::{child_env_base, kill_group, own_var, private_temp_dir};
+#[cfg(test)]
+use crate::child::{make_run_folder, RemoveTempDirOnDrop};
+#[cfg(test)]
+use crate::child::remove_temp_dir;
 
 /// The API-key variables a provider may receive, and only when `cli_allow_api_key` allows it.
 pub fn api_key_vars(id: &str) -> &'static [&'static str] {
@@ -1566,13 +1571,12 @@ impl CliLlm {
     /// `cli_allow_api_key` lists it. Tokens and keys in Heron's environment are not handed over, so a
     /// subscription turn cannot silently switch to metered billing.
     pub(crate) fn child_env(&self, run_dir: &Path) -> Vec<(String, String)> {
-        self.child_env_from(run_dir, &|k| std::env::var(k).ok())
+        self.child_env_from(run_dir, &own_var)
     }
 
     /// [`Self::child_env`], reading Heron's own variables through `get`.
     fn child_env_from(&self, run_dir: &Path, get: &dyn Fn(&str) -> Option<String>) -> Vec<(String, String)> {
-        let mut env: Vec<(String, String)> = CHILD_ENV_ALLOWED.iter().filter_map(|k| get(k).map(|v| (k.to_string(), v))).collect();
-        env.push(("TMPDIR".into(), run_dir.to_string_lossy().into_owned()));
+        let mut env = child_env_base(run_dir, get);
         if let Some(var) = self.spec.config_dir_env {
             if !self.config_dir.is_empty() {
                 env.push((var.to_string(), self.config_dir.clone()));
@@ -2136,18 +2140,6 @@ impl Accumulator {
     }
 }
 
-/// Kill a process group by id (Unix only). Best effort: the group may
-/// already be gone.
-#[cfg(unix)]
-fn kill_group(pgid: u32) {
-    unsafe {
-        libc::killpg(pgid as libc::pid_t, libc::SIGKILL);
-    }
-}
-
-#[cfg(not(unix))]
-fn kill_group(_pgid: u32) {}
-
 /// Kill the provider's whole process tree: the group first, then the
 /// direct child. Used on timeout and on read errors, where the child is
 /// still running.
@@ -2171,19 +2163,6 @@ struct KillTreeOnDrop {
 impl Drop for KillTreeOnDrop {
     fn drop(&mut self) {
         kill_group(self.pgid);
-    }
-}
-
-/// Removes the request's private temp directory when dropped, so
-/// cancellation (which skips the explicit cleanup calls) and early
-/// errors cannot leave request artifacts behind.
-struct RemoveTempDirOnDrop {
-    dir: PathBuf,
-}
-
-impl Drop for RemoveTempDirOnDrop {
-    fn drop(&mut self) {
-        let _ = remove_temp_dir(&self.dir);
     }
 }
 
@@ -2217,13 +2196,11 @@ impl Llm for CliLlm {
 
 impl CliLlm {
     async fn turn(&self, req: ChatRequest, on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
-        let run_dir = make_run_folder()?;
         // Removes the folder when the turn returns or the future is dropped
         // (cancel). This is the only cleanup: explicit calls cannot run
         // on cancellation or on the early returns below.
-        let _dir_guard = RemoveTempDirOnDrop {
-            dir: run_dir.clone(),
-        };
+        let dir_guard = private_temp_dir()?;
+        let run_dir = dir_guard.dir.clone();
         self.turn_in(req, on_delta, &run_dir).await
     }
 
@@ -2463,30 +2440,6 @@ impl CliLlm {
         };
         Ok(resp)
     }
-}
-
-/// The CLI run folder: `<Heron's $TMPDIR>/heron-cli-<run>`, a new UUID per turn, fresh, empty and mode
-/// 0700 on Unix, so the CLI's working directory holds nothing it can read or change. The parent is
-/// resolved through links (`/tmp` is `/private/tmp` on macOS), because the sandbox profile names it.
-fn make_run_folder() -> Result<PathBuf> {
-    let base = std::env::temp_dir();
-    let base = dunce::canonicalize(&base).unwrap_or(base);
-    let dir = base.join(format!("heron-cli-{}", uuid::Uuid::new_v4().simple()));
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new().mode(0o700).create(&dir)?;
-    }
-    #[cfg(not(unix))]
-    std::fs::create_dir(&dir)?;
-    Ok(dir)
-}
-
-fn remove_temp_dir(dir: &PathBuf) -> Result<()> {
-    if dir.exists() {
-        std::fs::remove_dir_all(dir)?;
-    }
-    Ok(())
 }
 
 /// For a binary inside an npm package (`.../node_modules/@scope/name/bin/cli.js`), the package's own

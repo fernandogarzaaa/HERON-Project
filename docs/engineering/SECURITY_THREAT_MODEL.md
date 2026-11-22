@@ -114,6 +114,32 @@ nobody answers is denied and parked after the timeout, and the run carries on.
 The bounds stop a slow reader from growing memory, but do
 not replace per-client rate limits or a complete denial-of-service analysis.
 
+## Ways content enters, and processes Heron starts
+
+Every way content enters a turn is a variant of `ContentEntry` in `src/agent.rs`. Each variant has
+a fixed class. `taint::mark` (`src/taint.rs`) takes a `ContentEntry`, so every taint write names its
+entry. Outside content taints the session, and the taint value records the kind below. The test
+`agent::tests::every_content_entry_is_trusted_or_taints` walks the enum. A new variant does not
+compile until that test names it.
+
+| Variant | Where it comes from | Class | Taint `kind` |
+|---|---|---|---|
+| `UserMessage` | Text typed into the composer or the quick-entry panel, or dictated into it | Trusted | none |
+| `ScheduledPrompt` | The prompt of a schedule the owner created | Trusted | none |
+| `ToolOutput { untrusted }` | A tool result | Outside when the tool is flagged `untrusted_output`, else Trusted | `tool` when outside |
+| `Prompt(PromptSource)` | A system-prompt block | As `PromptSource::trust` classifies it. Outside blocks are never rendered | none |
+| `McpCall` | A call from another program over `heron mcp-serve` (M-2) | Outside | `mcp` |
+| `TelegramForward` | A forwarded Telegram message (M-8) | Outside | `telegram_forward` |
+| `TriggerEvent` | The event that fired a schedule or automation: a file change (`@file`) or an arriving email (`@email`) | Outside | `trigger` |
+| `Suggestion` | A "prepare" or "take over" session, whose prompt Heron wrote from what it observed (M-6) | Outside | `suggestion` |
+| `ChatContext` | An item of `context` on `POST /api/chat` | Outside | `chat_context` |
+
+Any new way content enters a turn joins `ContentEntry`, as trusted or tainting, and gets a row here.
+
+Processes Heron starts outside the shell tool, the model CLIs, MCP server programs and
+`notify_command`: none yet. A feature that starts one adds a row here with the binary, its
+argument shapes, and why it does not run under the OS sandbox.
+
 ## Known weaknesses (not mitigated)
 
 | # | Weakness | Consequence |

@@ -183,6 +183,8 @@ pub fn router_with(app: Arc<App>, token: String, loopback_only: bool) -> Router 
         .route("/approvals/{id}", post(answer_approval))
         .route("/tools", get(list_tools))
         .route("/tools/{name}", post(set_tool))
+        .route("/features", get(list_features))
+        .route("/features/{key}", post(set_feature))
         .route("/today", get(get_today))
         .route("/telegram", get(get_telegram).post(set_telegram).delete(remove_telegram))
         .route("/usage", get(get_usage).post(set_usage))
@@ -521,7 +523,16 @@ impl Approver for WebApprover {
 #[derive(Deserialize)]
 struct ChatBody {
     session_id: Option<String>,
+    #[serde(default)]
     message: String,
+    /// Text the owner pointed Heron at in another app; outside content (see `ChatContext`).
+    #[serde(default)]
+    context: Vec<crate::agent::ChatContext>,
+}
+
+/// An error whose body names what was wrong: `{"error": code, "message": message}`.
+fn coded(status: StatusCode, code: &str, message: &str) -> Response {
+    (status, Json(json!({"error": code, "message": message}))).into_response()
 }
 
 fn session_busy() -> Response {
@@ -530,8 +541,12 @@ fn session_busy() -> Response {
 
 async fn chat(State(st): S, Json(body): Json<ChatBody>) -> std::result::Result<Response, ApiError> {
     let message = body.message.trim().to_string();
-    if message.is_empty() {
+    // The message may be empty when context comes with it.
+    if message.is_empty() && body.context.is_empty() {
         return Err(bad("Type a message first."));
+    }
+    if let Err(e) = crate::agent::check_context(&body.context) {
+        return Ok(coded(StatusCode::BAD_REQUEST, "bad_context", &e));
     }
     // Checked before anything starts: once the SSE response begins, its status can no longer change.
     if crate::risk_notice::blocks(&st.app.store) {
@@ -556,7 +571,7 @@ async fn chat(State(st): S, Json(body): Json<ChatBody>) -> std::result::Result<R
             return Ok(session_busy());
         }
         st.app.publish_run_start(&sid, &run_id);
-        let handle = tokio::spawn(run_chat(st.clone(), session, message, run_id.clone()));
+        let handle = tokio::spawn(run_chat(st.clone(), session, message, body.context, run_id.clone()));
         running.insert(sid, (run_id.clone(), handle));
     }
     // Dropping this response, or its falling behind, ends only the response: the run goes on, and a
@@ -593,12 +608,12 @@ fn sse(item: &Item) -> SseEvent {
 
 /// One chat run, as its own task. Whoever ends the run publishes its last events: this task when the
 /// turn ends, or `cancel` when it stops the run first.
-async fn run_chat(st: Arc<ServerState>, mut session: Session, message: String, run_id: String) {
+async fn run_chat(st: Arc<ServerState>, mut session: Session, message: String, context: Vec<crate::agent::ChatContext>, run_id: String) {
     let sid = session.id.clone();
     // Rules another Heron on this home revoked or added since this one last looked apply from here.
     st.app.reload_rules();
     let agent = st.app.agent(Arc::new(WebApprover { state: st.clone(), session_id: sid.clone(), run_id: run_id.clone() }));
-    let outcome = agent.run_turn(&mut session, &message, &st.app.sink_for(&sid, &run_id)).await;
+    let outcome = agent.run_turn(&mut session, &message, &context, &st.app.sink_for(&sid, &run_id)).await;
     // Free the conversation before the (slower) background learning step.
     if !st.finish(&sid, &run_id) {
         return;
@@ -691,6 +706,9 @@ async fn cancel(State(st): S, Json(b): Json<SessionBody>) -> ApiResult {
 #[derive(Deserialize)]
 struct EventsQuery {
     since: Option<String>,
+    /// `1`: this client posts Heron's notices, so while the stream is open the core sends them here
+    /// as `notification` events instead of posting them itself (see `App::notify`).
+    notify: Option<String>,
 }
 
 /// Every event on the bus as SSE: after `since` when given, otherwise new events only.
@@ -699,7 +717,12 @@ async fn get_events(State(st): S, Query(q): Query<EventsQuery>) -> std::result::
         Some(s) => Some(s.parse::<u64>().map_err(|_| bad("since must be a sequence number"))?),
         None => None,
     };
-    let stream = st.app.events.subscribe(since).into_stream().map(|item| Ok::<_, std::convert::Infallible>(sse(&item)));
+    // Counted for as long as the stream lives: the guard moves into it and is dropped with it.
+    let client = (q.notify.as_deref().map(str::trim) == Some("1")).then(|| st.app.notify_client());
+    let stream = st.app.events.subscribe(since).into_stream().map(move |item| {
+        let _counted = &client;
+        Ok::<_, std::convert::Infallible>(sse(&item))
+    });
     Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))).into_response())
 }
 
@@ -1186,6 +1209,31 @@ async fn answer_approval(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>
         }
         _ => Err(bad("Unknown action.")),
     }
+}
+
+/// The core feature keys: `{"features": [{"key", "title", "on"}]}`.
+async fn list_features(State(st): S) -> ApiResult {
+    let cfg = st.app.cfg();
+    let features: Vec<Value> = crate::features::KEYS.iter().map(|k| json!({"key": k.key, "title": k.title, "on": cfg.feature_on(k.key)})).collect();
+    Ok(Json(json!({"features": features})))
+}
+
+#[derive(Deserialize)]
+struct FeatureBody {
+    on: bool,
+}
+
+/// Switch a core feature key on or off. Saved through `App::update_config`, so the running core
+/// applies it from the next turn.
+async fn set_feature(State(st): S, Path(key): Path<String>, Json(b): Json<FeatureBody>) -> std::result::Result<Response, ApiError> {
+    let Some(known) = crate::features::find(&key) else {
+        return Ok(coded(StatusCode::NOT_FOUND, "unknown_feature", &format!("There is no feature called \"{key}\".")));
+    };
+    let on = b.on;
+    st.app.update_config(ConfigChange::edit(move |c| {
+        c.features.flags.insert(known.key.to_string(), on);
+    }))?;
+    Ok(Json(json!({"key": known.key, "on": st.app.cfg().feature_on(known.key)})).into_response())
 }
 
 async fn list_tools(State(st): S) -> ApiResult {
@@ -1805,6 +1853,155 @@ mod tests {
 
     fn find<'a>(events: &'a [Value], kind: &str) -> &'a Value {
         events.iter().find(|e| e["type"] == kind).unwrap_or_else(|| panic!("no {kind} in {events:?}"))
+    }
+
+    fn context_item(kind: &str, app: &str, text: &str) -> Value {
+        json!({"kind": kind, "app": app, "text": text})
+    }
+
+    #[tokio::test]
+    async fn features_routes_list_and_set_keys() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        assert_eq!(h.json("GET", "/features", Value::Null).await, json!({"features": [{"key": "test_key", "title": "Test feature", "on": false}]}));
+        assert_eq!(h.json("POST", "/features/test_key", json!({"on": true})).await, json!({"key": "test_key", "on": true}));
+        assert_eq!(h.json("GET", "/features", Value::Null).await["features"][0]["on"], true);
+        assert!(h.app.cfg().feature_on("test_key"), "the running core sees it at once");
+        assert!(Config::read_saved(&h.app.cfg().home).unwrap().feature_on("test_key"), "saved to config.toml");
+        assert_eq!(h.json("POST", "/features/test_key", json!({"on": false})).await, json!({"key": "test_key", "on": false}));
+        assert!(!h.app.cfg().feature_on("test_key"));
+        let reply = h.send("POST", "/features/no_such_feature", json!({"on": true})).await;
+        let status = reply.status;
+        let v = reply.json().await;
+        assert_eq!((status, v["error"].as_str()), (404, Some("unknown_feature")), "{v}");
+        assert!(v["message"].as_str().is_some_and(|m| m.contains("no_such_feature")), "{v}");
+        assert!(!h.app.cfg().features.flags.contains_key("no_such_feature"), "nothing was saved");
+    }
+
+    #[tokio::test]
+    async fn chat_context_limits_are_enforced() {
+        use crate::agent::{check_context, ChatContext};
+        let item = |kind: &str, chars: usize| ChatContext { kind: kind.into(), app: "Mail".into(), text: "é".repeat(chars) };
+        // At most three items, of at most 20,000 characters each (characters, not bytes), of a known kind.
+        check_context(&[]).unwrap();
+        check_context(&[item("selection", 20_000), item("intent", 20_000), item("screen_text", 20_000)]).unwrap();
+        assert!(check_context(&[item("selection", 1), item("selection", 1), item("selection", 1), item("selection", 1)]).unwrap_err().contains("at most 3"));
+        assert!(check_context(&[item("selection", 20_001)]).unwrap_err().contains("20000"));
+        assert!(check_context(&[item("clipboard", 10)]).is_err());
+
+        let h = harness(scripted(vec![Message::assistant("ok")]), true, |_| {}).await;
+        let big = "é".repeat(20_001);
+        let refused = [
+            json!({"message": "look", "context": [context_item("selection", "Mail", "a"), context_item("selection", "Mail", "b"), context_item("selection", "Mail", "c"), context_item("selection", "Mail", "d")]}),
+            json!({"message": "look", "context": [context_item("selection", "Mail", &big)]}),
+            json!({"message": "look", "context": [context_item("clipboard", "Mail", "a")]}),
+        ];
+        for body in refused {
+            let reply = h.send("POST", "/chat", body).await;
+            let status = reply.status;
+            let v = reply.json().await;
+            assert_eq!((status, v["error"].as_str()), (400, Some("bad_context")), "{v}");
+            assert!(v["message"].as_str().is_some_and(|m| !m.is_empty()), "{v}");
+        }
+        // Refused before anything starts: no session was made.
+        assert!(h.app.store.list_sessions(10).unwrap().is_empty());
+        // An empty message needs context; with context it is fine, at the limits.
+        let reply = h.send("POST", "/chat", json!({"message": "  "})).await;
+        assert_eq!(reply.status, 400);
+        let full = "é".repeat(20_000);
+        let at_limits = json!({"message": "", "context": [context_item("selection", "Mail", &full), context_item("intent", "Shortcuts", &full), context_item("screen_text", "Preview", &full)]});
+        let events = h.chat(at_limits).await.all().await;
+        assert_eq!(find(&events, "done")["text"], "ok", "{:?}", types(&events));
+        // `run_turn` holds the same limits for every caller, before anything is written.
+        let mut session = Session::create(&h.app.store, "").unwrap();
+        let four: Vec<ChatContext> = (0..4).map(|_| item("selection", 1)).collect();
+        let err = h.app.agent(Arc::new(crate::permissions::DenyAll)).run_turn(&mut session, "look", &four, &crate::agent::null_sink()).await.unwrap_err();
+        assert!(err.to_string().contains("bad context"), "{err:#}");
+        assert!(h.app.store.load_messages(&session.id).unwrap().is_empty() && h.app.store.session_title(&session.id).is_empty());
+    }
+
+    #[tokio::test]
+    async fn context_never_reaches_learn_or_the_title() {
+        let llm = Arc::new(ScriptedLlm::new(vec![Message::assistant("Here is the summary."), Message::assistant("[]"), Message::assistant("Noted.")]));
+        let h = harness(llm.clone(), true, |cfg| cfg.agent.auto_memory = true).await;
+        let typed = "Summarize the selection for me";
+        let events = h.chat(json!({"message": typed, "context": [context_item("selection", "Mail", "SECRET-CONTEXT the PIN is 4321")]})).await.all().await;
+        assert_eq!(find(&events, "done")["title"], typed, "the title comes from the typed message");
+        // The bus says the conversation was tainted, by what, before the model's first word.
+        let tainted: Vec<&Value> = events.iter().filter(|e| e["type"] == "tainted").collect();
+        assert_eq!(tainted.len(), 1, "{:?}", types(&events));
+        assert_eq!(tainted[0]["source"]["kind"], "chat_context");
+        assert_eq!((tainted[0]["source"]["name"].as_str(), tainted[0]["source"]["detail"].as_str()), (Some("selection"), Some("Mail")));
+        let at = |kind: &str| events.iter().position(|e| e["type"] == kind).unwrap();
+        assert!(at("tainted") < at("text"), "{:?}", types(&events));
+        {
+            let requests = llm.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2, "the turn and the learner");
+            assert!(requests[0].messages.last().unwrap().text().contains("SECRET-CONTEXT"), "the model does see the context");
+            let learner: String = requests[1].messages.iter().map(|m| m.text()).collect();
+            assert!(learner.contains(typed), "{learner}");
+            assert!(!learner.contains("SECRET-CONTEXT") && !learner.contains("untrusted_content"), "the context reached the learner: {learner}");
+        }
+        // With no typed message the title names the context, and the learner has nothing to learn from.
+        let events = h.chat(json!({"message": "", "context": [context_item("screen_text", "Preview", "SECRET-CONTEXT again, long enough to learn from")]})).await.all().await;
+        assert_eq!(find(&events, "done")["title"], "Asked about screen_text from Preview");
+        assert_eq!(llm.requests.lock().unwrap().len(), 3, "no learner call: it got the empty typed message, not the context");
+    }
+
+    /// A notice raised while a client has the event stream open with `?notify=1` goes to the bus for
+    /// it, with the run's ids or null ones, and the core posts nothing of its own. Once that stream
+    /// is gone, the core posts its own notice again.
+    #[tokio::test]
+    async fn notices_go_to_the_bus_when_a_client_notifies() {
+        let h = harness(scripted(vec![Message::assistant("Time to stretch.")]), true, |_| {}).await;
+        let mut stream = h.send("GET", "/events?notify=1", Value::Null).await.events();
+        h.app.notify("Digest", "Three new items", "automation", None, None);
+        let notice = stream.until("notification").await.pop().unwrap();
+        let keys: std::collections::BTreeSet<&str> = notice.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(keys, ["body", "run_id", "seq", "session_id", "source", "title", "type"].into_iter().collect());
+        assert_eq!((notice["title"].as_str(), notice["body"].as_str(), notice["source"].as_str()), (Some("Digest"), Some("Three new items"), Some("automation")));
+        assert!(notice["session_id"].is_null() && notice["run_id"].is_null(), "{notice}");
+        // A scheduled job's notice carries its run's ids.
+        h.app.store.add_schedule("stretch", "", "remind me to stretch", 1, "").unwrap();
+        assert_eq!(h.app.run_due_schedules().await, 1);
+        let events = stream.until("notification").await;
+        let start = find(&events, "session");
+        let notice = events.last().unwrap();
+        assert_eq!((notice["title"].as_str(), notice["source"].as_str()), (Some("stretch"), Some("schedule")));
+        assert_eq!((&notice["session_id"], &notice["run_id"]), (&start["id"], &start["run_id"]), "{notice}");
+        assert!(start["id"].is_string());
+        // Other events' envelopes are as before: ids are strings.
+        assert!(events.iter().filter(|e| e["type"] != "notification").all(|e| e["session_id"].is_string() && e["run_id"].is_string()));
+        assert!(h.app.test_hooks.desktop_notices.lock().unwrap().is_empty(), "the core posted its own notice while a client does");
+        // The stream closes: from then on the core posts its own notices.
+        drop(stream);
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while h.app.test_hooks.desktop_notices.lock().unwrap().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "the closed stream is still counted");
+            h.app.notify("Later", "after the app closed", "suggestion", None, None);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(h.app.test_hooks.desktop_notices.lock().unwrap()[0], ("Later".to_string(), "after the app closed".to_string()));
+    }
+
+    /// With no client asking for notices (no stream, or a stream without `?notify=1`), the core posts
+    /// its own, as it always has, and puts no `notification` on the bus.
+    #[tokio::test]
+    async fn notices_use_notify_when_no_client_does() {
+        let h = harness(scripted(vec![Message::assistant("Time to stretch.")]), true, |_| {}).await;
+        let mut bus = h.app.events.subscribe(None);
+        h.app.notify("Digest", "Three new items", "automation", None, None);
+        assert_eq!(h.app.test_hooks.desktop_notices.lock().unwrap().clone(), vec![("Digest".to_string(), "Three new items".to_string())]);
+        // A stream opened without the flag, or with another value, does not count.
+        let _plain = h.send("GET", "/events", Value::Null).await.events();
+        let _other = h.send("GET", "/events?notify=0", Value::Null).await.events();
+        h.app.store.add_schedule("stretch", "", "remind me to stretch", 1, "").unwrap();
+        assert_eq!(h.app.run_due_schedules().await, 1);
+        let notices = h.app.test_hooks.desktop_notices.lock().unwrap().clone();
+        assert_eq!(notices.len(), 2, "{notices:?}");
+        assert_eq!(notices[1], ("stretch".to_string(), "Time to stretch.".to_string()));
+        while let Ok(Some(item)) = tokio::time::timeout(Duration::from_millis(100), bus.next()).await {
+            assert_ne!(item.json()["type"], "notification", "{:?}", item.json());
+        }
     }
 
     /// NEW-1: what the learner returns from a conversation that has taken in outside content is saved

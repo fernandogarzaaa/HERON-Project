@@ -12,8 +12,9 @@ a few bash scripts.
 | `run-core-tasks.sh`, `run_core_tasks.py` | The runner. |
 | `pass_rules.py` | The pass-rule grammar: `validate_rule` and `evaluate`. |
 | `eve_adapter.py`, `eve/heron-core.yaml` | The bridge from EVE to Heron's `/api/chat`. |
-| `check_tasks.py` | Structure check for `core-tasks.md`. |
-| `check_gate.py` | Schema check, the G7 gate, and the topology decision for the spike. |
+| `check_tasks.py` | Structure check for `core-tasks.md`, or for a feature task file with `--features`. |
+| `check_gate.py` | Schema check, the G7 gate, the feature-task gate (`--features`), and the topology decision for the spike. |
+| `features/` | The feature task format ([README](features/README.md)) and, per feature, its task file. |
 | `require-tests.sh` | Fails if a named Rust test was renamed away from a check. |
 | `owner-use.sh`, `owner-use.md` | The G9 day count and the trial record. |
 | `genesis.yaml`, `genesis_verifier.py` | The evaluator audit spec and the grader it audits. |
@@ -35,6 +36,7 @@ a few bash scripts.
 | `--heron-bin PATH` | Use this binary and skip the build. |
 | `--artifacts DIR` | Per-run folders (home, working folder, logs). Default `DIR/runs`. |
 | `--tasks t01,t02,...` | Only these ids. The default is every task, the probe included. |
+| `--task-file FILE` | Read the tasks from `FILE` instead of `core-tasks.md`, such as `features/<slug>.md` ([feature tasks](features/README.md)). `--tasks` then picks ids from that file. |
 | `--resume` | Skip runs already in `summary.json` without an error. A summary made with other settings is refused. |
 
 Each run gets a disposable Heron home and working folder, a copy of the task's fixture, a fixture web
@@ -94,7 +96,8 @@ and the owner decides whether `direct` is the driver of record. G7 and the basel
 
 ## Pass rules
 
-`pass_rules.evaluate(rule, ctx)` returns `(passed, failed_rules)`. The grammar is in `core-tasks.md`.
+`pass_rules.evaluate(rule, ctx)` returns `(passed, failed_rules)`. The grammar is in `core-tasks.md`;
+feature tasks add `no_executed` and `event_matches` ([features/README.md](features/README.md)).
 Malformed rules raise `RuleError`. `sql_at_least` opens `heron.db` read-only, and a second SQL
 statement is an error. File paths must stay inside the working folder.
 
@@ -106,6 +109,9 @@ statement is an error. File paths must stay inside the working folder.
   `mode` `ask`, `build` `release` and a provider that is not `demo` (it names the field and exits 1
   otherwise), then 26 of 30 gate runs with no task below 2 of 3. Prints a per-task table with median
   time to first token, tokens and asks. Exit 2 if the file is malformed or breaks schema 1.
+- `python3 -I eval/check_tasks.py --features eval/features/<slug>.md` and
+  `python3 -I eval/check_gate.py --features <summary>`: the feature-task checks, in
+  [features/README.md](features/README.md).
 - `python3 -I eval/check_gate.py --spike <envelope> <hybrid> (--report F | --write-report F)`: both
   arms need `runs_per_task` 5, a debug build, `claude-cli`, the same commit, the matching topology
   and only `t01` to `t10`. Hybrid wins only with a lead of at least 4 runs of 50 and at most 5% more

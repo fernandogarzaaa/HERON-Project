@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import HeronCore
 
-/// The standard Settings scene: seven tabs, 720 pt wide.
+/// The standard Settings scene: eight tabs, 720 pt wide.
 public struct SettingsView: View {
     @Bindable var model: AppModel
 
@@ -38,6 +38,7 @@ struct SettingsTabContent: View {
                 case .appearance: AppearanceTab(model: model)
                 case .model: ModelTab(model: model)
                 case .permissions: PermissionsTab(model: model)
+                case .features: FeaturesSettingsView(store: model.features)
                 case .connections: ConnectionsTab(model: model)
                 case .usage: UsageTab(model: model)
                 }

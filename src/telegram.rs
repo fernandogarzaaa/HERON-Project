@@ -304,10 +304,7 @@ impl Approver for TelegramApprover {
         let challenge = new_code().to_ascii_lowercase();
         let (tx, rx) = oneshot::channel();
         *self.shared.pending.lock().unwrap() = Some((challenge.clone(), tx));
-        let prompt = format!(
-            "Heron wants permission ({}):\n\n{}\n\nReply yes {challenge} or no {challenge}.",
-            req.tool, crate::util::truncate_middle(&req.detail, 1200)
-        );
+        let prompt = approval_prompt(req, &challenge);
         if !self.bot.is_current_owner(self.chat) {
             self.shared.pending.lock().unwrap().take();
             return Approval::Deny(Some("Telegram pairing changed before prompt delivery.".into()));
@@ -326,6 +323,13 @@ impl Approver for TelegramApprover {
             Err(_) => Approval::Deny(Some("no answer within ten minutes".into())),
         }
     }
+}
+
+/// The question a phone is asked. It offers yes or no, nothing else: a yes approves this one call
+/// ("always" and "for this conversation" are given at the computer), so a once-only tool is offered
+/// exactly what every other tool is.
+pub fn approval_prompt(req: &ApprovalRequest, challenge: &str) -> String {
+    format!("Heron wants permission ({}):\n\n{}\n\nReply yes {challenge} or no {challenge}.", req.tool, crate::util::truncate_middle(&req.detail, 1200))
 }
 
 /// Wrong codes allowed before pairing locks and the code is replaced.
@@ -451,13 +455,11 @@ const RISK_NOTICE_REPLY: &str = "Heron needs you to accept its risk notice in th
 
 /// The text a turn runs on. A forwarded message holds someone else's words, not the owner's: it is
 /// wrapped as outside content, and the conversation is tainted before the turn runs (M-8).
-fn turn_input(store: &crate::store::Store, session: &Session, text: &str, forwarded: bool) -> String {
+fn turn_input(store: &crate::store::Store, sink: &crate::agent::EventSink, session: &Session, text: &str, forwarded: bool) -> String {
     if !forwarded {
         return text.to_string();
     }
-    if !session.tainted.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        let _ = store.kv_set(&format!("tainted:{}", session.id), "1");
-    }
+    crate::taint::mark(store, sink, &session.tainted, &session.id, crate::agent::ContentEntry::TelegramForward, "telegram", "");
     crate::util::wrap_untrusted("forwarded message", text)
 }
 
@@ -559,9 +561,10 @@ fn start_reply(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i64, mut s
         // Dropped when this task ends, however it ends: that is what a stop waits for.
         let _stopped = stopped;
         app.reload_rules();
-        let input = turn_input(&app.store, &session, &text, forwarded);
+        let sink = app.sink_for(&sid, &run_id);
+        let input = turn_input(&app.store, &sink, &session, &text, forwarded);
         let agent = app.agent(Arc::new(TelegramApprover { bot: bot.clone(), chat, shared: shared.clone() }));
-        let outcome = agent.run_turn(&mut session, &input, &app.sink_for(&sid, &run_id)).await;
+        let outcome = agent.run_turn(&mut session, &input, &[], &sink).await;
         // A stop that got here first ends the run on the bus.
         if !shared.finish(n) {
             return;
@@ -907,6 +910,8 @@ mod tests {
         let session = session_for(&app, false).unwrap();
         assert!(session.tainted.load(std::sync::atomic::Ordering::SeqCst));
         assert!(app.store.kv_get(&format!("tainted:{}", session.id)).is_some());
+        let src = crate::taint::source(&app.store, &session.id).unwrap();
+        assert_eq!((src["kind"].as_str(), src["name"].as_str(), src["detail"].as_str()), (Some("telegram_forward"), Some("telegram"), Some("")));
         assert!(session.messages[0].text().contains("<untrusted_content source=\"forwarded message\">"), "{}", session.messages[0].text());
         // Auto mode would write without asking in a clean conversation; here the write asks, a phone
         // cannot approve it after outside content, and the file is not written.
@@ -950,6 +955,38 @@ mod tests {
         assert_eq!(saved.len(), 1, "{saved:?}");
         assert_eq!((saved[0].content.as_str(), saved[0].source.as_str(), saved[0].confirmed), (fact, "outside", false), "{saved:?}");
         assert!(app.memory.core(10).unwrap().is_empty(), "{:?}", app.memory.core(10).unwrap());
+    }
+
+    /// What each surface offers for a once-only tool. The terminal prompt offers "[a]lways" only when
+    /// `can_always` says so, and the web approver reads it and `can_session`; Telegram asks yes or no
+    /// for every tool. None offers more than the one call.
+    #[test]
+    fn terminal_and_telegram_offer_once_only() {
+        use crate::permissions::Effect;
+        let req = |tool: &str| ApprovalRequest {
+            tool: tool.into(),
+            summary: "Get Notes".into(),
+            risk: Effect::WorkspaceWrite,
+            detail: "Run the shortcut Get Notes".into(),
+            tainted: false,
+            args: json!({"name": "Get Notes"}),
+            session_id: "s".into(),
+            always_rule: crate::permissions::always_rule(tool, "Get Notes", None),
+        };
+        for tool in ["run_shortcut", "draft_email"] {
+            let r = req(tool);
+            assert!(r.always_rule.is_some(), "a rule could be built, so only the once-only check holds it back");
+            assert!(!r.can_always(), "{tool}: the terminal would offer [a]lways");
+            assert!(!crate::agent::may_grant_for_conversation(tool, r.risk, false), "{tool}: the app would offer this conversation");
+            let prompt = approval_prompt(&r, "abc123");
+            assert!(prompt.starts_with(&format!("Heron wants permission ({tool}):")), "{prompt}");
+            assert!(prompt.ends_with("Reply yes abc123 or no abc123."), "{prompt}");
+            assert!(!prompt.to_lowercase().contains("always") && !prompt.contains("conversation"), "{prompt}");
+        }
+        // The control: an ordinary tool with the same effect is offered "always" at the terminal.
+        assert!(req("write_file").can_always());
+        // Telegram asks the same yes or no whatever the tool.
+        assert_eq!(approval_prompt(&req("write_file"), "abc123").replace("write_file", "run_shortcut"), approval_prompt(&req("run_shortcut"), "abc123"));
     }
 
     #[test]

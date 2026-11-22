@@ -3,7 +3,7 @@
 
 use crate::agent::{Agent, EventSink, Session};
 use crate::events::EventBus;
-use crate::config::{Config, SavedRules};
+use crate::config::{Config, FeaturesConfig, SavedRules};
 use crate::llm::{Llm, SwappableLlm, Usage};
 use crate::memory::Memory;
 use crate::permissions::{Approver, DenyAll, Mode, Policy};
@@ -54,8 +54,20 @@ pub struct App {
     /// rules as it last knew them (see [`App::reload_rules`]). It is the config lock too: `cfg` is
     /// only ever replaced while it is held. Always locked after `rules_seen`, never before it.
     config_seen: Mutex<ConfigSeen>,
+    /// Open `GET /api/events` streams that asked for notices (`?notify=1`). While there is one, a
+    /// client posts Heron's notices, so the core does not post its own (see [`App::notify`]).
+    notify_clients: Arc<std::sync::atomic::AtomicUsize>,
     #[cfg(test)]
     pub(crate) test_hooks: TestHooks,
+}
+
+/// One open event stream that posts Heron's notices. Counted while it lives.
+pub struct NotifyClient(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for NotifyClient {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 /// What this program knows of the standing rules.
@@ -88,6 +100,8 @@ struct ConfigSeen {
 #[cfg(test)]
 #[derive(Default)]
 pub(crate) struct TestHooks {
+    /// The desktop notices the core posted itself, `(title, body)`, in place of running `osascript`.
+    pub(crate) desktop_notices: Mutex<Vec<(String, String)>>,
     /// Run once, by the next tool-setting change, revoke or mode change, after its save and before
     /// its policy change.
     pub(crate) after_save: Mutex<Option<Box<dyn FnOnce() + Send>>>,
@@ -288,7 +302,8 @@ fn rules_json(rules: &[String]) -> String {
 enum ConfigFile {
     Missing,
     Unreadable(String),
-    Rules(SavedRules),
+    /// The standing rules, and the `[features]` table (a reload applies the second to the settings).
+    Rules(SavedRules, FeaturesConfig),
 }
 
 /// How a reload stands with `config.lock`.
@@ -310,7 +325,7 @@ fn read_config_rules(home: &std::path::Path) -> ConfigFile {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => ConfigFile::Missing,
         Err(e) => ConfigFile::Unreadable(format!("could not read {}: {e}", path.display())),
         Ok(text) => match toml::from_str::<Config>(&text) {
-            Ok(c) => ConfigFile::Rules(SavedRules { allow: c.permissions.allow, deny: c.permissions.deny }),
+            Ok(c) => ConfigFile::Rules(SavedRules { allow: c.permissions.allow, deny: c.permissions.deny }, c.features),
             Err(e) => ConfigFile::Unreadable(format!("could not parse {}: {e}", path.display())),
         },
     }
@@ -436,7 +451,7 @@ pub fn repair_saved_nevers(cfg: &Config, store: &Store) -> Result<NeversCheck> {
         return Ok(NeversCheck::Sound(rules.len()));
     }
     let file = match read_config_rules(&cfg.home) {
-        ConfigFile::Rules(rules) => Some(rules.deny),
+        ConfigFile::Rules(rules, _) => Some(rules.deny),
         ConfigFile::Missing => None,
         ConfigFile::Unreadable(why) => anyhow::bail!("the \"never\" rules saved in heron.db (`{DENY_KEY}`) are damaged, and were not rebuilt because {why}; fix config.toml, then run `heron doctor` again"),
     };
@@ -807,7 +822,7 @@ impl App {
         // Tool calls read their standing `read:` rules from this live policy (see `ToolCtx::read_grants`).
         store.set_live_policy(&policy);
         let config_seen = Mutex::new(ConfigSeen { allow: config_rules.allow, nevers, ..Default::default() });
-        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy, workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default(), events: EventBus::new(), rules_seen: Mutex::new(saved), config_seen, #[cfg(test)] test_hooks: Default::default() })
+        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy, workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default(), events: EventBus::new(), rules_seen: Mutex::new(saved), config_seen, notify_clients: Default::default(), #[cfg(test)] test_hooks: Default::default() })
     }
 
     pub fn cfg(&self) -> Arc<Config> {
@@ -1125,7 +1140,7 @@ impl App {
 
     fn nevers_now(&self) -> Result<Vec<Never>> {
         let file_deny = match read_config_rules(&self.cfg().home) {
-            ConfigFile::Rules(rules) => rules.deny,
+            ConfigFile::Rules(rules, _) => rules.deny,
             ConfigFile::Missing | ConfigFile::Unreadable(_) => vec![],
         };
         let rules = union(self.saved_nevers()?, file_deny.iter().cloned());
@@ -1231,6 +1246,66 @@ impl App {
         Arc::new(move |e| {
             bus.publish(&sid, &rid, crate::events::event_json(e));
         })
+    }
+
+    /// A sink that publishes on the bus for a session with no run under way (an automation's own
+    /// steps, an MCP connection): the envelope's `run_id` is null. The first `tainted` goes out here.
+    pub fn session_sink(&self, session_id: &str) -> EventSink {
+        let (bus, sid) = (self.events.clone(), session_id.to_string());
+        Arc::new(move |e| {
+            bus.publish_notice(Some(&sid), None, crate::events::event_json(e));
+        })
+    }
+
+    /// One turn of the terminal conversation (`heron chat`). The agent is built here, for each turn,
+    /// from the settings as they are now. A feature key switched in this process (`update_config`)
+    /// is already in them, and one switched by another Heron on this home (the app's `heron serve`
+    /// writing `config.toml`) is taken in by the reload below, so either applies from the next turn.
+    /// Returns the reply and the turn's agent, for the caller to `learn` from the turn with.
+    pub async fn repl_turn(&self, approver: Arc<dyn Approver>, session: &mut Session, input: &str, sink: &EventSink) -> Result<(String, Agent)> {
+        // What another Heron on this home granted or revoked since the last turn applies to this one.
+        self.reload_rules();
+        let agent = self.agent(approver);
+        let result = agent.run_turn(session, input, &[], sink).await;
+        self.persist_rules();
+        Ok((result?, agent))
+    }
+
+    /// Count one open event stream that posts Heron's notices, until the returned guard is dropped.
+    pub fn notify_client(&self) -> NotifyClient {
+        self.notify_clients.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        NotifyClient(self.notify_clients.clone())
+    }
+
+    /// Tell the owner about a notice from a schedule, an automation or a suggestion (`source`).
+    ///
+    /// While a client has an event stream open with `?notify=1`, the notice goes to the bus as
+    /// `notification {title, body, source}`, for the client to post, and the core posts nothing of its
+    /// own; its `session_id` and `run_id` are the run's, or null when it belongs to no run. With no
+    /// such client the core posts it itself, as it always has. A configured `notify_command` runs
+    /// either way.
+    pub fn notify(&self, title: &str, body: &str, source: &str, session_id: Option<&str>, run_id: Option<&str>) {
+        let cfg = self.cfg();
+        let client = self.notify_clients.load(std::sync::atomic::Ordering::SeqCst) > 0;
+        if client {
+            self.events.publish_notice(session_id, run_id, serde_json::json!({"type": "notification", "title": title, "body": preview(body, 180), "source": source}));
+        }
+        if !cfg.agent.notify_command.is_empty() {
+            run_notify_command(&cfg, title, body);
+        } else if !client {
+            self.post_desktop_notice(title, body);
+        }
+    }
+
+    #[cfg(not(test))]
+    fn post_desktop_notice(&self, title: &str, body: &str) {
+        post_desktop_notice(title, body);
+    }
+
+    /// In tests the notice is recorded, not shown.
+    #[cfg(test)]
+    fn post_desktop_notice(&self, title: &str, body: &str) {
+        self.test_hooks.desktop_notices.lock().unwrap().push((title.to_string(), body.to_string()));
     }
 
     /// Publish how a run ended: `done {text, title}` or `error {message, code}`. `run_end` follows
@@ -1354,6 +1429,9 @@ impl App {
     /// heron.db is not written: the allow rules that came from the file are dropped, as for a file
     /// that cannot be read, and every "never" saved in heron.db that this one lacks is taken in, until
     /// a reload gets the lock. None is lifted meanwhile, as the holder may be half-way through a lift.
+    ///
+    /// The `[features]` table (the keys and `shortcuts_allowed`) is taken from the same read, when
+    /// the file is readable; otherwise the settings keep the table they have.
     fn take_config_rules(&self, saved_rules: &[String]) {
         let mut seen = self.lock_config_seen();
         // Under the file lock, so a read of the file made before another Heron lifts a "never" (from
@@ -1375,10 +1453,11 @@ impl App {
         };
         seen.lock_held = matches!(lock, FileLock::TimedOut(_));
         let (disk_allow, file_deny) = match file {
-            ConfigFile::Rules(rules) => {
+            ConfigFile::Rules(rules, features) => {
                 if seen.unreadable.take().is_some() {
                     eprintln!("heron: config.toml can be read again; its rules apply again.");
                 }
+                self.take_features(features);
                 (rules.allow, Some(rules.deny))
             }
             ConfigFile::Missing => {
@@ -1454,6 +1533,21 @@ impl App {
             // A deny rule that is not a valid glob was never loaded at startup either.
             let _ = self.policy.add_deny(r);
         }
+    }
+
+    /// Make the `[features]` table that another Heron on this home saved (`features`, read from
+    /// `config.toml` under the file lock) this one's own, so a key switched there applies from the
+    /// next turn here. A file that is missing, cannot be read, or is not locked leaves the settings as
+    /// they are: this is only called with a table that was read.
+    fn take_features(&self, features: FeaturesConfig) {
+        let mut slot = self.cfg.write().unwrap();
+        if slot.features == features {
+            return;
+        }
+        let mut cfg = (**slot).clone();
+        cfg.features = features;
+        cfg.revision += 1;
+        *slot = Arc::new(cfg);
     }
 
     /// Bring the policy from `seen` (the saved list as this one knows it) to `saved`. Rules this one
@@ -1576,11 +1670,10 @@ impl App {
                 job.prompt
             );
             if let Some(event) = &event {
-                session.tainted.store(true, std::sync::atomic::Ordering::SeqCst);
-                let _ = self.store.kv_set(&format!("tainted:{}", session.id), "1");
+                crate::taint::mark(&self.store, &self.sink_for(&sid, &run_id), &session.tainted, &session.id, crate::agent::ContentEntry::TriggerEvent, &job.name, trigger_detail(job));
                 prompt.push_str(&format!("\n\nWhat happened:\n{}", crate::util::wrap_untrusted("event", event)));
             }
-            agent.run_turn(&mut session, &prompt, &self.sink_for(&sid, &run_id)).await
+            agent.run_turn(&mut session, &prompt, &[], &self.sink_for(&sid, &run_id)).await
         }
         .await;
         if !sid.is_empty() {
@@ -1611,7 +1704,8 @@ impl App {
         }
         let _ = self.store.record_schedule_run(job.id, &preview(&body, 500), tokens);
         let _ = self.store.add_inbox(&job.name, &body);
-        notify(&cfg, &job.name, &body);
+        let run = (!sid.is_empty()).then_some((sid.as_str(), run_id.as_str()));
+        self.notify(&job.name, &body, "schedule", run.map(|r| r.0), run.map(|r| r.1));
         if worked { RunStatus::Ok } else { RunStatus::Failed }
     }
 
@@ -1620,24 +1714,25 @@ impl App {
     /// model while it is held stops the run there: earlier steps' effects stay, and "Run now" runs the
     /// whole automation again.
     async fn run_automation(&self, job: &crate::store::Schedule, agent: Agent, event: Option<String>, attended: bool) -> RunStatus {
-        let cfg = self.cfg();
         let spent = agent.usage.clone();
         let held = std::sync::atomic::AtomicBool::new(false);
         let refused = std::sync::atomic::AtomicBool::new(false);
         let outcome: Result<crate::workflow::RunRecord> = async {
             let workflow = crate::workflow::Workflow::parse(&serde_json::from_str::<serde_json::Value>(&job.workflow)?)?;
             let session = Session::create_with_origin(&self.store, &format!("⚙ {}", job.name), crate::agent::Origin::Automation)?;
+            // No run is on the bus for the automation itself (each agent step is its own), so the
+            // first taint from the trigger or a tool step is published for the session alone.
+            let sink = self.session_sink(&session.id);
             if event.is_some() {
                 // Whatever set a trigger off (a file name, an email) is outside content.
-                session.tainted.store(true, std::sync::atomic::Ordering::SeqCst);
-                let _ = self.store.kv_set(&format!("tainted:{}", session.id), "1");
+                crate::taint::mark(&self.store, &sink, &session.tainted, &session.id, crate::agent::ContentEntry::TriggerEvent, &job.name, trigger_detail(job));
             }
             let mut ctx = agent.tool_ctx(&session.id);
             ctx.tainted = session.tainted.clone();
             // Addresses written into the automation are the user's own choice of destination.
             session.seen_urls.note(&job.workflow);
             ctx.seen_urls = session.seen_urls.clone();
-            let host = JobHost { app: self, agent: &agent, ctx, session: tokio::sync::Mutex::new(session), extra_tokens: Default::default(), attended, held: &held, refused: &refused };
+            let host = JobHost { app: self, agent: &agent, ctx, sink, session: tokio::sync::Mutex::new(session), extra_tokens: Default::default(), attended, held: &held, refused: &refused };
             let record = crate::workflow::run(&host, &workflow, event.as_deref()).await;
             let extra = *host.extra_tokens.lock().unwrap();
             spent.lock().unwrap().completion_tokens += extra;
@@ -1671,7 +1766,7 @@ impl App {
         for (title, text) in &record.notices {
             let title = title.clone().unwrap_or_else(|| job.name.clone());
             let _ = self.store.add_inbox(&title, text);
-            notify(&cfg, &title, text);
+            self.notify(&title, text, "automation", None, None);
         }
         let summary = match record.status.as_str() {
             "ok" | "stopped" => format!("Ran {} step{}.", record.steps.len(), if record.steps.len() == 1 { "" } else { "s" }),
@@ -1684,7 +1779,7 @@ impl App {
             _ => {
                 let msg = format!("This automation did not finish: {}", record.error.clone().unwrap_or_else(|| "unknown error".into()));
                 let _ = self.store.add_inbox(&job.name, &msg);
-                notify(&cfg, &job.name, &msg);
+                self.notify(&job.name, &msg, "automation", None, None);
                 msg
             }
         };
@@ -1771,6 +1866,13 @@ impl App {
             anyhow::bail!("That request is already being carried out or has been dealt with.");
         }
         self.reload_rules();
+        // A tool whose feature key has been switched off since the call was parked is refused, not
+        // run: today's settings decide, as for every other rule below.
+        if self.tools.get(&parked.tool).is_some() && self.tools.get_for(&self.cfg(), &parked.tool).is_none() {
+            let reason = format!("the feature that provides '{}' is switched off in Settings", parked.tool);
+            self.store.resolve_approval(id, "blocked", Some(&reason))?;
+            anyhow::bail!("Heron cannot do this: {reason}");
+        }
         let prepared = (|| -> Result<_> {
             let tool = self.tools.get(&parked.tool).ok_or_else(|| anyhow::anyhow!("The tool '{}' is no longer available.", parked.tool))?;
             let args: serde_json::Value = serde_json::from_str(&parked.args)?;
@@ -2057,10 +2159,11 @@ impl App {
             bus_sid = sid.clone();
             self.publish_run_start(&sid, &run_id);
             // The brief was written by a model from observed file names and memories, not by the
-            // user, so the session starts as if outside content were already in it (M-6).
-            session.tainted.store(true, std::sync::atomic::Ordering::SeqCst);
-            self.store.kv_set(&format!("tainted:{sid}"), "1")?;
-            agent.run_turn(&mut session, &brief, &self.sink_for(&sid, &run_id)).await.map(|text| (sid, text))
+            // user, so the session starts as if outside content were already in it (M-6). A session
+            // whose taint could not be recorded does not run.
+            crate::taint::mark(&self.store, &self.sink_for(&sid, &run_id), &session.tainted, &sid, crate::agent::ContentEntry::Suggestion, "suggestion", "");
+            anyhow::ensure!(crate::taint::is_tainted(&self.store, &sid), "the session's outside-content mark could not be saved");
+            agent.run_turn(&mut session, &brief, &[], &self.sink_for(&sid, &run_id)).await.map(|text| (sid, text))
         }
         .await;
         if !bus_sid.is_empty() {
@@ -2074,7 +2177,7 @@ impl App {
                 let _ = self.store.update_suggestion(id, if takeover { "done" } else { "prepared" }, Some(&text), Some(&sid));
                 if takeover {
                     let _ = self.store.add_inbox(&format!("Done for you: {}", s.title), &text);
-                    notify(&cfg, &s.title, &text);
+                    self.notify(&s.title, &text, "suggestion", Some(&sid), Some(&run_id));
                 }
             }
             // The suggestion stays open; it can be done once the notice is accepted.
@@ -2150,6 +2253,8 @@ struct JobHost<'a> {
     app: &'a App,
     agent: &'a Agent,
     ctx: crate::tools::ToolCtx,
+    /// Where a tool step's first taint of the session is published.
+    sink: EventSink,
     session: tokio::sync::Mutex<Session>,
     /// Tokens used by `ask` steps (agent steps are metered by the agent itself).
     extra_tokens: Mutex<u64>,
@@ -2216,6 +2321,15 @@ impl JobHost<'_> {
     }
 }
 
+/// What `detail` a trigger's taint source records: which kind of event set the job off.
+fn trigger_detail(job: &crate::store::Schedule) -> &'static str {
+    match job.cron.split_once(':').map(|(kind, _)| kind) {
+        Some("@file") => "file_change",
+        Some("@email") => "email",
+        _ => "",
+    }
+}
+
 /// What a run that is waiting for the risk notice records.
 const RISK_NOTICE_WAITING: &str = "Waiting for you: accept Heron's risk notice in the Mac app or by running `heron` in a terminal.";
 
@@ -2230,7 +2344,7 @@ impl crate::workflow::Host for JobHost<'_> {
         if name == "delegate" {
             self.hold().map_err(|e| e.to_string())?;
         }
-        self.agent.call_tool(&self.ctx, name, args).await
+        self.agent.call_tool(&self.ctx, name, args, &self.sink).await
     }
 
     async fn ask(&self, prompt: &str) -> Result<String> {
@@ -2250,14 +2364,13 @@ impl crate::workflow::Host for JobHost<'_> {
         // Each agent step is its own run on the bus.
         let (sid, run_id) = (session.id.clone(), crate::events::new_run_id());
         self.app.publish_run_start(&sid, &run_id);
-        let outcome = self.agent.run_turn(&mut session, &framed, &self.app.sink_for(&sid, &run_id)).await;
+        let outcome = self.agent.run_turn(&mut session, &framed, &[], &self.app.sink_for(&sid, &run_id)).await;
         self.app.publish_outcome(&sid, &run_id, outcome.as_deref());
         self.app.publish_run_end(&sid, &run_id);
         self.note(outcome)
     }
 }
 
-/// Best-effort desktop notification. Uses `notify_command` if configured, else the OS default where one exists.
 /// Wait for a helper process off to the side. A finished process that nobody waits for stays in the
 /// process table until Heron exits, and a long-running Heron would slowly fill it.
 fn reap(child: std::io::Result<std::process::Child>) {
@@ -2268,24 +2381,27 @@ fn reap(child: std::io::Result<std::process::Child>) {
     }
 }
 
-fn notify(cfg: &Config, title: &str, body: &str) {
+/// Run `notify_command` with the notice in `HERON_MESSAGE` and `HERON_TITLE`.
+fn run_notify_command(cfg: &Config, title: &str, body: &str) {
     let message = format!("{title}: {}", preview(body, 180));
-    if !cfg.agent.notify_command.is_empty() {
-        #[cfg(windows)]
-        let mut c = {
-            let mut c = std::process::Command::new("powershell.exe");
-            c.args(["-NoProfile", "-NonInteractive", "-Command", &cfg.agent.notify_command]);
-            c
-        };
-        #[cfg(not(windows))]
-        let mut c = {
-            let mut c = std::process::Command::new("sh");
-            c.arg("-c").arg(&cfg.agent.notify_command);
-            c
-        };
-        reap(c.env("HERON_MESSAGE", &message).env("HERON_TITLE", title).spawn());
-        return;
-    }
+    #[cfg(windows)]
+    let mut c = {
+        let mut c = std::process::Command::new("powershell.exe");
+        c.args(["-NoProfile", "-NonInteractive", "-Command", &cfg.agent.notify_command]);
+        c
+    };
+    #[cfg(not(windows))]
+    let mut c = {
+        let mut c = std::process::Command::new("sh");
+        c.arg("-c").arg(&cfg.agent.notify_command);
+        c
+    };
+    reap(c.env("HERON_MESSAGE", &message).env("HERON_TITLE", title).spawn());
+}
+
+/// The operating system's own notification, where there is one.
+#[cfg(not(test))]
+fn post_desktop_notice(title: &str, body: &str) {
     #[cfg(target_os = "macos")]
     {
         // Arguments are passed via argv, not interpolated into the script, so job output cannot inject AppleScript.
@@ -2295,7 +2411,7 @@ fn notify(cfg: &Config, title: &str, body: &str) {
                 .spawn(),
         );
     }
-    let _ = message;
+    let _ = (title, body);
 }
 
 /// How sure the model must be before a suggestion is shown, from the user's last answers (true =
@@ -2333,6 +2449,244 @@ mod tests {
         let mut cfg = (*app.cfg()).clone();
         f(&mut cfg.llm);
         *app.cfg.write().unwrap() = Arc::new(cfg);
+    }
+
+    /// A plain app over a scripted model, with its home in `dir`.
+    async fn plain_app(dir: &std::path::Path, answers: Vec<Message>, tweak: impl FnOnce(&mut Config)) -> App {
+        let mut cfg = Config { home: dir.join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        tweak(&mut cfg);
+        let app = App::assemble(cfg, dir.join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(answers))).await.unwrap();
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        app
+    }
+
+    fn set_test_key(app: &App, on: bool) {
+        app.update_config(ConfigChange::edit(move |c| {
+            c.features.flags.insert("test_key".into(), on);
+        }))
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn feature_key_round_trips_through_update_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![], |_| {}).await;
+        let home = app.cfg().home.clone();
+        assert!(!app.cfg().feature_on("test_key"));
+        app.update_config(ConfigChange::edit(|c| {
+            c.features.flags.insert("test_key".into(), true);
+            c.features.shortcuts_allowed = vec!["Get Notes".into()];
+        }))
+        .unwrap();
+        // The running core sees it at once, and the file holds it.
+        assert!(app.cfg().feature_on("test_key"));
+        let text = std::fs::read_to_string(home.join("config.toml")).unwrap();
+        assert!(text.contains("[features]") && text.contains("test_key = true"), "{text}");
+        let saved = Config::read_saved(&home).unwrap();
+        assert!(saved.feature_on("test_key"));
+        assert_eq!(saved.features.shortcuts_allowed, vec!["Get Notes".to_string()]);
+        // Switched off, it is written as false, not dropped back to the default.
+        set_test_key(&app, false);
+        assert!(!app.cfg().feature_on("test_key"));
+        let saved = Config::read_saved(&home).unwrap();
+        assert_eq!(saved.features.flags.get("test_key"), Some(&false));
+        assert_eq!(saved.features.shortcuts_allowed, vec!["Get Notes".to_string()], "the other entry is kept");
+        // Another change of settings keeps the table, and a core started from the file reads it.
+        app.update_config(ConfigChange::edit(|c| c.agent.name = "Wren".into())).unwrap();
+        set_test_key(&app, true);
+        let restarted = App::assemble(Config::read_saved(&home).unwrap(), dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
+        assert!(restarted.cfg().feature_on("test_key"));
+        assert_eq!(restarted.cfg().agent.name, "Wren");
+    }
+
+    #[tokio::test]
+    async fn tools_follow_their_key_without_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![], |_| {}).await;
+        let offered = |agent: &Agent| agent.tool_schemas().iter().any(|t| t["function"]["name"] == "test_feature_tool");
+        let runs = |agent: Agent| async move { agent.call_tool(&agent.tool_ctx("s"), "test_feature_tool", &json!({}), &crate::agent::null_sink()).await };
+        let before = app.agent(Arc::new(DenyAll));
+        assert!(!offered(&before));
+        assert!(runs(before.clone()).await.unwrap_err().contains("unknown tool"));
+        // Switched on while the core runs: the next turn's agent has it.
+        set_test_key(&app, true);
+        let on = app.agent(Arc::new(DenyAll));
+        assert!(offered(&on));
+        assert_eq!(runs(on).await.unwrap(), "the test feature ran");
+        assert!(app.tools.names_for(&app.cfg()).contains(&"test_feature_tool".to_string()));
+        // A turn already under way keeps the list it started with.
+        assert!(runs(before).await.is_err());
+        // Switched off again: gone from the next turn.
+        set_test_key(&app, false);
+        let off = app.agent(Arc::new(DenyAll));
+        assert!(!offered(&off));
+        assert!(runs(off).await.unwrap_err().contains("unknown tool"));
+        assert!(!app.tools.names_for(&app.cfg()).contains(&"test_feature_tool".to_string()));
+        assert!(app.tools.names().contains(&"test_feature_tool".to_string()), "still registered, only not available");
+    }
+
+    /// The terminal conversation builds its agent per turn: a feature key switched while it is open
+    /// (as `POST /api/features` does) changes the tools the very next turn offers, in the same session.
+    #[tokio::test]
+    async fn repl_agent_sees_feature_change_next_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        let llm = Arc::new(ScriptedLlm::new(vec![Message::assistant("one"), Message::assistant("two"), Message::assistant("three")]));
+        let app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap();
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        let offered = |n: usize| llm.requests.lock().unwrap()[n].tools.iter().any(|t| t["function"]["name"] == "test_feature_tool");
+        // `update_config` rebuilds the model client from the settings; put the scripted one back.
+        let switch = |on: bool| {
+            set_test_key(&app, on);
+            app.llm.swap(llm.clone());
+        };
+        let mut session = Session::create(&app.store, "").unwrap();
+        let sink = crate::agent::null_sink();
+        assert_eq!(app.repl_turn(Arc::new(DenyAll), &mut session, "hello", &sink).await.unwrap().0, "one");
+        assert!(!offered(0));
+        switch(true);
+        assert_eq!(app.repl_turn(Arc::new(DenyAll), &mut session, "again", &sink).await.unwrap().0, "two");
+        assert!(offered(1), "the next turn offers the tool switched on");
+        switch(false);
+        app.repl_turn(Arc::new(DenyAll), &mut session, "once more", &sink).await.unwrap();
+        assert!(!offered(2), "and drops it once switched off");
+        assert_eq!(session.messages.len(), 6, "all three turns ran in the one session");
+    }
+
+    /// A feature key the owner turns off in the app (a separate process writing `config.toml`) is gone
+    /// from the next turn of a `heron chat` that is already open, with no `update_config` of its own.
+    #[tokio::test]
+    async fn repl_sees_feature_change_from_another_process() {
+        let dir = tempfile::tempdir().unwrap();
+        let mk = |answers: Vec<Message>| {
+            let cfg = Config { home: dir.path().join("home"), agent: crate::config::AgentConfig { auto_memory: false, ..Default::default() }, ..Default::default() };
+            let llm = Arc::new(ScriptedLlm::new(answers));
+            (cfg, llm)
+        };
+        let (cfg, llm) = mk(vec![Message::assistant("one"), Message::assistant("two")]);
+        let chat = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap();
+        crate::risk_notice::accept_current(&chat.store).unwrap();
+        let offered = |n: usize| llm.requests.lock().unwrap()[n].tools.iter().any(|t| t["function"]["name"] == "test_feature_tool");
+        set_test_key(&chat, true);
+        chat.llm.swap(llm.clone());
+        let mut session = Session::create(&chat.store, "").unwrap();
+        let sink = crate::agent::null_sink();
+        chat.repl_turn(Arc::new(DenyAll), &mut session, "hello", &sink).await.unwrap();
+        assert!(offered(0), "the key is on, so the tool is offered");
+
+        // The other process, started on the same home after the key was switched on, switches it off.
+        let (cfg, other_llm) = mk(vec![]);
+        let app = App::assemble(Config::read_saved(&cfg.home).unwrap(), dir.path().join("ws"), Store::in_memory().unwrap(), other_llm).await.unwrap();
+        assert!(app.cfg().feature_on("test_key"), "it started from the file, with the key on");
+        set_test_key(&app, false);
+        assert!(chat.cfg().feature_on("test_key"), "nothing has told the open chat yet");
+
+        chat.repl_turn(Arc::new(DenyAll), &mut session, "again", &sink).await.unwrap();
+        assert!(!offered(1), "the next turn no longer offers the tool");
+        assert!(!chat.cfg().feature_on("test_key"));
+    }
+
+    /// The first taint of an automation's session, from a `do: tool` step or from the event that set
+    /// it off, publishes `tainted` on the bus for that session (it has no run), once.
+    #[tokio::test]
+    async fn first_taint_from_automation_step_publishes_tainted() {
+        use crate::events::Item;
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![], |_| {}).await;
+        let collect = |mut bus: crate::events::Subscription| async move {
+            let mut events = vec![];
+            while let Ok(Some(Item::Event(e))) = tokio::time::timeout(std::time::Duration::from_millis(200), bus.next()).await {
+                events.push(e);
+            }
+            events
+        };
+        // Two tool steps whose output is outside content; nothing else in the automation taints.
+        let bus = app.events.subscribe(Some(0));
+        let steps = json!([
+            {"id": "look", "do": "tool", "tool": "recent_activity", "args": {}},
+            {"id": "again", "do": "tool", "tool": "recent_activity", "args": {}}
+        ]);
+        let job = app.store.add_schedule("watch", "", "automation", 1, "").unwrap();
+        app.store.set_schedule_workflow(job, &steps.to_string()).unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        let events = collect(bus).await;
+        let tainted: Vec<_> = events.iter().filter(|e| e.kind() == "tainted").collect();
+        assert_eq!(tainted.len(), 1, "announced once: {events:?}");
+        let sid = &tainted[0].session_id;
+        assert_eq!(app.store.session_origin(sid).as_deref(), Some("automation"));
+        assert!(crate::taint::is_tainted(&app.store, sid));
+        let wire = tainted[0].envelope();
+        assert_eq!((wire["source"]["kind"].as_str(), wire["source"]["name"].as_str()), (Some("tool"), Some("recent_activity")), "{wire}");
+        assert_eq!((wire["session_id"].as_str(), wire["run_id"].is_null()), (Some(sid.as_str()), true), "{wire}");
+        assert_eq!(events.len(), 1, "a tool step's start and end belong to no run, so only the taint is published: {events:?}");
+
+        // Set off by an event: the trigger is the first taint, and it is published the same way.
+        let bus = app.events.subscribe(None);
+        let triggered = app.store.add_schedule("on mail", "@email:invoices", "automation", 0, "").unwrap();
+        app.store.set_schedule_workflow(triggered, &json!([{"id": "look", "do": "tool", "tool": "recent_activity", "args": {}}]).to_string()).unwrap();
+        let job = app.store.list_schedules().unwrap().into_iter().find(|j| j.id == triggered).unwrap();
+        app.run_job(&job, Some("Subject: invoice".into()), false).await;
+        let events = collect(bus).await;
+        let tainted: Vec<_> = events.iter().filter(|e| e.kind() == "tainted").collect();
+        assert_eq!(tainted.len(), 1, "{events:?}");
+        let wire = tainted[0].envelope();
+        assert_eq!((wire["source"]["kind"].as_str(), wire["source"]["name"].as_str(), wire["source"]["detail"].as_str()), (Some("trigger"), Some("on mail"), Some("email")), "{wire}");
+        assert_eq!(app.store.session_origin(&tainted[0].session_id).as_deref(), Some("automation"));
+    }
+
+    /// A call parked while its feature was on is refused, not run, once the feature is off; and runs
+    /// once it is on again.
+    #[tokio::test]
+    async fn parked_call_to_an_off_feature_tool_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![], |_| {}).await;
+        let session = Session::create(&app.store, "").unwrap();
+        let park = || app.store.park_approval(&session.id, "test_feature_tool", "{}", "the test feature", "", "read", false, "a job").unwrap();
+        let off = park();
+        let err = app.run_parked(off).await.unwrap_err().to_string();
+        assert!(err.contains("switched off"), "{err}");
+        let row = app.store.get_approval(off).unwrap();
+        assert_eq!(row.status, "blocked", "the refusal is recorded: {row:?}");
+        assert!(app.store.audit_log(10).unwrap().iter().all(|r| r.tool != "test_feature_tool"), "it never ran");
+        set_test_key(&app, true);
+        let on = park();
+        assert_eq!(app.run_parked(on).await.unwrap(), "the test feature ran");
+        assert_eq!(app.store.get_approval(on).unwrap().status, "approved");
+    }
+
+    #[tokio::test]
+    async fn notify_command_still_runs_when_a_client_notifies() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("notified.txt");
+        let command = format!("printf '%s|%s\\n' \"$HERON_TITLE\" \"$HERON_MESSAGE\" >> '{}'", out.display());
+        let app = plain_app(dir.path(), vec![], |c| c.agent.notify_command = command).await;
+        let read_lines = |n: usize| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                let lines: Vec<String> = std::fs::read_to_string(&out).unwrap_or_default().lines().map(str::to_string).collect();
+                if lines.len() >= n {
+                    return lines;
+                }
+                assert!(std::time::Instant::now() < deadline, "notify_command did not run: {lines:?}");
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        };
+        let mut bus = app.events.subscribe(None);
+        let client = app.notify_client();
+        app.notify("Invoices", "Two new invoices", "schedule", None, None);
+        // The client gets the notice, and the command runs as well.
+        let Some(crate::events::Item::Event(e)) = tokio::time::timeout(std::time::Duration::from_secs(2), bus.next()).await.unwrap() else { panic!("no event") };
+        assert_eq!((e.kind(), e.json["title"].as_str(), e.json["source"].as_str()), ("notification", Some("Invoices"), Some("schedule")));
+        assert_eq!(read_lines(1), vec!["Invoices|Invoices: Two new invoices"]);
+        // With no client, the command runs as it always has.
+        drop(client);
+        app.notify("Digest", "Ready", "automation", None, None);
+        assert_eq!(read_lines(2)[1], "Digest|Digest: Ready");
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(100), bus.next()).await.is_err(), "no notice goes to the bus without a client");
+        // A configured command takes the place of the operating system's notice, as before.
+        assert!(app.test_hooks.desktop_notices.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -3207,7 +3561,7 @@ mod tests {
         let session = Session::create_with_origin(&app.store, "⚙ test", crate::agent::Origin::Automation).unwrap();
         let agent = app.agent(Arc::new(DenyAll));
         let (held, refused) = (std::sync::atomic::AtomicBool::new(false), std::sync::atomic::AtomicBool::new(false));
-        let host = JobHost { app: &app, agent: &agent, ctx: agent.tool_ctx(&session.id), session: tokio::sync::Mutex::new(session), extra_tokens: Default::default(), attended: true, held: &held, refused: &refused };
+        let host = JobHost { app: &app, agent: &agent, ctx: agent.tool_ctx(&session.id), sink: crate::agent::null_sink(), session: tokio::sync::Mutex::new(session), extra_tokens: Default::default(), attended: true, held: &held, refused: &refused };
 
         let asked = crate::workflow::Host::ask(&host, "Summarize the notes").await;
         let reflected = app.reflect_if_due().await;
@@ -3690,6 +4044,8 @@ mod tests {
             let s = app.store.get_suggestion(id).unwrap();
             let sid = s.session_id.unwrap_or_else(|| panic!("{title}: no session ({:?})", s.result));
             assert!(app.store.kv_get(&format!("tainted:{sid}")).is_some(), "{title}");
+            let src = crate::taint::source(&app.store, &sid).unwrap();
+            assert_eq!((src["kind"].as_str(), src["name"].as_str(), src["detail"].as_str()), (Some("suggestion"), Some("suggestion"), Some("")), "{title}");
             assert!(Session::load(&app.store, &sid).unwrap().tainted.load(std::sync::atomic::Ordering::SeqCst), "{title}");
         }
         // The granted write did not happen unattended; it waits for the user.
@@ -3885,6 +4241,12 @@ mod tests {
         assert_eq!(app.run_triggers().await, 1);
         assert!(llm.requests.lock().unwrap()[1].messages.last().unwrap().text().contains("book/ch3.md"));
         assert!(!llm.requests.lock().unwrap()[1].messages.last().unwrap().text().contains("unrelated.txt"));
+        let trigger_source = |title: &str| {
+            let session = app.store.list_sessions(50).unwrap().into_iter().find(|s| s.title == title).unwrap_or_else(|| panic!("no session {title}"));
+            let src = crate::taint::source(&app.store, &session.id).unwrap_or_else(|| panic!("{title} is not tainted with a source"));
+            (src["kind"].as_str().unwrap_or("").to_string(), src["name"].as_str().unwrap_or("").to_string(), src["detail"].as_str().unwrap_or("").to_string())
+        };
+        assert_eq!(trigger_source("⏰ book watcher"), ("trigger".into(), "book watcher".into(), "file_change".into()));
         assert_eq!(app.run_triggers().await, 0, "no new change, and it rests five minutes between runs");
 
         // 3. An email trigger fires for new mail from the right sender. The mail is outside content, so the
@@ -3900,6 +4262,7 @@ mod tests {
         assert_eq!(waiting.len(), 1);
         assert!(waiting[0].tainted);
         assert_eq!(waiting[0].origin, "maria");
+        assert_eq!(trigger_source("⏰ maria"), ("trigger".into(), "maria".into(), "email".into()));
         let _ = mail;
         assert!(app.store.inbox(true, 10).unwrap().iter().any(|m| m.body.contains("waiting for your approval")));
     }

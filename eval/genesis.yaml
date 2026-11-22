@@ -14,6 +14,13 @@
 # missing timeout. It does not probe the rule grammar itself: the known-good and known-bad cases
 # for each rule kind are in `eval/tests/test_pass_rules.py`, and the cases in
 # `eval/tests/grader_cases.jsonl` are the verifier's own known-good and known-bad examples.
+#
+# Feature-task rules (B1 of docs/designs/heron-v1-features.md). `no_executed` and
+# `event_matches` have a known-good and known-bad recorded run each, in rows with the source
+# "ft-rules" of `eval/genesis/cases.jsonl` (built by `eval/genesis/build_cases.py`). genesis's
+# `code-py` suite can't carry run records, so the audit that judges them is
+# `genesis audit-evaluator eval/genesis/pass-rules-json.yaml --suite json`, and
+# `eval/tests/test_feature_tasks.py` replays those rows through the same verifier.
 name: heron-core-pass-rules
 dataset:
   path: eval/tests/grader_cases.jsonl
