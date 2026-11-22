@@ -1929,7 +1929,7 @@
       "claim_token": "be2f5a2d06c442c59a90753bcc9a595a",
       "claimed_at": "2026-11-22T10:07:15.802815+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:08:46.390162+00:00",
+      "last_heartbeat": "2026-11-22T10:09:46.521842+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -1956,7 +1956,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F2: taint chip, why on the sheet",
-    "version": 6,
+    "version": 8,
     "worktree": {
       "base_branch": "4b4660347f30da79dd80c1558592a62bd120f123",
       "base_commit": "4b4660347f30da79dd80c1558592a62bd120f123",
@@ -3447,7 +3447,16 @@
     }
   },
   "F5t": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "0c54ba8c19b04f018f91690ee1da0d7d",
+        "ended_at": "2026-11-22T10:09:52.412735+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:08:04.645308+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -3459,21 +3468,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "0c54ba8c19b04f018f91690ee1da0d7d",
-      "base_branch": "beacef1f170f56de6ed0fe74a91556415730d37b",
-      "claim_token": "d2f0fd9f5ebb4911af5fbe87ddf24811",
-      "claimed_at": "2026-11-22T10:08:04.645308+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T10:08:35.138854+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F5s"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_shortcuts_lists_and_saves_the_allowlist",
+        "duration_ms": 2649,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5t_20261122T100949662666_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5t_20261122T100952313095_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F5t",
     "integration_for": null,
     "intent": {
@@ -3485,13 +3506,31 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "0c54ba8c19b04f018f91690ee1da0d7d",
+      "base_commit": "beacef1f170f56de6ed0fe74a91556415730d37b",
+      "changed_files": [
+        "tests/integration.rs",
+        "tests/fixtures/api/shortcuts.json"
+      ],
+      "commit": "441b55f486289e28f550be7dfdb6f63eeca4f352",
+      "diff_stats": {
+        "tests/fixtures/api/shortcuts.json": {
+          "added": 11,
+          "deleted": 0
+        },
+        "tests/integration.rs": {
+          "added": 106,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "F5: integration test, shortcuts fixture",
-    "version": 4,
+    "version": 7,
     "worktree": {
       "base_branch": "beacef1f170f56de6ed0fe74a91556415730d37b",
       "base_commit": "beacef1f170f56de6ed0fe74a91556415730d37b",
@@ -3708,7 +3747,7 @@
       "claim_token": "8582d178af574f2c8b0876d30dee8ee3",
       "claimed_at": "2026-11-22T10:08:58.043975+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:08:58.043975+00:00",
+      "last_heartbeat": "2026-11-22T10:09:28.523323+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3731,9 +3770,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F6: today_counts, count_day, workflow field",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "db2f7fa50e3c27e84d56be46d0530631c9b18a71",
