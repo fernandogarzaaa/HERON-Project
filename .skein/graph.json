@@ -1559,7 +1559,7 @@
       "goal": "Build item 14: QuickEntryPanel.swift, HotKey.swift (no default hotkey), ServicesProvider.swift (askHeron(_:userData:error:)), AskHeronIntent.swift in the executable target (opens the panel with the text as context, never sends), F1's row, macos/HeronMac/APP-INTENTS-CHECK.md, and QuickEntryTests including panelReusesRecentSession, selectionBecomesContext, intentTextIsContext and intentNeverSends. Follow F1's UNVERIFIED rule on App Intents metadata exactly: if swift build can't produce Contents/Resources/Metadata.appintents, delete AskHeronIntent.swift and its two tests and write 'Status: deferred to v1.1' with the reason into APP-INTENTS-CHECK.md."
     },
     "max_retries": 3,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -1567,7 +1567,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 40,
+    "version": 42,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
