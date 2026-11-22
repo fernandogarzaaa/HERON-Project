@@ -284,7 +284,7 @@ pub(crate) fn open_skill_for_write(
                 root_file.as_raw_fd(),
                 cfilename.as_ptr(),
                 libc::O_WRONLY | libc::O_CREAT | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
-                0o600 as libc::mode_t,
+                0o600 as libc::c_uint,
             )
         };
         if fd < 0 {
