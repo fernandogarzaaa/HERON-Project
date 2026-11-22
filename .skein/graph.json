@@ -1307,15 +1307,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "e064f323d5024bcea197c3d6c6f01846",
+      "base_branch": "a4f2d5393e96a0cf9c77563fa0065ea90c346377",
+      "claim_token": "f32bd3f6042b45058f68fcb838cffa93",
+      "claimed_at": "2026-11-22T08:43:57.053668+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T08:43:57.053668+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "Bmut"
@@ -1337,11 +1337,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Base gate after the mutant pass",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "a4f2d5393e96a0cf9c77563fa0065ea90c346377",
       "branch": null,
       "path": null
     }
