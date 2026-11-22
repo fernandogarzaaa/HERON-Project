@@ -1528,6 +1528,14 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-22T10:05:59.236916+00:00"
+      },
+      {
+        "attempt_id": "993806788ad4466294718efb5272be69",
+        "ended_at": "2026-11-22T10:18:46.199896+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:15:24.461562+00:00"
       }
     ],
     "attempts_used": 3,
@@ -1541,31 +1549,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "993806788ad4466294718efb5272be69",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "b453721011684b1a96fed10c96b71b26",
-      "claimed_at": "2026-11-22T10:15:24.461562+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:15:24.461562+00:00",
-      "node_version": 52,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
     "evidence": [
       {
         "command": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q 'QuickEntryTests.*selectionBecomesContext' && { { bash packaging/macos/build-app.sh --unsigned && test -d dist/Heron.app/Contents/Resources/Metadata.appintents && swift test list --package-path macos/HeronMac | grep -q 'QuickEntryTests.*intentTextIsContext'; } || grep -qx 'Status: deferred to v1.1' macos/HeronMac/APP-INTENTS-CHECK.md; }",
-        "duration_ms": 14503,
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1a_20261122T100701111108_0.log"
+        "duration_ms": 166396,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1a_20261122T101559677214_0.log"
       },
       {
         "command": "<adapter:claude_build_swift>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1a_20261122T100715620735_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1a_20261122T101846077245_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: Next: run `swift test --package-path macos/HeronMac --filter QuickEntryTests` outside the sandbox, then the full completion check.",
     "id": "F1a",
     "integration_for": null,
     "intent": {
@@ -1577,13 +1585,106 @@
     "max_retries": 4,
     "rejected_count": 1,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "993806788ad4466294718efb5272be69",
+      "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
+      "changed_files": [
+        "macos/HeronMac/DESIGN-CHOICES.md",
+        "macos/HeronMac/Sources/Heron/HeronApp.swift",
+        "macos/HeronMac/Sources/HeronCore/CoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/CoreClientProtocol.swift",
+        "macos/HeronMac/Sources/HeronCore/ManagedCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeaturesSettings.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/MenuBarViews.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/CoreClientTests.swift",
+        "macos/HeronMac/APP-INTENTS-CHECK.md",
+        "macos/HeronMac/Sources/HeronUI/Features/QuickEntry/HotKey.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/QuickEntry/QuickEntryModel.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/QuickEntry/QuickEntryPanel.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/QuickEntry/ServicesProvider.swift",
+        "macos/HeronMac/Tests/HeronUITests/Features/QuickEntryTests.swift"
+      ],
+      "commit": "f6715177fcbe62452e348220ddf8d05db4aafc67",
+      "diff_stats": {
+        "macos/HeronMac/APP-INTENTS-CHECK.md": {
+          "added": 24,
+          "deleted": 0
+        },
+        "macos/HeronMac/DESIGN-CHOICES.md": {
+          "added": 10,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/Heron/HeronApp.swift": {
+          "added": 3,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/CoreClient.swift": {
+          "added": 2,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronCore/CoreClientProtocol.swift": {
+          "added": 35,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronCore/ManagedCoreClient.swift": {
+          "added": 2,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift": {
+          "added": 1,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/QuickEntry/HotKey.swift": {
+          "added": 208,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/QuickEntry/QuickEntryModel.swift": {
+          "added": 178,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/QuickEntry/QuickEntryPanel.swift": {
+          "added": 208,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/QuickEntry/ServicesProvider.swift": {
+          "added": 49,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift": {
+          "added": 4,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeaturesSettings.swift": {
+          "added": 1,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift": {
+          "added": 23,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/MenuBarViews.swift": {
+          "added": 3,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/CoreClientTests.swift": {
+          "added": 16,
+          "deleted": 1
+        },
+        "macos/HeronMac/Tests/HeronUITests/Features/QuickEntryTests.swift": {
+          "added": 306,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 54,
+    "version": 61,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -3957,7 +4058,7 @@
       "claim_token": "8582d178af574f2c8b0876d30dee8ee3",
       "claimed_at": "2026-11-22T10:08:58.043975+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:14:59.208940+00:00",
+      "last_heartbeat": "2026-11-22T10:18:29.687844+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3982,7 +4083,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F6: today_counts, count_day, workflow field",
-    "version": 15,
+    "version": 22,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "db2f7fa50e3c27e84d56be46d0530631c9b18a71",
