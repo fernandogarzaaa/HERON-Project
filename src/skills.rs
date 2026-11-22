@@ -217,19 +217,138 @@ fn lock_skill_writes_with_wait(
     Ok(crate::config::ConfigLock::held(file))
 }
 
+fn is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        metadata.file_type().is_symlink() || metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
+}
+
+/// Return metadata for a real skills directory. A symlink/junction is not a
+/// trusted root, even if its target happens to be a directory.
+pub(crate) fn validate_skills_root(dir: &Path) -> anyhow::Result<std::fs::Metadata> {
+    let metadata = std::fs::symlink_metadata(dir)?;
+    anyhow::ensure!(
+        metadata.is_dir() && !is_link_or_reparse(&metadata),
+        "skills directory must be a real directory, not a symlink or reparse point"
+    );
+    Ok(metadata)
+}
+
+/// Open a skill for replacement relative to the validated directory. Unix
+/// pins the directory identity and uses openat/O_NOFOLLOW so replacing the
+/// root path with a symlink between validation and open cannot redirect a save.
+pub(crate) fn open_skill_for_write(
+    dir: &Path,
+    filename: &std::ffi::OsStr,
+    expected_root: &std::fs::Metadata,
+) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        use std::ffi::CString;
+        use std::os::fd::{AsRawFd, FromRawFd};
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::MetadataExt;
+
+        let cdir = CString::new(dir.as_os_str().as_bytes())
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+        let cfilename = CString::new(filename.as_bytes())
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+        let root_fd = unsafe {
+            libc::open(
+                cdir.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if root_fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let root_file = unsafe { std::fs::File::from_raw_fd(root_fd) };
+        let opened_root = root_file.metadata()?;
+        if opened_root.dev() != expected_root.dev() || opened_root.ino() != expected_root.ino() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "skills directory changed while saving",
+            ));
+        }
+
+        // Do not truncate until the opened target is verified as a regular
+        // file. O_NONBLOCK prevents a malicious FIFO from hanging the save.
+        let fd = unsafe {
+            libc::openat(
+                root_file.as_raw_fd(),
+                cfilename.as_ptr(),
+                libc::O_WRONLY | libc::O_CREAT | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+                0o600 as libc::mode_t,
+            )
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let file = unsafe { std::fs::File::from_raw_fd(fd) };
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || metadata.nlink() > 1 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "skill target must be a regular file without external hard links",
+            ));
+        }
+        file.set_len(0)?;
+        Ok(file)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = expected_root;
+        let root = validate_skills_root(dir)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string()))?;
+        let _ = root;
+        let path = dir.join(filename);
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if is_link_or_reparse(&metadata) || !metadata.is_file() => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "skill target must be a regular file, not a symlink or reparse point",
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        let file = std::fs::OpenOptions::new().write(true).create(true).open(path)?;
+        if !file.metadata()?.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "skill target must be a regular file",
+            ));
+        }
+        file.set_len(0)?;
+        Ok(file)
+    }
+}
+
 /// Ensure a save will not make the directory exceed the loader's entry cap.
 /// Existing files may be updated at capacity; a new name must reserve a slot.
-/// Iterator errors and already-oversized directories fail closed.
-pub(crate) fn validate_entry_capacity(dir: &Path, filename: &std::ffi::OsStr) -> anyhow::Result<()> {
+/// Resolve the target through the filesystem so case-insensitive filesystems
+/// recognize an existing differently-cased name without folding names globally.
+pub(crate) fn validate_entry_capacity(
+    dir: &Path,
+    filename: &std::ffi::OsStr,
+) -> anyhow::Result<bool> {
+    let target_exists = match std::fs::symlink_metadata(dir.join(filename)) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
     let entries = std::fs::read_dir(dir)?;
     let mut count = 0usize;
-    let mut target_exists = false;
     for entry in entries.take(MAX_SKILL_ENTRIES + 1) {
-        let entry = entry?;
+        let _entry = entry?;
         count += 1;
-        if entry.file_name() == filename {
-            target_exists = true;
-        }
         anyhow::ensure!(
             count <= MAX_SKILL_ENTRIES,
             "skills directory exceeds the maximum of {} entries",
@@ -242,7 +361,7 @@ pub(crate) fn validate_entry_capacity(dir: &Path, filename: &std::ffi::OsStr) ->
             MAX_SKILL_ENTRIES
         );
     }
-    Ok(())
+    Ok(target_exists)
 }
 
 /// Read skills deterministically, imposing a limit on each file and the
@@ -256,7 +375,7 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
     let Ok(root_metadata) = std::fs::symlink_metadata(dir) else {
         return vec![];
     };
-    if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
+    if is_link_or_reparse(&root_metadata) || !root_metadata.is_dir() {
         return vec![];
     }
     let Ok(root) = std::fs::canonicalize(dir) else {
@@ -361,6 +480,31 @@ mod tests {
         let acquired = lock_skill_writes_with_wait(&alias, std::time::Duration::ZERO)
             .expect("the aliased lock is available after the original guard drops");
         drop(acquired);
+    }
+
+    #[test]
+    fn capacity_check_uses_filesystem_case_semantics_for_existing_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Existing.md"), "# Existing").unwrap();
+        let lowercase_resolves = std::fs::symlink_metadata(dir.path().join("existing.md")).is_ok();
+        for index in 0..(MAX_SKILL_ENTRIES - 1) {
+            std::fs::write(
+                dir.path().join(format!("noise-{index:04}.txt")),
+                "not a skill",
+            ).unwrap();
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), MAX_SKILL_ENTRIES);
+        let result = validate_entry_capacity(dir.path(), std::ffi::OsStr::new("existing.md"));
+        assert_eq!(
+            result.is_ok(),
+            lowercase_resolves,
+            "updates should follow the filesystem's own case-sensitivity rules"
+        );
+        if lowercase_resolves {
+            assert_eq!(result.unwrap(), true);
+        } else {
+            assert!(result.unwrap_err().to_string().contains("skills directory is full"));
+        }
     }
 
     #[test]
