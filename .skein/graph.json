@@ -3047,6 +3047,56 @@
       "path": null
     }
   },
+  "F8s": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F8s",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- draft_email_builds_an_escaped_mailto draft_email_sets_only_subject_and_body draft_email_rejects_addresses_with_query_characters draft_email_never_sends draft_email_body_is_capped draft_email_is_external_write draft_email_offers_once_only decision_table_draft_email",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1-features.md, section 'F8' under 'The features' (with its check table) and 'Detailed Implementation Plan', F8 items 36. Inside your sandbox about 27 unrelated cargo tests fail (port binding, nested Seatbelt) and bash eval/require-tests.sh may be refused: run your own tests by name (cargo test --locked --lib <name>; list with -- --list); the supervisor runs the full check outside the sandbox. permissions.rs is a Q7 path.",
+      "goal": "Build item 36: src/tools/mail_draft.rs draft_email (ExternalWrite, trusted output returning only 'opened', once only through permissions::once_only) with the address regex, at most 10 addresses, the body capped at 2,000 characters, the mailto URL built with the url crate setting only subject and body, /usr/bin/open run with B2's child_env_base, a 10-second timeout and kill-on-drop, HERON_OPEN_BIN read only in debug builds; the email_drafts key (title 'Email drafts'); decision-table rows; write the eight named tests."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "F8: draft_email, key",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {
