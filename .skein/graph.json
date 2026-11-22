@@ -590,11 +590,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Settings > Features in the Mac app",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "bbb6126315b7b00d4157ba3f20aaa585c74b2dd3",
-      "branch": null,
-      "path": null
+      "base_commit": "bbb6126315b7b00d4157ba3f20aaa585c74b2dd3",
+      "branch": "skein/B4",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/B4"
     }
   },
   "B5": {
