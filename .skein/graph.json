@@ -4134,15 +4134,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "19379313b66e41a184e40d2068e0c871",
+      "base_branch": "97640c6a9443da7966e4cc67adda8ddc408f2db5",
+      "claim_token": "052666b59d5d4042bfd405960f3298e4",
+      "claimed_at": "2026-11-22T13:20:07.957013+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T13:20:07.957013+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "F4a"
@@ -4164,11 +4164,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fix: undo conflict dialog defaults to keeping the owner's version",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "97640c6a9443da7966e4cc67adda8ddc408f2db5",
       "branch": null,
       "path": null
     }
