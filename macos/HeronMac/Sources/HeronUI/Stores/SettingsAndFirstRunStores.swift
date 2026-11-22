@@ -217,8 +217,10 @@ public final class SettingsStore {
         if Task.isCancelled { return }
         guard open(url) else { sourceErrors[id] = SourceCopy.browserWouldNotOpen; return }
         var waited = Duration.zero
+        let pause = sleep
+        let interval = pollInterval
         while !Task.isCancelled {
-            do { try await sleep(pollInterval) } catch { return }
+            do { try await pause(interval) } catch { return }
             waited += pollInterval
             if let accounts = try? await client.oauthAccounts() {
                 oauthAccounts = accounts
