@@ -4856,11 +4856,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Gate: morning_brief",
-    "version": 6,
+    "version": 7,
     "worktree": {
       "base_branch": "skein/F6g__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "374995789f0c7dea269a89098802ca17b5df6471",
+      "branch": "skein/F6g",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F6g"
     }
   },
   "F6g__integrate": {
