@@ -1495,6 +1495,58 @@
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/Bmut"
     }
   },
+  "F1-fix-1": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_swift",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "macos/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F1a"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F1-fix-1",
+    "integration_for": null,
+    "intent": {
+      "completion": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q 'QuickEntryTests.*test_returnSendsTheChipWithAnEmptyField' && swift test list --package-path macos/HeronMac | grep -q 'QuickEntryTests.*test_standardCommandShortcutsAreRefused'",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1-features.md, F1 and 'Content entries' (chat context). You may run swift build and swift test yourself.",
+      "goal": "Fix two findings from the independent review of F1 (paths under macos/HeronMac). (1) With a chip attached and the field empty, the panel refuses to send (QuickEntryModel.swift ~123, canSend requires a non-empty field), though the panel's hint says 'Return to send with the text above' and the spec says message may be empty when context isn't (the core titles the session 'Asked about <kind> from <app>'). Allow Return to send when the field is empty and a chip is attached; with neither, keep refusing. Still nothing is sent except on Return. Test: QuickEntryTests test_returnSendsTheChipWithAnEmptyField. (2) The hotkey recorder (HotKey.swift ~29 isUsable, and the recorder's monitor) accepts command plus any key, so pressing cmd-W to close Settings records cmd-W and every app's close-window shortcut then opens the panel. Refuse command-only combinations with the standard editing and window keys (Q, W, C, V, X, Z, A, S, H, M, N, O, P, T, Tab, Space, comma), or require a second modifier when command is the only one; show the captured combo before it is saved. Test: QuickEntryTests test_standardCommandShortcutsAreRefused. Also correct the stale comment at FeatureRows.swift ~6 that says the row covers the App Intent. Fix nothing else."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fix F1 review findings (app)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F1a": {
     "attempts": [
       {
@@ -2272,7 +2324,7 @@
       "claim_token": "1f014c3a96984528ab2ff113b628355d",
       "claimed_at": "2026-11-22T10:20:18.264975+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T10:20:48.662262+00:00",
+      "last_heartbeat": "2026-11-22T10:23:19.047807+00:00",
       "node_version": 7,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -2302,7 +2354,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: ask_reasons",
-    "version": 10,
+    "version": 15,
     "worktree": {
       "base_branch": "skein/F2g__integrate-base",
       "base_commit": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
@@ -3456,7 +3508,7 @@
       "claim_token": "f9bc66098317425ca42b5b80a4f619da",
       "claimed_at": "2026-11-22T10:21:17.859362+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:21:17.859362+00:00",
+      "last_heartbeat": "2026-11-22T10:23:18.862711+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -3481,9 +3533,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F5: Shortcuts picker",
-    "version": 3,
+    "version": 7,
     "worktree": {
       "base_branch": "441b55f486289e28f550be7dfdb6f63eeca4f352",
       "base_commit": "441b55f486289e28f550be7dfdb6f63eeca4f352",
@@ -4748,7 +4800,7 @@
       "claim_token": "26de304cf52c45d283e714032fca4e60",
       "claimed_at": "2026-11-22T10:19:23.146591+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:20:53.759150+00:00",
+      "last_heartbeat": "2026-11-22T10:23:24.106040+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4773,7 +4825,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F8: draft_email, key",
-    "version": 6,
+    "version": 11,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "b13942e9f6196e1009af8e865292d2efa5bf1466",
