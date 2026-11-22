@@ -5744,7 +5744,16 @@
     }
   },
   "F9-fix-1": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "e856890cb5ca4928be78332f4ab7e303",
+        "ended_at": "2026-11-22T11:04:39.693161+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T11:01:38.350224+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -5756,21 +5765,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "e856890cb5ca4928be78332f4ab7e303",
-      "base_branch": "506fbcd40983a0cf95c8663d1a34d1bcd9434db5",
-      "claim_token": "8652251692664f638a17e7fb2908e553",
-      "claimed_at": "2026-11-22T11:01:38.350224+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:04:09.113258+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F9a"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac > \"${TMPDIR:-/tmp}/f9fix.txt\" && grep -q 'ScreenTextTests.*screenTextRowNamesScreenRecordingWhenDenied' \"${TMPDIR:-/tmp}/f9fix.txt\" && grep -q 'ScreenTextTests.*explanationComesBeforeTheSystemPrompt' \"${TMPDIR:-/tmp}/f9fix.txt\" && grep -q 'ScreenTextTests.*sendsTextNotImage' \"${TMPDIR:-/tmp}/f9fix.txt\"",
+        "duration_ms": 30182,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F9-fix-1_20261122T110409381984_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F9-fix-1_20261122T110439566489_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: On newer macOS the window picker may capture without Screen Recording at all (the spec marks this UNVERIFIED). If so, this fix will show the explanation to owners who didn't need to grant anything. That follows your brief, but it's worth checking on a real Mac.",
     "id": "F9-fix-1",
     "integration_for": null,
     "intent": {
@@ -5782,13 +5803,56 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "e856890cb5ca4928be78332f4ab7e303",
+      "base_commit": "506fbcd40983a0cf95c8663d1a34d1bcd9434db5",
+      "changed_files": [
+        "macos/HeronMac/Sources/HeronUI/Features/ScreenText/ScreenTextModel.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/ScreenText/ScreenTextViews.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/ScreenText/SystemScreenText.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeaturesSettings.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift",
+        "macos/HeronMac/Tests/HeronUITests/Features/ScreenTextTests.swift"
+      ],
+      "commit": "324cb4edaf0acd2d6a2da727db1a56468e30ddfa",
+      "diff_stats": {
+        "macos/HeronMac/Sources/HeronUI/Features/ScreenText/ScreenTextModel.swift": {
+          "added": 31,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/ScreenText/ScreenTextViews.swift": {
+          "added": 1,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/ScreenText/SystemScreenText.swift": {
+          "added": 7,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift": {
+          "added": 4,
+          "deleted": 3
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeaturesSettings.swift": {
+          "added": 5,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift": {
+          "added": 5,
+          "deleted": 1
+        },
+        "macos/HeronMac/Tests/HeronUITests/Features/ScreenTextTests.swift": {
+          "added": 119,
+          "deleted": 4
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Fix F9 review findings (app)",
-    "version": 8,
+    "version": 10,
     "worktree": {
       "base_branch": "506fbcd40983a0cf95c8663d1a34d1bcd9434db5",
       "base_commit": "506fbcd40983a0cf95c8663d1a34d1bcd9434db5",
