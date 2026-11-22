@@ -367,7 +367,16 @@
     }
   },
   "B2-fix-1": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "5a591b7d6f6a4a6284ca4167ea995c28",
+        "ended_at": "2026-11-22T07:40:10.688368+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T07:12:26.903559+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -379,21 +388,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "5a591b7d6f6a4a6284ca4167ea995c28",
-      "base_branch": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
-      "claim_token": "4f1e076f345b4eed93ee1c01d2f1e15a",
-      "claimed_at": "2026-11-22T07:12:26.903559+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T07:12:26.903559+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "B2"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib --bins -- repl_agent_sees_feature_change_next_turn first_taint_from_automation_step_publishes_tainted chat_context_taint_write_failure_aborts_turn child_env_base_matches_the_allowlist once_only_tools_ignore_star_rules terminal_and_telegram_offer_once_only once_only_tools_cannot_be_set_to_allow chat_context_taints_before_the_model_call",
+        "duration_ms": 88626,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B2-fix-1_20261122T073841444067_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B2-fix-1_20261122T074010076016_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "B2-fix-1",
     "integration_for": null,
     "intent": {
@@ -405,13 +426,61 @@
     "max_retries": 3,
     "rejected_count": 1,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "5a591b7d6f6a4a6284ca4167ea995c28",
+      "base_commit": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
+      "changed_files": [
+        "src/agent.rs",
+        "src/app.rs",
+        "src/child.rs",
+        "src/cli_llm.rs",
+        "src/main.rs",
+        "src/mcp.rs",
+        "src/permissions.rs",
+        "src/telegram.rs"
+      ],
+      "commit": "f8f67f9b99a9c69a5e928423769c3f993166c897",
+      "diff_stats": {
+        "src/agent.rs": {
+          "added": 76,
+          "deleted": 5
+        },
+        "src/app.rs": {
+          "added": 110,
+          "deleted": 7
+        },
+        "src/child.rs": {
+          "added": 67,
+          "deleted": 1
+        },
+        "src/cli_llm.rs": {
+          "added": 9,
+          "deleted": 10
+        },
+        "src/main.rs": {
+          "added": 89,
+          "deleted": 41
+        },
+        "src/mcp.rs": {
+          "added": 35,
+          "deleted": 8
+        },
+        "src/permissions.rs": {
+          "added": 41,
+          "deleted": 5
+        },
+        "src/telegram.rs": {
+          "added": 1,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Fix B2 review findings",
-    "version": 5,
+    "version": 61,
     "worktree": {
       "base_branch": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
       "base_commit": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
@@ -850,7 +919,7 @@
       "claim_token": "16b0439e97c64facb8365c2b86acdde0",
       "claimed_at": "2026-11-22T07:06:03.397668+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T07:12:04.357118+00:00",
+      "last_heartbeat": "2026-11-22T07:40:09.780687+00:00",
       "node_version": 2,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -882,7 +951,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Base gate",
-    "version": 16,
+    "version": 72,
     "worktree": {
       "base_branch": "skein/B6__integrate-base",
       "base_commit": "80bd04a8346e3faa317c940e5ec839248d443435",
