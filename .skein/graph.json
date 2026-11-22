@@ -13302,6 +13302,14 @@
         "holder": "agent-1",
         "outcome": "failed",
         "started_at": "2026-11-22T16:29:43.489035+00:00"
+      },
+      {
+        "attempt_id": "a88bbdaaa44a4664a46bd3a020781154",
+        "ended_at": "2026-11-22T16:38:14.438005+00:00",
+        "error": "human edited claimed node",
+        "holder": "agent-1",
+        "outcome": "interrupted",
+        "started_at": "2026-11-22T16:34:16.403440+00:00"
       }
     ],
     "attempts_used": 0,
@@ -13315,21 +13323,22 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "a88bbdaaa44a4664a46bd3a020781154",
-      "base_branch": "skein/verify-1a-subset__integrate-base",
-      "claim_token": "a540c86f6f6942e3b7686a82b1774450",
-      "claimed_at": "2026-11-22T16:34:16.403440+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T16:37:47.605181+00:00",
-      "node_version": 11,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "H3",
       "H4",
       "H12",
-      "H5"
+      "H5",
+      "H3q"
     ],
     "evidence": [
       {
@@ -13360,9 +13369,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "needs_human",
     "title": "Verify the 1a subset: eval suite, patches, gate script, workflow lint, genesis, testteeth",
-    "version": 20,
+    "version": 21,
     "worktree": {
       "base_branch": "skein/verify-1a-subset__integrate-base",
       "base_commit": "92140cb233fd261c1bc00b0c64645a2b7fc87830",
