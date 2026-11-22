@@ -5980,7 +5980,8 @@
     },
     "depends_on": [
       "F9a",
-      "F9c"
+      "F9c",
+      "F9-fix-1"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -6001,7 +6002,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Gate: screen_text",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": null,
       "branch": null,
