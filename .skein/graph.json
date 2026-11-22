@@ -1339,11 +1339,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Base gate after the mutant pass",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "a4f2d5393e96a0cf9c77563fa0065ea90c346377",
-      "branch": null,
-      "path": null
+      "base_commit": "a4f2d5393e96a0cf9c77563fa0065ea90c346377",
+      "branch": "skein/B6r3",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/B6r3"
     }
   },
   "Bmut": {
