@@ -2655,7 +2655,9 @@
     "depends_on": [
       "F3s",
       "F3t",
-      "F3a"
+      "F3a",
+      "F3-fix-1",
+      "F3-fix-2"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -2676,7 +2678,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Gate: runs",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": null,
       "branch": null,
