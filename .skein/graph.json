@@ -2116,11 +2116,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Gate: quick_entry",
-    "version": 7,
+    "version": 8,
     "worktree": {
       "base_branch": "skein/F1g__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
+      "branch": "skein/F1g",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F1g"
     }
   },
   "F1g__integrate": {
