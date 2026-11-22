@@ -4404,9 +4404,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Gate: shortcuts",
-    "version": 4,
+    "version": 5,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/F5g__integrate-base",
       "branch": null,
       "path": null
     }
