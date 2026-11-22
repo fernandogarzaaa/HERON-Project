@@ -1559,7 +1559,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 33,
+    "version": 34,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
