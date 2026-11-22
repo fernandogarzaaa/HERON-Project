@@ -2791,15 +2791,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "5ccebe9b6d544bcf96af112ba5340ee5",
+      "base_branch": "feat/v1-features-base",
+      "claim_token": "ceeae32e81cc4d98a6325930fd01c39e",
+      "claimed_at": "2026-11-22T09:43:59.655762+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T09:43:59.655762+00:00",
+      "node_version": 19,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [
@@ -2831,9 +2831,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F5: ft5, ft5b, fake binary, page",
-    "version": 19,
+    "version": 20,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "f4b709336df0e4922d480595e7ce1c641cf4b234",
