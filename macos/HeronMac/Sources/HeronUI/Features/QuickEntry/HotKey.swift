@@ -25,8 +25,27 @@ public struct HotKeyCombo: Codable, Equatable, Sendable {
         return mask
     }
 
-    /// A hotkey needs ⌘, ⌃ or ⌥. Shift alone, or no modifier, would take over ordinary typing.
-    public var isUsable: Bool { modifiers & UInt32(cmdKey | controlKey | optionKey) != 0 }
+    /// Keys whose ⌘ shortcut every app already uses (quit, close, copy, paste, undo, save, hide, new, open, print,
+    /// tab, space, preferences). Recording one as a global hotkey would hijack it everywhere.
+    private static let standardCommandKeys: Set<Int> = [
+        kVK_ANSI_Q, kVK_ANSI_W, kVK_ANSI_C, kVK_ANSI_V, kVK_ANSI_X, kVK_ANSI_Z, kVK_ANSI_A, kVK_ANSI_S, kVK_ANSI_H,
+        kVK_ANSI_M, kVK_ANSI_N, kVK_ANSI_O, kVK_ANSI_P, kVK_ANSI_T, kVK_Tab, kVK_Space, kVK_ANSI_Comma,
+    ]
+
+    /// Why this combo can't be a hotkey, or `nil` when it can. A hotkey needs ⌘, ⌃ or ⌥: shift alone, or no
+    /// modifier, would take over ordinary typing. ⌘ with no ⌃ or ⌥ (⇧ doesn't help) is refused for the standard
+    /// editing and window keys.
+    public var refusal: String? {
+        guard modifiers & UInt32(cmdKey | controlKey | optionKey) != 0 else {
+            return "Add ⌘, ⌃ or ⌥ so the shortcut doesn't take over typing."
+        }
+        if modifiers & UInt32(controlKey | optionKey) == 0, Self.standardCommandKeys.contains(Int(keyCode)) {
+            return "\(display) is a standard shortcut in every app. Add ⌃ or ⌥, or pick another key."
+        }
+        return nil
+    }
+
+    public var isUsable: Bool { refusal == nil }
 
     /// The combo for a key press, or `nil` when it isn't usable as a hotkey.
     public init?(event: NSEvent) {
@@ -158,7 +177,7 @@ public final class HotKey {
 }
 
 /// "Quick entry shortcut" in Settings › Features: shows the recorded hotkey, records a new one, clears it.
-/// Esc cancels a recording. A key with no ⌘, ⌃ or ⌥ is not accepted.
+/// Esc cancels a recording. A key with no ⌘, ⌃ or ⌥ is not accepted, nor is ⌘ with a standard key like W.
 struct HotKeyRecorderView: View {
     @State private var combo = HotKeyStore.load()
     @State private var recording = false
@@ -189,10 +208,15 @@ struct HotKeyRecorderView: View {
         hint = nil
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == UInt16(kVK_Escape) { stop(); return nil }
-            guard let picked = HotKeyCombo(event: event) else {
-                hint = "Add ⌘, ⌃ or ⌥ so the shortcut doesn't take over typing."
+            let captured = HotKeyCombo(keyCode: UInt32(event.keyCode),
+                                       modifiers: HotKeyCombo.carbonModifiers(from: event.modifierFlags))
+            if let refusal = captured.refusal {
+                // Show what was pressed and why it isn't kept; the recorder stays open for another try.
+                hint = "Not saved: \(refusal)"
                 return nil
             }
+            guard let picked = HotKeyCombo(event: event) else { return nil }
+            hint = "Saved \(picked.display)."
             combo = picked
             HotKeyStore.save(picked)
             stop()
