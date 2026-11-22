@@ -3638,6 +3638,54 @@ mod tests {
         assert_eq!(crate::workflow::Host::ask(&host, "Summarize the notes").await.unwrap(), "A summary.");
     }
 
+    /// F6: the morning brief is an ordinary automation with no `ask` or `agent` step, so it runs unattended on
+    /// a subscription login (where a model step would be held), makes no model call, and tells the owner
+    /// the counts, never a title. When nothing needs the owner, it says nothing.
+    #[tokio::test]
+    async fn brief_workflow_runs_without_a_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let (app, llm) = subscription_app(dir.path(), vec![Message::assistant("never used")]).await;
+        assert!(app.model_held(false), "the setup holds model steps of unattended work");
+        let brief = json!([
+            {"id": "counts", "do": "tool", "tool": "today_counts", "args": {}},
+            {"id": "check", "do": "if", "condition": "{{ steps.counts.out | lines | first }} > 0",
+             "then": [{"id": "tell", "do": "notify", "title": "Heron", "text": "{{ steps.counts.out | lines | last }}"}]}
+        ]);
+        assert!(!crate::tools::personal::checked_workflow(&brief, &app.cfg()).unwrap().uses_model());
+        let add = |name: &str, steps: &serde_json::Value| {
+            let id = app.store.add_schedule(name, "30 8 * * *", "Morning brief", 1, "").unwrap();
+            app.store.set_schedule_workflow(id, &steps.to_string()).unwrap();
+            id
+        };
+        let status = |id: i64| app.store.list_runs(id, 5).unwrap().first().map(|r| r.1.clone());
+
+        // Nothing needs the owner: the run is fine, and nothing is shown.
+        let quiet = add("quiet", &brief);
+        assert_eq!(app.run_due_schedules().await, 1);
+        assert_eq!(status(quiet).as_deref(), Some("ok"));
+        assert!(app.store.inbox(true, 10).unwrap().is_empty() && app.test_hooks.desktop_notices.lock().unwrap().is_empty(), "a quiet day sends nothing");
+
+        // Something does: two events today and a task due long ago, each with a title that must not leak.
+        let now = crate::util::now_ts();
+        app.store.upsert_knowledge("calendar", "e1", "SECRET-TITLE-ONE", "x", now).unwrap();
+        app.store.upsert_knowledge("google_calendar", "e2", "SECRET-TITLE-TWO", "x", now).unwrap();
+        app.store.add_task("SECRET-TASK", "", 2, Some("2000-01-01")).unwrap();
+        let busy = add("busy", &brief);
+        assert_eq!(app.run_due_schedules().await, 1);
+        assert_eq!(status(busy).as_deref(), Some("ok"));
+        let notices = app.test_hooks.desktop_notices.lock().unwrap().clone();
+        assert_eq!(notices, vec![("Heron".to_string(), "Today: 2 events, 1 overdue task".to_string())]);
+        let inbox = app.store.inbox(true, 10).unwrap();
+        assert!(inbox.iter().all(|m| !m.body.contains("SECRET") && !m.title.contains("SECRET")), "{inbox:?}");
+        assert!(!crate::taint::is_tainted(&app.store, &app.store.list_sessions(10).unwrap()[0].id), "the counts are trusted output");
+
+        // The control: a workflow with a model step is held in the same setup, so the brief's run is not luck.
+        let asking = add("asking", &json!([{"id": "a", "do": "ask", "prompt": "Summarize my day"}]));
+        assert_eq!(app.run_due_schedules().await, 1);
+        assert_eq!(status(asking).as_deref(), Some("held-subscription"));
+        assert!(llm.requests.lock().unwrap().is_empty(), "no run called the model");
+    }
+
     #[tokio::test]
     async fn unattended_model_steps_wait_on_subscription_provider() {
         let dir = tempfile::tempdir().unwrap();

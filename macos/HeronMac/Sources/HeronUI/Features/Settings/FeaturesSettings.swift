@@ -34,22 +34,56 @@ public final class FeaturesSettingsStore {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let poster: any NotificationPoster
     @ObservationIgnored private let permissionRequests: [String: @Sendable () async -> Bool]
+    @ObservationIgnored private let appSwitches: [String: @Sendable (Bool) async throws -> Void]
+    @ObservationIgnored private let brief: BriefController?
     private var appState: [String: Bool] = [:]
+    /// The Morning brief's time of day, "HH:mm", as the picker shows it.
+    public private(set) var briefTime: String = BriefSchedule.defaultTime
 
     /// - Parameters:
     ///   - permissionRequests: how to ask for each non-notification permission, by the name a row gives. A feature's
     ///     `a` unit registers its own. A permission with no entry here is not asked for.
+    ///   - appSwitches: what an app row does besides saving its setting, by row key (F6 makes or deletes its schedule).
+    ///     It runs before the setting is saved; if it throws, the setting stays as it was and the error shows.
     public init(client: any FeaturesClientProtocol,
                 rows: [FeatureRow] = FeatureRows.all,
                 defaults: UserDefaults = .standard,
                 poster: any NotificationPoster = SystemNotificationPoster(),
-                permissionRequests: [String: @Sendable () async -> Bool] = [:]) {
+                permissionRequests: [String: @Sendable () async -> Bool] = [:],
+                appSwitches: [String: @Sendable (Bool) async throws -> Void] = [:],
+                brief: BriefController? = nil) {
         self.client = client
         self.rows = rows
         self.defaults = defaults
         self.poster = poster
         self.permissionRequests = permissionRequests
+        self.appSwitches = appSwitches
+        self.brief = brief
+        refreshAppRows()
+    }
+
+    /// Reads each app row's setting again. A feature that is on by default records itself on its first launch, after this
+    /// store was made, so the list reads again when it loads.
+    public func refreshAppRows() {
         for row in rows { if case .app(let defaultsKey) = row.kind { appState[row.key] = defaults.bool(forKey: defaultsKey) } }
+        if let brief { briefTime = brief.time }
+    }
+
+    /// The owner picked a time for the Morning brief. Returns whether it now holds; on a refusal the picker goes back
+    /// to the stored time and the error shows.
+    @discardableResult
+    public func setBriefTime(_ time: String) async -> Bool {
+        guard let brief else { return false }
+        do {
+            try await brief.setTime(time)
+            briefTime = brief.time
+            errorMessage = nil
+            return true
+        } catch {
+            briefTime = brief.time
+            errorMessage = describe(error)
+            return false
+        }
     }
 
     // MARK: Reading
@@ -79,6 +113,7 @@ public final class FeaturesSettingsStore {
     // MARK: Loading and switching
 
     public func load() async {
+        refreshAppRows()
         loadState = .loading
         do {
             coreFeatures = try await client.features()
@@ -101,6 +136,12 @@ public final class FeaturesSettingsStore {
         deniedKeys.remove(row.key)
         switch row.kind {
         case .app(let defaultsKey):
+            if let action = appSwitches[row.key] {
+                do { try await action(on) } catch {
+                    errorMessage = describe(error)
+                    return false
+                }
+            }
             defaults.set(on, forKey: defaultsKey)
             appState[row.key] = on
             errorMessage = nil
@@ -176,6 +217,14 @@ private struct FeatureRowView: View {
                     if item.denied, let pane = item.row.settingsPane {
                         Button("Open System Settings") { NSWorkspace.shared.open(pane) }.buttonStyle(HButtonStyle(.secondary))
                     }
+                }
+                if item.row.key == FeatureRow.morningBrief.key, item.on {
+                    DatePicker("Time", selection: Binding(
+                        get: { BriefSchedule.date(fromTime: store.briefTime) },
+                        set: { d in Task { await store.setBriefTime(BriefSchedule.time(from: d)) } }),
+                               displayedComponents: .hourAndMinute)
+                        .font(HeronFont.callout).foregroundStyle(theme.ink2)
+                        .fixedSize()
                 }
             }
             Spacer()

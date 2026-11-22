@@ -50,6 +50,8 @@ public final class AppModel {
     public let persona: PersonaStore
     public let firstRun: FirstRunStore
     public let features: FeaturesSettingsStore
+    /// F6's Morning brief switch and its first-launch creation.
+    public let brief: BriefController
 
     public var selection: Destination = .today
     public var settingsTab: SettingsTab = .general
@@ -70,7 +72,9 @@ public final class AppModel {
 
     public init(client: any CoreClientProtocol, preferences: DisplayPreferences? = nil,
                 userFirstName: String? = nil, now: @escaping () -> Date = Date.init,
-                features featuresClient: (any FeaturesClientProtocol)? = nil) {
+                features featuresClient: (any FeaturesClientProtocol)? = nil,
+                schedules scheduleRoutes: (any ScheduleRoutesClientProtocol)? = nil,
+                briefDefaults: UserDefaults = .standard) {
         self.client = client
         self.preferences = preferences ?? DisplayPreferences()
         self.now = now
@@ -95,7 +99,19 @@ public final class AppModel {
         } else {
             featuresBackend = FeaturesClient(endpoint: { [client] in client.endpoint })
         }
-        features = FeaturesSettingsStore(client: featuresBackend)
+        let scheduleBackend: any ScheduleRoutesClientProtocol
+        if let scheduleRoutes {
+            scheduleBackend = scheduleRoutes
+        } else if client is PreviewCoreClient {
+            scheduleBackend = PreviewScheduleRoutesClient()
+        } else {
+            scheduleBackend = ScheduleRoutesClient(endpoint: { [client] in client.endpoint })
+        }
+        let brief = BriefController(client: scheduleBackend, defaults: briefDefaults)
+        self.brief = brief
+        features = FeaturesSettingsStore(client: featuresBackend, defaults: briefDefaults,
+                                         appSwitches: [FeatureRow.morningBrief.key: { on in try await brief.set(on) }],
+                                         brief: brief)
         chat.onOtherApproval = { [weak self] event in self?.addToFeed(event) }
     }
 
@@ -139,6 +155,7 @@ public final class AppModel {
         }
         await loadedPersona
         hasBootstrapped = true
+        await brief.createOnFirstLaunch()
         if needsFirstRun { await firstRun.load() } else { await loadAll() }
         startEvents()
     }
@@ -146,6 +163,8 @@ public final class AppModel {
     public func finishFirstRun() async {
         await firstRun.finish(persona: persona)
         needsFirstRun = false
+        await brief.createOnFirstLaunch()
+        features.refreshAppRows()
         if firstRun.wantsAPIKey { settingsTab = .model }
         selection = .today
         await refreshState()
