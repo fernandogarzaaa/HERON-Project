@@ -255,6 +255,58 @@
       "path": null
     }
   },
+  "B5": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "docs/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "B2"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "B5",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -qF 'After the last feature merges' docs/release-checklist.md && test -s docs/features/README.md && grep -qx '## Ways content enters, and processes Heron starts' docs/engineering/SECURITY_THREAT_MODEL.md",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates (the spec says no feature adds a dependency). Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app (src/ui/**, src/bin/desktop/**) beyond what the spec names. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. If the spec is wrong or impossible, stop and say exactly why instead of diverging. Write plain, short declarative sentences; no long dashes.",
+      "context": "Spec: docs/designs/heron-v1-features.md, 'Content entries' and 'Detailed Implementation Plan', Base unit B5 (item 12).",
+      "goal": "Build base unit B5 (item 12): add the release checklist step 'After the last feature merges, run the G7 task gate on main on every Tier 1 CLI.' to docs/release-checklist.md; create docs/features/README.md with one sentence; add the section '## Ways content enters, and processes Heron starts' to docs/engineering/SECURITY_THREAT_MODEL.md holding the ContentEntry table as it stands after B2 (read src/agent.rs for the real variants)."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Release checklist step, guide index, threat-model section",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {
