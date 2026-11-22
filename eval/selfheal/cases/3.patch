@@ -1,0 +1,31 @@
+diff --git a/src/channel.rs b/src/channel.rs
+index 26edf97..369ef62 100644
+--- a/src/channel.rs
++++ b/src/channel.rs
+@@ -855,3 +855,26 @@
+         assert!(store.enqueue(&owner(), None, "ok", "", 1).is_err());
+     }
+ }
++
++#[cfg(test)]
++mod selfheal_hidden_case_3 {
++    use super::*;
++
++    #[test]
++    fn selfheal_hidden_case_3() {
++        let dir = tempfile::tempdir().unwrap();
++        let path = dir.path().join("channels.db");
++        ChannelStore::open(&path).unwrap();
++        // Another process in the middle of a commit. A spool that is in write-ahead mode at that moment
++        // is refused at once, without waiting on busy_timeout.
++        let writer = Connection::open(&path).unwrap();
++        writer.execute_batch("PRAGMA journal_mode=WAL; BEGIN EXCLUSIVE").unwrap();
++        let release = std::thread::spawn(move || {
++            std::thread::sleep(std::time::Duration::from_millis(300));
++            writer.execute_batch("COMMIT").unwrap();
++        });
++        let opened = ChannelStore::open(&path);
++        release.join().unwrap();
++        opened.expect("a second Heron process could not open the spool while the first was writing");
++    }
++}

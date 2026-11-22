@@ -1,0 +1,42 @@
+diff --git a/src/oauth.rs b/src/oauth.rs
+index 037f8f1..c08ce42 100644
+--- a/src/oauth.rs
++++ b/src/oauth.rs
+@@ -561,3 +561,37 @@
+         assert!(!pairs.get("scope").unwrap().contains("Mail.Send"));
+     }
+ }
++
++// Linux has no verified vault, so installing the refresh token always fails there: the same failure a
++// locked Keychain or Credential Manager gives on the desktop. Where a real vault exists the test would
++// touch the owner's credentials, so it is not built.
++#[cfg(all(test, not(any(target_os = "macos", windows))))]
++mod selfheal_hidden_case_4 {
++    use super::*;
++    use crate::llm::ScriptedLlm;
++    use serde_json::json;
++
++    fn id_token(claims: Value) -> String {
++        format!("e30.{}.signature", URL_SAFE_NO_PAD.encode(claims.to_string()))
++    }
++
++    #[tokio::test]
++    async fn selfheal_hidden_case_4() {
++        let dir = tempfile::tempdir().unwrap();
++        let mut cfg = Config::default();
++        cfg.home = dir.path().join("home");
++        cfg.ensure_home().unwrap();
++        std::fs::write(cfg.home.join("secrets.json"), json!({
++            "oauth_google_refresh_token": "working-refresh", "oauth_google_account_epoch": "e1",
++            "oauth_google_client_id": "old-cid", "oauth_google_account_subject": "user-1",
++        }).to_string()).unwrap();
++        let app = App::assemble(cfg, dir.path().join("ws"), crate::store::Store::in_memory().unwrap(), std::sync::Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
++        let p = Provider::Google;
++        let token = json!({"scope": p.scopes(), "refresh_token": "new-refresh", "id_token": id_token(json!({"aud": "new-cid", "sub": "user-1"}))});
++        assert!(install(&app.cfg(), p, "new-cid", &token).is_err());
++        let cfg = app.cfg();
++        assert_eq!(cfg.secret("oauth_google_client_id").as_deref(), Some("old-cid"));
++        assert_eq!(cfg.secret("oauth_google_refresh_token").as_deref(), Some("working-refresh"));
++        assert_eq!(p.account_epoch(&cfg).as_deref(), Some("e1"));
++    }
++}

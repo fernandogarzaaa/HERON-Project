@@ -1,0 +1,49 @@
+diff --git a/src/oauth.rs b/src/oauth.rs
+index f5c3cc5..228947c 100644
+--- a/src/oauth.rs
++++ b/src/oauth.rs
+@@ -409,3 +409,44 @@
+         assert!(!pairs.get("scope").unwrap().contains("Mail.Send"));
+     }
+ }
++
++#[cfg(test)]
++mod selfheal_hidden_case_6 {
++    use super::*;
++    use crate::llm::ScriptedLlm;
++
++    #[tokio::test]
++    async fn selfheal_hidden_case_6() {
++        let dir = tempfile::tempdir().unwrap();
++        let mut cfg = Config::default();
++        cfg.home = dir.path().join("home");
++        cfg.ensure_home().unwrap();
++        // A token from before the verified vault: the fallback file is the only copy.
++        std::fs::write(cfg.home.join("secrets.json"), serde_json::to_string(&serde_json::json!({
++            "oauth_google_refresh_token": "legacy-refresh", "oauth_google_account_epoch": "e1", "oauth_google_client_id": "cid",
++        })).unwrap()).unwrap();
++        let db_path = dir.path().join("heron.db");
++        let app = App::assemble(cfg, dir.path().join("ws"), crate::store::Store::open(&db_path).unwrap(), std::sync::Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
++        let p = Provider::Google;
++        assert!(p.connected(&app.cfg()));
++        app.store.replace_knowledge_snapshot(p.mail_source(), &[("m1".into(), "Invoice".into(), "Due Friday".into(), 1)]).unwrap();
++        app.memory.save("The invoice from Acme is due Friday", "fact", "", 0.5, p.mail_source()).await.unwrap();
++
++        // The database refuses to erase the account's mail, as a full disk or a locked file would.
++        let other = rusqlite::Connection::open(&db_path).unwrap();
++        other.execute_batch("CREATE TRIGGER stuck BEFORE DELETE ON knowledge BEGIN SELECT RAISE(ABORT, 'disk busy'); END;").unwrap();
++        assert!(disconnect(&app, p).is_err());
++        assert!(p.connected(&app.cfg()), "the account vanished from Settings while its data stayed");
++        assert_eq!(app.store.knowledge_count(p.mail_source()), 1);
++
++        other.execute_batch("DROP TRIGGER stuck;").unwrap();
++        assert_eq!(disconnect(&app, p).unwrap(), (1, 1));
++        let cfg = app.cfg();
++        assert!(!p.connected(&cfg));
++        assert_eq!(app.store.knowledge_count(p.mail_source()), 0);
++        assert!(cfg.secret("oauth_google_account_epoch").is_none() && cfg.secret("oauth_google_client_id").is_none());
++        assert!(!std::fs::read_to_string(cfg.home.join("secrets.json")).unwrap_or_default().contains("legacy-refresh"));
++        // Disconnecting again is harmless.
++        assert_eq!(disconnect(&app, p).unwrap(), (0, 0));
++    }
++}

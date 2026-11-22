@@ -1,0 +1,33 @@
+diff --git a/src/connectors.rs b/src/connectors.rs
+index 5b62ea9..976c28d 100644
+--- a/src/connectors.rs
++++ b/src/connectors.rs
+@@ -484,3 +484,28 @@
+         }
+     }
+ }
++
++#[cfg(all(test, unix))]
++mod selfheal_hidden_case_9 {
++    use super::*;
++
++    #[test]
++    fn selfheal_hidden_case_9() {
++        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
++        let temp = tempfile::tempdir().unwrap();
++        let mut cfg = Config::default();
++        cfg.home = temp.path().join("heron");
++        let held = lock_registry(&cfg).unwrap();
++        // Between fork and exec, a child started by another thread holds a copy of every open file,
++        // this lock included, so closing ours does not release it until the child execs.
++        let child_copy = unsafe { OwnedFd::from_raw_fd(libc::fcntl(held.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0)) };
++        drop(held);
++        let exec = std::thread::spawn(move || {
++            std::thread::sleep(std::time::Duration::from_millis(100));
++            drop(child_copy);
++        });
++        let next = lock_registry(&cfg);
++        exec.join().unwrap();
++        next.expect("a registry change failed while a spawning child briefly kept the lock alive");
++    }
++}

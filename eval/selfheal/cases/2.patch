@@ -1,0 +1,39 @@
+diff --git a/src/channel.rs b/src/channel.rs
+index 5a2eac6..fa39ef6 100644
+--- a/src/channel.rs
++++ b/src/channel.rs
+@@ -915,3 +915,34 @@
+         assert!(store.enqueue(&owner(), None, "ok", "", 1).is_err());
+     }
+ }
++
++#[cfg(test)]
++mod selfheal_hidden_case_2 {
++    use super::*;
++
++    #[test]
++    fn selfheal_hidden_case_2() {
++        for round in 0..60 {
++            let dir = tempfile::tempdir().unwrap();
++            let path = dir.path().join("channels.db");
++            ChannelStore::open(&path).unwrap();
++            // What an older build left behind: no lease or message key columns yet.
++            Connection::open(&path).unwrap()
++                .execute_batch("ALTER TABLE channel_outbox DROP COLUMN lease_token; ALTER TABLE channel_outbox DROP COLUMN message_key;")
++                .unwrap();
++            let go = std::sync::Arc::new(std::sync::Barrier::new(4));
++            let openers: Vec<_> = (0..4)
++                .map(|_| {
++                    let (path, go) = (path.clone(), go.clone());
++                    std::thread::spawn(move || {
++                        go.wait();
++                        ChannelStore::open(&path).map(|_| ()).map_err(|e| format!("{e:#}"))
++                    })
++                })
++                .collect();
++            for opener in openers {
++                opener.join().unwrap().unwrap_or_else(|e| panic!("round {round}: a Heron process failed to open a spool being upgraded: {e}"));
++            }
++        }
++    }
++}

@@ -1,0 +1,74 @@
+diff --git a/src/telegram.rs b/src/telegram.rs
+index 127522e..9c69140 100644
+--- a/src/telegram.rs
++++ b/src/telegram.rs
+@@ -756,3 +756,69 @@
+         assert!(!wrong_code(&app), "and the count starts again");
+     }
+ }
++
++#[cfg(test)]
++mod selfheal_hidden_case_8 {
++    use super::run;
++    use crate::app::App;
++    use crate::config::Config;
++    use crate::llm::ScriptedLlm;
++    use crate::store::Store;
++    use serde_json::json;
++    use std::sync::{Arc, Mutex};
++    use std::time::Duration;
++
++    async fn mock_telegram() -> (String, Arc<Mutex<Vec<String>>>) {
++        let paths = Arc::new(Mutex::new(Vec::<String>::new()));
++        let router = axum::Router::new()
++            .fallback(move |axum::extract::State(p): axum::extract::State<Arc<Mutex<Vec<String>>>>, uri: axum::http::Uri| async move {
++                p.lock().unwrap().push(uri.path().to_string());
++                (axum::http::StatusCode::OK, axum::Json(json!({"ok": true, "result": []})))
++            })
++            .with_state(paths.clone());
++        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++        let base = format!("http://{}", listener.local_addr().unwrap());
++        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
++        (base, paths)
++    }
++
++    /// A separate Heron process: its own App and connection, the same home and database.
++    async fn heron_process(root: &std::path::Path) -> Arc<App> {
++        let mut cfg = Config::default();
++        cfg.home = root.join("home");
++        cfg.ensure_home().unwrap();
++        Arc::new(App::assemble(
++            cfg, root.join("ws"),
++            Store::open(&root.join("home/heron.db")).unwrap(),
++            Arc::new(ScriptedLlm::new(vec![])),
++        ).await.unwrap())
++    }
++
++    async fn until(what: &str, check: impl Fn() -> bool) {
++        let deadline = std::time::Instant::now() + Duration::from_secs(10);
++        while !check() {
++            assert!(std::time::Instant::now() < deadline, "timed out waiting for: {what}");
++            tokio::time::sleep(Duration::from_millis(20)).await;
++        }
++    }
++
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn selfheal_hidden_case_8() {
++        let (base, paths) = mock_telegram().await;
++        let polls = |bot: &str| {
++            let prefix = format!("/bot{bot}/getUpdates");
++            paths.lock().unwrap().iter().filter(|p| **p == prefix).count()
++        };
++        let dir = tempfile::tempdir().unwrap();
++        let daemon = heron_process(dir.path()).await;
++        let serve = heron_process(dir.path()).await;
++
++        let first = tokio::spawn(run(daemon.clone(), base.clone(), "OLD".into()));
++        until("the first gateway polls", || polls("OLD") > 0).await;
++        let second = tokio::spawn(run(serve.clone(), base.clone(), "SECOND".into()));
++        tokio::time::sleep(Duration::from_millis(600)).await;
++        assert_eq!(polls("SECOND"), 0, "a second gateway polled while the first was running");
++        second.abort();
++        first.abort();
++    }
++}
