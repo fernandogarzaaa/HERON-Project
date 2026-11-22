@@ -94,11 +94,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Replay suite, grader, genesis adapter, required-tests list, gate-script tests (item 20)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/harness2-1a",
-      "branch": null,
-      "path": null
+      "base_commit": "cdd31f0a74e17ca4fa541f854133abffa680e1ac",
+      "branch": "skein/H3",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/worktrees/H3"
     }
   },
   "H4": {
@@ -166,15 +167,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "cd84027b7f92400381e5236b89f4e87a",
+      "base_branch": "feat/harness2-1a",
+      "claim_token": "f629fc38c7d546259106c72b75513363",
+      "claimed_at": "2026-11-22T15:53:00.419292+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T15:53:00.419292+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [],
@@ -194,11 +195,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "packaging/macos/build-app.sh (item 22)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/harness2-1a",
       "branch": null,
       "path": null
     }
