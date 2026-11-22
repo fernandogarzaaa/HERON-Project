@@ -801,9 +801,17 @@ impl Agent {
             };
 
             let summary = tool.summary(&args);
+            let audit_args = redact_secrets(&preview(&call.function.arguments, 600));
+            // Arguments the tool never accepts are refused before the decision, so nobody is asked
+            // to approve them and no mode lets them run.
+            if let Some(reason) = tool.refusal(&args, ctx) {
+                self.audit(&ctx.session_id, name, &audit_args, "denied-by-policy", &reason);
+                sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk: tool.risk(&args, ctx) });
+                sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: format!("refused: {reason}") });
+                return format!("Error: {reason}");
+            }
             let risk = tool.risk(&args, ctx);
             let target = tool.read_target(&args, ctx);
-            let audit_args = redact_secrets(&preview(&call.function.arguments, 600));
             let tainted = ctx.tainted.load(std::sync::atomic::Ordering::SeqCst);
             let verdict = self.policy.decide(&Call { tool: name, summary: &summary, effect: risk, read_target: target.as_deref() }, ctx);
             let mut grant_after_call = false;
@@ -1158,6 +1166,7 @@ mod tests {
             ("update_persona", json!({"text": "x"}), Privileged),
             ("save_skill", json!({"name": "x", "content": "y"}), Privileged),
             ("use_skill", json!({"name": "x"}), LocalRead),
+            ("draft_email", json!({"to": ["ann@example.com"], "subject": "s", "body": "b"}), ExternalWrite),
             // Test builds only: the tool behind the test feature key.
             ("test_feature_tool", json!({}), LocalRead),
         ];
