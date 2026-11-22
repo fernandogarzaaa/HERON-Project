@@ -3677,15 +3677,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "d86d94f5714c436c87919788e9885222",
+      "base_branch": "feat/v1-features-base",
+      "claim_token": "8fea05f620cc4d9781a9087a200baec0",
+      "claimed_at": "2026-11-22T09:37:56.777277+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T09:37:56.777277+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [],
     "evidence": [],
@@ -3705,11 +3705,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F9: feature task ft9",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/v1-features-base",
       "branch": null,
       "path": null
     }
