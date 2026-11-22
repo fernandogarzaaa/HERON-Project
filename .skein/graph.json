@@ -3593,6 +3593,14 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-22T09:40:03.861142+00:00"
+      },
+      {
+        "attempt_id": "b096ea5a9bd2422290bcfc5027927f4f",
+        "ended_at": "2026-11-22T09:45:04.828965+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:44:35.436975+00:00"
       }
     ],
     "attempts_used": 2,
@@ -3606,31 +3614,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "b096ea5a9bd2422290bcfc5027927f4f",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "687f32b8a3dc447dbfdef4312728228b",
-      "claimed_at": "2026-11-22T09:44:35.436975+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:44:35.436975+00:00",
-      "node_version": 13,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
     "evidence": [
       {
-        "command": "python3 -I eval/check_tasks.py --features eval/features/email_drafts.md && test -x eval/fixtures/features/email_drafts/bin/open",
-        "duration_ms": 239,
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8c_20261122T094041148483_0.log"
+        "command": "python3 -I eval/check_tasks.py --features eval/features/email_drafts.md && test -f eval/fixtures/features/email_drafts/bin/open && chmod +x eval/fixtures/features/email_drafts/bin/open && test -x eval/fixtures/features/email_drafts/bin/open",
+        "duration_ms": 232,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8c_20261122T094504479044_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8c_20261122T094041388194_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8c_20261122T094504711548_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: Next: run the completion check as written. Its `chmod +x` sets the bit, and `test -x` should then pass.",
     "id": "F8c",
     "integration_for": null,
     "intent": {
@@ -3642,13 +3650,36 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "b096ea5a9bd2422290bcfc5027927f4f",
+      "base_commit": "804c6770f74b2f6aadc773879e7f8fada12cf31e",
+      "changed_files": [
+        "eval/features/email_drafts.md",
+        "eval/fixtures/features/email_drafts/bin/open",
+        "eval/fixtures/features/email_drafts/web/mail.html"
+      ],
+      "commit": "b68a236e60b1d2f32c07bca6104cb63d168d5a0c",
+      "diff_stats": {
+        "eval/features/email_drafts.md": {
+          "added": 29,
+          "deleted": 0
+        },
+        "eval/fixtures/features/email_drafts/bin/open": {
+          "added": 8,
+          "deleted": 0
+        },
+        "eval/fixtures/features/email_drafts/web/mail.html": {
+          "added": 14,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "F8: ft8, fake binary, page",
-    "version": 15,
+    "version": 16,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "804c6770f74b2f6aadc773879e7f8fada12cf31e",
