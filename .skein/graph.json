@@ -268,10 +268,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/harness2-1a": {
+        "base_commit": "cdd31f0a74e17ca4fa541f854133abffa680e1ac",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "9cbc50b2c6991ec422e98cad16d56976bd1a3f35",
+        "result_commit": "8087860abc6c3c4b34603a867248b2f8eac56f34",
+        "shipped_at": "2026-11-22T16:33:23.756883+00:00",
+        "target_branch": "feat/harness2-1a"
+      }
+    },
     "status": "done",
     "title": "Replay suite, grader, genesis adapter, required-tests list, gate-script tests (item 20)",
-    "version": 71,
+    "version": 72,
     "worktree": {
       "base_branch": "feat/harness2-1a",
       "base_commit": "cdd31f0a74e17ca4fa541f854133abffa680e1ac",
