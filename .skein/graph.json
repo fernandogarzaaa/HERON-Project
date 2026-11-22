@@ -1845,11 +1845,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F1: NSServices entry",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "5a85cb6ae7a158349de63e065dc92919ea94d719",
+      "branch": "skein/F1p",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F1p"
     }
   },
   "F2a": {
