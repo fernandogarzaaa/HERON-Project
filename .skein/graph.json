@@ -3754,7 +3754,16 @@
     }
   },
   "F3mut": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "58e15d7f7c664ec4a3ad0a3940e99d0b",
+        "ended_at": "2026-11-22T12:37:47.491591+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T12:13:10.853447+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -3767,21 +3776,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "58e15d7f7c664ec4a3ad0a3940e99d0b",
-      "base_branch": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
-      "claim_token": "e3df20df716f4587b6d0bfa8489b53ea",
-      "claimed_at": "2026-11-22T12:13:10.853447+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T12:36:36.492964+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F3g"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings",
+        "duration_ms": 754387,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F3mut_20261122T122509391409_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F3mut_20261122T123743783587_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F3mut",
     "integration_for": null,
     "intent": {
@@ -3793,13 +3814,36 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "58e15d7f7c664ec4a3ad0a3940e99d0b",
+      "base_commit": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
+      "changed_files": [
+        "src/agent.rs",
+        "src/runs.rs",
+        "src/server.rs"
+      ],
+      "commit": "864270cd0f6055c10d0bcf71f30c5e6cee859afc",
+      "diff_stats": {
+        "src/agent.rs": {
+          "added": 170,
+          "deleted": 0
+        },
+        "src/runs.rs": {
+          "added": 61,
+          "deleted": 0
+        },
+        "src/server.rs": {
+          "added": 29,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Kill or justify F3's surviving mutants",
-    "version": 49,
+    "version": 52,
     "worktree": {
       "base_branch": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
       "base_commit": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
