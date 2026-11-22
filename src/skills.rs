@@ -190,8 +190,19 @@ fn collect_bounded_entries(
 /// Hold a home-scoped lock while checking and changing the bounded skills inventory.
 /// The lock lives beside (not inside) the skills directory, so it is not counted as a skill entry.
 pub(crate) fn lock_skill_writes(home: &Path) -> anyhow::Result<crate::config::ConfigLock> {
+    lock_skill_writes_with_wait(home, crate::config::CONFIG_LOCK_WAIT)
+}
+
+fn lock_skill_writes_with_wait(
+    home: &Path,
+    wait: std::time::Duration,
+) -> anyhow::Result<crate::config::ConfigLock> {
     std::fs::create_dir_all(home)?;
-    let path = home.join("skills.lock");
+    // Config::load preserves HERON_HOME as supplied by the environment. Two
+    // processes may therefore name the same directory through a symlink or
+    // relative path; canonicalize before deriving the shared lock identity.
+    let canonical_home = std::fs::canonicalize(home)?;
+    let path = canonical_home.join("skills.lock");
     let mut options = std::fs::OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
     #[cfg(unix)]
@@ -200,7 +211,6 @@ pub(crate) fn lock_skill_writes(home: &Path) -> anyhow::Result<crate::config::Co
         options.mode(0o600);
     }
     let file = options.open(&path)?;
-    let wait = crate::config::CONFIG_LOCK_WAIT;
     if !crate::config::lock_within(&file, wait)? {
         return Err(crate::config::lock_timed_out(wait));
     }
@@ -319,6 +329,29 @@ pub fn find(dir: &Path, name: &str) -> Option<Skill> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn skill_write_lock_uses_canonical_home_for_symlink_aliases() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let alias = dir.path().join("home-alias");
+        std::fs::create_dir_all(&home).unwrap();
+        symlink(&home, &alias).unwrap();
+
+        let held = lock_skill_writes_with_wait(&home, std::time::Duration::ZERO).unwrap();
+        assert!(
+            lock_skill_writes_with_wait(&alias, std::time::Duration::ZERO).is_err(),
+            "a symlink alias must resolve to the same cross-process skills lock"
+        );
+        drop(held);
+
+        let acquired = lock_skill_writes_with_wait(&alias, std::time::Duration::ZERO)
+            .expect("the aliased lock is available after the original guard drops");
+        drop(acquired);
+    }
 
     #[test]
     fn rejects_directories_with_more_entries_than_the_bounded_scan() {
