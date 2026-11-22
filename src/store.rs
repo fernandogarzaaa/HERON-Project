@@ -1310,14 +1310,20 @@ impl Store {
     /// Append one entry that also says which model acted. New entries use hash version 2, which
     /// covers `provider` and `cli_version` too. The chain read and the append happen under one lock.
     pub fn audit_row(&self, row: &AuditRow) {
-        let db = self.db();
+        let mut db = self.db();
+        // The read of the last hash and the append are one write transaction, so another Heron
+        // process on the same database cannot chain from the same row in between.
+        let Ok(tx) = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate) else { return };
         let ts = now_ts();
-        let prev: String = db.query_row("SELECT COALESCE(hash,'') FROM audit ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap_or_default();
+        let prev: String = tx.query_row("SELECT COALESCE(hash,'') FROM audit ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap_or_default();
         let hash = audit_hash_v2(&prev, ts, row);
-        let _ = db.execute(
+        let inserted = tx.execute(
             "INSERT INTO audit(ts, session_id, tool, args, decision, result, provider, cli_version, hash_version, hash) VALUES (?,?,?,?,?,?,?,?,2,?)",
             params![ts, row.session_id, row.tool, row.args, row.decision, row.result, row.provider, row.cli_version, hash],
         );
+        if inserted.is_ok() {
+            let _ = tx.commit();
+        }
     }
 
     /// Check the activity log's hash chain. Returns how many entries were checked and the id of the

@@ -1825,7 +1825,9 @@ impl App {
 
     /// One minute's worth of background awareness.
     pub(crate) async fn observer_tick(&self) {
-        if !self.cfg().agent.ambient_context || self.paused() {
+        // Another Heron on this home (the app and a terminal `heron serve`) does this work; doing it
+        // here too would run every trigger and proactive message twice.
+        if !self.cfg().agent.ambient_context || self.paused() || !self.own_background_work() {
             return;
         }
         let (store, ws, cfg) = (self.store.clone(), self.workspace.clone(), self.cfg());
