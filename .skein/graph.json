@@ -3720,7 +3720,16 @@
     }
   },
   "F9c": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "d86d94f5714c436c87919788e9885222",
+        "ended_at": "2026-11-22T09:38:37.525880+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:37:56.777277+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -3732,19 +3741,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "d86d94f5714c436c87919788e9885222",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "8fea05f620cc4d9781a9087a200baec0",
-      "claimed_at": "2026-11-22T09:37:56.777277+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:38:27.330355+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I eval/check_tasks.py --features eval/features/screen_text.md",
+        "duration_ms": 231,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F9c_20261122T093837135447_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F9c_20261122T093837367611_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I changed nothing outside `eval/`.",
     "id": "F9c",
     "integration_for": null,
     "intent": {
@@ -3756,13 +3777,31 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "d86d94f5714c436c87919788e9885222",
+      "base_commit": "7f9dfeaa2a539b6c7a7ab0472da6353c34aa303c",
+      "changed_files": [
+        "eval/features/screen_text.md",
+        "eval/fixtures/features/screen_text/web/fix.sh"
+      ],
+      "commit": "cd4ca4e9f1e1cad8fc85ee7362ef56d666f6b917",
+      "diff_stats": {
+        "eval/features/screen_text.md": {
+          "added": 31,
+          "deleted": 0
+        },
+        "eval/fixtures/features/screen_text/web/fix.sh": {
+          "added": 3,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "F9: feature task ft9",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "7f9dfeaa2a539b6c7a7ab0472da6353c34aa303c",
