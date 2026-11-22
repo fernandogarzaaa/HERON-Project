@@ -288,7 +288,7 @@ heron-v1.md §5 requires four things (checks 1 to 4). G1 implies four more (chec
 5.  **content entries:** any new way content enters a turn joins `ContentEntry`, as trusted or tainting;
 6.  **approval surfaces:** any new place that can answer an approval says which `Effect` values it may answer;
 7.  **processes outside the `shell` tool:** each is listed with its fixed binary path, every argument shape, its environment, and why the Seatbelt profile doesn't apply;
-8.  **TCC permissions:** each new macOS privacy permission is listed. The feature asks for it only when the owner turns the feature on. When it is denied, the feature's Settings row names the permission and the System Settings pane where it is granted.
+8.  **TCC permissions:** each new macOS privacy permission is listed. The feature asks for it the first time the owner uses the feature, never at first launch (QF3). When it is denied, the feature's Settings row names the permission and the System Settings pane where it is granted.
 
 Each feature below ends with one table. Its rows map to the eight checks as follows:
 
@@ -751,7 +751,7 @@ Today's warning line has three limits:
 
 **What it does.**
 *   **The owner picks a window.** A "Look at a window" button in the F1 panel opens macOS's window picker, `SCContentSharingPicker` (macOS 14). The owner picks one window. ScreenCaptureKit captures it once, and Vision (`VNRecognizeTextRequest`) reads its text on the Mac.
-    *   **UNVERIFIED:** whether the picker needs the Screen Recording permission. If it does, F9 asks for that permission when it is turned on, and explains why first.
+    *   **UNVERIFIED:** whether the picker needs the Screen Recording permission. If it does, F9 asks for that permission the first time the owner uses it (QF3), and explains why first.
 *   **Text only.** The image is discarded right after its text is read. The text is sent as chat context, `{kind: "screen_text", app, text}`, so it taints the conversation like F1's selection. It is stored with the message like any text.
 *   **Never automatic.** It never runs in the background, on a schedule, or at the model's request. Only the button starts it.
 
@@ -939,6 +939,11 @@ Low findings from the build's independent reviews that were left as they are. Me
 *   **F6: `ft6` matches "2 events" anywhere (low).** It also matches "12 events". The regex is F6's EVE row word for word.
 *   **F6: Google all-day events can be counted on the previous day west of UTC (low, from before F6).** `oauth.rs` stores them at UTC midnight.
 *   **F6: the switch can show the wrong state (low).** It stays on after the owner deletes the schedule elsewhere.
+*   **F9: the panel cuts window text by Swift characters, the core counts code points (low).** Text with combining marks or emoji sequences can pass the panel's 20,000 cut and still be over the core's limit, which refuses it with `400 bad_context`.
+*   **F9: the switch doesn't hide the button in an open panel (low).** The capture is still refused, so the click does nothing. A leftover Screen Recording notice can also stay up with the feature off.
+*   **F9: `test_usesTheWindowPicker` checks the configuration and call order with fakes (low).** It doesn't prove the default model uses the system picker.
+*   **F9: the panel can stay on "Looking" if macOS closes the picker without a callback (low, inferred).** Reopening the app clears it.
+*   **F9: a Screen Recording refusal is matched by error code without its domain (low).** Whether macOS reports a denial that way is UNVERIFIED.
 *   **F3: a core notice body can reach the lock screen (low).** A `notification` event's body holds up to 180 characters of a schedule's result. The app posts it as is, so the lock screen shows it when macOS allows previews. The core's own desktop notice showed the same text before F3, so nothing new leaks; only the app's own "needs your OK" and "finished" notices are limited to the tool name and the owner's title.
 *   **F3: run records are written under the event bus's lock (low).** `RunLog` writes kv inside `publish`, as the design asks, so a long store operation elsewhere briefly stalls every publisher. Nothing awaits under the lock.
 
