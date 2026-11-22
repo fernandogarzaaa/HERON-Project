@@ -3243,6 +3243,59 @@
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F3-fix-2"
     }
   },
+  "F3-fix-3": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F3-fix-1",
+      "F3-fix-2"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F3-fix-3",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib --bins -- unfinished_runs_are_not_closed_by_a_second_core unfinished_runs_are_closed_on_restart",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging. No database schema change.",
+      "context": "Spec: docs/designs/heron-v1-features.md, F3 'Run records' (closing unfinished records after a restart is done only by the process that owns the background lock). Inside your sandbox about 27 unrelated cargo tests fail; run your test by name.",
+      "goal": "Fix one high finding from the check of F3-fix-1. start_core (src/server.rs ~230-236) calls runs.close_unfinished() whether or not this process holds background.lock, and every Heron process opens the same database. So a second core started on the same home (heron serve in a terminal while the Mac app's core runs a chat, or the app's core starting while heron daemon is mid-run) marks the other process's live runs cancelled. Gate the call exactly the way recover_interrupted_* is gated (only when this process owns the background lock), and call it on the heron daemon path too when the daemon owns the lock. Test: unfinished_runs_are_not_closed_by_a_second_core (two App values on one home; the one without the lock leaves a running record running; the owner closes it). Fix nothing else."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fix: close unfinished runs only in the lock owner",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F3a": {
     "attempts": [
       {
@@ -4372,7 +4425,7 @@
       "claim_token": "d6eba2ac22574a3aa970b93716ba54ed",
       "claimed_at": "2026-11-22T11:04:41.231540+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:05:11.678613+00:00",
+      "last_heartbeat": "2026-11-22T11:07:11.930274+00:00",
       "node_version": 5,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4404,7 +4457,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: shortcuts",
-    "version": 8,
+    "version": 12,
     "worktree": {
       "base_branch": "skein/F5g__integrate-base",
       "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
@@ -5286,7 +5339,7 @@
       "claim_token": "40bb54105728496a96f834fd588befab",
       "claimed_at": "2026-11-22T11:05:38.682429+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T11:05:38.682429+00:00",
+      "last_heartbeat": "2026-11-22T11:07:39.461830+00:00",
       "node_version": 32,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -5323,9 +5376,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F7: dictation button, spoken replies",
-    "version": 35,
+    "version": 39,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
@@ -5771,7 +5824,7 @@
       "claim_token": "343284e286e846b3b8fed51d3d1957f9",
       "claimed_at": "2026-11-22T11:03:45.379759+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T11:05:15.866198+00:00",
+      "last_heartbeat": "2026-11-22T11:07:16.100043+00:00",
       "node_version": 41,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -5808,7 +5861,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F8: draft_email, key",
-    "version": 46,
+    "version": 50,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "b13942e9f6196e1009af8e865292d2efa5bf1466",
@@ -6184,7 +6237,7 @@
       "goal": "Gate unit. Write nothing. The supervisor runs bash scripts/verify-feature.sh <slug> as your check, which includes this feature's EVE tasks on claude-cli. You may run read-only commands to confirm the feature looks complete, then stop."
     },
     "max_retries": 0,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -6192,7 +6245,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Gate: screen_text",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "skein/F9g__integrate-base",
       "branch": null,
