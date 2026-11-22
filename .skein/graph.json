@@ -2681,15 +2681,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "51b65aa7365545c2ba7353279fe711c6",
+      "base_branch": "feat/v1-features-base",
+      "claim_token": "4f9d2fbcd93e413280aa78be1b17c026",
+      "claimed_at": "2026-11-22T09:30:02.153822+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T09:30:02.153822+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [],
     "evidence": [],
@@ -2709,11 +2709,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F5: guide, threat-model line, index line",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/v1-features-base",
       "branch": null,
       "path": null
     }
