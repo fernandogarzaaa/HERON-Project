@@ -367,7 +367,16 @@
     }
   },
   "B2t": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "ae899f8ad95d4737aed639c0d9e0f18a",
+        "ended_at": "2026-11-22T07:01:39.911962+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T06:59:00.451243+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -379,21 +388,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "ae899f8ad95d4737aed639c0d9e0f18a",
-      "base_branch": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
-      "claim_token": "03a38b9997764d7b8c766bef811a6f03",
-      "claimed_at": "2026-11-22T06:59:00.451243+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T07:00:31.016164+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "B2"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_features_lists_and_sets_keys api_chat_context_taints_the_session api_events_notify_flag_routes_notices && test -s tests/fixtures/api/features.json",
+        "duration_ms": 2678,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B2t_20261122T070137071988_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B2t_20261122T070139750638_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "B2t",
     "integration_for": null,
     "intent": {
@@ -405,13 +426,31 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "ae899f8ad95d4737aed639c0d9e0f18a",
+      "base_commit": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
+      "changed_files": [
+        "tests/integration.rs",
+        "tests/fixtures/api/features.json"
+      ],
+      "commit": "bbb6126315b7b00d4157ba3f20aaa585c74b2dd3",
+      "diff_stats": {
+        "tests/fixtures/api/features.json": {
+          "added": 3,
+          "deleted": 0
+        },
+        "tests/integration.rs": {
+          "added": 195,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Integration tests and the features fixture",
-    "version": 6,
+    "version": 9,
     "worktree": {
       "base_branch": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
       "base_commit": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
