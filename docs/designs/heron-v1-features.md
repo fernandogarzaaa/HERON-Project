@@ -105,7 +105,7 @@ Terms from heron-v1.md keep their meaning: taint, permission mode, `Effect`, dec
 | Term | Meaning |
 |---|---|
 | Today | `main` at `bf7f7f0`: v0.3.1 plus PR #26 (Google and Microsoft OAuth). The comparison above is written against it. |
-| After v1 | The code [heron-v1.md](heron-v1.md) describes, which the features build on. Names it introduces don't exist on `main` yet; see [After v1 names](#after-v1-names). |
+| After v1 | The code [heron-v1.md](heron-v1.md) describes, which the features build on. It merged into `main` on 2026-11-22 (PR #62, commit `f732b4e`); see [After v1 names](#after-v1-names). |
 | Slug | A feature's short name, used in branch names, task files and the gate script: `quick_entry` (F1), `ask_reasons` (F2), `runs` (F3), `undo_files` (F4), `shortcuts` (F5), `morning_brief` (F6), `voice` (F7), `email_drafts` (F8), `screen_text` (F9). |
 | Core key | A boolean in the new `[features]` table of `config.toml`. There are three: `ask_reasons` (F2, default `true`), `shortcuts` (F5, default `true`) and `email_drafts` (F8, default `true`). |
 | App setting | A feature switch the Mac app keeps in `UserDefaults`, as heron-v1.md §4 does for display preferences. |
@@ -114,19 +114,19 @@ Terms from heron-v1.md keep their meaning: taint, permission mode, `Effect`, dec
 | Run record | One record per run, kept in kv `run:<run_id>` ([F3](#f3-runs-and-notifications-m)). It isn't the scheduled-job history in the `runs` table, which `GET /api/schedules/{id}/runs` serves. |
 | TCC | macOS privacy permissions (Transparency, Consent and Control), such as Screen Recording and Notifications. |
 | Feature tasks | EVE tasks for one feature, in `eval/features/<slug>.md`. They are separate from G7's ten core tasks. |
-| Base branch | `feat/v1-features-base`: `feat/heron-v1` at the commit where `verify` first passed, plus the base units B1 to B6. |
+| Base branch | `feat/v1-features-base`: `main` at `39dbdf5` (v1 squash-merged as `f732b4e`, plus this doc), plus the base units B1 to B6. v1's `verify` first passed on `e8bf4fa` on `feat/heron-v1`, which isn't an ancestor of `main` because PR #62 was squash-merged. |
 | Feature graph | One small skein graph per feature, on branch `feat/v1-<slug>`, ending in that feature's gate unit. |
 | Work unit ids | `B1` to `B6` are base units. `F<n><letter>` are a feature's units. The letter is `s` (core, `src/**`), `t` (integration tests and API fixtures, `tests/**`), `a` (app, `macos/**`), `c` (feature tasks, `eval/**`), `p` (packaging), `d` (docs) or `g` (gate). All are defined in [Work units](#work-units). |
 
 ### After v1 names
 
-These names come from heron-v1.md and don't exist on `main` yet:
+These names come from heron-v1.md. They were missing from `main` when this doc was written, and are on `main` since PR #62:
 *   in the core: `decide(call, ctx)`, `PromptSource`, `App.events`, `GET /api/events`, `run_id`, `run_end`, `approval_resolved`, `approval_parked`, `GET /api/grants`, `sessions.origin`, and the `outside` label of `Effect::OutsideRead`;
 *   in the eval harness: `eval/require-tests.sh`, `eval/check_tasks.py`, `eval/check_gate.py`, `eval/pass_rules.py` and `eval/genesis.yaml`;
 *   in the Mac app: the Swift package `macos/HeronMac/`, with targets `HeronCore`, `HeronUI` and `Heron`, and test targets `HeronCoreTests` and `HeronUITests`;
 *   in the tests: `tests/fixtures/api/`, with the test `api_fixtures_match_the_live_core`.
 
-heron-v1.md itself is committed on branch `docs/heron-v1-rerun-fixes` (commit `cba31ab`, approved 2026-11-18) and isn't on `main` yet. Links to it resolve once it merges.
+heron-v1.md and the v1 code merged into `main` on 2026-11-22 as PR #62 (commit `f732b4e`), so links to it resolve.
 
 ## Goals
 
@@ -783,7 +783,7 @@ When it is planned, it gets its own delta. That delta starts from two choices:
 
 ### 3. Branches and order
 
-*   **The base branch.** `feat/v1-features-base` is cut from `feat/heron-v1` at the commit where `verify` first passed.
+*   **The base branch.** `feat/v1-features-base` is cut from `main` at `39dbdf5`, after v1 (PR #62) and this doc (PR #59) merged. v1 was squash-merged, so the commit where `verify` first passed (`e8bf4fa`) isn't an ancestor of `main`; it is still the commit the freeze is counted from.
     *   `verify` may pass with `HERON_G9_PENDING=1`, before the G9 trial ends. That is enough, because these units don't change G9's count.
     *   The base units B1 to B6 ship onto it before any feature graph starts.
 *   **One graph per feature.** Each feature has a skein graph on `feat/v1-<slug>`. It is cut from the base branch, or from the branch of the feature it builds on (F4 from F3; F7 and F9 from F1, because both add to F1's panel).
@@ -920,9 +920,13 @@ These are owner steps, done before any `skein run`.
 
 1.  v1's `verify` unit has passed on `feat/heron-v1`, with or without `HERON_G9_PENDING=1`.
 2.  The owner answered QF1 to QF4 on 2026-11-18. F10 gets no graph.
-3.  **The base branch.** The owner cuts `feat/v1-features-base` from that commit and commits `eval/features/base.json` = `{"v1_verify_commit": "<sha>", "freeze": "<YYYY-MM-DD, 14 days after verify passed>"}`. Then they run `skein init` and add the base graph's nodes.
+3.  **The base branch.** `feat/v1-features-base` is cut from `main` at `39dbdf5` and commits `eval/features/base.json` = `{"v1_verify_commit": "e8bf4fa…", "v1_verify_passed_at": "2026-11-21T13:17:17Z", "v1_main_commit": "39dbdf5…", "freeze": "2026-12-05", "freeze_tz": "+08:00"}`.
+    *   `v1_verify_passed_at` is the `completed` event for `verify` in v1's skein log (seq 4643). Every earlier `verify` event is a failure.
+    *   The freeze is that day plus 14, at the end of the day in the owner's time zone (+08:00).
+    *   `v1_main_commit` is the `main` commit the branch was cut from. It is the mutation-testing base for slug `base`, because `v1_verify_commit` isn't an ancestor of `main`.
+    *   `main` already carries v1's `.skein/` graph, so the base graph's nodes are added to it rather than to a new `skein init`. Nodes are shipped by id, never with `skein ship --all`, which would also try to merge v1's node branches.
 4.  **Each feature branch.** Once the base graph is done, the owner cuts each feature branch from the base branch's tip, or from its parent feature's tip (F4 from F3; F7 and F9 from F1). They commit `eval/features/base.json` = `{"v1_verify_commit": "<sha>", "features_base_commit": "<sha of the tip it was cut from>"}`, then add that graph's nodes. Files committed after a node starts don't reach it, so this happens first.
-5.  The skein backend `claude_build_rust` from heron-v1.md is registered. Every node uses it.
+5.  The skein backends `claude_build_rust` and `claude_build_swift` from heron-v1.md are registered. Nodes scoped to `macos/**` use `claude_build_swift`, which lets the agent run only `swift build` and `swift test` outside its sandbox (owner-approved 2026-11-19). Every other node uses `claude_build_rust`.
 6.  Gate units run on the owner's Mac with claude-cli logged in, one at a time.
 
 Line numbers in today's code move during the v1 build. So this plan cites names, not line numbers. Files are named "Create" or "Modify" one by one.
@@ -1042,7 +1046,7 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
 ##### 10. `scripts/verify-feature.sh` (Create)
 
 *   **Type / Scope:** gate runner.
-*   **Proposed Changes:** `set -euo pipefail`. `verify-feature.sh <slug>` reads `BASE` from `eval/features/base.json`: `v1_verify_commit` for slug `base`, and `features_base_commit` for every other slug. It then runs these steps, in order:
+*   **Proposed Changes:** `set -euo pipefail`. `verify-feature.sh <slug>` reads `BASE` from `eval/features/base.json`: `v1_main_commit` for slug `base`, and `features_base_commit` for every other slug. It then runs these steps, in order:
     1.  `cargo test --locked`, then `cargo test --locked --features desktop --bin heron-desktop`;
     2.  `cargo clippy --locked --all-targets -- -D warnings`;
     3.  `swift test --package-path macos/HeronMac`;
@@ -1080,7 +1084,7 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
 
 #### Base unit B6: base gate
 
-*   Writes nothing. Its check runs `scripts/verify-feature.sh base`, so B1 to B5's code is mutation-tested against `v1_verify_commit`.
+*   Writes nothing. Its check runs `scripts/verify-feature.sh base`, so B1 to B5's code is mutation-tested against `v1_main_commit`.
 
 #### F1: quick entry, Services, Ask Heron intent
 
@@ -1406,7 +1410,7 @@ Every unit starts after v1's `verify` unit (see Preconditions). B1 to B6 run on 
     *   `python3 -I -m unittest discover -s eval/tests -t eval`
 *   **Static Analysis & Linting**: `cargo clippy --locked --all-targets -- -D warnings`.
 *   **Test Coverage Requirement**: every gate runs `testteeth run --base "$BASE" --fail-under 70 -q` when the graph changed Rust or Python (F1, F7 and F9 change neither, so their gates skip it).
-    *   For the base graph, `BASE` is `v1_verify_commit`. For each feature, it is `features_base_commit`.
+    *   For the base graph, `BASE` is `v1_main_commit`. For each feature, it is `features_base_commit`.
     *   Surviving mutants are killed in that graph, or justified in its pull request, before the pull request opens.
 *   **Evaluator trust**: every gate runs `genesis audit-evaluator eval/genesis.yaml --suite code-py`. B1 adds the new rules' cases to the spec.
 *   **E2E/Integration**:
