@@ -300,7 +300,16 @@
     }
   },
   "H3q": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "1cf2e9ae443343dda91fbc656f0dc0b5",
+        "ended_at": "2026-11-22T16:56:27.465064+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T16:38:17.336070+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -312,22 +321,34 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "1cf2e9ae443343dda91fbc656f0dc0b5",
-      "base_branch": "skein/H3q__integrate-base",
-      "claim_token": "bd6435c7df7d44bd9e8154f1c2cc2fd3",
-      "claimed_at": "2026-11-22T16:38:17.336070+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T16:38:17.336070+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "H3",
       "H5"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I -m unittest discover -s eval/tests -t eval && python3 -I eval/selfheal/run_replay.py --check-patches && genesis audit-evaluator eval/selfheal/genesis.yaml --suite json && testteeth run --lang python --base origin/main --pytest-args 'eval/tests/test_selfheal_replay.py eval/tests/test_verify_selfheal.py' --fail-under 70 -q eval/selfheal",
+        "duration_ms": 587746,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/evidence/H3q_20261122T164639538146_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/evidence/H3q_20261122T165627288741_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: - The `open` and `subprocess.run` failure-path gaps in the report: the real ones (`FileNotFoundError`, timeout, `OSError`) are tested through their handlers. A separate \"simulate `open` failing\" test per call site would only repeat those.",
     "id": "H3q",
     "integration_for": null,
     "intent": {
@@ -339,13 +360,26 @@
     "max_retries": 2,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "1cf2e9ae443343dda91fbc656f0dc0b5",
+      "base_commit": "2361da0b93f517c8d382d34c3c6c38eb1703bc3e",
+      "changed_files": [
+        "eval/tests/test_selfheal_replay.py"
+      ],
+      "commit": "59508a45468d8c303b8f9c67212a5838dca8cc8c",
+      "diff_stats": {
+        "eval/tests/test_selfheal_replay.py": {
+          "added": 620,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Kill surviving mutants in eval/selfheal (testteeth gate)",
-    "version": 4,
+    "version": 41,
     "worktree": {
       "base_branch": "skein/H3q__integrate-base",
       "base_commit": "2361da0b93f517c8d382d34c3c6c38eb1703bc3e",
