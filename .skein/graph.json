@@ -2225,9 +2225,17 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-22T09:43:24.859586+00:00"
+      },
+      {
+        "attempt_id": "2cab195a9d754bc3a648e13ffe781235",
+        "ended_at": "2026-11-22T09:50:32.777734+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-22T09:49:59.765714+00:00"
       }
     ],
-    "attempts_used": 2,
+    "attempts_used": 3,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -2238,15 +2246,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "2cab195a9d754bc3a648e13ffe781235",
-      "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
-      "claim_token": "bd4e3613997e4d78b90eaa12b3990acf",
-      "claimed_at": "2026-11-22T09:49:59.765714+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:49:59.765714+00:00",
-      "node_version": 15,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F2s"
@@ -2254,14 +2262,14 @@
     "evidence": [
       {
         "command": "cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_approval_carries_why api_fixtures_match_the_live_core api_features_lists_and_sets_keys && grep -q ask_reasons tests/fixtures/api/features.json",
-        "duration_ms": 2638,
+        "duration_ms": 2706,
         "exit_code": 101,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2t_20261122T094356776262_0.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2t_20261122T095030033458_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2t_20261122T094359415183_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2t_20261122T095032742900_adapter.log"
       }
     ],
     "handoff_note": "completion command failed (adapter exit=0); see evidence",
@@ -2280,9 +2288,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "failed",
     "title": "F2: re-recorded fixtures, api_approval_carries_why",
-    "version": 17,
+    "version": 19,
     "worktree": {
       "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
       "base_commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
@@ -3171,7 +3179,7 @@
       "claim_token": "4729963a6b124f52affe1bc0ca83e299",
       "claimed_at": "2026-11-22T09:47:41.942322+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:49:42.638308+00:00",
+      "last_heartbeat": "2026-11-22T09:50:12.697042+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -3196,7 +3204,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F5: run_shortcut, shortcuts routes, key",
-    "version": 7,
+    "version": 8,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "a5c863430fd6d88e8fe59e19063303332f903064",
