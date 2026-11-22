@@ -33,6 +33,9 @@ public enum LocalMailPolicy {
     public static let daysBack = 14
     public static let maxMessages = 300
     public static let maxBodyCharacters = 4000
+    /// Bodies are the slow part (about 2 s each on a real Mail): only the newest few get one, within a time budget.
+    public static let bodyMessages = 25
+    public static let bodySeconds = 60
 
     /// Drops messages with no id or older than the window, merges the same Message-ID seen in several accounts
     /// (naming each account), keeps the newest `maxMessages`, and truncates long text.
@@ -113,15 +116,22 @@ public struct SystemMailAccess: LocalMailAccess {
         // A detached task, so the blocking read of the child's output is never on the main thread or the shared pool's
         // short-lived workers; Mail may first have to launch.
         return try await Task.detached(priority: .utility) {
-            let script = Self.script(daysBack: LocalMailPolicy.daysBack, limit: LocalMailPolicy.maxMessages, bodyCharacters: LocalMailPolicy.maxBodyCharacters)
+            let script = Self.script(daysBack: LocalMailPolicy.daysBack, bodyCharacters: LocalMailPolicy.maxBodyCharacters,
+                                     bodyMessages: LocalMailPolicy.bodyMessages, bodySeconds: LocalMailPolicy.bodySeconds)
             let output = try runner?(script) ?? Self.run(script)
             return LocalMailPolicy.prepare(try Self.parse(output))
         }.value
     }
 
-    /// The AppleScript. Prints `no-accounts`, or records of `id US sender US subject US secondsAgo US account US body`
-    /// joined with RS. Dates are sent as "seconds ago", which doesn't depend on the time zone or the date format.
-    static func script(daysBack: Int, limit: Int, bodyCharacters: Int) -> String {
+    /// The AppleScript. Prints `no-accounts`, `unreadable:N`, or records of `id US sender US subject US secondsAgo US account
+    /// US body` joined with RS. Dates are sent as "seconds ago", which doesn't depend on the time zone or the date format.
+    ///
+    /// Shaped by measurements on a real Mail (3 accounts, ~490 messages in 14 days): the unified inbox's `whose` filter
+    /// takes 30 s and its bulk property reads fail (its references live in "[Gmail]/All Mail"), while the same filter and
+    /// bulk reads on each sub-mailbox work (13 s for 442 messages). Reading a message's `content` costs about 2 s, so
+    /// bodies are fetched only for the newest `bodyMessages`, inside a `bodySeconds` budget; everything else is indexed
+    /// from its headers. The cap on the number of messages is applied by `LocalMailPolicy.prepare` (newest first).
+    static func script(daysBack: Int, bodyCharacters: Int, bodyMessages: Int, bodySeconds: Int) -> String {
         """
         on clean(t)
           set saved to AppleScript's text item delimiters
@@ -138,42 +148,77 @@ public struct SystemMailAccess: LocalMailAccess {
             if (count of accounts) is 0 then return "no-accounts"
             set nowDate to current date
             set cutoff to nowDate - \(daysBack) * days
-            -- Mail's own unified inbox: it covers every account whatever its mailbox is called ("INBOX", "Inbox", a
-            -- localized name), and a failure here is an error the app shows, not an account that quietly adds nothing.
-            set recent to (messages of inbox whose date received > cutoff)
-            -- One message at a time: the unified inbox hands back references that live in other mailboxes (Gmail's
-            -- "[Gmail]/All Mail"), and Mail can't read a property across that whole list in one Apple Event.
-            set total to count of recent
-            if total > \(limit) * 3 then set total to \(limit) * 3
-            set out to ""
-            set kept to 0
+            set mbs to mailboxes of inbox
+            set lists to {}
+            set heads to {}
+            set ages to {}
             set skipped to 0
-            repeat with i from 1 to total
-              if kept ≥ \(limit) then exit repeat
+            repeat with m from 1 to count of mbs
+              set end of lists to {}
               try
-                set msg to item i of recent
-                set theId to message id of msg
-                set theSubject to subject of msg
-                set theSender to sender of msg
-                set theDate to date received of msg
+                set mb to item m of mbs
                 set acctName to ""
                 try
-                  set acctName to name of account of mailbox of msg
+                  set acctName to name of account of mb
                 end try
-                set bodyText to ""
-                try
-                  set bodyText to content of msg
-                  if (count of bodyText) > \(bodyCharacters) then set bodyText to text 1 thru \(bodyCharacters) of bodyText
-                end try
-                set age to (nowDate - theDate) as integer
-                set rec to (my clean(theId)) & (character id 31) & (my clean(theSender)) & (character id 31) & (my clean(theSubject)) & (character id 31) & (age as text) & (character id 31) & (my clean(acctName)) & (character id 31) & (my clean(bodyText))
-                set out to out & rec & (character id 30)
-                set kept to kept + 1
+                set recent to (messages of mb whose date received > cutoff)
+                if (count of recent) > 0 then
+                  set theIds to message id of recent
+                  set theSubjects to subject of recent
+                  set theSenders to sender of recent
+                  set theDates to date received of recent
+                  set item m of lists to recent
+                  repeat with j from 1 to count of theIds
+                    set age to (nowDate - (item j of theDates)) as integer
+                    set end of ages to age
+                    set end of heads to {item j of theIds, item j of theSenders, item j of theSubjects, age, acctName, m, j, ""}
+                  end repeat
+                end if
               on error
                 set skipped to skipped + 1
               end try
             end repeat
-            if out is "" and skipped > 0 then return "unreadable:" & skipped
+            set total to count of heads
+            if total is 0 then
+              if skipped > 0 then return "unreadable:" & skipped
+              return ""
+            end if
+            -- Bodies for the newest few only, within a time budget; a message with no body is still indexed.
+            set bodyStart to current date
+            set picked to {}
+            repeat with k from 1 to total
+              set end of picked to false
+            end repeat
+            repeat with n from 1 to \(bodyMessages)
+              if n > total then exit repeat
+              if ((current date) - bodyStart) > \(bodySeconds) then exit repeat
+              set best to 0
+              set bestAge to 0
+              repeat with i from 1 to total
+                if not (item i of picked) then
+                  if best is 0 or (item i of ages) < bestAge then
+                    set best to i
+                    set bestAge to item i of ages
+                  end if
+                end if
+              end repeat
+              if best is 0 then exit repeat
+              set item best of picked to true
+              try
+                set h to item best of heads
+                set msg to item (item 7 of h) of (item (item 6 of h) of lists)
+                set bodyText to content of msg
+                if (count of bodyText) > \(bodyCharacters) then set bodyText to text 1 thru \(bodyCharacters) of bodyText
+                set item 8 of h to bodyText
+                set item best of heads to h
+              end try
+            end repeat
+            set out to ""
+            repeat with i from 1 to total
+              set h to item i of heads
+              set rec to (my clean(item 1 of h)) & (character id 31) & (my clean(item 2 of h)) & (character id 31) & (my clean(item 3 of h)) & (character id 31) & ((item 4 of h) as text) & (character id 31) & (my clean(item 5 of h)) & (character id 31) & (my clean(item 8 of h))
+              set out to out & rec & (character id 30)
+            end repeat
             return out
           end tell
         end timeout

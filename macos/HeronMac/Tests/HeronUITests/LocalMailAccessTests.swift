@@ -50,11 +50,11 @@ final class LocalMailAccessTests: XCTestCase {
     }
 
     func testTheScriptAsksForTheLastFourteenDaysUpToTheCapAndNeverTouchesTheMailFolder() {
-        let script = SystemMailAccess.script(daysBack: 14, limit: 300, bodyCharacters: 4000)
-        XCTAssertTrue(script.contains("14 * days") && script.contains("300") && script.contains("4000"))
+        let script = SystemMailAccess.script(daysBack: 14, bodyCharacters: 4000, bodyMessages: 25, bodySeconds: 60)
+        XCTAssertTrue(script.contains("14 * days") && script.contains("4000"))
         XCTAssertTrue(script.contains("tell application \"Mail\""))
         XCTAssertFalse(script.contains("Library/Mail"), "no reading of Mail's own files")
-        XCTAssertTrue(script.contains("messages of inbox whose"), "Mail's own unified inbox, not a mailbox looked up by name")
+        XCTAssertTrue(script.contains("mailboxes of inbox"), "the inbox's sub-mailboxes, not a mailbox looked up by name")
         XCTAssertFalse(script.contains("mailbox \"INBOX\""), "a mailbox name can miss (Gmail, Exchange, localized names)")
         XCTAssertTrue(script.contains("timeout"), "the wait for Mail to open is allowed for")
     }
@@ -99,13 +99,38 @@ final class LocalMailAccessTests: XCTestCase {
         XCTAssertFalse(message.contains("All Mail"))
     }
 
-    func testTheScriptReadsEachMessageInsideItsOwnTryAndNeverInBulk() {
-        let script = SystemMailAccess.script(daysBack: 14, limit: 300, bodyCharacters: 4000)
+    func testTheScriptFiltersAndBulkReadsPerSubMailboxNeverOnTheUnifiedInbox() {
+        let script = SystemMailAccess.script(daysBack: 14, bodyCharacters: 4000, bodyMessages: 25, bodySeconds: 60)
+        // Measured on a real Mail: the unified inbox's filter takes 30 s and its bulk reads fail; per sub-mailbox both work.
+        XCTAssertFalse(script.contains("messages of inbox whose"), "the unified inbox's whose-filter is slow and its references can't be bulk read")
+        XCTAssertTrue(script.contains("repeat with m from 1 to count of mbs") && script.contains("messages of mb whose date received > cutoff"))
         for bulk in ["message id of recent", "subject of recent", "sender of recent", "date received of recent"] {
-            XCTAssertFalse(script.contains(bulk), "\(bulk) reads a property across the whole list in one Apple Event, which Mail can't resolve")
+            XCTAssertTrue(script.contains(bulk), "\(bulk) is read in bulk, once per sub-mailbox")
         }
-        XCTAssertTrue(script.contains("item i of recent") && script.contains("on error") && script.contains("skipped"))
-        XCTAssertTrue(script.contains("unreadable:"))
+        XCTAssertTrue(script.contains("name of account of mb"), "the account name is read once per sub-mailbox")
+        // A failed sub-mailbox is skipped and counted, and all-failed is the unreadable marker.
+        XCTAssertTrue(script.contains("on error") && script.contains("skipped") && script.contains("unreadable:"))
+    }
+
+    func testBodiesAreFetchedOnlyForTheNewestFewWithinATimeBudget() {
+        let script = SystemMailAccess.script(daysBack: 14, bodyCharacters: 4000, bodyMessages: 25, bodySeconds: 60)
+        XCTAssertTrue(script.contains("repeat with n from 1 to 25"), "only the newest 25 get a body")
+        XCTAssertTrue(script.contains("((current date) - bodyStart) > 60"), "and none are started after 60 s of body time")
+        XCTAssertTrue(script.contains("content of msg"))
+        // `content` is read exactly once in the script, inside that bounded loop and a try, never per message in general.
+        XCTAssertEqual(script.components(separatedBy: "content of ").count - 1, 1)
+        XCTAssertEqual(LocalMailPolicy.bodyMessages, 25)
+        XCTAssertEqual(LocalMailPolicy.bodySeconds, 60)
+        XCTAssertLessThan(LocalMailPolicy.bodySeconds, 180, "headers plus the body budget stay under the script's own 180 s timeout")
+    }
+
+    func testAHeadersOnlyRecordIsStillAMessage() throws {
+        // Messages past the newest 25 come back with an empty body and are indexed from sender and subject.
+        let us = String(SystemMailAccess.fieldSeparator), rs = String(SystemMailAccess.recordSeparator)
+        let output = ["<a@x>", "Dana", "Invoice", "30", "iCloud", ""].joined(separator: us) + rs
+        let parsed = try SystemMailAccess.parse(output, now: Date(timeIntervalSince1970: 1_800_000_000))
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertEqual([parsed[0].from, parsed[0].subject, parsed[0].body], ["Dana", "Invoice", ""])
     }
 
     func testEveryMessageUnreadableIsAShortErrorNotASilentZero() {
