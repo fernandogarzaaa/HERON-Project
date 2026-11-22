@@ -4147,7 +4147,7 @@
       "claim_token": "c8b697c1bc724f43a19caf0d057ea3ea",
       "claimed_at": "2026-11-22T11:48:35.842964+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T12:10:40.813341+00:00",
+      "last_heartbeat": "2026-11-22T12:11:10.882944+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4174,7 +4174,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F4: recorded-checkpoint undo, route",
-    "version": 47,
+    "version": 48,
     "worktree": {
       "base_branch": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
       "base_commit": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
@@ -6576,6 +6576,58 @@
       "path": null
     }
   },
+  "F8mut": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F8g"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F8mut",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- draft_email_summary_names_recipients_and_subject",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging. Tests only.",
+      "context": "Spec: docs/designs/heron-v1-features.md, F8 (the approval shows the recipients, the subject and the full body) and Verification Plan. Inside your sandbox about 27 unrelated cargo tests fail; run your test by name.",
+      "goal": "F8's gate left 2 surviving mutants in src/tools/mail_draft.rs: <impl Tool for DraftEmail>::summary (~line 191) replaced by String::new() and by \"xyzzy\". The summary is what the owner reads on the approval, so pin it: write a test asserting the summary names every recipient and the subject of a draft_email call (and that a call refused for a bad address isn't summarised as a send). Test: draft_email_summary_names_recipients_and_subject. Tests only."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Kill F8's surviving mutants",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F8s": {
     "attempts": [
       {
@@ -7036,7 +7088,7 @@
       "claim_token": "dc2b3627dd024f04ab135894f0c3b6f9",
       "claimed_at": "2026-11-22T12:10:41.357285+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T12:10:41.357285+00:00",
+      "last_heartbeat": "2026-11-22T12:11:11.949779+00:00",
       "node_version": 7,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -7063,9 +7115,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Gate: screen_text",
-    "version": 9,
+    "version": 10,
     "worktree": {
       "base_branch": "skein/F9g__integrate-base",
       "base_commit": "a7999060f5b42e756de22f56de47d7e440e1b840",
