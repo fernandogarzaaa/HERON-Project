@@ -3849,6 +3849,32 @@ mod tests {
     }
 
     #[test]
+    fn login_status_parsing_reads_current_cli_output() {
+        // Claude Code 2.1.330 `auth status --text`, captured live: no "logged in" words.
+        assert_eq!(
+            parse_login_output("claude-cli", "Login method: Claude Max account\nOrganization: someone's Organization\nEmail: someone@example.com\nSign-in ends: between 2026-12-18 and 2026-12-21"),
+            (Some(true), Some("Claude max".to_string()))
+        );
+        // Output with no login words at all says nothing about the login.
+        assert_eq!(parse_login_output("claude-cli", "Usage: claude auth status [options]"), (None, None));
+        assert_eq!(parse_login_output("codex-cli", ""), (None, None));
+        assert_eq!(parse_login_output("claude-cli", "Logged out"), (Some(false), None));
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn codex_probe_reads_a_login_printed_on_stderr() {
+        // codex-cli 0.169.0 prints "Logged in using ChatGPT" on stderr and nothing on stdout.
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"codex-cli 0.169.0\"\n  exit 0\nfi\necho 'Logged in using ChatGPT' >&2\nexit 0\n";
+        let bin = fake_bin(dir.path(), "codex", script);
+        let spec = spec_for("codex-cli").unwrap();
+        let Some(cfg) = probe_cfg(dir.path(), "codex-cli", &bin, "") else { return };
+        let probed = probe_status(&cfg, &spec).await;
+        assert_eq!(probed.logged_in, Some(true), "a login reported on stderr is still a login");
+    }
+
+    #[test]
     #[cfg(not(windows))]
     fn prompt_follows_the_value_flag_for_string_prompt_providers() {
         let dir = tempfile::tempdir().unwrap();
