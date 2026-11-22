@@ -6434,15 +6434,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "c6a18c0a3a27425296cbc7360e775c57",
+      "base_branch": "skein/F8g__integrate-base",
+      "claim_token": "11c0d1fefe5a4232a75b87f9e408863e",
+      "claimed_at": "2026-11-22T11:54:13.548948+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T11:54:13.548948+00:00",
+      "node_version": 6,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "F8s",
@@ -6468,9 +6468,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Gate: email_drafts",
-    "version": 6,
+    "version": 7,
     "worktree": {
       "base_branch": "skein/F8g__integrate-base",
       "branch": null,
