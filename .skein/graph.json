@@ -1538,11 +1538,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
+      "branch": "skein/F1a",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F1a"
     }
   },
   "F1c": {
