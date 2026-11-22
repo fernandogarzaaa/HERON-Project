@@ -6200,30 +6200,45 @@
     }
   },
   "F9g__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "4583fa45938a46dc9414056949646930",
+        "ended_at": "2026-11-22T11:05:39.917859+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-22T11:05:39.259853+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "4583fa45938a46dc9414056949646930",
-      "base_branch": "skein/F9g__integrate__integrate-base",
-      "claim_token": "5fbbd2c09cfd45c7a1aeb801aa14a5ba",
-      "claimed_at": "2026-11-22T11:05:39.259853+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-22T11:05:39.259853+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F9a",
       "F9c",
       "F9-fix-1"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge cd4ca4e9f1e1cad8fc85ee7362ef56d666f6b917 324cb4edaf0acd2d6a2da727db1a56468e30ddfa",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['506fbcd40983a0cf95c8663d1a34d1bcd9434db5', 'cd4ca4e9f1e1cad8fc85ee7362ef56d666f6b917', '324cb4edaf0acd2d6a2da727db1a56468e30ddfa'] into skein/F9g__integrate-base.",
     "id": "F9g__integrate",
     "integration_for": "F9g",
     "intent": {
@@ -6235,16 +6250,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "506fbcd40983a0cf95c8663d1a34d1bcd9434db5",
+      "changed_files": [],
+      "commit": "a7999060f5b42e756de22f56de47d7e440e1b840",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of F9g",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/F9g__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "506fbcd40983a0cf95c8663d1a34d1bcd9434db5",
+      "branch": "skein/F9g__integrate-base",
       "path": null
     }
   },
