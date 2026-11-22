@@ -915,6 +915,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_json_string_with_an_odd_escape_before_non_ascii_is_read() {
+        assert_eq!(json_string_field(r#"{"command": "echo \é done"}"#, "command").as_deref(), Some("echo é done"));
+        assert_eq!(json_string_field(r#"{"command": "a\u00é9"}"#, "command").is_some(), true);
+    }
+
+    #[test]
     fn arg_summary_picks_first_field() {
         assert_eq!(arg_summary(r#"{"command": "ls -la", "path": "/tmp"}"#), "ls -la");
         assert_eq!(arg_summary(r#"{"path": "/tmp/foo"}"#), "/tmp/foo");

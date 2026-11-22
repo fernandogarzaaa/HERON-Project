@@ -1884,6 +1884,40 @@ mod tests {
         assert_eq!(again.next().await.unwrap()["id"], sid.as_str());
     }
 
+    /// A model step that panics, as a slicing bug on odd output would.
+    struct Panics;
+
+    #[async_trait]
+    impl Llm for Panics {
+        async fn chat(&self, _req: ChatRequest, _on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
+            panic!("byte index 3 is not a char boundary");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_run_that_panics_ends_and_frees_its_conversation() {
+        let h = harness(Arc::new(Panics), true, |_| {}).await;
+        let events = tokio::time::timeout(Duration::from_secs(10), async { h.chat(json!({"message": "hi"})).await.all().await }).await.expect("the stream ends");
+        let sid = events[0]["id"].as_str().unwrap().to_string();
+        assert_eq!(events.last().unwrap()["type"], "run_end", "{events:?}");
+        assert!(events.iter().any(|e| e["type"] == "error"), "the owner is told the reply failed: {events:?}");
+        assert_eq!(h.json("GET", &format!("/sessions/{sid}"), Value::Null).await["busy"], false);
+    }
+
+    #[tokio::test]
+    async fn today_reads_a_due_date_with_letters_outside_ascii() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        h.app.store.add_task("Call the bank", "", 2, Some("2026-11-2ñ")).unwrap();
+        assert_eq!(h.send("GET", "/today", Value::Null).await.status, 200);
+    }
+
+    #[test]
+    fn a_host_header_with_an_unclosed_bracket_is_not_loopback() {
+        assert!(!is_loopback_name(host_only("[::1")));
+        assert_eq!(host_only("[::1]:8080"), "[::1]");
+        assert_eq!(host_only("localhost:3000"), "localhost");
+    }
+
     /// A CLI whose installed version Heron has not been tested with.
     struct UntestedCli;
 

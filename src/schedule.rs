@@ -323,6 +323,20 @@ mod tests {
     fn at(s: &str) -> DateTime<Local> {
         Local.from_local_datetime(&NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M").unwrap()).unwrap()
     }
+    #[test]
+    fn huge_durations_are_refused_not_panicked_on() {
+        let now = at("2026-11-22 10:00");
+        assert!(parse_when("in 99999999999999 weeks", now).is_err());
+        assert!(parse_when("every 99999999999999 weeks", now).is_err());
+        assert!(parse_when("in 9223372036854775807 seconds", now).is_err());
+    }
+
+    #[test]
+    fn a_trigger_with_letters_that_grow_when_lowercased_is_parsed() {
+        assert_eq!(parse_trigger("When İİİ/*.md changes").as_deref(), Some("@file:İİİ/*.md"));
+        assert_eq!(parse_trigger("WHENEVER anything in İzmir changes").as_deref(), Some("@file:İzmir/**"));
+    }
+
     fn next(cron: &str, from: &str) -> String {
         Cron::parse(cron).unwrap().next_after(at(from)).unwrap().format("%Y-%m-%d %H:%M").to_string()
     }

@@ -72,6 +72,13 @@ pub fn redact_secrets(s: &str) -> String {
 /// Wrap content that came from outside the user's control so the model treats it as data.
 /// A message with every outside-content block removed, leaving only what the user (or Heron's own
 /// framing) wrote.
+/// The outermost `[...]` in a model's reply, if the reply holds one.
+pub fn json_array_span(text: &str) -> Option<&str> {
+    let start = text.find('[')?;
+    let end = text.rfind(']')?;
+    text.get(start..=end)
+}
+
 pub fn without_untrusted(text: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
@@ -116,6 +123,14 @@ pub fn fmt_ts(ts: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_array_span_finds_the_outer_array_or_nothing() {
+        assert_eq!(json_array_span("Here: [1, [2]] done"), Some("[1, [2]]"));
+        assert_eq!(json_array_span("] then ["), None);
+        assert_eq!(json_array_span("no array"), None);
+        assert_eq!(json_array_span("[]"), Some("[]"));
+    }
 
     #[test]
     fn truncates_unicode_safely() {

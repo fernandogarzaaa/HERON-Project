@@ -3313,6 +3313,8 @@ mod tests {
 
     #[test]
     fn envelope_text_prefix_decodes_incrementally() {
+        // A stray backslash before a letter outside ASCII (LaTeX, a Windows path) keeps the letter.
+        assert_eq!(envelope_text_prefix("{\"text\": \"caf\\é \\→ ok\"}"), Some(("café → ok".to_string(), true)));
         assert_eq!(envelope_text_prefix(""), None);
         assert_eq!(envelope_text_prefix("{\"te"), None);
         assert_eq!(

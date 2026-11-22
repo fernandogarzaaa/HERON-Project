@@ -333,6 +333,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_header_line_with_letters_outside_ascii_is_read_not_panicked_on() {
+        assert_eq!(header_value("Subjecé: no\r\nSubject: hi", "Subject"), "hi");
+        assert_eq!(header_value("Fromñ\r\nFrom: a@b.test", "From"), "a@b.test");
+    }
+
+    #[test]
     fn decodes_headers() {
         assert_eq!(decode_header("=?UTF-8?B?SGVsbG8gV8O2cmxk?="), "Hello Wörld");
         assert_eq!(decode_header("=?utf-8?Q?Caf=C3=A9_menu?= for Friday"), "Café menu for Friday");
