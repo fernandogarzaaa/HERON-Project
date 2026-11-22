@@ -1571,19 +1571,19 @@
     "intent": {
       "completion": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q 'QuickEntryTests.*selectionBecomesContext' && { { bash packaging/macos/build-app.sh --unsigned && test -d dist/Heron.app/Contents/Resources/Metadata.appintents && swift test list --package-path macos/HeronMac | grep -q 'QuickEntryTests.*intentTextIsContext'; } || grep -qx 'Status: deferred to v1.1' macos/HeronMac/APP-INTENTS-CHECK.md; }",
       "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
-      "context": "Spec: docs/designs/heron-v1-features.md, section 'F1' under 'The features' (with its check table) and 'Detailed Implementation Plan', F1 items 14. You may run swift build and swift test yourself. The visual spec is docs/designs/heron-mac-visual.md with its tokens; follow its tokens and layouts. Base unit B4 created Features/Settings/FeatureRow.swift, FeatureRows.swift and NotificationPoster.swift: append your feature's row to FeatureRows.all and post notices only through NotificationPoster. Chat context is sent as POST /api/chat {message, context:[{kind, app, text}]} (B2).",
+      "context": "Spec: docs/designs/heron-v1-features.md, section 'F1' under 'The features' (with its check table) and 'Detailed Implementation Plan', F1 items 14. You may run swift build and swift test yourself. The visual spec is docs/designs/heron-mac-visual.md with its tokens; follow its tokens and layouts. Base unit B4 created Features/Settings/FeatureRow.swift, FeatureRows.swift and NotificationPoster.swift: append your feature's row to FeatureRows.all and post notices only through NotificationPoster. Chat context is sent as POST /api/chat {message, context:[{kind, app, text}]} (B2). SUPERVISOR NOTE after 3 attempts: (1) The check ran outside the sandbox; the build is fine and exactly one test fails: QuickEntryTests test_quickEntryIsOnUntilTheOwnerTurnsItOff at QuickEntryTests.swift:294, XCTAssertFalse(QuickEntrySettings.isEnabled(d), \"nothing is registered yet\"). QF3 says the feature ships on, so an unregistered default reading as on is correct; fix the test (or the helper's fresh-defaults setup) so it asserts what the spec says, without weakening what the owner's off choice must do. (2) The App Intents deferral stands, but it now rests on a real build: the supervisor built a minimal macOS 14 executable package with one AppIntent using swift build (Swift 6.4.2, swift-build) and found no Metadata.appintents and no extract.actionsdata anywhere in .build. Replace the reason in macos/HeronMac/APP-INTENTS-CHECK.md with that evidence (keep the line 'Status: deferred to v1.1').",
       "goal": "Build item 14: QuickEntryPanel.swift, HotKey.swift (no default hotkey), ServicesProvider.swift (askHeron(_:userData:error:)), AskHeronIntent.swift in the executable target (opens the panel with the text as context, never sends), F1's row, macos/HeronMac/APP-INTENTS-CHECK.md, and QuickEntryTests including panelReusesRecentSession, selectionBecomesContext, intentTextIsContext and intentNeverSends. Follow F1's UNVERIFIED rule on App Intents metadata exactly: if swift build can't produce Contents/Resources/Metadata.appintents, delete AskHeronIntent.swift and its two tests and write 'Status: deferred to v1.1' with the reason into APP-INTENTS-CHECK.md."
     },
-    "max_retries": 3,
+    "max_retries": 4,
     "rejected_count": 1,
     "removed": false,
     "result": null,
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "failed",
+    "status": "unclaimed",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 51,
+    "version": 52,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -1929,7 +1929,7 @@
       "claim_token": "be2f5a2d06c442c59a90753bcc9a595a",
       "claimed_at": "2026-11-22T10:07:15.802815+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:07:46.243565+00:00",
+      "last_heartbeat": "2026-11-22T10:08:46.390162+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -1956,7 +1956,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F2: taint chip, why on the sheet",
-    "version": 4,
+    "version": 6,
     "worktree": {
       "base_branch": "4b4660347f30da79dd80c1558592a62bd120f123",
       "base_commit": "4b4660347f30da79dd80c1558592a62bd120f123",
@@ -3464,7 +3464,7 @@
       "claim_token": "d2f0fd9f5ebb4911af5fbe87ddf24811",
       "claimed_at": "2026-11-22T10:08:04.645308+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T10:08:04.645308+00:00",
+      "last_heartbeat": "2026-11-22T10:08:35.138854+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -3489,9 +3489,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F5: integration test, shortcuts fixture",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "beacef1f170f56de6ed0fe74a91556415730d37b",
       "base_commit": "beacef1f170f56de6ed0fe74a91556415730d37b",
