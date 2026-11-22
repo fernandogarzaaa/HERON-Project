@@ -120,9 +120,13 @@ public final class QuickEntryModel {
 
     // MARK: Sending (only the owner's Return reaches this)
 
-    public var canSend: Bool { status != .sending && !field.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    /// Return sends when there is something to send: the owner's words, or an attached chip. With neither it refuses.
+    public var canSend: Bool {
+        status != .sending && (chip != nil || !field.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
 
-    /// Sends the field's text, with the chip as context. A failed send keeps the field and the chip.
+    /// Sends the field's text, with the chip as context. The words may be empty when a chip is attached (the core
+    /// titles that session "Asked about <kind> from <app>"). A failed send keeps the field and the chip.
     public func submit() async {
         let body = field.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend else { return }
