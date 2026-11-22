@@ -57,25 +57,38 @@ final class LocalMailAccessTests: XCTestCase {
         XCTAssertTrue(script.contains("timeout"), "the wait for Mail to open is allowed for")
     }
 
-    func testAnAppleEventsListBecomesMessagesAndTheNoAccountsAnswerIsItsOwnProblem() throws {
-        let date = Date(timeIntervalSince1970: 1_799_999_000)
-        func row(_ id: String, account: String) -> NSAppleEventDescriptor {
-            let r = NSAppleEventDescriptor.list()
-            for (i, v) in [id, "Dana <d@example.com>", "Invoice"].enumerated() { r.insert(NSAppleEventDescriptor(string: v), at: i + 1) }
-            r.insert(NSAppleEventDescriptor(date: date), at: 4)
-            r.insert(NSAppleEventDescriptor(string: account), at: 5)
-            r.insert(NSAppleEventDescriptor(string: "Please pay."), at: 6)
-            return r
+    func testTheScriptsPrintedTextBecomesMessagesAndNoAccountsIsItsOwnProblem() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let rs = String(SystemMailAccess.recordSeparator), us = String(SystemMailAccess.fieldSeparator)
+        func record(_ id: String, account: String, body: String = "Please pay.\nThanks") -> String {
+            [id, "Dana <d@example.com>", "Invoice: March", "1000", account, body].joined(separator: us)
         }
-        let list = NSAppleEventDescriptor.list()
-        list.insert(row("<a@x>", account: "iCloud"), at: 1)
-        list.insert(row("<a@x>", account: "Outlook"), at: 2)
-        let parsed = try SystemMailAccess.parse(list)
+        let output = record("<a@x>", account: "iCloud") + rs + record("<a@x>", account: "Outlook", body: "") + rs + "\n"
+        let parsed = try SystemMailAccess.parse(output, now: now)
         XCTAssertEqual(parsed.map(\.id), ["<a@x>", "<a@x>"])
-        XCTAssertEqual(parsed[0].date, 1_799_999_000)
-        XCTAssertEqual([parsed[0].from, parsed[0].subject, parsed[0].body], ["Dana <d@example.com>", "Invoice", "Please pay."])
-        XCTAssertEqual(try SystemMailAccess.parse(NSAppleEventDescriptor.list()), [])
-        XCTAssertThrowsError(try SystemMailAccess.parse(NSAppleEventDescriptor(string: "no-accounts"))) { XCTAssertEqual($0 as? MailAccessError, .noAccounts) }
-        XCTAssertThrowsError(try SystemMailAccess.parse(NSAppleEventDescriptor(string: "surprise"))) { XCTAssertEqual($0 as? MailAccessError, .failed("Mail answered in a way Heron didn't expect.")) }
+        XCTAssertEqual(parsed[0].date, 1_800_000_000 - 1000)
+        XCTAssertEqual([parsed[0].from, parsed[0].subject, parsed[0].account], ["Dana <d@example.com>", "Invoice: March", "iCloud"])
+        XCTAssertEqual(parsed[0].body, "Please pay.\nThanks", "newlines in the body survive")
+        XCTAssertEqual(parsed[1].body, "", "an empty body is still a message")
+        XCTAssertEqual(try SystemMailAccess.parse("", now: now), [], "no messages in the window is an empty list")
+        XCTAssertEqual(try SystemMailAccess.parse("\n", now: now), [])
+        XCTAssertThrowsError(try SystemMailAccess.parse("no-accounts\n", now: now)) { XCTAssertEqual($0 as? MailAccessError, .noAccounts) }
+        // A damaged record is skipped, not guessed at.
+        XCTAssertEqual(try SystemMailAccess.parse("only" + us + "three" + us + "fields" + rs + record("<b@x>", account: "Gmail"), now: now).map(\.id), ["<b@x>"])
+    }
+
+    func testOsascriptsStderrBecomesTheRightProblem() {
+        XCTAssertEqual(SystemMailAccess.failure(stderr: "execution error: Not authorized to send Apple events to Mail. (-1743)\n", status: 1), .notAuthorized)
+        XCTAssertEqual(SystemMailAccess.failure(stderr: "execution error: Application isn't running. (-600)", status: 1), .notRunning)
+        XCTAssertEqual(SystemMailAccess.failure(stderr: "execution error: Something odd happened. (-1728)", status: 1), .failed("Something odd happened. (-1728)"))
+        XCTAssertEqual(SystemMailAccess.failure(stderr: "", status: 15), .failed("Mail didn't answer in time. Try again."))
+        XCTAssertEqual(SystemMailAccess.failure(stderr: "", status: 1), .failed("Mail answered with error 0."))
+    }
+
+    func testTheRealPathRunsOsascriptAsAChildNeverNSAppleScript() throws {
+        // `run` passes the script on stdin to /usr/bin/osascript. Here only a script that touches no app, to check the plumbing
+        // (stdin in, text out, stderr and the exit status on a failure) without Mail or any Automation prompt.
+        XCTAssertEqual(try SystemMailAccess.run("return \"ok\"").trimmingCharacters(in: .whitespacesAndNewlines), "ok")
+        XCTAssertThrowsError(try SystemMailAccess.run("error \"Not authorized\" number -1743")) { XCTAssertEqual($0 as? MailAccessError, .notAuthorized) }
     }
 }
