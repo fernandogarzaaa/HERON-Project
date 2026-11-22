@@ -8,7 +8,7 @@ The review ran in five stages, in order. Each stage's findings were resolved bef
 | 6. Comprehension | comprehension | 6 / 24 / 9 | `02e2ec7`, resolved in `92de335` | [comprehension_report.md](comprehension_report.md) |
 | 7. Critic | design, structural, style | 2 / 30 / 21 | `92de335`, resolved in `a6cb339` and `a325951` | [critic_report.md](critic_report.md) |
 | 8. Intermediate Zoom Out | zoom-out | 1 / 7 / 6 | `946b7aa`, resolved in `2a80442` | [intermediate_zoom_out_report.md](intermediate_zoom_out_report.md) |
-| 9. Implementation Readiness | implementation-readiness, codebase-details, style | 10 / 50 / 21 (overlapping) | `2a80442`, resolved in the fifth draft | [implementation_readiness_report.md](implementation_readiness_report.md) |
+| 9. Implementation Readiness | implementation-readiness, codebase-details, style; then one re-audit | 10 / 50 / 21 (overlapping), then 4 / 10 / 0 | `2a80442`, resolved in `c881aa5` and `f09cbab`; the re-audit was resolved in the final commit | [implementation_readiness_report.md](implementation_readiness_report.md) |
 
 **Changes the review drove**, in the order they were made:
 
@@ -23,4 +23,5 @@ The review ran in five stages, in order. Each stage's findings were resolved bef
 **Still open:**
 
 *   **The owner's answers** to HQ1-HQ24.
-*   **A Stage 9 re-audit** of the final draft (see the Stage 9 report).
+*   **The re-audit's fixes have not been reviewed again**, because the EGM cap is used up.
+*   **OD2 and OD3 need the owner's confirmation**, because they reached this session through the main session.

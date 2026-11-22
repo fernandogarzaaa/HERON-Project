@@ -76,7 +76,28 @@
     *   Full paths everywhere.
     *   "1 day, 3 days or 1 week".
 
+## Re-audit (the one allowed), on `f09cbab`
+
+A single `egm-implementation-readiness` reviewer read the rewritten plan. It found 4 Blockers and 10 Majors. Every finding was fixed by a targeted edit.
+
+| Finding | Resolution |
+|---|---|
+| B1: H8 needed `api_key` and `host_ok` from later units | H8's `call` now takes the key as an argument. `host_ok` is declared in H0 with all of `validate_endpoint`'s rules |
+| B2: 1a's R6 needed `validate_manifest` from 1b | The manifest schema, `validate_manifest` and `host_ok` moved into H0, along with their three tests |
+| B3: the fake sealbox came after H10, and the profile couldn't read it or the uv interpreter | H10 creates `src/observe/testdata/fake-sealbox`. `Profile::Observe` gains read rules for the `pyvenv.cfg` `home` prefix and the sealbox binary |
+| B4: `build-app.sh` failed with no `connectors/` folder | The `find` is guarded with `[ -d connectors ]`, and the README requirement is dropped |
+| M1: the state-fixture test was in the wrong unit | It moved to H2t as `api_state_reports_commit_key` |
+| M2: no check was named `selfheal / gate` | The job is now `name: selfheal-gate`, and `poll_ci` and its test match that name |
+| M3: the panic hook couldn't reach the database or the counter | A process-global `agent::TAINTED_SESSIONS`, with its up and down rules defined. A `harness2::DB` `OnceLock` is set after config loads. `main` writes `migration_failed` and `core_exit` |
+| M4: the replay data flow was undefined | Each case gains a `test:` selector. `selfheal replay` gets a JSON output. The replay key is `merge-base HEAD main`, the same as the core checks. The pass rule is N ≥ the threshold |
+| M5: the `verify-selfheal.sh` contract was incomplete | Exit codes, the `r2` values, the report path, `CARGO`/`SWIFT`/`TESTTEETH` overrides, and reading the verdict back with `gh run download` |
+| M6: the genesis adapter was unworkable | The audit now targets the pure function `grade(outcome)`, with `--suite json` and `genesis_cases.json` |
+| M7: the CI pins were open | `uv pip compile --generate-hashes`, and a cargo-mutants version comment line |
+| M8: the Pre-5 hook had no interface | Pre-5 must be merged before H1 |
+| M9: the exclusion defaults were categories | Literal bundle IDs, hosts, folders and match rules in §11 |
+| M10: the H7b heading wasn't named | It is now `### Connectors` |
+
 ## Residual
 
-*   **Stage 9 was not re-run after these fixes.** The rewrite is large, so a fresh `egm-implementation-readiness` pass on the final draft is the recommended first step after the owner's answers. Under EGM's one-re-audit cap, that pass would be this stage's only re-audit.
+*   **The one-re-audit cap is now used up.** The re-audit's fixes were applied by edit, and no reviewer has looked at them since. Their effect is in the diff from `f09cbab` to the final commit.
 *   **Unchecked claims.** Two claims have no tool run behind them: the cargo-mutants install line, and the GitHub `head_ref` filter behaviour. PT6 and the first real self-heal PR check them.
