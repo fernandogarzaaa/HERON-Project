@@ -910,6 +910,14 @@ These are candidates for v1.1:
 *   F1's App Intent, if it moves out of v1.
 *   Any feature that misses the freeze.
 
+## Known low issues
+
+Low findings from the build's independent reviews that were left as they are. Medium and high findings became fix units.
+
+*   **B2: a once-only call can be audited as "approved-for-conversation" (low).** A client may answer a `run_shortcut` or `draft_email` approval with `decision: "session"`, although "for this conversation" isn't offered. The call runs once and no grant is recorded, which is correct, but the audit row's label says otherwise.
+*   **B2: one bad value under `[features]` stops `config.toml` from loading (low, fail-closed).** `FeaturesConfig.flags` is a flattened map of booleans, so a non-boolean value there, from a typo, fails the whole file's parse. Heron then doesn't start with that config, so nothing runs with a wrong switch.
+*   **B2: MCP serves a fixed tool list without the feature filter (low, inferred).** `mcp.rs` serves `SERVED_TOOLS` through the unfiltered registry. No feature tool is on that list today. F5 and F8 must not add theirs to it without the filter.
+
 --------------------------------------------------------------------------------
 
 ## Detailed Implementation Plan
