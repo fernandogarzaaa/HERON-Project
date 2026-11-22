@@ -4090,7 +4090,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "F4: undo button and lists",
-    "version": 17,
+    "version": 18,
     "worktree": {
       "base_branch": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
       "base_commit": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
