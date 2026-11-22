@@ -153,6 +153,56 @@
       "path": null
     }
   },
+  "H5": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "packaging/macos/**"
+    ],
+    "change_policy": "strict",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "H5",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash -n packaging/macos/build-app.sh && ! grep -qE '^[^#]*--deep' packaging/macos/build-app.sh && bash packaging/macos/build-app.sh --unsigned --no-dmg --host-arch && test -d dist/Heron.app/Contents/Resources/connectors && test ! -e dist/Heron-macos-universal.dmg && test -x dist/Heron.app/Contents/MacOS/heron-cli && codesign --verify dist/Heron.app",
+      "constraints": "Non-goals from the design: nothing installs, reinstalls or rolls back Heron (that is Phase 2); no edits to fenced security code; no new runtime dependencies. Python under eval/ is 3.12 standard library only, run as python3 -I, and tests use unittest like the rest of eval/tests. Do not edit docs/designs/heron-harness2.md. You cannot run git: skein commits your worktree when the check passes, so never ask for a commit. Write only inside your blast radius. Comments only for a non-obvious why; no phase-narrating comments. When the design and these instructions differ, these instructions win and the supervisor records the difference in the design.",
+      "context": "Spec: docs/designs/heron-harness2.md section 'Graph 1a, unit H5: packaging' (item 22). Compatibility with open PR #72 (branch fix/mac-connect-sources), which must still merge cleanly: #72 changes only the 'sign)' case branch, rewriting its comment and adding '--entitlements packaging/macos/Heron.entitlements' to the app's codesign call. So do not change any line inside the 'unsigned)' or 'sign)' case branches. In the default mode, pass '--entitlements packaging/macos/Heron.entitlements' on the app's signature (not heron-cli's) only when that file exists, matching #72 (the hardened runtime needs it for the Calendar prompt). HERON_COMMIT must not abort the build outside a git checkout. You can run 'bash packaging/macos/build-app.sh ...' and 'bash -n'; a full build may fail inside your sandbox (swift), and the supervisor runs the real one.",
+      "goal": "Change packaging/macos/build-app.sh as item 22 says: the argument loop (one mode flag plus any of --no-dmg and --host-arch, in any order), --host-arch, --no-dmg, HERON_COMMIT on the cargo build, the default mode's two hardened-runtime codesign calls replacing codesign --deep, and the connectors copy. Update the usage header and usage messages to list the new flags. Keep it working for ci.yml (--unsigned) and release.yml (--sign and --unsigned)."
+    },
+    "max_retries": 2,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "packaging/macos/build-app.sh (item 22)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {
