@@ -4295,11 +4295,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fix: Telegram shows a once-only tool's full detail or refuses",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
-      "branch": null,
-      "path": null
+      "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
+      "branch": "skein/F5-fix-2",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F5-fix-2"
     }
   },
   "F5a": {
