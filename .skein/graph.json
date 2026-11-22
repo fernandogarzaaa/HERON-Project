@@ -1513,7 +1513,7 @@
       "claim_token": "4bafa9a67ed846819d1820dc75c7913d",
       "claimed_at": "2026-11-22T09:26:45.215217+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T09:38:17.053275+00:00",
+      "last_heartbeat": "2026-11-22T09:39:47.246446+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1538,7 +1538,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 26,
+    "version": 29,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -2129,7 +2129,16 @@
     }
   },
   "F2t": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "8074cf5bdd7d4a96bd99327e8e7a3237",
+        "ended_at": "2026-11-22T09:40:03.622130+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-22T09:38:27.201142+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -2141,21 +2150,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "8074cf5bdd7d4a96bd99327e8e7a3237",
-      "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
-      "claim_token": "1702070fd211496c898148fa6ee411ca",
-      "claimed_at": "2026-11-22T09:38:27.201142+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:38:27.201142+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F2s"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_approval_carries_why api_fixtures_match_the_live_core api_features_lists_and_sets_keys && grep -q ask_reasons tests/fixtures/api/features.json",
+        "duration_ms": 2476,
+        "exit_code": 101,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2t_20261122T094001109002_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2t_20261122T094003585631_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "F2t",
     "integration_for": null,
     "intent": {
@@ -2168,12 +2189,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-22T09:41:07.828441+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "F2: re-recorded fixtures, api_approval_carries_why",
-    "version": 3,
+    "version": 7,
     "worktree": {
       "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
       "base_commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
@@ -2305,7 +2326,7 @@
       "claim_token": "e0734d26ff51435f89d5f935502e35ff",
       "claimed_at": "2026-11-22T09:38:37.697102+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:38:37.697102+00:00",
+      "last_heartbeat": "2026-11-22T09:39:38.133725+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -2328,9 +2349,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F3: run records, GET /api/runs",
-    "version": 3,
+    "version": 5,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "d7bb8d754450035c634044c8385bcee14a7df211",
