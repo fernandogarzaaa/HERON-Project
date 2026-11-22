@@ -47,12 +47,15 @@ fi
 
 db="$home/heron.db"
 [ -f "$db" ] || die "no heron.db in '$home'"
-version="$(sqlite3 -readonly "$db" "PRAGMA user_version;")"
+# Not -readonly: heron.db uses WAL, and a read-only open fails with "unable to open database
+# file" when Heron is closed and no heron.db-shm exists. query_only refuses every write instead.
+q() { sqlite3 -cmd "PRAGMA query_only=ON;" "$db" "$1"; }
+version="$(q "PRAGMA user_version;")"
 if [ "$version" -lt 3 ]; then
   die "needs data format 3 (this database is format $version)"
 fi
 
-days="$(sqlite3 -readonly "$db" "
+days="$(q "
 SELECT DISTINCT date(a.ts, 'unixepoch', 'localtime') AS day
 FROM audit a JOIN sessions s ON s.id = a.session_id
 WHERE a.decision IN ('allowed', 'approved', 'approved-always', 'approved-for-conversation', 'approved-later')
