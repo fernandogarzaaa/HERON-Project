@@ -921,6 +921,8 @@ Low findings from the build's independent reviews that were left as they are. Me
 *   **B2: `heron mcp-serve` publishes its first `tainted` event to a bus no client reads (low).** That process runs no event stream. The taint source is still stored, so permissions and F2's session view are unaffected.
 *   **B2t: the integration test's taint timing is checked by event order only (low).** The unit test `chat_context_taints_before_the_model_call` checks it at the model request.
 *   **B2t: `api_features_lists_and_sets_keys` can't switch a key until a feature adds one.** `KEYS` holds only a test-only key, which integration tests don't see. F2t extends the test to switch `ask_reasons` over HTTP, and re-records `features.json`, once F2s adds that key.
+*   **F3: a core notice body can reach the lock screen (low).** A `notification` event's body holds up to 180 characters of a schedule's result. The app posts it as is, so the lock screen shows it when macOS allows previews. The core's own desktop notice showed the same text before F3, so nothing new leaks; only the app's own "needs your OK" and "finished" notices are limited to the tool name and the owner's title.
+*   **F3: run records are written under the event bus's lock (low).** `RunLog` writes kv inside `publish`, as the design asks, so a long store operation elsewhere briefly stalls every publisher. Nothing awaits under the lock.
 
 --------------------------------------------------------------------------------
 
