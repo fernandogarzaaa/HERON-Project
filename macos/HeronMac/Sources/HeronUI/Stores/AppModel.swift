@@ -53,6 +53,10 @@ public final class AppModel {
     public let features: FeaturesSettingsStore
     /// F1: the quick-entry panel's model and the controller that shows it.
     public let quickEntry: QuickEntryController
+    /// F7: reads replies aloud, for the conversation on screen only.
+    public let voice: SpokenReplies
+    /// Whether the main window is showing. Tests replace it; there is no window under `swift test`.
+    @ObservationIgnored public var isMainWindowVisible: @MainActor () -> Bool = AppModel.mainWindowIsVisible
 
     public var selection: Destination = .today
     public var settingsTab: SettingsTab = .general
@@ -73,13 +77,16 @@ public final class AppModel {
 
     public init(client: any CoreClientProtocol, preferences: DisplayPreferences? = nil,
                 userFirstName: String? = nil, now: @escaping () -> Date = Date.init,
-                features featuresClient: (any FeaturesClientProtocol)? = nil) {
+                features featuresClient: (any FeaturesClientProtocol)? = nil,
+                speaker: (any SpeechSynthesizing)? = nil) {
         self.client = client
         let preferences = preferences ?? DisplayPreferences()
         self.preferences = preferences
         self.now = now
-        // "Quick entry" is on until the owner turns it off (QF3); the Features list reads it just below.
+        // "Quick entry" and "Speak replies" are on until the owner turns them off (QF3); the Features list reads them just below.
         QuickEntrySettings.registerDefaults()
+        VoiceSettings.registerDefaults()
+        voice = SpokenReplies(speaker: speaker ?? AVSpeechSpeaker(), isEnabled: { VoiceSettings.isEnabled() }, isOnScreen: { _ in false })
         quickEntry = QuickEntryController(model: QuickEntryModel(client: client, now: now), preferences: preferences,
                                           openMain: { _ in })  // wired to the main window at the end of init
         avatar = AvatarModel()
@@ -106,6 +113,22 @@ public final class AppModel {
         features = FeaturesSettingsStore(client: featuresBackend)
         chat.onOtherApproval = { [weak self] event in self?.addToFeed(event) }
         quickEntry.openMain = { [weak self] id in self?.showMain(conversation: id) }
+        voice.isOnScreen = { [weak self] id in self?.isOnScreen(session: id) ?? false }
+        chat.onConversationEvent = { [weak self] event in self?.voice.handle(event) }
+        quickEntry.model.onConversationEvent = { [weak self] event in self?.voice.handle(event) }
+    }
+
+    /// F7: a conversation is on screen when the main window is showing it, or the F1 panel is. Schedules, phone turns
+    /// and every other conversation are not.
+    public func isOnScreen(session id: String) -> Bool {
+        if selection == .chat, chat.currentSessionID == id, isMainWindowVisible() { return true }
+        return quickEntry.isVisible && quickEntry.model.sessionID == id
+    }
+
+    private static func mainWindowIsVisible() -> Bool {
+        guard let app = NSApp,
+              let window = app.windows.first(where: { $0.title == "Heron" && !($0 is NSPanel) }) else { return false }
+        return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 
     /// "Open in Heron" from the quick-entry panel: the main window comes forward, on the panel's conversation if it has one.

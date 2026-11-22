@@ -78,6 +78,8 @@ public final class QuickEntryModel {
     public private(set) var status: Status = .idle
     /// Called by "Open in Heron" with the panel's conversation, if it has one. The app wires it to the main window.
     @ObservationIgnored public var onOpenInHeron: ((String?) -> Void)?
+    /// Every event of the panel's conversation, once its session is known. F7 reads replies from it.
+    @ObservationIgnored public var onConversationEvent: ((CoreEvent) -> Void)?
 
     @ObservationIgnored private var lastUsed: Date?
     @ObservationIgnored private var heldEvents: [CoreEvent] = []
@@ -157,6 +159,7 @@ public final class QuickEntryModel {
         guard let eventSession = event.sessionID else { return }
         if status == .sending { heldEvents.append(event); return }
         guard eventSession == sessionID else { return }
+        onConversationEvent?(event)
         switch event.kind {
         case .text(let chunk):
             reply += chunk
