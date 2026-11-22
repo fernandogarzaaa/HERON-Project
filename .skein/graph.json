@@ -4404,11 +4404,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Gate: shortcuts",
-    "version": 6,
+    "version": 7,
     "worktree": {
       "base_branch": "skein/F5g__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
+      "branch": "skein/F5g",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F5g"
     }
   },
   "F5g__integrate": {
