@@ -60,7 +60,7 @@ fn write_risk(args: &Value, ctx: &ToolCtx) -> Effect {
     stricter(resolved, classify_path(&written_path(ctx, &raw), &ctx.workspace, &ctx.cfg, true))
 }
 
-fn content_hash(bytes: &[u8]) -> String {
+pub(crate) fn content_hash(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -478,6 +478,11 @@ fn write_with_checkpoint(ctx: &ToolCtx, path: &Path, bytes: &[u8]) -> Result<()>
     if let Err(e) = write_atomic(path, bytes) {
         let _ = ctx.store.drop_checkpoint(id);
         return Err(e);
+    }
+    // The run record (F3) lists exactly this checkpoint for the call that saved it, read now: a row
+    // id can be handed to a later row once an undo deletes this one.
+    if let Some(saved) = ctx.store.checkpoint_row(id) {
+        super::note_saved_checkpoint(saved);
     }
     Ok(())
 }

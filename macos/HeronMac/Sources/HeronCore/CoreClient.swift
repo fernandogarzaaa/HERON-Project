@@ -3,7 +3,7 @@ import Foundation
 /// The app's runtime client: `URLSession` over the core's loopback API, with the `x-heron-token` header on
 /// every request (heron-v1.md §3 and §4). One instance talks to one core process (one endpoint); see
 /// `ManagedCoreClient` for the one that follows the core across a restart.
-public final class CoreClient: CoreClientProtocol, Sendable {
+public final class CoreClient: CoreClientProtocol, NotifyingEventsClient, Sendable {
     public let endpoint: CoreEndpoint
     private let urlSession: URLSession
     private let base: URL
@@ -154,13 +154,19 @@ public final class CoreClient: CoreClientProtocol, Sendable {
         return try object(data)["cancelled"] as? Bool ?? false
     }
 
-    public func events(since: Int?) -> AsyncStream<CoreEvent> {
-        EventStream(connect: { [self] since in try await openEventConnection(since: since) }).events(since: since)
+    public func events(since: Int?) -> AsyncStream<CoreEvent> { events(since: since, notify: false) }
+
+    /// The stream with the core's notices handed over (`?notify=1`) when `notify` is true (F3).
+    public func events(since: Int?, notify: Bool) -> AsyncStream<CoreEvent> {
+        EventStream(connect: { [self] since in try await openEventConnection(since: since, notify: notify) }).events(since: since)
     }
 
     /// `GET /api/events`, as raw SSE bytes grouped by line. Throws when the core refuses or isn't there.
-    public func openEventConnection(since: Int?) async throws -> AsyncThrowingStream<Data, Error> {
-        let query = since.map { [URLQueryItem(name: "since", value: String($0))] } ?? []
+    /// With `notify`, the request carries `notify=1`: while such a stream is open the core sends its notices
+    /// as `notification` events and posts none itself.
+    public func openEventConnection(since: Int?, notify: Bool = false) async throws -> AsyncThrowingStream<Data, Error> {
+        var query = since.map { [URLQueryItem(name: "since", value: String($0))] } ?? []
+        if notify { query.append(URLQueryItem(name: "notify", value: "1")) }
         var request = try urlRequest("GET", "/events", query: query)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         let (bytes, http) = try await open(request)

@@ -822,7 +822,8 @@ impl App {
         // Tool calls read their standing `read:` rules from this live policy (see `ToolCtx::read_grants`).
         store.set_live_policy(&policy);
         let config_seen = Mutex::new(ConfigSeen { allow: config_rules.allow, nevers, ..Default::default() });
-        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy, workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default(), events: EventBus::new(), rules_seen: Mutex::new(saved), config_seen, notify_clients: Default::default(), #[cfg(test)] test_hooks: Default::default() })
+        let events = EventBus::with_runs(store.clone());
+        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy, workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default(), events, rules_seen: Mutex::new(saved), config_seen, notify_clients: Default::default(), #[cfg(test)] test_hooks: Default::default() })
     }
 
     pub fn cfg(&self) -> Arc<Config> {
@@ -2217,6 +2218,22 @@ impl App {
         let _ = self.store.recover_interrupted_jobs(INTERRUPTED_JOB_NOTICE);
         *held = Some(BackgroundLock(file));
         true
+    }
+
+    /// What a core does once as it starts, before it starts any run of its own: try to own background
+    /// work (see [`App::own_background_work`]) and, only if it does, end as `cancelled` the run records
+    /// a stopped core left running or waiting (F3). Every Heron on this home opens the same database,
+    /// so a core without the lock must leave them: they may be another process's live runs. Returns
+    /// whether this program owns background work. Call it once, not from a loop: a Heron that takes
+    /// the lock over later has runs of its own by then.
+    pub fn start_background_owner(&self) -> bool {
+        let owner = self.own_background_work();
+        if owner {
+            if let Some(runs) = self.events.runs() {
+                runs.close_unfinished();
+            }
+        }
+        owner
     }
 
     pub async fn scheduler_loop(self: Arc<Self>) {
@@ -3825,6 +3842,39 @@ mod tests {
         assert_eq!(status("broken job"), ("failed".to_string(), true));
         assert!(restarted.store.inbox(true, 10).unwrap().iter().any(|m| m.title == "broken job" && m.body.contains("did not finish")));
         let _ = daily;
+    }
+
+    /// A call parked by a run and carried out later is not part of that run: it has no `tool_end` on
+    /// the run's events, and the run's record neither counts it nor claims what it saved.
+    #[tokio::test]
+    async fn parked_calls_are_not_counted_as_the_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        let llm = Arc::new(ScriptedLlm::new(vec![ScriptedLlm::tool_call("write_file", json!({"path": "later.txt", "content": "x"})), Message::assistant("Parked it.")]));
+        let app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm).await.unwrap();
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        app.store.add_schedule("park", "", "write later.txt", 1, "").unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        let record = |app: &App| -> crate::runs::RunRecord {
+            let mut saved = app.store.kv_list_prefix("run:").unwrap();
+            assert_eq!(saved.len(), 1, "one run, one record");
+            serde_json::from_str(&saved.pop().unwrap().1).unwrap()
+        };
+        let before = record(&app);
+        assert_eq!((before.status.as_str(), before.origin.as_str(), before.tool_calls), ("done", "schedule", 1), "the run's own call was the refused one");
+        assert_eq!((before.audit_ids.len(), before.checkpoints.len()), (1, 0));
+        let parked = app.store.pending_approvals().unwrap();
+        assert_eq!(parked.len(), 1);
+        let last_seq = app.events.last_seq();
+        // Carried out later: the file is written and a checkpoint saved, outside any run.
+        assert!(app.run_parked(parked[0].id).await.unwrap().contains("wrote"));
+        assert!(app.store.newest_checkpoint(&parked[0].session_id).is_some(), "the parked call saved a checkpoint");
+        assert_eq!(app.store.audit_log(1).unwrap()[0].decision, "approved-later");
+        let mut after = app.events.subscribe(Some(last_seq));
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(50), after.next()).await.is_err(), "the parked call published nothing");
+        assert_eq!(record(&app), before, "the record neither counts the call nor claims its checkpoint");
+        assert_eq!(app.events.runs().unwrap().list().len(), 1);
     }
 
     #[tokio::test]

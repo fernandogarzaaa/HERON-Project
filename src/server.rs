@@ -200,6 +200,7 @@ pub fn router_with(app: Arc<App>, token: String, loopback_only: bool) -> Router 
         .route("/suggestions/{id}", post(answer_suggestion))
         .route("/settings", get(get_settings).post(set_settings))
         .route("/events", get(get_events))
+        .route("/runs", get(list_runs))
         .route("/risk-notice", get(get_risk_notice).post(accept_risk_notice))
         .route("/providers", get(list_providers))
         .route("/providers/{id}/accept-version", post(accept_provider_version))
@@ -216,10 +217,18 @@ pub fn router_with(app: Arc<App>, token: String, loopback_only: bool) -> Router 
 }
 
 pub async fn serve(app: Arc<App>, listener: tokio::net::TcpListener, token: String) -> Result<()> {
-    // Before anything can be started from the app: if this Heron is to own background work, it takes
-    // ownership (and reports what the previous one left unfinished) now, never in the middle of its own work.
-    app.own_background_work();
+    start_core(&app);
     run_server(app.clone(), listener, router(app, token)).await
+}
+
+/// What a core does as it starts serving the app, before anything can be started from it. If this
+/// Heron is to own background work, it takes ownership (and reports what the previous one left
+/// unfinished) now, never in the middle of its own work; the returned flag says whether it does.
+/// And the run records a stopped core left running or waiting end as `cancelled` (F3): no run
+/// outlives its core. Only the core that owns background work does this, never a second core on the
+/// same home, `heron mcp-serve` or a terminal command opening the same store.
+fn start_core(app: &App) -> bool {
+    app.start_background_owner()
 }
 
 async fn run_server(app: Arc<App>, listener: tokio::net::TcpListener, router: Router) -> Result<()> {
@@ -258,9 +267,7 @@ pub async fn start_endpoint(app: Arc<App>, bind: &str, port: u16) -> Result<Star
     let token = new_token();
     let host = if addr.ip().is_unspecified() || addr.ip().is_loopback() { "127.0.0.1".to_string() } else { addr.ip().to_string() };
     let url = format!("http://{host}:{}/?token={token}", addr.port());
-    // Before anything can be started from the app: if this Heron is to own background work, it takes
-    // ownership (and reports what the previous one left unfinished) now, never in the middle of its own work.
-    let background_owner = app.own_background_work();
+    let background_owner = start_core(&app);
     let router = router_with(app.clone(), token.clone(), addr.ip().is_loopback());
     let task = tokio::spawn(run_server(app, listener, router));
     Ok(Started { url, port: addr.port(), token, background_owner, task })
@@ -1211,6 +1218,12 @@ async fn answer_approval(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>
     }
 }
 
+/// The runs in progress and the finished ones, newest first, without each run's checkpoint and audit
+/// lists: `{"runs": [{run_id, session_id, title, origin, status, started, ended, tool_calls}]}`.
+async fn list_runs(State(st): S) -> ApiResult {
+    Ok(Json(st.app.events.runs().map(|r| r.summaries()).unwrap_or_else(|| json!({"runs": []}))))
+}
+
 /// The core feature keys: `{"features": [{"key", "title", "on"}]}`.
 async fn list_features(State(st): S) -> ApiResult {
     let cfg = st.app.cfg();
@@ -1919,6 +1932,27 @@ mod tests {
         assert!(h.app.store.load_messages(&session.id).unwrap().is_empty() && h.app.store.session_title(&session.id).is_empty());
     }
 
+    /// `GET /api/runs` lists a finished run and a run still waiting, newest first, without the two lists.
+    #[tokio::test]
+    async fn runs_route_lists_runs_without_their_lists() {
+        let h = harness(scripted(vec![Message::assistant("ok")]), true, |_| {}).await;
+        assert_eq!(h.json("GET", "/runs", Value::Null).await, json!({"runs": []}));
+        let events = h.chat(json!({"message": "say ok"})).await.all().await;
+        let (sid, run) = (find(&events, "session")["id"].as_str().unwrap().to_string(), find(&events, "session")["run_id"].as_str().unwrap().to_string());
+        h.app.events.publish("s2", "r2", json!({"type": "session", "id": "s2", "run_id": "r2"}));
+        h.app.events.publish("s2", "r2", json!({"type": "approval", "id": "a", "tool": "shell"}));
+        let listed = h.json("GET", "/runs", Value::Null).await;
+        let runs = listed["runs"].as_array().unwrap();
+        assert_eq!(runs.len(), 2, "{listed}");
+        assert_eq!((runs[0]["run_id"].as_str(), runs[0]["status"].as_str()), (Some("r2"), Some("waiting")), "newest first");
+        assert_eq!((runs[1]["run_id"].as_str(), runs[1]["session_id"].as_str(), runs[1]["status"].as_str(), runs[1]["origin"].as_str()), (Some(run.as_str()), Some(sid.as_str()), Some("done"), Some("user")));
+        assert!(runs[1]["ended"].is_i64() && runs[0]["ended"].is_null());
+        for r in runs {
+            let keys: std::collections::BTreeSet<&str> = r.as_object().unwrap().keys().map(String::as_str).collect();
+            assert_eq!(keys, ["ended", "origin", "run_id", "session_id", "started", "status", "title", "tool_calls"].into_iter().collect(), "no checkpoints or audit_ids: {r}");
+        }
+    }
+
     #[tokio::test]
     async fn context_never_reaches_learn_or_the_title() {
         let llm = Arc::new(ScriptedLlm::new(vec![Message::assistant("Here is the summary."), Message::assistant("[]"), Message::assistant("Noted.")]));
@@ -2124,6 +2158,109 @@ mod tests {
         assert_eq!(find(&rest, "done")["text"], "Wrote it.");
         assert_eq!(std::fs::read_to_string(h.app.workspace.join("kept.txt")).unwrap(), "still here");
         assert_eq!(h.json("GET", &format!("/sessions/{sid}"), Value::Null).await["busy"], false);
+    }
+
+    #[tokio::test]
+    async fn unfinished_runs_are_closed_on_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        // What a core that stopped left: a run going, one waiting on an approval, and one finished.
+        let store = Store::in_memory().unwrap();
+        let left = |run: &str, status: &str, ended: Option<i64>| crate::runs::RunRecord { run_id: run.into(), session_id: "s".into(), title: "t".into(), origin: "user".into(), status: status.into(), started: 1000, ended, tool_calls: 1, checkpoints: vec![], audit_ids: vec![7] };
+        let finished = left("r-done", "done", Some(1500));
+        for rec in [left("r-running", "running", None), left("r-waiting", "waiting", None), finished.clone()] {
+            store.kv_set(&format!("run:{}", rec.run_id), &serde_json::to_string(&rec).unwrap()).unwrap();
+        }
+        let saved = |run: &str| serde_json::from_str::<crate::runs::RunRecord>(&store.kv_get(&format!("run:{run}")).unwrap()).unwrap();
+        // Opening the store, as `heron mcp-serve` or a terminal command does, ends nothing.
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), store.clone(), scripted(vec![])).await.unwrap());
+        assert_eq!((saved("r-running").status.as_str(), saved("r-running").ended), ("running", None));
+        assert_eq!((saved("r-waiting").status.as_str(), saved("r-waiting").ended), ("waiting", None));
+        // The core that serves the app ends them as it starts, and leaves the finished one alone.
+        start_core(&app);
+        for run in ["r-running", "r-waiting"] {
+            let rec = saved(run);
+            assert_eq!(rec.status, "cancelled", "{rec:?}");
+            assert!(rec.ended.is_some_and(|e| e >= rec.started), "{rec:?}");
+            assert_eq!((rec.tool_calls, rec.audit_ids.as_slice()), (1, &[7][..]), "the rest of the record stays");
+        }
+        assert_eq!(saved("r-done"), finished);
+        // What the app lists agrees, so no badge counts a run that is gone.
+        let listed = app.events.runs().unwrap().summaries();
+        let statuses: std::collections::BTreeMap<&str, &str> = listed["runs"].as_array().unwrap().iter().map(|r| (r["run_id"].as_str().unwrap(), r["status"].as_str().unwrap())).collect();
+        assert_eq!(statuses, [("r-done", "done"), ("r-running", "cancelled"), ("r-waiting", "cancelled")].into_iter().collect());
+    }
+
+    #[tokio::test]
+    async fn serve_starts_the_core_and_then_keeps_serving() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let store = Store::in_memory().unwrap();
+        let left = crate::runs::RunRecord { run_id: "r-left".into(), session_id: "s".into(), title: "t".into(), origin: "user".into(), status: "running".into(), started: 1000, ended: None, tool_calls: 0, checkpoints: vec![], audit_ids: vec![] };
+        store.kv_set("run:r-left", &serde_json::to_string(&left).unwrap()).unwrap();
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), store.clone(), scripted(vec![])).await.unwrap());
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(serve(app, listener, "tok".into()));
+        // The server answers on the listener it was given...
+        let mut conn = tokio::time::timeout(Duration::from_secs(10), tokio::net::TcpStream::connect(addr)).await.expect("connect stalled").unwrap();
+        conn.write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").await.unwrap();
+        let mut reply = String::new();
+        tokio::time::timeout(Duration::from_secs(10), conn.read_to_string(&mut reply)).await.expect("the reply stalled").unwrap();
+        assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+        // ...it started the core first, so the run a stopped core left is now cancelled...
+        let saved: crate::runs::RunRecord = serde_json::from_str(&store.kv_get("run:r-left").unwrap()).unwrap();
+        assert_eq!(saved.status, "cancelled", "{saved:?}");
+        assert!(saved.ended.is_some());
+        // ...and it keeps serving: the task does not end on its own.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!server.is_finished());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn unfinished_runs_are_not_closed_by_a_second_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let store = Store::in_memory().unwrap();
+        let live = crate::runs::RunRecord { run_id: "r-live".into(), session_id: "s".into(), title: "t".into(), origin: "user".into(), status: "running".into(), started: 1000, ended: None, tool_calls: 0, checkpoints: vec![], audit_ids: vec![] };
+        store.kv_set("run:r-live", &serde_json::to_string(&live).unwrap()).unwrap();
+        let saved = || serde_json::from_str::<crate::runs::RunRecord>(&store.kv_get("run:r-live").unwrap()).unwrap();
+        // Two cores on one home: the first holds the background lock, the second does not.
+        let owner = Arc::new(App::assemble(cfg.clone(), dir.path().join("ws"), store.clone(), scripted(vec![])).await.unwrap());
+        let second = Arc::new(App::assemble(cfg, dir.path().join("ws2"), store.clone(), scripted(vec![])).await.unwrap());
+        assert!(owner.own_background_work());
+        // The second core's start leaves the other's live run alone.
+        assert!(!start_core(&second));
+        assert_eq!((saved().status.as_str(), saved().ended), ("running", None));
+        assert_eq!(second.events.runs().unwrap().summaries()["runs"][0]["status"], "running");
+        // The owner's start is what ends it.
+        assert!(start_core(&owner));
+        assert_eq!(saved().status, "cancelled");
+        assert!(saved().ended.is_some());
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_new_chat_keeps_its_title() {
+        let h = harness(scripted(vec![write("never.txt", "x"), Message::assistant("Wrote it.")]), true, |_| {}).await;
+        let typed = "write never.txt for me";
+        let mut chat = h.chat(json!({"message": typed})).await;
+        let session = chat.next().await.unwrap();
+        let (sid, run) = (session["id"].as_str().unwrap().to_string(), session["run_id"].as_str().unwrap().to_string());
+        chat.until("approval").await;
+        let listed = |runs: Value| runs["runs"].as_array().unwrap().iter().find(|r| r["run_id"] == run.as_str()).cloned().unwrap();
+        // The new chat is titled once its run has started, and its record takes that title while it runs...
+        let waiting = listed(h.json("GET", "/runs", Value::Null).await);
+        assert_eq!((waiting["status"].as_str(), waiting["title"].as_str()), (Some("waiting"), Some(typed)), "{waiting}");
+        // ...and keeps it when the run is cancelled, which carries no title of its own.
+        assert_eq!(h.json("POST", "/cancel", json!({"session_id": sid})).await["cancelled"], true);
+        chat.all().await;
+        let cancelled = listed(h.json("GET", "/runs", Value::Null).await);
+        assert_eq!((cancelled["status"].as_str(), cancelled["title"].as_str()), (Some("cancelled"), Some(typed)), "{cancelled}");
     }
 
     #[tokio::test]

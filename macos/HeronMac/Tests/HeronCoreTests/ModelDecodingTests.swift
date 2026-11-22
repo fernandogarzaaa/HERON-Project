@@ -33,6 +33,7 @@ final class ModelDecodingTests: XCTestCase {
             "grants.json": { _ = try CoreWire.grants($0) },
             "nevers.json": { _ = try CoreWire.nevers($0) },
             "persona.json": { _ = try CoreWire.persona($0) },
+            "runs.json": { _ = try RunsWire.runs($0) },
             "providers.json": { _ = try CoreWire.providers($0, settings: nil) },
             "risk-notice.json": { _ = try CoreWire.riskNotice($0) },
             "settings.json": { _ = try CoreWire.settings($0) },

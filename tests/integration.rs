@@ -1391,6 +1391,112 @@ async fn api_events_notify_flag_routes_notices() {
     }
 }
 
+/// The record `run:<run_id>` as the core saved it, with the two lists `GET /api/runs` leaves out.
+fn saved_record(app: &App, run_id: &str) -> Value {
+    serde_json::from_str(&app.store.kv_get(&format!("run:{run_id}")).unwrap_or_else(|| panic!("no record for {run_id}"))).unwrap()
+}
+
+/// `GET /api/runs` lists a finished run with its status, origin and tool count, newest first, and
+/// leaves out the two lists the saved record keeps.
+#[tokio::test]
+async fn api_runs_lists_a_finished_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = vec![write_call("plan.md", "# Plan"), Message::assistant("Saved it."), Message::assistant("Hello.")];
+    let app = scripted_app(dir.path(), script, |_| {}).await;
+    heron::risk_notice::accept_current(&app.store).unwrap();
+    let api = serve(app.clone()).await;
+    assert_eq!(api.get_json("/runs").await, json!({"runs": []}), "no run yet");
+
+    // A run that writes a file, approved once.
+    let mut chat = api.chat(json!({"message": "save a plan"})).await;
+    let mut first = vec![];
+    while let Some(event) = chat.next().await {
+        if event["type"] == "approval" {
+            api.approve(&event["id"], "once").await;
+        }
+        first.push(event);
+    }
+    assert_eq!(types(&first).last().copied(), Some("run_end"), "{:?}", types(&first));
+    let (sid, run_id) = (first[0]["id"].as_str().unwrap().to_string(), first[0]["run_id"].as_str().unwrap().to_string());
+    let tool_end = find(&first, "tool_end");
+    let (audit_id, checkpoint) = (tool_end["audit_id"].as_i64().expect("tool_end names its audit row"), tool_end["checkpoint"].clone());
+    assert_eq!(checkpoint["path"].as_str().map(|p| p.ends_with("plan.md")), Some(true), "{tool_end}");
+
+    // The record was final before `run_end` went out, so the list is right the moment the stream ends.
+    let listed = api.get_json("/runs").await;
+    let runs = listed["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 1, "{listed}");
+    let run = &runs[0];
+    assert_eq!((run["run_id"].as_str(), run["session_id"].as_str()), (Some(run_id.as_str()), Some(sid.as_str())));
+    assert_eq!((run["status"].as_str(), run["origin"].as_str(), run["title"].as_str(), run["tool_calls"].as_u64()), (Some("done"), Some("user"), Some("save a plan"), Some(1)), "{run}");
+    let (started, ended) = (run["started"].as_i64().unwrap(), run["ended"].as_i64().expect("a finished run has an end"));
+    assert!(started > 0 && started <= ended, "{run}");
+    let keys: BTreeSet<&str> = run.as_object().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(keys, ["ended", "origin", "run_id", "session_id", "started", "status", "title", "tool_calls"].into_iter().collect(), "the list carries neither checkpoints nor audit_ids: {run}");
+
+    // The saved record keeps what the list leaves out: this run's own audit row and checkpoint.
+    let record = saved_record(&app, &run_id);
+    assert_eq!(record["audit_ids"], json!([audit_id]), "{record}");
+    assert_eq!(record["checkpoints"], json!([checkpoint]), "{record}");
+    assert_eq!(record["status"], "done");
+
+    // A second run, with no tools: it lists first, and the first run is unchanged.
+    let second = api.chat(json!({"message": "hello"})).await.all().await;
+    let second_run = second[0]["run_id"].as_str().unwrap().to_string();
+    let listed = api.get_json("/runs").await;
+    let ids: Vec<&str> = listed["runs"].as_array().unwrap().iter().map(|r| r["run_id"].as_str().unwrap()).collect();
+    assert_eq!(ids, [second_run.as_str(), run_id.as_str()], "newest first: {listed}");
+    assert_eq!((listed["runs"][0]["tool_calls"].as_u64(), listed["runs"][0]["status"].as_str()), (Some(0), Some("done")));
+    assert_eq!(listed["runs"][1], *run, "the finished run does not change");
+    // `Api::get` adds the real token, so the unauthenticated requests are built by hand.
+    assert_eq!(api.http.get(format!("{}/api/runs", api.base)).send().await.unwrap().status(), 401, "the list needs the token");
+    assert_eq!(api.http.get(format!("{}/api/runs", api.base)).header("x-heron-token", "wrong").send().await.unwrap().status(), 401);
+}
+
+/// A run's record is kept by the core, not by whoever reads its stream: the window closes while the
+/// run waits for an approval, and the record still goes from `waiting` to `done`.
+#[tokio::test]
+async fn api_run_record_survives_a_dropped_stream() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = scripted_app(dir.path(), vec![write_call("kept.txt", "still here"), Message::assistant("Wrote it.")], |_| {}).await;
+    heron::risk_notice::accept_current(&app.store).unwrap();
+    let ws = app.workspace.clone();
+    let api = serve(app.clone()).await;
+
+    let mut chat = api.chat(json!({"message": "write kept.txt"})).await;
+    let session = chat.next().await.unwrap();
+    let (sid, run_id) = (session["id"].as_str().unwrap().to_string(), session["run_id"].as_str().unwrap().to_string());
+    let approval = chat.until("approval").await.pop().unwrap();
+    // The window closes, and a second reader that came and went with it.
+    let reader = api.events(None).await;
+    drop(reader);
+    drop(chat);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let listed = api.get_json("/runs").await;
+    assert_eq!(listed["runs"].as_array().unwrap().len(), 1, "{listed}");
+    let waiting = &listed["runs"][0];
+    assert_eq!((waiting["run_id"].as_str(), waiting["status"].as_str(), waiting["tool_calls"].as_u64()), (Some(run_id.as_str()), Some("waiting"), Some(0)), "{waiting}");
+    assert!(waiting["ended"].is_null(), "{waiting}");
+    assert_eq!(saved_record(&app, &run_id)["status"], "waiting", "the waiting state is saved, not only cached");
+
+    // Nobody is reading when the answer comes in; the run carries on and finishes.
+    api.approve(&approval["id"], "once").await;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while api.get_json(&format!("/sessions/{sid}")).await["busy"] == true {
+        assert!(Instant::now() < deadline, "the run did not finish");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(std::fs::read_to_string(ws.join("kept.txt")).unwrap(), "still here");
+
+    let listed = api.get_json("/runs").await;
+    let run = &listed["runs"][0];
+    assert_eq!((run["run_id"].as_str(), run["status"].as_str(), run["tool_calls"].as_u64()), (Some(run_id.as_str()), Some("done"), Some(1)), "{listed}");
+    assert!(run["ended"].is_i64(), "{run}");
+    let record = saved_record(&app, &run_id);
+    assert_eq!((record["status"].as_str(), record["audit_ids"].as_array().map(Vec::len), record["checkpoints"].as_array().map(Vec::len)), (Some("done"), Some(1), Some(1)), "{record}");
+}
+
 // ---------- the recorded API fixtures (U4 decodes these) ----------
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/api");
@@ -1660,9 +1766,10 @@ async fn api_fixtures_match_the_live_core() {
         ("audit.json", api.get_json("/audit").await),
         ("nevers.json", api.get_json("/nevers").await),
         ("features.json", api.get_json("/features").await),
+        ("runs.json", api.get_json("/runs").await),
     ];
     // A recording with an empty list would teach U4's decoder nothing about its items.
-    for (name, list) in [("sessions.json", &responses[1].1), ("approvals.json", &responses[3].1), ("providers.json", &responses[4].1), ("grants.json", &responses[5].1), ("audit.json", &responses[10].1["entries"]), ("nevers.json", &responses[11].1)] {
+    for (name, list) in [("sessions.json", &responses[1].1), ("approvals.json", &responses[3].1), ("providers.json", &responses[4].1), ("grants.json", &responses[5].1), ("audit.json", &responses[10].1["entries"]), ("nevers.json", &responses[11].1), ("runs.json", &responses[13].1["runs"])] {
         assert!(!list.as_array().unwrap().is_empty(), "{name} has no items to record");
     }
     // M9: the activity log says which model acted.

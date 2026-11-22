@@ -5,12 +5,24 @@ import HeronCore
 /// The menu bar icon: a template image of the `ripple` avatar, drawn in code. While something waits for
 /// you it gets a small dot. It never animates.
 public enum MenuBarIcon {
-    public static func image(waiting: Bool) -> NSImage {
-        let size = NSSize(width: 18, height: 18)
+    /// - Parameter badge: the number of runs waiting for you (F3). Above zero it is drawn to the right of the icon.
+    public static func image(waiting: Bool, badge: Int = 0) -> NSImage {
+        let iconWidth: CGFloat = 18
+        let label: String? = badge > 0 ? "\(badge)" : nil
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.black,
+        ]
+        let labelWidth: CGFloat = label.map { ceil(($0 as NSString).size(withAttributes: attributes).width) + 2 } ?? 0
+        let size = NSSize(width: iconWidth + labelWidth, height: 18)
         let image = NSImage(size: size, flipped: false) { rect in
             NSColor.black.setStroke()
             NSColor.black.setFill()
-            let c = NSPoint(x: rect.midX, y: rect.midY)
+            if let label {
+                let textSize = (label as NSString).size(withAttributes: attributes)
+                (label as NSString).draw(at: NSPoint(x: iconWidth + 2, y: rect.midY - textSize.height / 2), withAttributes: attributes)
+            }
+            let c = NSPoint(x: iconWidth / 2, y: rect.midY)
             for (r, w) in [(7.6, 1.1), (5.0, 1.3)] as [(CGFloat, CGFloat)] {
                 let ring = NSBezierPath(ovalIn: NSRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
                 ring.lineWidth = w
@@ -18,7 +30,7 @@ public enum MenuBarIcon {
             }
             NSBezierPath(ovalIn: NSRect(x: c.x - 2.3, y: c.y - 2.3, width: 4.6, height: 4.6)).fill()
             if waiting {
-                let dot = NSRect(x: rect.maxX - 6, y: rect.maxY - 6, width: 6, height: 6)
+                let dot = NSRect(x: iconWidth - 6, y: rect.maxY - 6, width: 6, height: 6)
                 // Knock out a ring around the dot so it reads against the rings behind it.
                 NSGraphicsContext.current?.compositingOperation = .clear
                 NSBezierPath(ovalIn: dot.insetBy(dx: -1.4, dy: -1.4)).fill()
@@ -28,7 +40,9 @@ public enum MenuBarIcon {
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = waiting ? "Heron, waiting for you" : "Heron"
+        let runWord = badge == 1 ? "run" : "runs"
+        image.accessibilityDescription = badge > 0 ? "Heron, \(badge) \(runWord) waiting for you"
+            : waiting ? "Heron, waiting for you" : "Heron"
         return image
     }
 }

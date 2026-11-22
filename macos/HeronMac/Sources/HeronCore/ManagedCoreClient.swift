@@ -9,7 +9,7 @@ import Foundation
 /// * once the core has stopped for good, calls fail with a clear message instead of waiting;
 /// * `events(since:)` reconnects through whichever endpoint is current, so a restart shows up as the
 ///   `resync` the new core's bus sends for the old position.
-public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
+public final class ManagedCoreClient: CoreClientProtocol, NotifyingEventsClient, @unchecked Sendable {
     private let process: CoreProcess
     private let makeClient: @Sendable (CoreEndpoint) -> CoreClient
     private let retryDelay: Duration
@@ -87,9 +87,12 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
 
     // MARK: Events
 
-    public func events(since: Int?) -> AsyncStream<CoreEvent> {
+    public func events(since: Int?) -> AsyncStream<CoreEvent> { events(since: since, notify: false) }
+
+    /// With `notify`, every connection (and each reconnect) carries `?notify=1`.
+    public func events(since: Int?, notify: Bool) -> AsyncStream<CoreEvent> {
         EventStream(retryDelay: retryDelay, connect: { [self] since in
-            try await current().openEventConnection(since: since)
+            try await current().openEventConnection(since: since, notify: notify)
         }).events(since: since)
     }
 

@@ -22,6 +22,7 @@ pub mod permissions;
 pub mod persona;
 pub mod proactivity_events;
 pub mod risk_notice;
+pub mod runs;
 pub mod sandbox;
 pub mod schedule;
 pub mod server;

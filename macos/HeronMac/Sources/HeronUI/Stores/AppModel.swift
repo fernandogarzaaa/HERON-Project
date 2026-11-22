@@ -1,9 +1,19 @@
 import Foundation
+import AppKit
 import Observation
 import HeronCore
 
 public enum Destination: String, CaseIterable, Sendable, Identifiable, Hashable {
     case today, chat, inbox, memory, tasks, schedules, activity
+    /// F3's screen. It is not in `allCases`: the sidebar and the Go menu add it only while "Runs and notifications" is on.
+    case runs
+    public static var allCases: [Destination] { [.today, .chat, .inbox, .memory, .tasks, .schedules, .activity] }
+    /// What the sidebar and the Go menu list: the seven screens, and Runs while "Runs and notifications" is on.
+    public static func visible(runsEnabled: Bool) -> [Destination] {
+        var list = allCases
+        if runsEnabled { list.append(.runs) }
+        return list
+    }
     public var id: String { rawValue }
     public var title: String { rawValue.capitalized }
     public var symbol: String {
@@ -15,10 +25,11 @@ public enum Destination: String, CaseIterable, Sendable, Identifiable, Hashable 
         case .tasks: "checklist"
         case .schedules: "clock"
         case .activity: "list.bullet.rectangle"
+        case .runs: "play.circle"
         }
     }
-    /// ⌘1 to ⌘7.
-    public var shortcutDigit: Int { (Self.allCases.firstIndex(of: self) ?? 0) + 1 }
+    /// ⌘1 to ⌘7, and ⌘8 for Runs.
+    public var shortcutDigit: Int { self == .runs ? 8 : (Self.allCases.firstIndex(of: self) ?? 0) + 1 }
 }
 
 /// What `CoreProcess` (U4b) reports. U4a only renders it.
@@ -50,6 +61,8 @@ public final class AppModel {
     public let persona: PersonaStore
     public let firstRun: FirstRunStore
     public let features: FeaturesSettingsStore
+    public let runs: RunsStore
+    public let runNotifier: RunNotifier
 
     public var selection: Destination = .today
     public var settingsTab: SettingsTab = .general
@@ -66,14 +79,34 @@ public final class AppModel {
     @ObservationIgnored public var restartCore: (() -> Void)?
 
     @ObservationIgnored private var eventTask: Task<Void, Never>?
+    /// How the stream is opened: `(since, notify)`. `notify` is true while "Runs and notifications" is on.
+    @ObservationIgnored private let openEvents: (Int?, Bool) -> AsyncStream<CoreEvent>
+    /// The `seq` of the newest event routed, so a restarted stream resumes after it.
+    @ObservationIgnored private var lastEventSeq: Int?
+    @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
+    @ObservationIgnored private var activeObserver: NSObjectProtocol?
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private let poster: any NotificationPoster
+    /// Whether macOS has refused notifications. Cached so the stream can be opened synchronously; refreshed by
+    /// `refreshNotificationAuthorization()`.
+    @ObservationIgnored private var notificationsDenied = false
+
+    /// The core hands its notices to the app (`?notify=1`) only while the app can post them: the switch is on and
+    /// macOS has not refused. Otherwise the core keeps posting its own, and a schedule's result is not lost.
+    private var wantsCoreNotices: Bool { runs.enabled && !notificationsDenied }
 
     public init(client: any CoreClientProtocol, preferences: DisplayPreferences? = nil,
                 userFirstName: String? = nil, now: @escaping () -> Date = Date.init,
-                features featuresClient: (any FeaturesClientProtocol)? = nil) {
+                features featuresClient: (any FeaturesClientProtocol)? = nil,
+                runs runsClient: (any RunsClientProtocol)? = nil,
+                defaults: UserDefaults = .standard,
+                poster: any NotificationPoster = SystemNotificationPoster(),
+                windowIsFrontmost: @escaping @MainActor () -> Bool = { RunNotifier.mainWindowIsFrontmost() },
+                openEvents: ((Int?, Bool) -> AsyncStream<CoreEvent>)? = nil) {
         self.client = client
         self.preferences = preferences ?? DisplayPreferences()
         self.now = now
+        self.poster = poster
         avatar = AvatarModel()
         chat = ChatStore(client: client)
         approvals = ApprovalsStore(client: client)
@@ -95,8 +128,33 @@ public final class AppModel {
         } else {
             featuresBackend = FeaturesClient(endpoint: { [client] in client.endpoint })
         }
-        features = FeaturesSettingsStore(client: featuresBackend)
+        let runsBackend: any RunsClientProtocol
+        if let runsClient {
+            runsBackend = runsClient
+        } else if client is PreviewCoreClient {
+            runsBackend = PreviewRunsClient()
+        } else {
+            runsBackend = RunsClient(endpoint: { [client] in client.endpoint })
+        }
+        // The runs store registers the switch's default (on) first, so the Features list reads it as on.
+        let runsStore = RunsStore(client: runsBackend, defaults: defaults)
+        runs = runsStore
+        features = FeaturesSettingsStore(client: featuresBackend, defaults: defaults, poster: poster)
+        runNotifier = RunNotifier(poster: poster, runs: runsBackend, isEnabled: { runsStore.enabled }, windowIsFrontmost: windowIsFrontmost)
+        self.openEvents = openEvents ?? { [client] since, notify in
+            if notify, let source = client as? any NotifyingEventsClient { return source.events(since: since, notify: true) }
+            return client.events(since: since)
+        }
         chat.onOtherApproval = { [weak self] event in self?.addToFeed(event) }
+        // macOS refusing the first request, or the owner changing it in System Settings, changes what the core is asked.
+        runNotifier.onAuthorizationRefused = { [weak self] in Task { await self?.refreshNotificationAuthorization() } }
+        activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in await self?.refreshNotificationAuthorization() }
+        }
+        // The switch lives in `UserDefaults`, written by the Features list; follow it.
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.applyRunsSetting() }
+        }
     }
 
     // MARK: Derived
@@ -140,6 +198,7 @@ public final class AppModel {
         await loadedPersona
         hasBootstrapped = true
         if needsFirstRun { await firstRun.load() } else { await loadAll() }
+        await refreshNotificationAuthorization()
         startEvents()
     }
 
@@ -160,16 +219,19 @@ public final class AppModel {
         async let d: Void = memory.load()
         async let e: Void = tasks.load()
         async let f: Void = schedules.load()
-        _ = await (a, b, c, d, e, f)
+        async let g: Void = loadRunsIfEnabled()
+        _ = await (a, b, c, d, e, f, g)
     }
 
     public func refreshState() async {
         if let s = try? await client.state() { state = s }
     }
 
-    public func startEvents() {
+    /// - Parameter resumingAfter: the `seq` to resume from when reopening a stream; nil on a first start.
+    public func startEvents(resumingAfter seq: Int? = nil) {
         guard eventTask == nil else { return }
-        let stream = client.events(since: nil)
+        // With "Runs and notifications" on and macOS not refusing, the stream asks the core to hand over its notices (`?notify=1`).
+        let stream = openEvents(seq, wantsCoreNotices)
         eventTask = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
@@ -182,6 +244,10 @@ public final class AppModel {
 
     /// Sends one event to the avatar and the stores. Public so tests and U4b's replay can drive it directly.
     public func route(_ event: CoreEvent) {
+        if event.seq > 0 { lastEventSeq = max(lastEventSeq ?? 0, event.seq) }
+        runs.handle(event)
+        let notifier = runNotifier
+        Task { await notifier.handle(event) }
         avatar.handle(event)
         switch event.kind {
         case .approval:
@@ -238,6 +304,75 @@ public final class AppModel {
         case .tasks: await tasks.load()
         case .schedules: await schedules.load()
         case .activity: await activity.load()
+        case .runs: await runs.load()
+        }
+    }
+
+    // MARK: Runs and notifications (F3)
+
+    private func loadRunsIfEnabled() async {
+        if runs.enabled { await runs.load() }
+    }
+
+    /// Reads whether macOS has refused notifications. When that changes what the core should be asked, the event
+    /// stream is reopened (with `?notify=1` only while the app can post the core's notices).
+    public func refreshNotificationAuthorization() async {
+        let denied = await poster.isDenied()
+        guard denied != notificationsDenied else { return }
+        let before = wantsCoreNotices
+        notificationsDenied = denied
+        if wantsCoreNotices != before { reopenEvents() }
+    }
+
+    private func reopenEvents() {
+        guard eventTask != nil else { return }
+        stopEvents()
+        startEvents(resumingAfter: lastEventSeq)
+    }
+
+    /// Follows the "Runs and notifications" switch. When it changes, the event stream is reopened, with `?notify=1`
+    /// while it is on and without it while it is off, so the core knows whether to keep posting its own notices.
+    public func applyRunsSetting() {
+        guard runs.refreshEnabled() else { return }
+        reopenEvents()
+        if runs.enabled {
+            // Turning the switch on may have just asked macOS for permission.
+            Task { await refreshNotificationAuthorization(); await runs.load() }
+        } else if selection == .runs {
+            selection = .today
+        }
+    }
+
+    /// A row of the Runs screen: the approval when the run is waiting on one, otherwise the conversation.
+    public func open(run: RunRecord) {
+        if run.isWaiting, let request = approvals.live.first(where: { $0.sessionID == run.sessionID }) {
+            review(live: request)
+            return
+        }
+        Task { await openConversation(run.sessionID) }
+    }
+
+    /// A click on a notice the app posted. The identifier says what it was about.
+    public func openFromNotification(identifier: String) async {
+        switch RunNoticeTarget.parse(identifier) {
+        case .approval(let id):
+            if let request = approvals.live.first(where: { $0.id == id }) {
+                review(live: request)
+            } else if chat.liveApproval?.id == id {
+                selection = .chat
+            } else {
+                // Answered already, or parked: the list shows where the run stands.
+                go(.runs)
+            }
+        case .run(let id):
+            if !runs.runs.contains(where: { $0.runID == id }) { await runs.load() }
+            if let record = runs.runs.first(where: { $0.runID == id }) {
+                await openConversation(record.sessionID)
+            } else {
+                go(.runs)
+            }
+        case .none:
+            break
         }
     }
 
