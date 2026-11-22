@@ -142,6 +142,51 @@ class Config(TempCase):
         text = rct.config_toml('/w/ru"n\\x', "demo")
         self.assertEqual(tomllib.loads(text)["agent"]["workspace"], '/w/ru"n\\x')
 
+    def test_runs_never_post_desktop_notices(self):
+        # A configured notify_command replaces the core's own osascript notice, so a run's reminders and
+        # job results never reach the owner's screen.
+        try:
+            import tomllib
+        except ImportError:  # Python older than 3.11
+            self.skipTest("tomllib is not available")
+        for provider in ("demo", "claude-cli"):
+            agent = tomllib.loads(rct.config_toml("/w/run", provider, ["shortcuts"]))["agent"]
+            self.assertEqual(agent["notify_command"], "true", provider)
+
+
+@unittest.skipUnless(os.name == "posix", "ps and signals are POSIX")
+class Browsers(TempCase):
+    def spawn(self, *argv):
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", *argv])
+        self.addCleanup(lambda: (proc.poll() is None and proc.kill(), proc.wait()))
+        return proc
+
+    def wait_listed(self, flag):
+        deadline = rct.time.monotonic() + 5
+        while rct.time.monotonic() < deadline:
+            if flag in subprocess.run(["ps", "-axww", "-o", "command="], capture_output=True, text=True).stdout:
+                return
+            rct.time.sleep(0.05)
+        self.fail("the stand-in browser never appeared in ps")
+
+    def test_stop_browsers_stops_only_the_runs_own_profile(self):
+        profile = os.path.join(self.tmp, "home", "browser")
+        mine = self.spawn("--remote-debugging-port=0", "--user-data-dir=" + profile, "--headless=new")
+        other = self.spawn("--user-data-dir=" + profile + "2")
+        prefix_only = self.spawn("--user-data-dir=" + profile + "/sub")
+        self.wait_listed("--user-data-dir=" + profile + " ")
+        stopped = rct.stop_browsers(profile)
+        self.assertEqual(stopped, [mine.pid])
+        mine.wait(5)
+        self.assertIsNotNone(mine.poll(), "the run's browser was stopped")
+        self.assertIsNone(other.poll(), "another run's profile is left alone")
+        self.assertIsNone(prefix_only.poll(), "a longer path that starts with the profile is left alone")
+
+    def test_stop_browsers_with_nothing_running_does_nothing(self):
+        self.assertEqual(rct.stop_browsers(os.path.join(self.tmp, "no", "browser")), [])
+
+
+class CoreEnv(TempCase):
     def test_core_env_sets_home_and_local_fetch_and_drops_stray_heron_vars(self):
         with mock.patch.dict(os.environ, {"HERON_CLI_TOPOLOGY": "hybrid", "HERON_HOME": "/elsewhere", "HERON_X": "1"}):
             env = rct.core_env("/run/home", "envelope")
