@@ -228,14 +228,21 @@ pub fn event_json(e: Event) -> Value {
     match e {
         Event::Text(t) => json!({"type": "text", "text": t}),
         Event::ToolStart { id, name, summary, risk } => json!({"type": "tool_start", "id": id, "name": name, "summary": summary, "risk": risk.label()}),
-        Event::ToolEnd { id, name, ok, preview, audit_id, checkpoint } => {
+        Event::ToolEnd { id, name, ok, preview, audit_id, checkpoint, delegated } => {
             let mut v = json!({"type": "tool_end", "id": id, "name": name, "ok": ok, "preview": preview});
-            // The run record (F3) takes these two from the event; clients ignore them.
+            // The run record (F3) takes these from the event; clients ignore them.
             if let Some(audit_id) = audit_id {
                 v["audit_id"] = json!(audit_id);
             }
             if let Some(checkpoint) = checkpoint {
                 v["checkpoint"] = json!(checkpoint);
+            }
+            // What a `delegate` call's sub-agent appended and saved.
+            if !delegated.audit_ids.is_empty() {
+                v["delegated_audit_ids"] = json!(delegated.audit_ids);
+            }
+            if !delegated.checkpoints.is_empty() {
+                v["delegated_checkpoints"] = json!(delegated.checkpoints);
             }
             v
         }
