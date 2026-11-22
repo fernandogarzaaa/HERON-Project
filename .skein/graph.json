@@ -3753,6 +3753,59 @@
       "path": null
     }
   },
+  "F3mut": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**",
+      "docs/designs/reviews/heron-v1-features/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F3g"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F3mut",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging. No database schema change. Tests only, plus the justification file.",
+      "context": "Spec: docs/designs/heron-v1-features.md, F3 ('Run records', 'What the record lists', 'After a restart') and Verification Plan. Inside your sandbox about 27 unrelated cargo tests fail; run your tests by name.",
+      "goal": "F3's gate (testteeth against the features base) left these surviving mutants, file headers then survivors, lines in F3's tree: src/agent.rs; L58 return-value 'self.send(ok, preview);' -> '()' [survived]; L70 boolean '||' -> '&&' [survived]; L70 boolean '!' -> '' [survived]; L70 boolean '!' -> '' [survived]; L71 boolean '&&' -> '||' [survived]; L901 comparison '==' -> '!=' [survived];src/app.rs;src/events.rs;src/main.rs;src/runs.rs; L94 arithmetic '+=' -> '*=' [survived]; L101 boolean '||' -> '&&' [survived];src/server.rs; L220 return-value 'start_core(&app); run_serve...' -> 'Ok(())' [survived];src/store.rs;src/tools/fs.rs;src/tools/mod.rs;Mutants: 78 killed: 69 survived: 9 not covered: 0 timeouts: 4 excluded: 17; Kill every one in src/agent.rs (DelegateEnd::end, DelegateEnd's Drop, Agent::execute_call) and src/runs.rs (close_unfinished, record) with behaviour tests: they decide which checkpoints and audit rows a run record lists, which F4 relies on to restore files. For src/server.rs serve L220 (start_core then run_serve replaced by Ok(())), kill it if a test can start serve cheaply, else justify it in docs/designs/reviews/heron-v1-features/runs-mutants.md with the concrete reason. Tests only, plus that file if you justify anything."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Kill or justify F3's surviving mutants",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F3s": {
     "attempts": [
       {
@@ -4094,7 +4147,7 @@
       "claim_token": "c8b697c1bc724f43a19caf0d057ea3ea",
       "claimed_at": "2026-11-22T11:48:35.842964+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:49:06.368178+00:00",
+      "last_heartbeat": "2026-11-22T11:49:36.445551+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4121,7 +4174,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F4: recorded-checkpoint undo, route",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
       "base_commit": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
@@ -5915,7 +5968,7 @@
       "claim_token": "a00824be1137413b80d88c586e5a4394",
       "claimed_at": "2026-11-22T11:49:12.888969+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T11:49:12.888969+00:00",
+      "last_heartbeat": "2026-11-22T11:49:43.407155+00:00",
       "node_version": 3,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -5940,9 +5993,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Gate: voice",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "b5c93af5d962861ebef24bbfb63ae3ea765d515e",
       "base_commit": "b5c93af5d962861ebef24bbfb63ae3ea765d515e",
