@@ -310,6 +310,22 @@ public final class CoreClient: CoreClientProtocol, Sendable {
     public func revokeGrant(rule: String) async throws { try await send("DELETE", "/grants", body: ["rule": rule]) }
     public func nevers() async throws -> [NeverRule] { try CoreWire.nevers(try await send("GET", "/nevers")) }
     public func removeNever(rule: String) async throws { try await send("DELETE", "/nevers", body: ["rule": rule]) }
+    public func connectSource(_ source: SourceConnection) async throws {
+        var body: [String: Any] = [:]
+        switch source {
+        case .documents(let path): body["path"] = path
+        case .calendar(let url): body["url"] = url
+        case .email(let host, let username, let password, let port, let tls):
+            body = ["host": host, "username": username, "password": password]
+            if let port { body["port"] = port }
+            if let tls { body["tls"] = tls }
+        case .computer: break
+        }
+        try await send("POST", "/sources/\(segment(source.sourceID))", body: body)
+    }
+
+    public func disconnectSource(id: String) async throws { try await send("DELETE", "/sources/\(segment(id))") }
+
     public func usage() async throws -> UsageReport { try CoreWire.usage(try await send("GET", "/usage")) }
 }
 

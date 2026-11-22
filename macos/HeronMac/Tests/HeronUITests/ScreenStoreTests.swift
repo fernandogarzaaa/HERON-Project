@@ -479,6 +479,151 @@ final class ScreenStoreTests: XCTestCase {
 
     // MARK: Settings
 
+    // MARK: Settings: connecting sources
+
+    private func connectionsStore() async throws -> (SettingsStore, PreviewCoreClient) {
+        let client = try await makeClient()
+        let store = SettingsStore(client: client)
+        await store.load()
+        return (store, client)
+    }
+
+    func testConnectingASourceReloadsTheRows() async throws {
+        let (store, client) = try await connectionsStore()
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "documents" }?.connected, false)
+        let ok = await store.connect(.documents(path: "/Users/sam/Notes"))
+        XCTAssertTrue(ok)
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "documents" }?.connected, true)
+        XCTAssertNil(store.sourceErrors["documents"])
+        XCTAssertFalse(store.isBusy(source: "documents"), "the spinner is gone")
+        XCTAssertEqual(client.sourceRequests, [.documents(path: "/Users/sam/Notes")])
+    }
+
+    func testAFailedConnectShowsTheCoresSentenceOnThatRowAndChangesNothing() async throws {
+        let (store, client) = try await connectionsStore()
+        client.failNextSourceChange(with: .failed("Couldn't sign in to imap.gmail.com. Check the app password."))
+        let ok = await store.connect(.email(host: "imap.gmail.com", username: "sam@example.com", password: "wrong", port: nil, tls: nil))
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.sourceErrors["email"], "Couldn't sign in to imap.gmail.com. Check the app password.")
+        XCTAssertNil(store.sourceErrors["calendar"], "other rows are untouched")
+        XCTAssertFalse(store.isBusy(source: "email"))
+        store.clearSourceError("email")
+        XCTAssertNil(store.sourceErrors["email"])
+    }
+
+    func testTheNextConnectClearsTheLastError() async throws {
+        let (store, client) = try await connectionsStore()
+        client.failNextSourceChange(with: .failed("Paste your calendar's private ICS link."))
+        _ = await store.connect(.calendar(url: "x"))
+        XCTAssertNotNil(store.sourceErrors["calendar"])
+        let ok = await store.connect(.calendar(url: "https://example.com/p.ics"))
+        XCTAssertTrue(ok)
+        XCTAssertNil(store.sourceErrors["calendar"])
+    }
+
+    func testThisMacScanConnectsItsRow() async throws {
+        let (store, _) = try await connectionsStore()
+        let ok = await store.connect(.computer)
+        XCTAssertTrue(ok)
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "computer" }?.connected, true)
+    }
+
+    func testDisconnectAsksFirstAndChangesNothingUntilConfirmed() async throws {
+        let (store, client) = try await connectionsStore()
+        store.askToDisconnect("email")
+        XCTAssertEqual(store.pendingDisconnect?.id, "email")
+        var rows = try await client.settings().connections
+        XCTAssertEqual(rows.first { $0.id == "email" }?.connected, true, "asking disconnects nothing")
+        store.cancelDisconnect()
+        XCTAssertNil(store.pendingDisconnect)
+        store.askToDisconnect("email")
+        await store.confirmDisconnect()
+        XCTAssertNil(store.pendingDisconnect)
+        rows = try await client.settings().connections
+        XCTAssertEqual(rows.first { $0.id == "email" }?.connected, false)
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "email" }?.connected, false, "the page reloaded")
+    }
+
+    func testAFailedDisconnectKeepsTheRowConnectedAndSaysWhy() async throws {
+        let (store, client) = try await connectionsStore()
+        client.failNextSourceChange(with: .failed("An OAuth account is still connected."))
+        store.askToDisconnect("calendar")
+        await store.confirmDisconnect()
+        XCTAssertEqual(store.sourceErrors["calendar"], "An OAuth account is still connected.")
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "calendar" }?.connected, true)
+    }
+
+    func testDisconnectCopySaysWhatHeronForgets() {
+        let row = ConnectionInfo(id: "email", name: "Email", connected: true, detail: "sam@example.com")
+        XCTAssertTrue(SourceCopy.forgetSentence(row).contains("app password"))
+        XCTAssertTrue(SourceCopy.forgetSentence(row).contains("forget"))
+        XCTAssertTrue(SourceCopy.forgetSentence(ConnectionInfo(id: "documents", name: "Documents", connected: true, detail: "")).contains("forget"))
+        XCTAssertTrue(SourceCopy.scanSentence.contains("opens no files"))
+        XCTAssertEqual(SourceCopy.connectTitle("computer"), "Scan")
+        XCTAssertEqual(SourceCopy.connectTitle("email"), "Connect…")
+    }
+
+    // MARK: Run setup again
+
+    func testRunSetupAgainShowsSetupWithoutUnsettingOnboardedAndKeepsAcceptedRisks() async throws {
+        let client = try await makeClient()   // risk notice already accepted, onboarded by the preview sample
+        try await client.setOnboarded()
+        let model = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!),
+                             userFirstName: "Sam", now: { self.now })
+        await model.bootstrap()
+        model.stopEvents()
+        XCTAssertFalse(model.needsFirstRun)
+        XCTAssertFalse(model.showsSetup)
+        await model.runSetupAgain()
+        XCTAssertTrue(model.showsSetup)
+        XCTAssertEqual(model.firstRun.step, .risks)
+        XCTAssertTrue(model.firstRun.accepted, "the risks show as already accepted")
+        XCTAssertTrue(model.firstRun.canAccept)
+        let stillOnboarded = try await client.state().onboarded
+        XCTAssertTrue(stillOnboarded, "the core's onboarded flag is left alone")
+        await model.firstRun.accept()
+        XCTAssertEqual(model.firstRun.step, .model)
+        await model.firstRun.continueFromModel()
+        XCTAssertEqual(model.firstRun.step, .sources)
+        model.firstRun.continueFromSources()
+        await model.finishFirstRun()
+        XCTAssertFalse(model.showsSetup)
+        XCTAssertFalse(model.isRerunningSetup)
+        XCTAssertEqual(model.selection, .today)
+    }
+
+    func testClosingSetupAgainLeavesEverythingAsItWas() async throws {
+        let client = try await makeClient()
+        try await client.setOnboarded()
+        let model = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!),
+                             userFirstName: "Sam", now: { self.now })
+        await model.bootstrap()
+        model.stopEvents()
+        await model.runSetupAgain()
+        model.firstRun.step = .sources
+        model.cancelSetupAgain()
+        XCTAssertFalse(model.showsSetup)
+        XCTAssertEqual(model.firstRun.step, .risks)
+        XCTAssertFalse(model.needsFirstRun)
+    }
+
+    // MARK: Sidebar footer model name
+
+    func testSidebarFooterNamesTheProviderNotTheConfiguredModel() async throws {
+        let client = try await makeClient()
+        client.setModel("anthropic/claude-sonnet-5.5", label: "Claude Code")   // [llm] provider = "claude-cli", llm.model still set
+        let model = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!),
+                             userFirstName: "Sam", now: { self.now })
+        await model.refreshState()
+        XCTAssertEqual(model.state?.model, "anthropic/claude-sonnet-5.5")
+        XCTAssertEqual(model.footerModelName, "Claude Code", "llm.model is not what a CLI provider runs")
+        client.setModel("gpt-4o", label: nil, servesLabel: false)   // a core from before model_label
+        await model.refreshState()
+        XCTAssertEqual(model.footerModelName, "gpt-4o")
+        let bare = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!), now: { self.now })
+        XCTAssertEqual(bare.footerModelName, "No model", "before the first state")
+    }
+
     // MARK: Settings: the Never list (heron-v1.md item 35h)
 
     func testNeverListLoadsWithSettings() async throws {
@@ -679,6 +824,8 @@ final class ScreenStoreTests: XCTestCase {
         await store.accept()
         store.selectedProviderID = "claude-cli"
         await store.continueFromModel()
+        XCTAssertEqual(store.step, .sources, "the sources step sits between the model and the name")
+        store.continueFromSources()
         XCTAssertEqual(store.step, .personalize)
         let persona = PersonaStore(client: client)
         await persona.load()
@@ -690,11 +837,32 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertEqual(state.name, "Wren")
     }
 
-    func testUseAnAPIKeyInsteadSkipsToPersonalize() async throws {
+    func testUseAnAPIKeyInsteadSkipsTheModelListButStillOffersSources() async throws {
         let store = FirstRunStore(client: try await makeClient(accepted: false))
         await store.useAPIKeyInstead()
-        XCTAssertEqual(store.step, .personalize)
+        XCTAssertEqual(store.step, .sources)
         XCTAssertTrue(store.wantsAPIKey)
+    }
+
+    func testFirstRunStepsRunInOrderWithSourcesBetweenModelAndName() {
+        XCTAssertEqual(FirstRunStore.Step.allCases.map(\.title),
+                       ["Read the risks", "Connect a model", "Connect your sources", "Make it yours"])
+        XCTAssertEqual(FirstRunStore.Step.allCases.map(\.rawValue), [0, 1, 2, 3])
+    }
+
+    func testFirstRunCanFinishWithoutConnectingAnySource() async throws {
+        let client = try await makeClient(accepted: false)
+        let model = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!),
+                             userFirstName: "Sam", now: { self.now })
+        await model.bootstrap()
+        model.stopEvents()
+        model.firstRun.accepted = true
+        await model.firstRun.accept()
+        await model.firstRun.continueFromModel()
+        model.firstRun.continueFromSources()   // "Skip for now"
+        await model.finishFirstRun()
+        XCTAssertFalse(model.needsFirstRun)
+        XCTAssertTrue(client.sourceRequests.isEmpty, "skipping connects nothing")
     }
 
     // MARK: App model

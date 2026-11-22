@@ -144,6 +144,57 @@ final class CoreClientTests: XCTestCase {
         XCTAssertEqual(try body(seen)["rule"] as? String, "web_fetch:*example.com*")
     }
 
+    func testConnectingEachSourceSendsItsFieldsToItsRoute() async throws {
+        let client = makeClient { _ in .init(200, json: #"{"indexed":3}"#) }
+        try await client.connectSource(.documents(path: "/Users/sam/Notes"))
+        try await client.connectSource(.calendar(url: "https://example.com/private.ics"))
+        try await client.connectSource(.email(host: "imap.gmail.com", username: "sam@example.com", password: "app-pass", port: nil, tls: nil))
+        try await client.connectSource(.computer)
+        let seen = StubProtocol.seen
+        XCTAssertEqual(seen.map(\.method), ["POST", "POST", "POST", "POST"])
+        XCTAssertEqual(seen.map(\.path), ["/api/sources/documents", "/api/sources/calendar", "/api/sources/email", "/api/sources/computer"])
+        XCTAssertEqual(seen.map(\.token), Array(repeating: "secret-token", count: 4))
+        XCTAssertEqual(try body(seen[0])["path"] as? String, "/Users/sam/Notes")
+        XCTAssertEqual(try body(seen[1])["url"] as? String, "https://example.com/private.ics")
+        let email = try body(seen[2])
+        XCTAssertEqual(email["host"] as? String, "imap.gmail.com")
+        XCTAssertEqual(email["username"] as? String, "sam@example.com")
+        XCTAssertEqual(email["password"] as? String, "app-pass")
+        XCTAssertNil(email["port"], "the core's defaults (993, TLS) apply when the app says nothing")
+        XCTAssertNil(email["tls"])
+        XCTAssertEqual(seen[3].contentType, "application/json", "the scan sends an empty object, which axum's Json needs")
+        XCTAssertEqual(try body(seen[3]).count, 0)
+    }
+
+    func testEmailPortAndTLSAreSentWhenGiven() async throws {
+        let client = makeClient { _ in .init(200, json: #"{"indexed":0}"#) }
+        try await client.connectSource(.email(host: "mail.example.com", username: "a@example.com", password: "p", port: 143, tls: false))
+        let json = try body(try XCTUnwrap(StubProtocol.seen.first))
+        XCTAssertEqual(json["port"] as? Int, 143)
+        XCTAssertEqual(json["tls"] as? Bool, false)
+    }
+
+    func testDisconnectingASourceDeletesItsRoute() async throws {
+        let client = makeClient { _ in .init(200, json: #"{"removed_items":4,"removed_memories":1}"#) }
+        try await client.disconnectSource(id: "email")
+        let seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual(seen.method, "DELETE")
+        XCTAssertEqual(seen.path, "/api/sources/email")
+        XCTAssertEqual(seen.token, "secret-token")
+    }
+
+    func testASourceFailureCarriesTheCoresSentence() async throws {
+        let client = makeClient { _ in .init(400, json: #"{"error":"Heron could not find that folder. Check the path and try again."}"#) }
+        do { try await client.connectSource(.documents(path: "/nope")); XCTFail("expected the failure") } catch {
+            XCTAssertEqual(error as? CoreError, .failed("Heron could not find that folder. Check the path and try again."))
+        }
+    }
+
+    func testAnEmailSourceDescriptionNeverPrintsThePassword() {
+        let source = SourceConnection.email(host: "imap.gmail.com", username: "sam@example.com", password: "hunter2-app-pass", port: nil, tls: nil)
+        XCTAssertFalse("\(source)".contains("hunter2-app-pass"))
+    }
+
     func testRemovingARuleThatIsNotANeverIsNotFound() async throws {
         let client = makeClient { _ in .init(404, json: #"{"error":"That rule is not a never."}"#) }
         do { try await client.removeNever(rule: "nope:*"); XCTFail("expected 404") } catch {

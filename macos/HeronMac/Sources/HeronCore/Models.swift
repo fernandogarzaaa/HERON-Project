@@ -47,6 +47,9 @@ public struct CoreState: Sendable, Equatable {
     public var name: String
     public var version: String
     public var model: String
+    /// What the sidebar footer names: the CLI provider's short name ("Claude Code") when one is active, else the model.
+    /// Nil from a core that predates `model_label`; use `modelDisplayName`.
+    public var modelLabel: String?
     public var mode: PermissionMode
     public var workspace: String
     public var paused: Bool
@@ -62,10 +65,16 @@ public struct CoreState: Sendable, Equatable {
     /// On macOS the sandbox is on when the core reports anything but `none`.
     public var sandboxOn: Bool { sandbox != "none" }
 
-    public init(name: String, version: String, model: String, mode: PermissionMode, workspace: String,
+    /// `modelLabel` when the core serves a non-empty one, else the model name.
+    public var modelDisplayName: String {
+        if let label = modelLabel?.trimmingCharacters(in: .whitespaces), !label.isEmpty { return label }
+        return model
+    }
+
+    public init(name: String, version: String, model: String, modelLabel: String? = nil, mode: PermissionMode, workspace: String,
                 paused: Bool, waiting: Int, unread: Int, memories: Int, onboarded: Bool,
                 riskNoticeAccepted: Bool, sandbox: String, hasKey: Bool) {
-        self.name = name; self.version = version; self.model = model; self.mode = mode
+        self.name = name; self.version = version; self.model = model; self.modelLabel = modelLabel; self.mode = mode
         self.workspace = workspace; self.paused = paused; self.waiting = waiting; self.unread = unread
         self.memories = memories; self.onboarded = onboarded; self.riskNoticeAccepted = riskNoticeAccepted
         self.sandbox = sandbox; self.hasKey = hasKey
@@ -539,6 +548,35 @@ public struct RuleNotice: Sendable, Equatable, Identifiable {
     public init(rule: String, notice: String) {
         self.rule = rule
         self.notice = notice
+    }
+}
+
+/// One request to connect a place Heron learns from (`POST /api/sources/{name}`, heron-v1.md §3). The email
+/// password is carried by this value only for the one request: the core proves the sign-in and stores it itself.
+public enum SourceConnection: Sendable, Equatable, CustomStringConvertible {
+    case documents(path: String)
+    /// A calendar's private ICS link.
+    case calendar(url: String)
+    case email(host: String, username: String, password: String, port: Int?, tls: Bool?)
+    /// Scans this Mac (the apps and files Heron may read).
+    case computer
+
+    /// The `{name}` in the route, and the id of the matching `ConnectionInfo`.
+    public var sourceID: String {
+        switch self {
+        case .documents: "documents"
+        case .calendar: "calendar"
+        case .email: "email"
+        case .computer: "computer"
+        }
+    }
+
+    /// Never prints the password.
+    public var description: String {
+        switch self {
+        case .email(let host, let username, _, _, _): "email(\(username)@\(host), password hidden)"
+        default: sourceID
+        }
     }
 }
 

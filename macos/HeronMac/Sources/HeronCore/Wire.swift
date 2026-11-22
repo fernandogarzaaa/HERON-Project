@@ -34,12 +34,12 @@ public enum CoreWire {
 
     public static func state(_ data: Data) throws -> CoreState {
         struct DTO: Decodable {
-            var name: String; var version: String; var model: String; var mode: String; var workspace: String
+            var name: String; var version: String; var model: String; var modelLabel: String?; var mode: String; var workspace: String
             var paused: Bool; var waiting: Int; var unread: Int; var memories: Int; var onboarded: Bool
             var riskNoticeAccepted: Bool; var sandbox: String; var hasKey: Bool
         }
         let d = try decode(DTO.self, data)
-        return CoreState(name: d.name, version: d.version, model: d.model, mode: try mode(d.mode), workspace: d.workspace,
+        return CoreState(name: d.name, version: d.version, model: d.model, modelLabel: d.modelLabel, mode: try mode(d.mode), workspace: d.workspace,
                          paused: d.paused, waiting: d.waiting, unread: d.unread, memories: d.memories, onboarded: d.onboarded,
                          riskNoticeAccepted: d.riskNoticeAccepted, sandbox: d.sandbox, hasKey: d.hasKey)
     }

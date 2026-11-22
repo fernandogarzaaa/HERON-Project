@@ -93,6 +93,10 @@ struct PreviewData {
     var sandbox = "seatbelt"
     var workspace = "~/Work"
     var activeModel = "Claude Code"
+    /// What `/api/state` serves as `model_label`; the active model when unset.
+    var modelLabel: String?
+    /// False plays a core from before `model_label` existed.
+    var servesModelLabel = true
     var persona = Persona(name: "Heron", text: "Warm, brief and practical.", isDefault: true, maxCharacters: 2000)
     var riskNotice = RiskNotice(version: 3, text: PreviewData.riskText, acceptedVersion: nil)
     var events: [CalendarEvent] = []
@@ -108,6 +112,10 @@ struct PreviewData {
     var nevers: [NeverRule] = []
     /// When set, the next `removeNever` throws it (a test hook), so a screen can show a failed removal.
     var neverRemovalFailure: CoreError?
+    /// When set, the next `connectSource` or `disconnectSource` throws it (a test hook).
+    var sourceFailure: CoreError?
+    /// Every `connectSource` request, in order (a test hook).
+    var sourceRequests: [SourceConnection] = []
     var ruleNotices: [RuleNotice] = []
     var connections: [ConnectionInfo] = []
     var usage = UsageReport(days: [], monthTokens: 0)
@@ -213,6 +221,7 @@ struct PreviewData {
             ConnectionInfo(id: "email", name: "Email", connected: true, detail: "sam@northwind.example"),
             ConnectionInfo(id: "calendar", name: "Calendar", connected: true, detail: "3 events today"),
             ConnectionInfo(id: "documents", name: "Documents", connected: false, detail: "Not connected"),
+            ConnectionInfo(id: "computer", name: "This Mac", connected: false, detail: "Not connected"),
         ]
         d.usage = UsageReport(days: [
             UsageDay(day: "2026-11-18", model: "Claude Code", promptTokens: 18_400, completionTokens: 3_100),

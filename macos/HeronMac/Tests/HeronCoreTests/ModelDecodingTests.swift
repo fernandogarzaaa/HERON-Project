@@ -68,6 +68,29 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(s.workspace, "/tmp/heron-fixture/ws")
     }
 
+    func testStateWithoutAModelLabelFallsBackToTheModel() throws {
+        let s = try CoreWire.state(try Fixtures.data("state.json"))
+        XCTAssertNil(s.modelLabel, "an older core doesn't serve it")
+        XCTAssertEqual(s.modelDisplayName, "anthropic/claude-sonnet-5.5")
+    }
+
+    func testStateModelLabelIsUsedWhenServed() throws {
+        let json = String(decoding: try Fixtures.data("state.json"), as: UTF8.self)
+            .replacingOccurrences(of: "\"model\":", with: "\"model_label\": \"Claude Code\", \"model\":")
+        let s = try CoreWire.state(Data(json.utf8))
+        XCTAssertEqual(s.modelLabel, "Claude Code")
+        XCTAssertEqual(s.modelDisplayName, "Claude Code")
+        XCTAssertEqual(s.model, "anthropic/claude-sonnet-5.5", "the model name is still there")
+    }
+
+    func testAnEmptyModelLabelFallsBackToTheModel() {
+        var s = CoreState(name: "H", version: "1", model: "gpt-4o", modelLabel: "  ", mode: .ask, workspace: "/w", paused: false,
+                          waiting: 0, unread: 0, memories: 0, onboarded: true, riskNoticeAccepted: true, sandbox: "seatbelt", hasKey: true)
+        XCTAssertEqual(s.modelDisplayName, "gpt-4o")
+        s.modelLabel = "Codex"
+        XCTAssertEqual(s.modelDisplayName, "Codex")
+    }
+
     func testSandboxNoneIsOff() throws {
         let json = String(decoding: try Fixtures.data("state.json"), as: UTF8.self).replacingOccurrences(of: "\"seatbelt\"", with: "\"none\"")
         XCTAssertFalse(try CoreWire.state(Data(json.utf8)).sandboxOn)

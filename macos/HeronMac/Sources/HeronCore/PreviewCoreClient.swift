@@ -49,6 +49,11 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
 
     public func setSandbox(_ kind: String) { with { $0.sandbox = kind } }
 
+    /// Sets what `/api/state` serves as `model` and `model_label` (`servesLabel: false` omits the label, as an older core does).
+    public func setModel(_ model: String, label: String?, servesLabel: Bool = true) {
+        with { $0.activeModel = model; $0.modelLabel = label; $0.servesModelLabel = servesLabel }
+    }
+
     /// Adds the long demo conversation (`PreviewDemo.longSession`) so a screen can show a transcript that
     /// overflows. It is not part of the sample data, so no other test sees it.
     public func seedLongConversation(id: String = "s-long") {
@@ -61,6 +66,12 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
 
     /// Makes the next `removeNever` fail with `error`, as a core that can't write `config.toml` would.
     public func failNextNeverRemoval(with error: CoreError) { with { $0.neverRemovalFailure = error } }
+
+    /// Makes the next `connectSource` or `disconnectSource` fail with `error`, as a core that can't reach a mail server would.
+    public func failNextSourceChange(with error: CoreError) { with { $0.sourceFailure = error } }
+
+    /// Every request `connectSource` has accepted or refused, oldest first.
+    public var sourceRequests: [SourceConnection] { with { $0.sourceRequests } }
 
     /// Adds a short conversation whose reply holds very long tool output (`PreviewDemo.longToolOutput`).
     public func seedLongToolOutputConversation(id: String = "s-tool") {
@@ -78,7 +89,7 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
 
     public func state() async throws -> CoreState {
         with { d in
-            CoreState(name: d.persona.name, version: "1.0.0-preview", model: d.activeModel, mode: d.mode,
+            CoreState(name: d.persona.name, version: "1.0.0-preview", model: d.activeModel, modelLabel: d.servesModelLabel ? (d.modelLabel ?? d.activeModel) : nil, mode: d.mode,
                       workspace: d.workspace, paused: d.paused, waiting: d.parked.filter { $0.status == "pending" }.count,
                       unread: d.inbox.filter { !$0.read }.count, memories: d.memories.count, onboarded: d.onboarded,
                       riskNoticeAccepted: d.riskNotice.acceptedVersion == d.riskNotice.version,
@@ -347,6 +358,43 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
             if let failure = d.neverRemovalFailure { d.neverRemovalFailure = nil; throw failure }
             guard d.nevers.contains(where: { $0.rule == rule }) else { throw CoreError.notFound }
             d.nevers.removeAll { $0.rule == rule }
+        }
+    }
+
+    /// Checks the fields as the core does (same sentences), then marks the row connected.
+    public func connectSource(_ source: SourceConnection) async throws {
+        try with { d in
+            d.sourceRequests.append(source)
+            if let failure = d.sourceFailure { d.sourceFailure = nil; throw failure }
+            func filled(_ text: String) -> Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            let detail: String
+            switch source {
+            case .documents(let path):
+                guard filled(path) else { throw CoreError.failed("Enter the folder that holds your notes or documents.") }
+                detail = "1 folders, 12 files indexed"
+            case .calendar(let url):
+                guard filled(url) else { throw CoreError.failed("Paste your calendar's private ICS link.") }
+                detail = "8 items indexed"
+            case .email(let host, let username, let password, _, _):
+                guard filled(host) else { throw CoreError.failed("Enter your mail server, for example imap.gmail.com.") }
+                guard filled(username) else { throw CoreError.failed("Enter your email address.") }
+                guard filled(password) else { throw CoreError.failed("Enter the app password for this account.") }
+                detail = username
+            case .computer:
+                detail = "20 items indexed"
+            }
+            guard let i = d.connections.firstIndex(where: { $0.id == source.sourceID }) else { throw CoreError.notFound }
+            d.connections[i].connected = true
+            d.connections[i].detail = detail
+        }
+    }
+
+    public func disconnectSource(id: String) async throws {
+        try with { d in
+            if let failure = d.sourceFailure { d.sourceFailure = nil; throw failure }
+            guard let i = d.connections.firstIndex(where: { $0.id == id }) else { throw CoreError.notFound }
+            d.connections[i].connected = false
+            d.connections[i].detail = "Not connected"
         }
     }
 

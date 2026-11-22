@@ -70,6 +70,14 @@ private struct GeneralTab: View {
                 Toggle("Show Heron in the menu bar", isOn: Bindable(model.preferences).showMenuBarExtra)
                 Text("The menu bar item keeps Heron, and its schedules, running when you close the window.").font(HeronFont.callout).foregroundStyle(theme.ink2)
             }
+            group("Setup") {
+                Button("Run setup again…") {
+                    Task { await model.runSetupAgain() }
+                    NSApp.windows.first { $0.identifier?.rawValue.contains("main") == true }?.makeKeyAndOrderFront(nil)
+                }.buttonStyle(HButtonStyle(.secondary))
+                Text("Goes through the risk notice, your model, your sources and your name again. Nothing is reset: what Heron already knows stays.")
+                    .font(HeronFont.callout).foregroundStyle(theme.ink2)
+            }
             group("Phone connection") {
                 Label(model.settings.settings?.phoneConnected == true ? "Connected" : "Not connected",
                       systemImage: model.settings.settings?.phoneConnected == true ? "iphone" : "iphone.slash")
@@ -290,19 +298,9 @@ private struct ConnectionsTab: View {
     var body: some View {
         let store = model.settings
         VStack(alignment: .leading, spacing: Spacing.s4) {
-            RowGroup {
-                ForEach(Array((store.settings?.connections ?? []).enumerated()), id: \.element.id) { i, c in
-                    if i > 0 { RowDivider() }
-                    HStack {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(c.name).foregroundStyle(theme.ink)
-                            Text(c.detail).font(HeronFont.callout).foregroundStyle(theme.ink2)
-                        }
-                        Spacer()
-                        HTag(c.connected ? "Connected" : "Not connected", tone: c.connected ? .ok : .neutral)
-                    }.padding(.horizontal, Spacing.s4).padding(.vertical, 10)
-                }
-            }
+            Text("What Heron may read to learn about your work. Connect only what you want it to know about; you can disconnect any of them, and Heron then forgets what it learned from it.")
+                .font(HeronFont.callout).foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
+            SourceRows(store: store)
             VStack(alignment: .leading, spacing: Spacing.s1) {
                 Toggle("Awareness", isOn: Binding(get: { store.settings?.awareness ?? false }, set: { v in Task { await store.setAwareness(v) } }))
                 Text("Lets Heron notice what you're working on, so it can suggest things. Its suggestions appear in the Inbox.")

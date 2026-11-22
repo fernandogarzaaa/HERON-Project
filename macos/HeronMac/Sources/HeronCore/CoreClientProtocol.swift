@@ -71,6 +71,11 @@ public protocol CoreClientProtocol: Sendable {
     func nevers() async throws -> [NeverRule]                                // GET /api/nevers
     /// `DELETE /api/nevers {"rule"}`. Throws `CoreError.notFound` (404) for a rule that isn't a "never".
     func removeNever(rule: String) async throws                              // DELETE /api/nevers
+    /// `POST /api/sources/{name}`. Returns once the core has proved the sign-in (email) or finished the first sync;
+    /// throws `CoreError.failed` with the core's user-facing sentence ("Heron could not find that folder…").
+    func connectSource(_ source: SourceConnection) async throws
+    /// `DELETE /api/sources/{name}`: disconnects and forgets what came from it.
+    func disconnectSource(id: String) async throws
     func usage() async throws -> UsageReport                                // GET /api/usage
 }
 

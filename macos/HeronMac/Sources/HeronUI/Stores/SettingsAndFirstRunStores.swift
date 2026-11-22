@@ -83,6 +83,12 @@ public final class SettingsStore {
     /// What went wrong loading the list or removing a rule, shown inline in the "Never" section.
     public private(set) var neverError: String?
     public private(set) var isRemovingNever = false
+    /// Sources whose connect or disconnect request is in flight (`ConnectionInfo.id`), for the per-row spinner.
+    public private(set) var busySources: Set<String> = []
+    /// The last connect or disconnect failure per source, in the core's own words, shown inline on that row or its sheet.
+    public private(set) var sourceErrors: [String: String] = [:]
+    /// The source the user asked to disconnect; the confirm sheet shows while it is set.
+    public private(set) var pendingDisconnect: ConnectionInfo?
     public private(set) var usage: UsageReport?
     public private(set) var loadState: LoadState = .idle
     public private(set) var error: String?
@@ -134,6 +140,55 @@ public final class SettingsStore {
         do { try await client.removeNever(rule: rule.rule) } catch { message = describe(error) }
         do { nevers = try await client.nevers() } catch { message = message ?? describe(error) }
         neverError = message
+    }
+
+    // MARK: Connections (Settings › Connections, and the first-run sources step)
+
+    public func isBusy(source id: String) -> Bool { busySources.contains(id) }
+
+    public func clearSourceError(_ id: String) { sourceErrors[id] = nil }
+
+    /// Reads the Connections rows again, without the rest of Settings.
+    public func reloadConnections() async {
+        if let fresh = try? await client.settings() { settings = fresh }
+    }
+
+    /// Connects one source: `POST /api/sources/{name}`, then the rows are read again so they show what the core holds.
+    /// The email password is in `source` only for this call; nothing here keeps or logs it. A failure becomes
+    /// `sourceErrors[id]` and the function returns false.
+    @discardableResult
+    public func connect(_ source: SourceConnection) async -> Bool {
+        let id = source.sourceID
+        guard !busySources.contains(id) else { return false }
+        busySources.insert(id)
+        sourceErrors[id] = nil
+        defer { busySources.remove(id) }
+        do {
+            try await client.connectSource(source)
+        } catch {
+            sourceErrors[id] = describe(error)
+            return false
+        }
+        await reloadConnections()
+        return true
+    }
+
+    /// Disconnect asks first: this opens the confirm sheet and changes nothing yet.
+    public func askToDisconnect(_ id: String) {
+        guard !busySources.contains(id), let row = settings?.connections.first(where: { $0.id == id }) else { return }
+        pendingDisconnect = row
+    }
+
+    public func cancelDisconnect() { pendingDisconnect = nil }
+
+    public func confirmDisconnect() async {
+        guard let row = pendingDisconnect, !busySources.contains(row.id) else { return }
+        pendingDisconnect = nil
+        busySources.insert(row.id)
+        sourceErrors[row.id] = nil
+        defer { busySources.remove(row.id) }
+        do { try await client.disconnectSource(id: row.id) } catch { sourceErrors[row.id] = describe(error) }
+        await reloadConnections()
     }
 
     public func setMode(_ mode: PermissionMode) async {
@@ -197,9 +252,14 @@ public extension ProviderStatus {
 @Observable
 public final class FirstRunStore {
     public enum Step: Int, CaseIterable, Sendable {
-        case risks = 0, model, personalize
+        case risks = 0, model, sources, personalize
         public var title: String {
-            switch self { case .risks: "Read the risks"; case .model: "Connect a model"; case .personalize: "Make it yours" }
+            switch self {
+            case .risks: "Read the risks"
+            case .model: "Connect a model"
+            case .sources: "Connect your sources"
+            case .personalize: "Make it yours"
+            }
         }
     }
 
@@ -222,7 +282,22 @@ public final class FirstRunStore {
 
     public func useAPIKeyInstead() async {
         wantsAPIKey = true
-        step = .personalize
+        step = .sources
+    }
+
+    /// "Continue" and "Skip for now" on the sources step: every source is optional, so both go to the same place.
+    public func continueFromSources() { step = .personalize }
+
+    /// Starts the steps again for someone who is already set up ("Run setup again" in Settings › General).
+    /// Nothing is deleted: `onboarded` stays set, and the risk notice stays accepted if it still is.
+    public func restart() {
+        step = .risks
+        accepted = false
+        noticeUpdated = false
+        wantsAPIKey = false
+        isFinished = false
+        error = nil
+        selectedProviderID = nil
     }
 
     public var canAccept: Bool { accepted && notice != nil }
@@ -273,7 +348,7 @@ public final class FirstRunStore {
 
     public func continueFromModel() async {
         if let id = selectedProviderID { try? await client.selectProvider(id: id) }
-        step = .personalize
+        step = .sources
     }
 
     public func finish(persona: PersonaStore) async {

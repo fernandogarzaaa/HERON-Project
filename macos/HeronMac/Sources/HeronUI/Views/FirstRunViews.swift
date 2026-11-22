@@ -4,9 +4,10 @@ import HeronCore
 
 // MARK: Chrome
 
-/// The three-step bar at the top of first run.
+/// The step bar at the top of first run. A re-run from Settings adds a "Close setup" link at the right.
 struct FirstRunStepBar: View {
     let current: FirstRunStore.Step
+    var onClose: (() -> Void)?
     @Environment(\.heronTheme) private var theme
 
     var body: some View {
@@ -27,11 +28,16 @@ struct FirstRunStepBar: View {
                         .foregroundStyle(step == current ? theme.ink : theme.ink2)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("Step \(step.rawValue + 1) of 3: \(step.title)")
+                .accessibilityLabel("Step \(step.rawValue + 1) of \(FirstRunStore.Step.allCases.count): \(step.title)")
                 .accessibilityAddTraits(step == current ? .isSelected : [])
             }
         }
         .frame(maxWidth: .infinity, minHeight: 48)
+        .overlay(alignment: .trailing) {
+            if let onClose {
+                Button("Close setup", action: onClose).buttonStyle(HButtonStyle(.link)).padding(.trailing, Spacing.s4)
+            }
+        }
         .background(theme.sidebar)
         .overlay(alignment: .bottom) { Rectangle().fill(theme.hairline).frame(height: 1) }
     }
@@ -77,6 +83,7 @@ public struct RiskNoticeScreen: View {
     let avatarStyle: AvatarStyle
     let onAccept: () -> Void
     let onQuit: () -> Void
+    var onClose: (() -> Void)?
 
     @Environment(\.heronTheme) private var theme
 
@@ -85,7 +92,7 @@ public struct RiskNoticeScreen: View {
 
     public init(notice: RiskNotice, sandboxOn: Bool, noticeUpdated: Bool = false, accepted: Binding<Bool>,
                 style: Style = .firstRun, avatarStyle: AvatarStyle = .ripple,
-                onAccept: @escaping () -> Void = {}, onQuit: @escaping () -> Void = {}) {
+                onAccept: @escaping () -> Void = {}, onQuit: @escaping () -> Void = {}, onClose: (() -> Void)? = nil) {
         self.notice = notice
         self.sandboxOn = sandboxOn
         self.noticeUpdated = noticeUpdated
@@ -94,11 +101,12 @@ public struct RiskNoticeScreen: View {
         self.avatarStyle = avatarStyle
         self.onAccept = onAccept
         self.onQuit = onQuit
+        self.onClose = onClose
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            if style == .firstRun { FirstRunStepBar(current: .risks) }
+            if style == .firstRun { FirstRunStepBar(current: .risks, onClose: onClose) }
             VStack(alignment: .leading, spacing: Spacing.s4) {
                 hero
                 SandboxStatusCard(on: sandboxOn)
@@ -243,16 +251,21 @@ public struct FirstRunView: View {
                     RiskNoticeScreen(notice: notice, sandboxOn: store.sandboxOn, noticeUpdated: store.noticeUpdated,
                                      accepted: Bindable(store).accepted, avatarStyle: model.preferences.avatarStyle,
                                      onAccept: { Task { await store.accept() } },
-                                     onQuit: { NSApp.terminate(nil) })
+                                     onQuit: { NSApp.terminate(nil) },
+                                     onClose: closeAction)
                 } else {
-                    VStack { FirstRunStepBar(current: .risks); startingView }.background(theme.window)
+                    VStack { FirstRunStepBar(current: .risks, onClose: closeAction); startingView }.background(theme.window)
                 }
             case .model: shell(.model) { modelStep }
+            case .sources: shell(.sources) { sourcesStep }
             case .personalize: shell(.personalize) { personalizeStep }
             }
         }
         .animation(Motion.slow, value: store.step)
     }
+
+    /// Only a re-run can be closed: a first run has nothing to go back to.
+    private var closeAction: (() -> Void)? { model.isRerunningSetup ? { model.cancelSetupAgain() } : nil }
 
     private var startingView: some View {
         VStack(spacing: Spacing.s3) {
@@ -264,7 +277,7 @@ public struct FirstRunView: View {
 
     private func shell<Content: View>(_ step: FirstRunStore.Step, @ViewBuilder content: () -> Content) -> some View {
         VStack(spacing: 0) {
-            FirstRunStepBar(current: step)
+            FirstRunStepBar(current: step, onClose: closeAction)
             HScroll { content().padding(.horizontal, Spacing.s8).padding(.vertical, Spacing.s6).frame(maxWidth: 720) }
                 .frame(maxWidth: .infinity)
         }
@@ -287,6 +300,21 @@ public struct FirstRunView: View {
                     .keyboardShortcut(.defaultAction)
             }
         }
+    }
+
+    private var sourcesStep: some View {
+        VStack(alignment: .leading, spacing: Spacing.s4) {
+            Text("Connect your sources").font(HeronFont.title).foregroundStyle(theme.ink).accessibilityAddTraits(.isHeader)
+            Text("Heron can learn from your calendar, email and notes, so it can answer questions about your day. Every one is optional, and you can connect or disconnect them later in Settings › Connections.")
+                .foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
+            SourceRows(store: model.settings)
+            HStack {
+                Spacer()
+                Button("Skip for now") { store.continueFromSources() }.buttonStyle(HButtonStyle(.link))
+                Button("Continue") { store.continueFromSources() }.buttonStyle(HButtonStyle(.primary)).keyboardShortcut(.defaultAction)
+            }
+        }
+        .task { await model.settings.reloadConnections() }
     }
 
     private var personalizeStep: some View {
