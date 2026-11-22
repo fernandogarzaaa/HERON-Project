@@ -4495,7 +4495,7 @@
       "claim_token": "d6eba2ac22574a3aa970b93716ba54ed",
       "claimed_at": "2026-11-22T11:04:41.231540+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:08:42.109665+00:00",
+      "last_heartbeat": "2026-11-22T11:09:12.202585+00:00",
       "node_version": 5,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4527,7 +4527,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: shortcuts",
-    "version": 15,
+    "version": 16,
     "worktree": {
       "base_branch": "skein/F5g__integrate-base",
       "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
@@ -5399,6 +5399,14 @@
         "holder": "agent-3",
         "outcome": "failed",
         "started_at": "2026-11-22T11:05:38.682429+00:00"
+      },
+      {
+        "attempt_id": "ce3d34e569c84360a7abe6c0352cdbb0",
+        "ended_at": "2026-11-22T11:09:22.872299+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T11:08:40.819769+00:00"
       }
     ],
     "attempts_used": 3,
@@ -5412,15 +5420,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "ce3d34e569c84360a7abe6c0352cdbb0",
-      "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
-      "claim_token": "58d71c2ea9b64b5a961964fd6cb84433",
-      "claimed_at": "2026-11-22T11:08:40.819769+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T11:08:40.819769+00:00",
-      "node_version": 41,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F1g"
@@ -5428,17 +5436,17 @@
     "evidence": [
       {
         "command": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q 'VoiceTests.*speechStopsOnKey'",
-        "duration_ms": 14828,
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F7a_20261122T110738007902_0.log"
+        "duration_ms": 17711,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F7a_20261122T110904944959_0.log"
       },
       {
         "command": "<adapter:claude_build_swift>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F7a_20261122T110752837361_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F7a_20261122T110922657919_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: Next: run the completion check outside the sandbox: `swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q 'VoiceTests.*speechStopsOnKey'`",
     "id": "F7a",
     "integration_for": null,
     "intent": {
@@ -5450,13 +5458,81 @@
     "max_retries": 5,
     "rejected_count": 3,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "ce3d34e569c84360a7abe6c0352cdbb0",
+      "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
+      "changed_files": [
+        "macos/HeronMac/Sources/Heron/HeronApp.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/QuickEntry/QuickEntryModel.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/QuickEntry/QuickEntryPanel.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/ChatAndApprovalsStores.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/ChatView.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Voice/Dictation.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Voice/SentenceSplitter.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Voice/SpokenReplies.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Voice/VoiceSettings.swift",
+        "macos/HeronMac/Tests/HeronUITests/Features/VoiceTests.swift"
+      ],
+      "commit": "b5c93af5d962861ebef24bbfb63ae3ea765d515e",
+      "diff_stats": {
+        "macos/HeronMac/Sources/Heron/HeronApp.swift": {
+          "added": 2,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/QuickEntry/QuickEntryModel.swift": {
+          "added": 3,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/QuickEntry/QuickEntryPanel.swift": {
+          "added": 11,
+          "deleted": 8
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift": {
+          "added": 2,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Voice/Dictation.swift": {
+          "added": 75,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Voice/SentenceSplitter.swift": {
+          "added": 87,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Voice/SpokenReplies.swift": {
+          "added": 211,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Voice/VoiceSettings.swift": {
+          "added": 16,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift": {
+          "added": 25,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/ChatAndApprovalsStores.swift": {
+          "added": 3,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/ChatView.swift": {
+          "added": 1,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronUITests/Features/VoiceTests.swift": {
+          "added": 251,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "F7: dictation button, spoken replies",
-    "version": 43,
+    "version": 45,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
