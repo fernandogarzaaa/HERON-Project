@@ -4668,7 +4668,7 @@
       "claim_token": "d6eba2ac22574a3aa970b93716ba54ed",
       "claimed_at": "2026-11-22T11:04:41.231540+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:18:14.602209+00:00",
+      "last_heartbeat": "2026-11-22T11:18:44.690972+00:00",
       "node_version": 5,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4700,7 +4700,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: shortcuts",
-    "version": 34,
+    "version": 35,
     "worktree": {
       "base_branch": "skein/F5g__integrate-base",
       "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
@@ -5778,15 +5778,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "f51e13e2b29c4c03aae5f978a0497a86",
+      "base_branch": "e5f945b3848d210e679a0004633317f75e53359e",
+      "claim_token": "1e9af7472cdc4101b695904721172079",
+      "claimed_at": "2026-11-22T11:19:02.093058+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T11:19:02.093058+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "F8s"
@@ -5808,11 +5808,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fix F8 review findings (core)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "e5f945b3848d210e679a0004633317f75e53359e",
       "branch": null,
       "path": null
     }
