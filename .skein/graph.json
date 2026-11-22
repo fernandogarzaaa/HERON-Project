@@ -5132,7 +5132,7 @@
       "goal": "Build item 35: the dictation button in the composer and the F1 panel (startDictation:, falling back to the shortcut hint), spoken replies with AVSpeechSynthesizer one sentence at a time for the conversation on screen only, stopping on any key or click, F7's row, and VoiceTests including speaksOneSentenceAtATime, speechStopsOnKey, backgroundRunsAreNotSpoken and dictationButtonFallsBackToShortcutHint."
     },
     "max_retries": 3,
-    "rejected_count": 0,
+    "rejected_count": 2,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -5140,7 +5140,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "F7: dictation button, spoken replies",
-    "version": 25,
+    "version": 28,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
