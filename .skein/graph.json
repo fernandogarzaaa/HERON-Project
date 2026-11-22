@@ -353,29 +353,44 @@
     }
   },
   "H3q__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "aea31097b281417481e52348e6ca9f94",
+        "ended_at": "2026-11-22T16:38:17.112528+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-22T16:38:15.744592+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "aea31097b281417481e52348e6ca9f94",
-      "base_branch": "skein/H3q__integrate__integrate-base",
-      "claim_token": "ff57827195694021bbeb4de6020b8eac",
-      "claimed_at": "2026-11-22T16:38:15.744592+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-22T16:38:15.744592+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "H3",
       "H5"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 26590c8e1ca75e60361296d754f23f6d939cea11",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['8087860abc6c3c4b34603a867248b2f8eac56f34', '26590c8e1ca75e60361296d754f23f6d939cea11'] into skein/H3q__integrate-base.",
     "id": "H3q__integrate",
     "integration_for": "H3q",
     "intent": {
@@ -387,16 +402,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "8087860abc6c3c4b34603a867248b2f8eac56f34",
+      "changed_files": [],
+      "commit": "2361da0b93f517c8d382d34c3c6c38eb1703bc3e",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of H3q",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/H3q__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "8087860abc6c3c4b34603a867248b2f8eac56f34",
+      "branch": "skein/H3q__integrate-base",
       "path": null
     }
   },
