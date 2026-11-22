@@ -3047,7 +3047,7 @@
       "claim_token": "161ce386a4bd44f7b2da37ff35b42617",
       "claimed_at": "2026-11-22T10:38:14.133449+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:48:15.890379+00:00",
+      "last_heartbeat": "2026-11-22T10:52:46.924871+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3074,7 +3074,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fix F3 review findings (core)",
-    "version": 23,
+    "version": 32,
     "worktree": {
       "base_branch": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
       "base_commit": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
@@ -4809,7 +4809,16 @@
     }
   },
   "F6g": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "ba766eda82d2496b92925de6848f6f2e",
+        "ended_at": "2026-11-22T10:53:15.971718+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:43:03.704919+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -4821,15 +4830,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "ba766eda82d2496b92925de6848f6f2e",
-      "base_branch": "skein/F6g__integrate-base",
-      "claim_token": "093523737ea14ceab2ad7e9426652a17",
-      "claimed_at": "2026-11-22T10:43:03.704919+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T10:48:04.822173+00:00",
-      "node_version": 5,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F6s",
@@ -4837,8 +4846,20 @@
       "F6a",
       "F6-fix-1"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash scripts/verify-feature.sh morning_brief",
+        "duration_ms": 596325,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F6g_20261122T104319577442_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F6g_20261122T105315907161_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: **Next:** run the gate outside the sandbox and paste the first `FAILED at step N` line if it fails.",
     "id": "F6g",
     "integration_for": null,
     "intent": {
@@ -4850,13 +4871,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "ba766eda82d2496b92925de6848f6f2e",
+      "base_commit": "374995789f0c7dea269a89098802ca17b5df6471",
+      "changed_files": [],
+      "commit": "374995789f0c7dea269a89098802ca17b5df6471",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Gate: morning_brief",
-    "version": 17,
+    "version": 28,
     "worktree": {
       "base_branch": "skein/F6g__integrate-base",
       "base_commit": "374995789f0c7dea269a89098802ca17b5df6471",
@@ -5614,7 +5641,7 @@
       "claim_token": "2a331cac60e3486ea5398511e0f7f1ad",
       "claimed_at": "2026-11-22T10:48:33.076268+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:48:33.076268+00:00",
+      "last_heartbeat": "2026-11-22T10:53:04.818558+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -5639,9 +5666,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F9: window picker, text recognition",
-    "version": 3,
+    "version": 12,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
