@@ -2282,7 +2282,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "F2: re-recorded fixtures, api_approval_carries_why",
-    "version": 16,
+    "version": 17,
     "worktree": {
       "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
       "base_commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
