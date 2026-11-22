@@ -4113,11 +4113,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fix F4 review findings (core)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "97640c6a9443da7966e4cc67adda8ddc408f2db5",
-      "branch": null,
-      "path": null
+      "base_commit": "97640c6a9443da7966e4cc67adda8ddc408f2db5",
+      "branch": "skein/F4-fix-1",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F4-fix-1"
     }
   },
   "F4-fix-2": {
