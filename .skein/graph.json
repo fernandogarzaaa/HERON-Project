@@ -3024,11 +3024,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F6: feature task ft6",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "c4ffcbf74185dc1dfa032921c6f7e46193ba152c",
+      "branch": "skein/F6c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F6c"
     }
   },
   "F6g": {
