@@ -94,11 +94,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Replay suite, grader, genesis adapter, required-tests list, gate-script tests (item 20)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/harness2-1a",
-      "branch": null,
-      "path": null
+      "base_commit": "cdd31f0a74e17ca4fa541f854133abffa680e1ac",
+      "branch": "skein/H3",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/worktrees/H3"
     }
   },
   "H4": {
