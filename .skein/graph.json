@@ -2721,11 +2721,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Kill F2's surviving mutants",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
-      "branch": null,
-      "path": null
+      "base_commit": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
+      "branch": "skein/F2mut",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F2mut"
     }
   },
   "F2s": {
