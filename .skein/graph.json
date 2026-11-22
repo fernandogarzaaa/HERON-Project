@@ -3197,6 +3197,61 @@
       "path": null
     }
   },
+  "F8g": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "scripts/gates/**"
+    ],
+    "change_policy": "strict",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F8s",
+      "F8c",
+      "F8a",
+      "F8d"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F8g",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash scripts/verify-feature.sh email_drafts",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging. You are a check-only unit: make no file changes.",
+      "context": "Spec: docs/designs/heron-v1-features.md, 'Branches and order' and 'Work units'. If the gate fails for a cause in another unit's scope, the supervisor adds a fix node; a gate never edits outside its scope.",
+      "goal": "Gate unit. Write nothing. The supervisor runs bash scripts/verify-feature.sh <slug> as your check, which includes this feature's EVE tasks on claude-cli. You may run read-only commands to confirm the feature looks complete, then stop."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Gate: email_drafts",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F8s": {
     "attempts": [],
     "attempts_used": 0,
