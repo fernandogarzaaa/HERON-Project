@@ -6816,6 +6816,14 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-22T12:37:50.739902+00:00"
+      },
+      {
+        "attempt_id": "d0bb24ea64d9413fa2fce92f2a0d05c1",
+        "ended_at": "2026-11-22T13:12:04.266352+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T13:09:51.515663+00:00"
       }
     ],
     "attempts_used": 0,
@@ -6829,15 +6837,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "d0bb24ea64d9413fa2fce92f2a0d05c1",
-      "base_branch": "a7aeb03f0e6660a30ebef3783739d23c76ba9c53",
-      "claim_token": "e0d5127e8b4645b4b327a8f12c11bb34",
-      "claimed_at": "2026-11-22T13:09:51.515663+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T13:09:51.515663+00:00",
-      "node_version": 19,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F8g"
@@ -6845,17 +6853,17 @@
     "evidence": [
       {
         "command": "cargo test --locked --lib --bins && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- draft_email_summary_names_recipients_and_subject",
-        "duration_ms": 272702,
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8mut_20261122T124114700301_0.log"
+        "duration_ms": 54590,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8mut_20261122T131109146426_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8mut_20261122T124547404224_adapter.log"
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8mut_20261122T131203743627_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=1); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F8mut",
     "integration_for": null,
     "intent": {
@@ -6867,13 +6875,26 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "d0bb24ea64d9413fa2fce92f2a0d05c1",
+      "base_commit": "a7aeb03f0e6660a30ebef3783739d23c76ba9c53",
+      "changed_files": [
+        "src/tools/mail_draft.rs"
+      ],
+      "commit": "f73ffe25ab8348588727bef0f58ef3193fbeea29",
+      "diff_stats": {
+        "src/tools/mail_draft.rs": {
+          "added": 39,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Kill F8's surviving mutants",
-    "version": 21,
+    "version": 26,
     "worktree": {
       "base_branch": "a7aeb03f0e6660a30ebef3783739d23c76ba9c53",
       "base_commit": "a7aeb03f0e6660a30ebef3783739d23c76ba9c53",
