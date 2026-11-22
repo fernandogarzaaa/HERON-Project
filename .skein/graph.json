@@ -5712,15 +5712,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "e856890cb5ca4928be78332f4ab7e303",
+      "base_branch": "506fbcd40983a0cf95c8663d1a34d1bcd9434db5",
+      "claim_token": "8652251692664f638a17e7fb2908e553",
+      "claimed_at": "2026-11-22T11:01:38.350224+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T11:01:38.350224+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F9a"
@@ -5742,11 +5742,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fix F9 review findings (app)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "506fbcd40983a0cf95c8663d1a34d1bcd9434db5",
       "branch": null,
       "path": null
     }
