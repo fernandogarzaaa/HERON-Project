@@ -4014,7 +4014,8 @@
       "F5t",
       "F5c",
       "F5a",
-      "F5d"
+      "F5d",
+      "F5-fix-1"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -4035,7 +4036,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Gate: shortcuts",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": null,
       "branch": null,
