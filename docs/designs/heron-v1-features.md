@@ -364,7 +364,7 @@ B2 adds `enum ContentEntry` to `src/agent.rs`, with one variant per way content 
 *   **Today.** The core posts desktop notifications itself, through the free function `notify(cfg, title, body)` in `app.rs`, for scheduled jobs, automations and suggestions. It runs `notify_command` when one is configured, and `osascript` otherwise.
 *   **The change.** B2 turns `notify` into an `App` method that also takes the notice's source (`schedule`, `automation` or `suggestion`), its `session_id` and its `run_id`.
     *   B2 also counts open `GET /api/events` streams that were opened with `?notify=1`.
-    *   While that count is above zero, the method publishes a bus event, `notification {title, body, source}`, instead of calling `osascript`. The bus envelope's `session_id` and `run_id` are set when the notice belongs to a run, and are `null` otherwise.
+    *   While that count is above zero, the method publishes a bus event, `notification {title, body, source}`, instead of calling `osascript`. The bus envelope's `session_id` and `run_id` are set when the notice belongs to a run, and are `null` otherwise. Every other event's envelope is unchanged.
     *   A configured `notify_command` still runs.
     *   At zero, it behaves as today.
 *   **A lost notice is accepted.** A notice raised while the stream is dropping may reach nobody. This is accepted, because the inbox records every notice.
@@ -993,7 +993,7 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
 *   **Proposed Changes:**
     *   **`ContentEntry`** and its test.
     *   **Chat context.**
-        *   `Agent::run_turn` gains a `context: &[ChatContext]` parameter after the message, so the typed message and the context stay separate inside the turn.
+        *   `Agent::run_turn` gains a `context: &[ChatContext]` parameter after the message, so the typed message and the context stay separate inside the turn. B2 also updates the existing `run_turn` calls in `tests/integration.rs` to pass `&[]`, because its clippy check compiles that file. That one file is added to B2's scope; B2t still writes the new integration tests.
         *   Wrapped with `wrap_untrusted` and appended before the model call.
         *   The `app` name is cleaned.
         *   The session is titled from the typed message.
@@ -1003,7 +1003,8 @@ Line numbers in today's code move during the v1 build. So this plan cites names,
         *   It sets `flag`, writes the kv value with a new `Store::kv_insert_if_absent`, and publishes `tainted` the first time.
         *   It replaces every `tainted:` write.
     *   **`permissions::once_only(tool) -> bool`** (Q7: `permissions.rs`), true for `run_shortcut` and `draft_email`, checked in four places: the allow-rule step; `may_grant_for_conversation`; where v1's `execute_call` computes `can_always`, which the web approver, the terminal prompt and Telegram read; and `set_tool_setting`, which rejects "allow" for a once-only tool. It names tools that don't exist yet, which is harmless, so F5 and F8 don't depend on each other.
-    *   **`child.rs`:** the three helpers moved from `cli_llm.rs` (see [Processes outside the shell tool](#processes-outside-the-shell-tool)); `cli_llm.rs` calls them, with no change in behaviour (Q7: `cli_llm.rs`).
+    *   **`child.rs`:** the three helpers moved from `cli_llm.rs` (see [Processes outside the shell tool](#processes-outside-the-shell-tool)); `cli_llm.rs` calls them, with no change in behaviour (Q7: `cli_llm.rs`). They move as they are: v1's `CHILD_ENV_ALLOWED` also passes the proxy variables and `SSL_CERT_FILE`, and the five names above are shorthand for that list.
+    *   **Parked calls.** `run_parked` applies the same feature filter, so a parked call to a tool whose feature has since been turned off is refused.
     *   **`App::notify(&self, title, body, source, session_id: Option<&str>, run_id: Option<&str>)`** replaces the free `notify()` at its four call sites in `app.rs`. It publishes `notification` while the `notify=1` count is above zero, and always runs a configured `notify_command`.
 
 ##### 7. `src/server.rs` (Modify)
