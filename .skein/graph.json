@@ -1347,7 +1347,16 @@
     }
   },
   "Bmut": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "bc82ec8d894f42ba8e1373964ccda2cd",
+        "ended_at": "2026-11-22T08:43:56.916204+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T08:34:39.557627+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1360,19 +1369,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "bc82ec8d894f42ba8e1373964ccda2cd",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "9ade96b6d25f4bc49eb881a66b2affe6",
-      "claimed_at": "2026-11-22T08:34:39.557627+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T08:34:39.557627+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && test -s docs/designs/reviews/heron-v1-features/base-mutants.md",
+        "duration_ms": 22868,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/Bmut_20261122T084333933258_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/Bmut_20261122T084356807366_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason. Change-policy warnings: tests/chat_repl.rs is outside the declared blast radius ['src/**', 'docs/designs/reviews/heron-v1-features/**']",
     "id": "Bmut",
     "integration_for": null,
     "intent": {
@@ -1384,13 +1405,61 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "bc82ec8d894f42ba8e1373964ccda2cd",
+      "base_commit": "a7f473fe9ee0229555abcfc2145dac47f3fed85e",
+      "changed_files": [
+        "src/agent.rs",
+        "src/app.rs",
+        "src/browser.rs",
+        "src/child.rs",
+        "src/main.rs",
+        "src/tools/web.rs",
+        "docs/designs/reviews/heron-v1-features/base-mutants.md",
+        "tests/chat_repl.rs"
+      ],
+      "commit": "a4f2d5393e96a0cf9c77563fa0065ea90c346377",
+      "diff_stats": {
+        "docs/designs/reviews/heron-v1-features/base-mutants.md": {
+          "added": 78,
+          "deleted": 0
+        },
+        "src/agent.rs": {
+          "added": 36,
+          "deleted": 0
+        },
+        "src/app.rs": {
+          "added": 29,
+          "deleted": 0
+        },
+        "src/browser.rs": {
+          "added": 26,
+          "deleted": 0
+        },
+        "src/child.rs": {
+          "added": 17,
+          "deleted": 0
+        },
+        "src/main.rs": {
+          "added": 65,
+          "deleted": 0
+        },
+        "src/tools/web.rs": {
+          "added": 18,
+          "deleted": 0
+        },
+        "tests/chat_repl.rs": {
+          "added": 61,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Kill or justify the base gate's surviving mutants",
-    "version": 3,
+    "version": 22,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "a7f473fe9ee0229555abcfc2145dac47f3fed85e",
