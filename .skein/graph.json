@@ -1,4 +1,56 @@
 {
+  "H12": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      ".github/**"
+    ],
+    "change_policy": "strict",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "H4"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "H12",
+    "integration_for": null,
+    "intent": {
+      "completion": "grep -q \"startsWith(github.head_ref, 'heron/selfheal/')\" .github/workflows/selfheal.yml && grep -q 'fetch-depth: 0' .github/workflows/selfheal.yml && grep -q 'contents: read' .github/workflows/selfheal.yml && ! grep -q 'secrets\\.' .github/workflows/selfheal.yml && grep -qF 'verify-selfheal.sh \"$(git -C fix merge-base' .github/workflows/selfheal.yml && grep -q 'name: selfheal-gate' .github/workflows/selfheal.yml && grep -q 'requirements-ci.txt' .github/workflows/selfheal.yml && actionlint .github/workflows/selfheal.yml",
+      "constraints": "Non-goals from the design: nothing installs, reinstalls or rolls back Heron (that is Phase 2); no edits to fenced security code; no new runtime dependencies. Python under eval/ is 3.12 standard library only, run as python3 -I, and tests use unittest like the rest of eval/tests. Do not edit docs/designs/heron-harness2.md. You cannot run git: skein commits your worktree when the check passes, so never ask for a commit. Write only inside your blast radius. Comments only for a non-obvious why; no phase-narrating comments. When the design and these instructions differ, these instructions win and the supervisor records the difference in the design.",
+      "context": "Spec: docs/designs/heron-harness2.md section 'Graph 1a, unit H12: CI workflow' (item 26). The gate script is scripts/verify-selfheal.sh (unit H4). Existing workflows to match for style: .github/workflows/ci.yml.",
+      "goal": "Create .github/workflows/selfheal.yml from item 26's YAML, with three changes. (a) Add an actions/setup-python@v5 step with python-version 3.12 before the pip install, because the macOS runner's Homebrew Python refuses pip installs (PEP 668). (b) Replace the cargo-mutants placeholder with a step that reads the version from the first line of gate/eval/selfheal/requirements-ci.txt ('# cargo-mutants==<version>') and installs exactly that version with cargo install --locked. (c) Give the workflow a top-level name: selfheal. Keep the job id gate, its name selfheal-gate, permissions contents: read, the head_ref condition, both checkouts and fetch-depth: 0, and use no secrets. actionlint must pass."
+    },
+    "max_retries": 2,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": ".github/workflows/selfheal.yml (item 26)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "H3": {
     "attempts": [],
     "attempts_used": 0,
