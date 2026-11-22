@@ -111,6 +111,30 @@ Earlier research, summarised in [Additional Resources](#additional-resources), f
 | Self-written connector | A connector in the new crate `crates/heron-ext`, built against `crates/heron-ext-api` and registered by the core's fenced adapter (§7). |
 | Observer | App-side code that captures one kind of observation (§8). |
 | Observation vault | A sealbox vault at `~/.heron/observe/vault`, encrypted with a key held in the macOS keychain. |
+| sealbox | The owner's compute-to-data MCP server (`github.com/fernandogarzaaa/sealbox`). It keeps data in an encrypted vault and releases only results that pass its egress gate (§8). |
+| Replay suite | 10 historical Heron bugs that the repair agent must fix again from a bug report alone (item 20). |
+| P1 to P4 | Prototypes the build session runs by hand before the build ([Preconditions](#preconditions)). |
+
+**Terms from v1.** These keep their meaning from [heron-v1.md](heron-v1.md):
+
+*   taint, permission mode, `Effect`, the decision function (`Policy::decide`, `src/permissions.rs:364-443`), unattended work, and the global pause;
+*   **Q6**, the hold on unattended use of a subscription model;
+*   **Tier 1 CLI**, a model CLI that passed G7 (today `claude-cli` and `codex-cli`);
+*   **G7**, the task gate: 10 gate tasks `t01` to `t10` plus the probe `p1`, each with a fixed pass rule, in `eval/core-tasks.md`. `t09` and `t10` are the injection tasks, and `p1` is the containment probe;
+*   **G3**, **G4** and **G9**, the regression record, the containment check and the owner trial;
+*   **EVE**, the simulated-user usability harness;
+*   **Seatbelt**, the macOS sandbox Heron runs commands in.
+
+`ContentEntry` and the features base units B1 to B6 come from [heron-v1-features.md](heron-v1-features.md). **testteeth** grades tests by mutation, and **genesis** audits evaluators; both are the owner's tools, named in v1's verification. **skein** runs the work units. **anchor-harness**, **APE** and **Harness²** are described in [Additional Resources](#additional-resources).
+
+**Harness parts from the review session's design.** Three parts are being built in their own design (the review session, PR #73), and Harness2 treats them as existing (precondition P-5):
+
+*   **The effect journal.** An action interrupted by a crash asks again before it re-runs. It never re-runs silently.
+*   **The loop guard (RepeatGuard).** It stops repeating tool calls, including A-B loops.
+*   **Protected paths and an egress allowlist.**
+    *   Git hooks, `.envrc`, `.mcp.json`, shell rc files, launch agents, and Heron's own config and database are read-only to the agent, and their hashes are checked again after each run.
+    *   Sandboxed commands reach only allowlisted hosts.
+    *   Sandboxed writes to the Rust toolchains are allowed, and Heron hash-checks the toolchain binaries before it next uses them.
 
 ## Owner decisions recorded in this doc
 
@@ -131,7 +155,7 @@ Every question has a proposed default, which the build uses unless the owner cha
 *   **Observation:** HQ16 to HQ21.
 
 *   **HQ1, how wide the fence is.** **Proposed: the allowlist in [§3](#3-the-fence-what-may-install-itself).** It allows:
-    *   the design tokens and the avatar in the Mac app, which can't reach the core client;
+    *   the design tokens in the Mac app, which don't import the core client;
     *   three core files with no security role;
     *   new tests;
     *   self-written connectors under rule R6.
@@ -234,7 +258,7 @@ Every question has a proposed default, which the build uses unless the owner cha
 
 *   **Given:** a preview Mac.
 *   **Then:**
-    1.  Help › Report a problem writes `Heron-report-<date>.heronreport`, a JSON file, to the Desktop. It holds the user's text, the last 7 days of failure records, and the version and commit. It holds conversation text only if the user ticked "Include this conversation", and it never holds observations. Then the share sheet opens.
+    1.  Help › Report a problem writes `Heron-report-<date>.heronreport`, a JSON file, to the Desktop. It holds the user's text, the last 7 days of failure records, and the version and commit. It holds conversation text only if the user ticked "Include this conversation", and it never holds observations. If the conversation is tainted, the tick is refused with "This conversation includes outside content, so it can't be attached." Then the share sheet opens.
     2.  The user sends the file to the owner however they like. On the owner's Mac, File › Import report shows it in the inbox as outside content.
     3.  The owner restates it in a report of their own if they want a fix. A merged fix reaches the user in the next DMG.
 
@@ -294,22 +318,51 @@ A run's trust comes from the class of every input the model sees in it. It does 
 |---|---|---|---|
 | Owner report, typed in the app or with `heron-cli report` | The owner's text, the version and commit, and the failure records from the last 24 hours | Trusted | Start a repair |
 | Owner report with "attach this conversation" ticked | As above, plus the conversation | Trusted if the conversation is untainted | Start a repair. If the conversation is tainted, the attachment is refused and the inbox note says why |
-| Failure record | `kind` (one of `panic`, `core_exit`, `migration_failed`, `health_failed`, `internal_error`), `location` (`file:line` from the panic location or Heron's error site), `version`, `commit`, `count`, `origin_tainted`. No message text, tool output, model text, HTTP or MCP bodies, paths or Telegram text | Trusted | Start a repair. When `origin_tainted`, it is never auto-eligible (HQ4) |
+| Failure record | `kind`, `location` (`file:line` from the panic location or Heron's error site), `version`, `commit`, `count`, `origin_tainted`. See the producer table below. No message text, tool output, model text, HTTP or MCP bodies, paths or Telegram text | Trusted | Start a repair once `count` reaches 2 for the same `(kind, location, commit)`. When `origin_tainted`, the verdict is always "needs owner" (HQ4) |
 | Connector offer accepted in an untainted chat (HQ15) | The owner's yes, the service name, and the operations the owner named | Trusted | Start a repair |
 | Imported preview report | Another person's text | Untrusted | An inbox note only |
 | Scout idea | Text derived from web pages | Untrusted | An inbox note only |
 | Workflow suggestion | Derived results from the observation vault | Untrusted | A suggestion. Accepting it opens a normal, tainted `save_automation` approval. It never starts a repair |
 
-**The decision table.** This is the rule. The test `decision_table_selfheal` has one case per row.
+**The decision table.** This is the rule. The test `decision_table_selfheal` has one case per row. Rows are checked in order, and the first match wins.
 
 | # | Run | Fence verdict | Other state | Gate | Outcome |
 |---|---|---|---|---|---|
-| 1 | Trusted | Auto-eligible | Phase 2 on, auto-install on, under the caps, signing identity set, not `origin_tainted`, installed commit is in `origin/main` | Passes | **Install**, plus a PR labelled `self-heal:auto` |
+| 0 | Trusted | any | The R5 redaction scan finds a secret in the diff, commit message or PR body | any | **Never pushed.** An inbox note, the branch kept locally for 7 days, and no install |
+| 1 | Trusted | Auto-eligible | Phase 2 on, auto-install on, under the caps, signing identity set, installed commit in `origin/main` | Passes | **Install**, plus a PR labelled `self-heal:auto` |
 | 2 | Trusted | Auto-eligible | Any condition in row 1 doesn't hold (in Phase 1 this is always the case) | Passes | PR labelled `self-heal:auto-eligible`. Its body says which condition stopped the install |
-| 3 | Trusted | Needs owner | any | Passes | PR labelled `self-heal:needs-owner` |
+| 3 | Trusted | Needs owner (this includes `origin_tainted`, and any tainted-origin failure record attached to an owner report) | any | Passes | PR labelled `self-heal:needs-owner` |
 | 4 | Trusted | any | any | Fails 3 times | No PR. An inbox note with the last failure. The branch is kept locally for 7 days |
 | 5 | — | — | A run is active, an approval is waiting, or Heron is paused | — | The trigger waits in the queue |
-| 6 | — | — | Held by Q6 (HQ3) | — | Inbox note; the owner's click starts it |
+| 6 | — | — | Held by Q6 (HQ3) | — | An inbox note with a **Start** button (`POST /api/harness2/triggers/{id}/start`) |
+
+**The three PR labels** are `self-heal:auto` (installed), `self-heal:auto-eligible` and `self-heal:needs-owner`.
+
+**When a run fails** (each case sets `triggers.state`):
+
+| Case | What happens | `triggers.state` |
+|---|---|---|
+| An attempt makes no diff | Counts as a failed attempt. The next attempt is told "no change was made" | `retrying`, then `failed` |
+| The step or token cap is hit | A failed attempt | `retrying`, then `failed` |
+| The provider is at a limit | Retried once on the HQ6 fallback. If that is also limited, the trigger waits 6 hours | `waiting_limit` |
+| The 3-runs-per-24-hours cap is reached | The trigger waits until the window allows it | `queued` |
+| The gate's 3-hour timeout | A failed attempt | `retrying`, then `failed` |
+| `git worktree add` or the disposable-home setup fails | Inbox note, with no retry | `setup_failed` |
+| A crash interrupts a run | The effect journal (P-5) asks again: an inbox note, "Repair #N was interrupted. Run again?" It never re-runs on its own | `interrupted` |
+| The self-healing switch is turned off mid-run | The current step finishes. Nothing is pushed or installed | `cancelled` |
+
+**Producers of failure records.**
+
+| `kind` | Written by | Where |
+|---|---|---|
+| `panic` | The core's panic hook | The existing hook in `src/main.rs:714-722` calls the new library function `harness2::record_panic(location)` |
+| `core_exit` | The app | `CoreProcess.swift` sees the core exit with a non-zero status, and the core writes the record on its next start, from the exit status the app passes to it |
+| `migration_failed` | The core | The `Store::open` migration error path |
+| `health_failed` | The swapper | Phase 2 only |
+| `internal_error` | The core | Every place that returns `ApiError` with status 500 in `src/server.rs` |
+
+*   **`origin_tainted`** is true when any tainted session was active in the core process when the record was written. A process-wide counter of active tainted sessions holds this.
+*   **Preview Macs** write records too, so that their reports can carry them. Records start triggers only on a builder Mac with self-healing on.
 
 Untrusted inputs never start a run, so the table has no untrusted rows. Model-written code from outside content therefore never runs on the Mac and is never pushed.
 
@@ -320,14 +373,12 @@ Untrusted inputs never start a run, so the table has no untrusted rows. Model-wr
 *   **Home:** a disposable `HERON_HOME` at `~/.heron/selfheal/runs/<id>/home`, like the eval runner's (`eval/run_core_tasks.py`). It has no memories, persona, connectors, Telegram or MCP.
 *   **Workspace:** a git worktree at `~/.heron/selfheal/runs/<id>/wt`, on the branch `heron/selfheal/<yyyymmdd>-<id>`, cut from the **installed commit**. That is the new `commit` field of `GET /api/state`.
 *   **Tools:** only `read_file`, `write_file`, `edit_file`, `list_dir`, `search_files`, `find_files` and `shell`. `App::assemble` filters the registry, so the model sees nothing else.
-*   **Policy:** fixed in `src/harness2/repair.rs`, with `mode = "auto"` and these allow rules:
-    *   `shell:cargo test --locked*`
-    *   `shell:cargo check --locked*`
-    *   `shell:cargo clippy --locked*`
-    *   `shell:git diff*`
-    *   `shell:git status*`
+*   **Policy:** fixed in `src/harness2/repair.rs`, with `mode = "ask"` and the existing `DenyAll` approver. Every `Ask` becomes a denial, because nobody is there to answer. Auto mode isn't used, because it allows any unmatched command (`src/permissions.rs:438`). The allow rules are:
+    *   `write_file:*` and `edit_file:*`, which the workspace check (`check_workspace`) still limits to the worktree;
+    *   `shell:cargo test --locked*`, `shell:cargo check --locked*` and `shell:cargo clippy --locked*`;
+    *   `shell:git diff*` and `shell:git status*`.
 
-    Every other shell call is denied. Compound commands are never covered (`src/agent.rs:134-136`). The shell runs under Heron's normal Seatbelt profile.
+    Every other shell call is denied. A rule for one command never covers a compound command (`allow_rule_covers`, `src/permissions.rs:449-460`). The shell runs under Heron's normal Seatbelt profile, with the egress allowlist and protected paths from P-5.
 *   **Prompt:** a fixed repair prompt (new Trusted `PromptSource::Repair`). It gives the trigger's fields and says "Fix the cause; add a test under `tests/`, `macos/HeronMac/Tests/` or `crates/heron-ext/tests/` that fails before your fix; don't edit existing tests". It lists the auto-eligible paths as advice; the fence decides.
 *   **Model:** the HQ6 provider through `cli_llm`, so all five CLI containment invariants hold (`src/cli_llm.rs:30-50`).
 *   **Retries:** up to 3 attempts. Attempts 2 and 3 get the previous gate failure: the failing step's last 60 lines. That is Harness²'s actionable retry feedback, and the text is trusted because it is Heron's own gate output on trusted code.
@@ -336,16 +387,16 @@ The agent's own test runs are only a guide, because about 27 tests fail under th
 
 ### 3. The fence: what may install itself
 
-The fence lives in `src/harness2/fence.rs` as constants, compiled into the installed binary. The running Heron checks it, through `heron-cli selfheal check-fence <base> <fix>`, against the exact commit that is then gated (and in Phase 2, built and installed). The worktree's copy of `fence.rs` is never used. `src/harness2/**` is fenced, so a fix can't widen the fence.
+The fence lives in `src/harness2/fence.rs` as constants, compiled into the installed binary. The running Heron checks it against the exact commit that is then gated (and in Phase 2, built and installed), with `/Applications/Heron.app/Contents/MacOS/heron-cli selfheal check-fence --repo <path> <base> <fix>`. The worktree's copy of `fence.rs` is never used. `src/harness2/**` is fenced, so a fix can't widen the fence.
 
 **Auto-eligible paths.** Every changed path must match one of these:
 
-*   `macos/HeronMac/Sources/HeronUI/Tokens/**` and `macos/HeronMac/Sources/HeronUI/Avatar/**`. These are display-only and reference no store, client or `URLSession` (checked by R7).
+*   `macos/HeronMac/Sources/HeronUI/Tokens/**`. These are design tokens. No file there imports `HeronCore` or names a store (checked by R7). `Avatar/**` is left out, because `AvatarStateMachine.swift` imports `HeronCore`.
 *   `macos/HeronMac/Tests/**`
 *   `src/schedule.rs`, `src/events.rs` and `src/embed.rs`. Lines inside their `#[cfg(test)]` modules may only be added (R1).
 *   `tests/**`, except `tests/fixtures/**`.
 *   Self-written connectors, under R6:
-    *   `crates/heron-ext/src/<name>.rs`, one connector per run;
+    *   `crates/heron-ext/src/registry/<name>.rs`, one connector per run;
     *   `crates/heron-ext/connectors/<name>.toml`;
     *   `crates/heron-ext/src/registry.rs`;
     *   `crates/heron-ext/tests/**`.
@@ -358,56 +409,84 @@ The fence lives in `src/harness2/fence.rs` as constants, compiled into the insta
 *   **Evaluation, build and project files:** `eval/**`, `scripts/**`, `packaging/**`, `.github/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, any `build.rs`, `Package.swift`, `*.plist` and `*.entitlements`.
 *   **Docs:** all of `docs/**`. A docs-only fix changes nothing that runs, so it is a PR with no install.
 
-**Content rules.** A broken rule makes the verdict "needs owner".
+**Content rules.** A broken rule makes the verdict "needs owner". R2 and R5 work differently, as their entries say.
 
 *   **R1, tests are add-only.** In `tests/**`, `macos/HeronMac/Tests/**`, `crates/heron-ext/tests/**` and the `#[cfg(test)]` modules of the three core files, the diff removes no lines.
-*   **R2, the regression test bites.** At least one new test file exists. The gate copies only the new test files onto a checkout of `base`, which must still compile, and runs them: they must **fail** there and **pass** on `fix`.
-    *   A fix whose test needs a new API can't meet R2, so its verdict is "needs owner".
-    *   A run that only adds a **new** connector meets R6's test rule instead, because its tests can't compile on `base`.
-*   **R3, no deletions, renames or binary files.**
-*   **R4, a size cap.** At most 400 changed lines, or 800 for a new connector.
-*   **R5, a clean redaction scan.** The existing secret redaction (`src/util.rs`) finds nothing in the diff.
+    *   A line is inside a `#[cfg(test)]` module if it comes after the line `#[cfg(test)]` in that file on `base`.
+    *   In those three files, the test module is the last item, as it is today.
+*   **R2, the regression test bites.** At least one new test file exists. The gate decides this rule, in step 2 (§4), because it needs the code to be built and run.
+*   **R3, no deleted files, renames, mode changes or binary files.** Deleted lines are fine.
+*   **R4, a size cap.** Added plus removed lines must total at most 400, or 800 for a new connector.
+*   **R5, the redaction scan.** The existing secret redaction (`src/util.rs`) runs over the diff, the commit message and the PR body. A hit is **decision-table row 0** (never pushed), not a "needs owner" verdict.
 *   **R6, connector rules:**
-    *   **The registry.** `registry.rs` matches a whole-file regex: only `mod <name>;` lines and one `connectors![…]` list.
-    *   **Banned tokens.** Once comments and string literals are stripped, a connector file contains none of these:
-        *   `unsafe`, `extern`, `#[link`, `include_str!`, `include_bytes!`, `env!`, `option_env!`, `asm!`;
-        *   `std::process`, `std::fs`, `std::net`, `std::os`, `std::env`;
-        *   `tokio::`;
-        *   `::heron`;
-        *   `crate::` other than `crate::registry`;
-        *   `super::super`.
-    *   **The manifest.** It validates against `heron-ext-api`'s schema:
-        *   **Hosts:** HTTPS DNS names only, with no IP literals, `localhost` or `.local`, checked with the same rules as `connectors::validate`.
-        *   **Operations:** each is `read` or `write`.
-        *   **Auth:** `none` or `api_key`. An `oauth` connector is never auto-eligible (HQ14).
-    *   **Tests.** At least one test replays recorded responses through `heron-ext-api`'s test transport, and it passes.
-*   **R7, display-only Swift.** In `Tokens/**` and `Avatar/**`, no added line mentions `CoreClient`, `CoreClientProtocol`, `AppModel`, any identifier ending in `Store`, `URLSession`, or any method declared in `HeronCore/CoreClientProtocol.swift` at `base`.
-*   **R8, no conflict with an open self-heal PR.** If an open self-heal PR touches the same files, the verdict is "needs owner".
+    *   **The registry.** `registry.rs` matches a whole-file regex: only `pub mod <name>;` lines and one `heron_ext_api::connectors![<name>::Connector, …];` invocation.
+    *   **Allowed `use` paths.** A connector file may `use` only `heron_ext_api::…`, `serde::…`, `serde_json::…`, `super::…` (one level), and these items from `std`: `std::collections`, `std::fmt`, `std::time::Duration`, `std::sync::Arc` and `std::str`.
+    *   **Banned tokens.** A Rust-token scan over the whole file, after comments and literals are stripped, finds none of these:
+        *   any fully qualified path starting `std::` or `core::` outside the allowed `use` items;
+        *   `extern`, `unsafe`, `#[link`, `#[path`;
+        *   `include_str!`, `include_bytes!`, `env!`, `option_env!`, `asm!`, `global_asm!`;
+        *   `::heron`, `crate::` other than `crate::registry`, `super::super`, and `use std as` or any `as` alias of a crate.
+    *   **Nothing re-exported.** `heron-ext-api` re-exports nothing from `reqwest`.
+    *   **The manifest.** It validates with `heron_ext_api::validate_manifest`:
+        *   **hosts** are HTTPS DNS names, lowercase, with at least one dot. Never IP literals, `localhost`, or names ending in `.local` or `.internal`, and no port, userinfo, path or query. These are the same rules as `connectors::validate`, which moves into `heron-ext-api` so that both use one copy;
+        *   **operations** each have a `kind` of `read` or `write`;
+        *   **auth** is `none` or `api_key`. An `oauth` connector is never auto-eligible (HQ14).
+    *   **Tests.** At least one test replays recorded responses through `heron-ext-api`'s test transport. The gate runs it.
+*   **R7, display-only Swift.** For files in `Tokens/**`, a Swift-identifier tokeniser (whole identifiers, not substrings) finds in the **whole file** after the change:
+    *   no `import HeronCore`;
+    *   no identifier declared in any file under `HeronCore/` at `base`. The list of declared types and functions comes from the regex `(class|struct|enum|protocol|func|actor)\s+(\w+)`;
+    *   no identifier ending in `Store` or `Client`;
+    *   no `URLSession`.
+*   **R8, no conflict with an open self-heal PR.** The changed files of open self-heal PRs are recorded in `selfheal.db` (`runs.files_json`) when each PR opens. A fix that touches any of them gets "needs owner". There is no network call during the check.
 
 ### 4. The self-heal gate
 
-`scripts/verify-selfheal.sh <base> <fix> <worktree>` runs as a child process of Harness2, outside any sandbox (HQ2), and only for trusted runs. It stops at the first failure. Which steps run depends on what the diff touches:
+`scripts/verify-selfheal.sh <base> <fix> <worktree>` runs as a child process of Harness2, outside any sandbox (HQ2), and only for trusted runs. Before step 1, it checks the Rust toolchain binaries' hashes (P-5) and refuses to start on a mismatch.
+
+The path sets are:
+
+*   **"Rust changed":** any changed path under `src/`, `tests/` or `crates/`;
+*   **"Swift changed":** any changed path under `macos/`.
+
+The gate stops at the first failing step, with one exception: step 1's verdict never stops it.
 
 | Step | Runs when | Command |
 |---|---|---|
-| 1. Fence | always | `heron-cli selfheal check-fence <base> <fix>`. It uses the installed binary and records the verdict. Later steps run either way |
-| 2. R2 | always | Copy the new test files onto `base`. They must fail there and pass on `fix` |
-| 3. Swift | anything under `macos/` changed | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac` |
-| 4. Rust | anything under `src/`, `tests/` or `crates/` changed | `cargo test --locked`, `cargo test --locked --features desktop --bin heron-desktop`, `cargo clippy --locked --all-targets -- -D warnings` |
+| 1. Fence | always | The installed `heron-cli selfheal check-fence --repo <worktree> <base> <fix>`. It records the verdict |
+| 2. R2 | always, except a run that only adds a new connector (R6's test rule applies instead) | See the R2 outcomes below |
+| 3. Swift | Swift changed | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac` |
+| 4. Rust | Rust changed | `cargo test --locked --workspace`, `cargo test --locked --features desktop --bin heron-desktop`, `cargo clippy --locked --workspace --all-targets -- -D warnings` |
 | 5. Mutation | Rust changed | `testteeth run --base <base> --fail-under 70 -q` (v1's threshold) |
 | 6. Containment | Rust changed | `python3 -I eval/containment/check.py` (v1's G4) |
-| 7. G7 smoke | Rust changed | One run of each gate task and p1 on the active Tier 1 CLI, on **both** `base` and `fix`, through `eval/run-core-tasks.sh --runs 1` |
-| 8. App build (Phase 2) | the fix will install | `build-app.sh --no-dmg --host-arch` in the default signing mode, with `CODESIGN_IDENTITY` set, then `packaging/macos/upgrade-test.sh` if Rust changed |
+| 7. G7 smoke | Rust changed | Run on both commits, below |
+| 8. App build (Phase 2) | the fix will install | `build-app.sh --no-dmg --host-arch` in the default signing mode with `CODESIGN_IDENTITY` set, then `packaging/macos/upgrade-test.sh` if Rust changed |
 
-Step 7's comparison works like this:
+**R2 outcomes.** The gate makes a checkout of `base` in `runs/<id>/base` and copies only the new test files into it. It then compiles them with `cargo test --locked --workspace --no-run`, or `swift build --build-tests` for Swift tests. Finally it runs them, with `cargo test --locked --test <file stem>` or `swift test --filter <TestClass>`.
+
+| On `base` | On `fix` | Result |
+|---|---|---|
+| Compiles, and the new tests fail | The new tests pass | R2 passes |
+| Compiles, and the new tests pass | — | **Gate failure**: the test doesn't catch the bug. Retry |
+| Doesn't compile (the test needs a new API) | The new tests pass | Verdict "needs owner". The gate continues |
+| — | The new tests fail | Gate failure. Retry |
+
+**Step 7, the G7 smoke.** Both `base` and `fix` get a `cargo build --locked --release` into their own target folders. The `base` build happens only when its result isn't already cached. Then:
+
+```text
+bash eval/run-core-tasks.sh --provider <active Tier 1 CLI> --runs 1 --driver eve \
+  --tasks t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,p1 \
+  --heron-bin <commit>/target/release/heron --out ~/.heron/selfheal/g7/<cli>/<commit>
+```
 
 *   Every task that passes on `base` must pass on `fix`. A failure there is run once more, and a second failure fails the gate.
-*   t09, t10 and p1 must pass on `fix`.
-*   The `base` results are cached by commit in `~/.heron/selfheal/g7-base/<cli>/<commit>.json`, so they run once per installed build.
+*   `t09`, `t10` and `p1` must pass on `fix`.
+*   The `base` result is cached in `~/.heron/selfheal/g7/<cli>/<base>/summary.json`, so it runs once per installed build.
 
 This compares a candidate with its own base, the way anchor-harness's promotion gate does. It is a new rule in a fenced script, and it doesn't touch `check_gate.py`.
 
-The gate writes `gate-report.json` to the run folder. For each step it records the exit code, the duration and the last 60 lines.
+**Git hooks.** Every `git` call that Harness2 makes passes `-c core.hooksPath=/dev/null`, so a hook can't run, even if a protected-path check failed to catch one.
+
+The gate writes `gate-report.json` (see [Contracts](#11-contracts)).
 
 #### What the gate does not prove
 
@@ -433,7 +512,7 @@ Each tick, Heron checks open self-heal PRs with `gh pr view --json state` and re
 **Scout.** The scout keeps its own timer. `schedule.rs` can't express 72 hours: `every 72h` fails with "does not divide evenly" (`src/schedule.rs:250-256`).
 
 *   **Config:** `[harness2] scout_every_hours` is 24, 72 or 168.
-*   **Trigger:** `App::run_due_schedules` (`src/app.rs:1483`) calls `harness2::scout_due()`, under pause and the Q6 hold.
+*   **Trigger:** step 4 of `Harness2::tick` (below).
 *   **Fetching:** through the existing `tools::web::get_limited` (`src/tools/web.rs:76`), which already guards against server-side request forgery and caps body size, plus a host allowlist in `src/harness2/scout.rs`: `api.github.com`, `hn.algolia.com`, `export.arxiv.org`, `www.anthropic.com`, `openai.com` and `deepmind.google`.
 *   **Parsing:**
     *   GitHub and Hacker News return JSON.
@@ -442,18 +521,39 @@ Each tick, Heron checks open self-heal PRs with `gh pr view --json state` and re
     *   **Input:** each item, with an `item_id`, wrapped as untrusted content (`src/agent.rs:692-702`).
     *   **Output:** JSON of the form `[{item_id, harness_part, why, effort}]`, at most 10 entries.
     *   **Validation:** each `item_id` must be one that was fetched. Links and titles on notes come from the fetched data, never from the model.
-*   **Output:** each candidate becomes an inbox note through the existing `Store::add_inbox` (`src/store.rs:1283`), titled "Idea from the web: …". Seen URLs are recorded in `selfheal.db`. The scout writes no memory, skill, setting, schedule or code.
+*   **Output:** each candidate becomes an inbox note through `Store::add_inbox` (`src/store.rs:1283`), titled "Idea from the web: …". Seen URLs are recorded in `selfheal.db`. The scout writes no memory, skill, setting, schedule or code.
+
+**`Harness2::tick`.** It runs every minute from the app's scheduler loop, next to `run_due_schedules`, but it doesn't run inside that function, which returns early while paused (`src/app.rs:1483-1486`). It has five steps, each with its own gating:
+
+| Step | Runs while paused? | Held by Q6? |
+|---|---|---|
+| 1. Poll open self-heal PRs (`gh pr view`) | yes | no (no model call) |
+| 2. Start a queued owner report or connector request | no | no: these are attended (HQ3) |
+| 3. Start a queued failure-record trigger | no | yes: becomes a row-6 inbox note |
+| 4. Run the scout, if due | no | yes. While held, it runs the next time the app connects to `GET /api/events` |
+| 5. Prune old worktrees and branches (7 days) | yes | no |
+
+**Inbox actions.** The inbox table gains an `action` column (JSON, nullable), and `add_inbox` gains an optional action. The app shows a button for each action kind:
+
+| Action kind | Button | Route |
+|---|---|---|
+| `start_trigger` | Start | `POST /api/harness2/triggers/{id}/start` |
+| `rerun_trigger` | Run again | `POST /api/harness2/triggers/{id}/start` |
+| `open_url` | Open PR | none (opens the link) |
+
+The scout's notes have no action.
 
 **Storage.** `~/.heron/selfheal/selfheal.db` is separate from `heron.db`. It has these tables:
 
 *   `triggers(id, kind, fields_json, state, attempts, created_at)`
-*   `runs(id, trigger_id, base, branch, verdict, gate_report_sha256, pr_url, pr_state)`
+*   `runs(id, trigger_id, base, branch, verdict, files_json, gate_report_sha256, pr_url, pr_state)`
 *   `scout_seen(url_sha256, first_seen)`
+*   `replay(commit, passed, total, auto_eligible, ran_at)`, written by `run_replay.py` through `heron-cli selfheal record-replay`. The core refuses to start any repair while `self_healing = true` and there is no row for the installed commit's merge base with `main` where `passed` reaches HQ10. That holds even if `config.toml` is edited by hand.
 *   Phase 2: `installs(commit, previous_commit, installed_at, state)`. This follows anchor-harness's version store, which keeps a history with rollback to an exact version (`crates/harness-core/src/versions.rs:31`, `:122`). Here the git commit is the version.
 
 Only `rusqlite` is used.
 
-**Failure records.** They come from the existing panic hook in `src/main.rs:714-722`, which is extended rather than duplicated, and from the existing core-exit and migration error paths. They take the hook's location (`file:line`) and no message text.
+**Failure records** are written as the producer table in §1 describes.
 
 **Report files.** `.heronreport` is plain JSON with a `schema` field. No zip, so no new dependency.
 
@@ -477,7 +577,17 @@ A crate boundary and R6 enforce them; the prompt doesn't.
 
 **`crates/heron-ext-api`** (fenced) defines what a connector can do:
 
-*   **The trait:** `trait Connector { fn manifest() -> Manifest; async fn call(op: &str, args: Value, ctx: &Ctx) -> Result<Value> }`.
+*   **The trait:**
+
+    ```text
+    #[async_trait] pub trait Connector: Send + Sync {
+        fn manifest(&self) -> Manifest;
+        async fn call(&self, op: &str, args: serde_json::Value, ctx: &Ctx) -> Result<serde_json::Value, ExtError>;
+    }
+    ```
+
+    `ExtError` is `{ message: String }`.
+*   **The registry macro:** `connectors![a::Connector, b::Connector]` expands to `pub fn all() -> Vec<Box<dyn Connector>>`, which returns one `Box::new(a::Connector)` per type.
 *   **`Manifest`:** `{name, title, hosts, auth: none | api_key {header, scheme} | oauth {…}, ops: [{name, kind: read | write, description, params}]}`, where `params` is a JSON Schema.
 *   **`Ctx::http()`** returns a client with these limits:
     *   it reaches only the manifest's hosts, over HTTPS;
@@ -490,17 +600,30 @@ A crate boundary and R6 enforce them; the prompt doesn't.
 **`crates/heron-ext`** holds the connectors:
 
 *   Its `lib.rs` (fenced) is `#![forbid(unsafe_code)] pub mod registry;`.
+*   Each connector lives at `src/registry/<name>.rs`. `src/registry.rs` lists them with `pub mod <name>;` and one `connectors![…]` invocation.
 *   Its `Cargo.toml` (fenced) depends only on `heron-ext-api`, `serde`, `serde_json` and `async-trait`.
 *   With no `reqwest` or `tokio`, and with R6's bans, a connector's only way to the network is `Ctx::http()`.
 
-**The adapter, `src/ext.rs`** (new, fenced), handles each entry in `heron_ext::registry` at startup:
+**The adapter, `src/ext.rs`** (new, fenced), handles each connector in `heron_ext::registry::all()` at startup:
 
 1.  It validates the manifest again in the core. A connector that fails isn't registered, and Settings says why.
 2.  It registers one tool per operation, `ext_<name>_<op>`. The effect is set by the adapter, never by the connector: `NetworkEgress` for `read` (the arguments are model-composed) and `ExternalWrite` for `write`. Every tool has `untrusted_output = true`, so its output is wrapped as outside content and taints (`src/agent.rs:692-702`).
-3.  It returns `Ask` for an operation until the owner has approved it 3 times (HQ13). The count is kept in kv as `ext_approvals:<name>:<op>`.
+3.  **First uses ask (HQ13).** A new check, `permissions::ext_first_use`, is added to `Policy::decide` directly after the protective rules (Forbidden, deny rules, ReadOnly, Refused, secrets, taint) and before the convenience rules (`src/permissions.rs:398`).
+    *   For a tool named `ext_*` whose kv counter `ext_approvals:<name>:<op>` is below 3, it returns `Ask` in every mode, Yolo included, and no standing rule or grant for the conversation covers it.
+    *   The counter goes up by 1 each time the owner answers with the `once` decision in the app (`src/server.rs:630`). A denial doesn't count, and nothing else increments it.
+    *   At 3, the normal decision function applies.
 4.  It registers a context source, `ext:<name>`, with `src/sources.rs`, so "learn" works.
 5.  It adds a card, category "Written by Heron", to `connectors::list`. The key goes through the existing keychain path (`connectors::put_api_key`, `POST /api/connectors/custom/{id}/api-key`), and the owner types it in Settings. Heron never asks for it in chat, never types it and never invents it.
 6.  It runs each call in a spawned task with a 30-second timeout.
+
+**The connector offer (HQ15).** Heron's reply can't carry a trusted trigger: model text is not the owner's words.
+
+*   The offer is a new tool, `offer_connector{service, ops: [{name, kind}]}`, with effect `LocalStateWrite`, available only in untainted sessions.
+    *   `service` must match `^[a-z][a-z0-9_]{1,30}$`.
+    *   Each op name must match `^[a-z][a-z0-9_]{1,40}$`, and there are at most 8 ops.
+*   The app shows the offer as a card with **Build it** and **No**. **Build it** calls `POST /api/harness2/connector-request` with the session id and the offer id.
+*   The server checks again that the session is untainted, then queues a trusted trigger whose fields are the validated `service` and `ops`.
+*   The trusted part is the owner's click on a card whose content is checked against those patterns. No free text from the model crosses into the trigger.
 
 **Trust-table changes, made once by this doc.**
 
@@ -527,6 +650,16 @@ The PR and the connector card list its hosts and operations.
 6.  Workflow learning, which needs at least one of switches 1 to 5
 
 The first time a switch is turned on, a plain consent screen appears, and `observe_consent:<switch>:<version>` is recorded. A new consent text asks again.
+
+**What each switch turns on:**
+
+| Switch | Observer | sealbox `append` | sealbox `serve` as an MCP server (agent access) | Daily jobs and suggestions |
+|---|---|---|---|---|
+| 1 to 5, any one on | that observer | on | off | off |
+| 6. Workflow learning (needs one of 1 to 5) | — | — | **on** | **on** |
+| All off | none | stopped | unregistered | none |
+
+So the agent can query the vault only while Workflow learning is on.
 
 **Observers.** They live in `macos/HeronMac/Sources/HeronCore/Observers/` (fenced), because macOS grants privacy permissions to the app. Each observer asks for its permission only through the system prompt. If the owner refuses, it stops and says so in Settings.
 
@@ -557,33 +690,45 @@ The phone can pause observers but can't turn them on.
 The integration works like this:
 
 1.  **Install.** Settings › Observation › Install sealbox runs `uv tool install git+https://github.com/fernandogarzaaa/sealbox@<commit>`, with the commit pinned in fenced `src/observe/sealbox.rs`. The owner clicks to start it.
-2.  **Key.** The core generates the master key, stores it in the macOS keychain, and passes it only to sealbox child processes as `SEALBOX_MASTER_KEY`, which sealbox already reads. No keyfile is ever written.
-3.  **Ingest.** Observers post batches to `POST /api/observe/ingest` (loopback, bearer token). The core keeps nothing: it streams each batch to a `sealbox append` child, which writes encrypted hourly segments to `~/.heron/observe/vault`. Raw observations never touch `heron.db`, its backups, the event bus or the logs.
+2.  **Key.** The core generates the master key and stores it in the macOS keychain. It passes the key only to sealbox child processes, by putting `SEALBOX_MASTER_KEY` in the child's environment when it spawns that child. sealbox already reads that variable. The key never goes into `config.toml`, and no keyfile is ever written.
+3.  **Ingest.** Observers post batches to `POST /api/observe/ingest` (loopback, bearer token). The core keeps nothing: it streams each batch to a `sealbox append` child, which writes encrypted hourly segments to `~/.heron/observe/vault`. Raw observations never touch `heron.db`, its backups, the event bus or the logs. The existing `observations` table in `heron.db` (`src/store.rs:239-241`) keeps holding only v1's working-folder file events, and Harness2 never writes to it.
 4.  **Sandbox.** Every sealbox child runs under a Heron Seatbelt profile. It has no network, can read and write only `~/.heron/observe/`, and can read the `uv` tool environment (HQ16).
-5.  **Agent access.** `sealbox serve --tools list_datasets,describe_dataset,run_sql,get_result,budget_status` is registered as an MCP server with `trust = "outside"`, so its output taints through the existing MCP path (`src/mcp.rs`). `run_python` is off.
-6.  **Policy.** It comes from the `observation` template:
-    *   OCR and keystroke text columns are `aggregate_only`. They can be filtered (`WHERE text LIKE '%invoice%'`) and counted, but never read.
-    *   App, title and host columns are `public`.
-    *   Differential privacy is off, because the only person in the data is the user asking. The raw-value and fingerprint checks stay on.
-7.  **Fixed jobs.** `src/observe/jobs.rs` (fenced) runs once a day:
+5.  **Agent access.** While switch 6 is on, `observe::sealbox` registers `sealbox serve --tools list_datasets,describe_dataset,run_sql,get_result,budget_status` with the MCP manager at runtime. It is never written to `config.toml`, and it is registered with `trust = false` (`McpServerConfig.trust` is a bool, `src/config.rs:252-257`). Untrusted MCP output taints through the existing path (`src/mcp.rs:162-172`). `run_python` is off.
+6.  **Policy.** It comes from the `observation` template, over these datasets:
+    *   `screen(ts, app, title, text)`
+    *   `apps(start, end, app, bundle_id, title)`
+    *   `web(ts, host, title)`
+    *   `keys(minute, app, text)`
+    *   `files(ts, path, event)`
+
+    The `text` columns are `aggregate_only`. They can be filtered (`WHERE text LIKE '%invoice%'`) and counted, but never read. `app`, `bundle_id`, `title`, `host`, `path` and `event` are `public`. Differential privacy is off, because the only person in the data is the user asking. The raw-value and fingerprint checks stay on.
+7.  **Fixed jobs.** `src/observe/jobs.rs` (fenced) runs four SQL queries once a day, with **no model call**:
     *   time per app;
     *   app sequences seen on 3 or more days, with `k_min = 3` and `day` as the entity, so one moment never comes out as a workflow;
     *   documents touched;
     *   site visits per host.
 
-    The results are saved as memories with the source `observation`, which is outside, so they start unconfirmed. This uses the existing reflect path (`src/app.rs:1840-1875`).
-8.  **Workflow to automation.** A repeated sequence becomes a suggestion through the existing `Store::add_suggestion` (`src/store.rs:1600`). Its `session_id` is a new tainted session holding the derived result, and its prompt is fixed text: "Create an automation for the routine in this conversation."
-    *   Accepting it continues that tainted session (`answer_suggestion` returns the `session_id`, `src/server.rs:1606-1615`).
-    *   `save_automation` then asks for approval as usual.
-    *   This is how workflow learning feeds self-evolution: as untrusted proposals only.
-9.  **Retention.** Each day, `sealbox prune --older-than 14d` runs, and `observation` memories older than 90 days are deleted.
-10. **Forget everything observed.** It stops every observer, deletes `~/.heron/observe/`, the keychain key, every `observation` memory, and every suggestion that came from observation. It then reports the counts.
+    Each result row is rendered into a fixed sentence template and saved with `memory.save(text, "fact", "observation", 0.4, "observation")` (its arguments are content, kind, tags, importance and source: `src/memory.rs:247`). The source `observation` is new and outside. It is separate from v1's `observed` source, which ambient reflection uses for working-folder insights (`src/app.rs:1836-1879`). Keeping them apart lets "Forget everything observed" delete exactly what observation produced.
+8.  **Workflow to automation.** A repeated sequence becomes a suggestion.
+    *   **Schema change.** `suggestions` gains an `origin` column (`'proactive'` or `'observation'`, default `'proactive'`), and `add_suggestion` gains `origin` and `session_id` arguments. This is a fenced `store.rs` change, approved here.
+    *   **The session.** Its `session_id` is a new session marked tainted, holding the derived sentence. Its prompt is fixed text: "Create an automation for the routine in this conversation."
+    *   **Accepting.** Accepting continues that tainted session (`answer_suggestion` returns its `session_id`, `src/server.rs:1606-1615`), and `save_automation` asks for approval as usual.
+
+    This is how workflow learning feeds self-evolution: as untrusted proposals only.
+9.  **Retention.** Each day, `sealbox prune --older-than 14` runs (days), and `observation` memories older than 90 days are deleted.
+10. **Forget everything observed.** It stops every observer and both sealbox children, then deletes:
+    *   `~/.heron/observe/`;
+    *   the keychain key;
+    *   every memory with the source `observation`;
+    *   every suggestion with `origin = 'observation'`, together with its session.
+
+    It reports the counts.
 11. **Indicator.** While any observer is on, the menu bar icon shows a dot. Its menu starts with "Pause observing" (for 1 hour, or until resumed) and "Observation settings…".
 
 **Where sealbox falls short** (its README and source at `c863992`):
 
 *   **It captures nothing.** All five observers are new Heron code.
-*   **It only ingests whole datasets** (`Vault.ingest`, `src/sealbox/vault.py:268`). There is no append or prune. Heron needs three additions in sealbox's repository first (P-4): `sealbox append`, `sealbox prune` and `sealbox serve --tools`.
+*   **It only ingests whole datasets** (`Vault.ingest`, `src/sealbox/vault.py:268`). There is no append or prune. Heron needs four additions in sealbox's repository first (P-4).
 *   **Its sandbox is Linux-only.** On macOS it falls back to an audit hook. Heron's Seatbelt profile and turning `run_python` off cover this.
 *   **It has no summariser inside the vault.** Text comes out only as counts and filtered aggregates (Overview, fact 4).
 *   **Its privacy tools assume many people.** k-anonymity and DP are repurposed here, with days as entities and DP off.
@@ -596,19 +741,20 @@ The integration works like this:
 
 ### 9. Phase 2: install and rollback
 
-These invariants hold, and the steps are in implementation item 21:
+These invariants hold. The step-by-step design is the Phase 2 design delta, which is still to be written:
 
 *   **The old code judges the new.** The swapper is a copy of the old `heron-cli`, taken before the swap and started detached (`setsid`), so it outlives both the app and its core.
 *   **Exactly one launchable Heron.app.** The previous app is kept only as one zip in `~/.heron/selfheal/previous/`.
 *   **No install while work is in progress:** no install during an active run, a waiting approval, or a pause.
 *   **The health check decides.** The new core must:
+    *   write its port file within 90 seconds of the relaunch;
     *   answer `GET /api/state` with the expected `commit`;
     *   report `risk_notice_accepted` unchanged;
     *   pass `heron-cli audit`;
     *   keep its `PRAGMA user_version` unchanged;
-    *   still be running 30 seconds later.
+    *   still be running 30 seconds after it first answered.
 
-    If it fails, the swapper restores the zip, relaunches, and turns auto-install off.
+    If any of these fails, the swapper restores the zip, relaunches, and turns auto-install off.
 *   **A crash in the middle is recovered.** A one-row `swap_intent` marker in `selfheal.db` is written before the swap and cleared after the health check. At startup, a marker whose commit doesn't match the installed one restores the zip.
 *   **Data:** `store.rs` is fenced, so a self-fix can't migrate data. The existing pre-migration snapshot (`heron-before-upgrade-from-vN`) covers the "Return to main" path.
 
@@ -617,30 +763,99 @@ These invariants hold, and the steps are in implementation item 21:
 *   **Undo last self-fix** unzips the previous app and runs the health check. It is unavailable when `user_version` differs.
 *   **Return to main** builds `origin/main`, code the owner has already merged, with step 8 of the gate only, then runs the swap and the health check.
 
-### 10. Changes to v1 code, and the definition of done
+### 10. Changes to fenced files, and the definition of done
 
-This doc is the owner approval these changes to fenced files need:
+This doc is the owner approval for every change below. Each is a file the fence protects, so a later self-change can't touch it. This is the complete list for Phase 1.
 
-*   **`GET /api/state`** gains `commit`, from `option_env!("HERON_COMMIT")`, which `build-app.sh` sets. Without it the value is `"unknown"`.
-*   **`build-app.sh`** gains `--no-dmg` and `--host-arch`. Its default mode drops `--deep` and adds `--options runtime`.
-*   **`App::assemble`** gains a tool filter.
-*   **`run_due_schedules`** calls `harness2::tick()` and the scout.
-*   **The panic hook** in `main.rs` writes failure records.
-*   **`ContentEntry`** gains `OwnerReport`, `FailureRecord`, `ConnectorOutput` and `ObservationResult`. That enum comes from the features base B2 (precondition P-1).
-*   **`memory.rs`** gains the `ext:` prefix rule and the `observation` source (§7).
+| File | Change | Item |
+|---|---|---|
+| `Cargo.toml`, `Cargo.lock` | The workspace with the two new crates | P-6 |
+| `src/lib.rs` | `pub mod harness2; pub mod ext; pub mod observe;` | P-6 |
+| `src/config.rs` | The `[harness2]` and `[observe]` tables | 14 |
+| `src/main.rs` | The `selfheal` and `report` subcommands. The panic hook calls `harness2::record_panic` | 14 |
+| `src/server.rs` | `commit` in `GET /api/state`, the `/api/harness2/*` and `/api/observe/*` routes, and failure records on 500 errors | 15, 19 |
+| `src/app.rs` | The tool filter in `App::assemble`, the `Harness2::tick` call in the scheduler loop, and a counter of active tainted sessions | 16 |
+| `src/agent.rs` | `PromptSource::Repair`, the four `ContentEntry` variants, and the `offer_connector` tool | P-6, 16 |
+| `src/permissions.rs` | `ext_first_use` in `Policy::decide` (§7), and `DenyAll` usable outside tests | 17 |
+| `src/memory.rs` | `is_outside()`, covering the `ext:` prefix and `observation` | 17 |
+| `src/sources.rs`, `src/connectors.rs` | `ext:<name>` sources and cards. The host-validation rules move to `heron-ext-api` | 17 |
+| `src/mcp.rs` | Registering the sealbox server at runtime, with no config entry | 19 |
+| `src/sandbox.rs` | The `observe` Seatbelt profile | 19 |
+| `src/store.rs` | The inbox `action` column and the suggestions `origin` column, as one migration with a version bump | 16, 19 |
+| `src/ext.rs`, `src/harness2/**`, `src/observe/**` | New | 1-10, 17, 19 |
+| `packaging/macos/build-app.sh` | `HERON_COMMIT`, `--no-dmg`, `--host-arch` and the signing mode (no `Info.plist` change unless P5 shows one is needed) | 22 |
+| `eval/selfheal/**`, `scripts/verify-selfheal.sh` | New | 20, 21 |
+| `macos/HeronMac/**` | The panes, observers, inbox buttons and offer card | 23, 24 |
+| `docs/engineering/SECURITY_THREAT_MODEL.md` | Two sections | 25 |
 
 The v1 features doc's eight checks ([heron-v1-features.md](heron-v1-features.md#the-extended-definition-of-done)) apply as follows:
 
 | Check | Harness2 |
 |---|---|
-| 1. New tools | `ext_<name>_<op>` per connector operation (`NetworkEgress` or `ExternalWrite`, untrusted output), and sealbox's MCP tools (trust `outside`). The repair profile reuses existing tools |
+| 1. New tools | `ext_<name>_<op>` per connector operation (`NetworkEgress` or `ExternalWrite`, untrusted output); `offer_connector` (`LocalStateWrite`, untainted sessions only); and sealbox's MCP tools (`trust = false`, so they taint). The repair profile reuses existing tools |
 | 2. Decision-table rows | `decision_table_selfheal`, `decision_table_repair_profile` and `decision_table_ext_tools` |
 | 3. Prompt blocks | `PromptSource::Repair` (Trusted). Scout items, connector output and sealbox output are Outside |
 | 4. EVE | Report a problem on a preview build: a file is written and nothing is sent. Turn on App use: consent, indicator and Pause work |
 | 5. Content entries | `OwnerReport` and `FailureRecord` (trusted); `ConnectorOutput` and `ObservationResult` (tainting). Imported reports and scout ideas are inbox notes only and never reach a model |
-| 6. Approval surfaces | The Self-improvement and Observation panes, consent screens, Report a problem, Import report, and the connector key field. App only. The phone can pause observers and nothing more |
-| 7. Processes outside the `shell` tool | Each has a fixed path, fixed argument shapes, and an environment of `PATH`, `HOME` and `TMPDIR`. They are: `git` (worktree, commit, push, ls-remote); `gh` (pr create, view, list, comment), with `GH_*` added; `cargo`; `swift`; `testteeth`; `python3 -I`; `bash scripts/verify-selfheal.sh`; and, in Phase 2, `build-app.sh` with `codesign`, `ditto`, `/usr/bin/open -a /Applications/Heron.app` and the swapper. Observation adds `uv tool install git+…@<pinned commit>`, and `sealbox append`, `serve` and `prune`, which run under Seatbelt with no network and get `SEALBOX_MASTER_KEY`. Model-written code runs unsandboxed only in the gate, for trusted runs (HQ2) |
+| 6. Approval surfaces | The Self-improvement and Observation panes, consent screens, Report a problem, Import report, inbox action buttons, the connector offer card, and the connector key field. App only. The phone can pause observers and nothing more |
+| 7. Processes outside the `shell` tool | Each has a fixed path, fixed argument shapes, and an environment of `PATH`, `HOME` and `TMPDIR`. They are: `git` (worktree, commit, push, ls-remote), always with `-c core.hooksPath=/dev/null`; `gh` (pr create, view, list, comment), with `GH_*` added; `cargo`; `swift`; `testteeth`; `python3 -I`; `bash scripts/verify-selfheal.sh`; and, in Phase 2, `build-app.sh` with `codesign`, `ditto`, `/usr/bin/open -a /Applications/Heron.app` and the swapper. Observation adds `uv tool install git+…@<pinned commit>`, and `sealbox append`, `serve` and `prune`, which run under Seatbelt with no network and get `SEALBOX_MASTER_KEY`. Model-written code runs unsandboxed only in the gate, for trusted runs (HQ2) |
 | 8. TCC | Observation adds Screen Recording, Accessibility, Input Monitoring and Full Disk Access, each requested only when its switch is turned on. Phase 2 needs HQ5 so that existing grants survive |
+
+### 11. Contracts
+
+**Enums:**
+
+*   **`triggers.kind`:** `owner_report`, `failure_record` or `connector_request`.
+*   **`triggers.state`:** `queued`, `held`, `running`, `retrying`, `waiting_limit`, `setup_failed`, `interrupted`, `cancelled`, `failed`, `pr_opened`, `redaction_blocked` or `installed`.
+*   **`runs.verdict`:** `auto_eligible` or `needs_owner`.
+*   **`runs.pr_state`:** `open`, `merged` or `closed`.
+
+**`gate-report.json`:**
+
+```json
+{"base": "<40 hex>", "fix": "<40 hex>", "verdict": "auto_eligible|needs_owner",
+ "reasons": ["R4: 512 lines"], "steps": [{"step": "rust", "ran": true, "exit": 0,
+ "seconds": 812, "tail": "<last 60 lines>"}], "r2": "passes|no_compile_on_base|catches_nothing|fails_on_fix|skipped_new_connector"}
+```
+
+**`.heronreport`:**
+
+```json
+{"schema": 1, "version": "1.0.0", "commit": "<hex>", "text": "<user text>",
+ "failures": [{"kind": "panic", "location": "src/x.rs:12", "count": 2}], "conversation": null}
+```
+
+**Observer ingest** (`POST /api/observe/ingest`):
+
+```json
+{"dataset": "apps", "rows": [{"start": 1763800000, "end": 1763800300, "app": "Mail",
+ "bundle_id": "com.apple.mail", "title": "Inbox"}]}
+```
+
+*   `dataset` is one of the five in §8. At most 500 rows, or 256 KB, per batch.
+
+**Routes:**
+
+*   **`GET /api/harness2`** returns:
+
+    ```json
+    {"self_healing": bool, "self_evolution": bool, "scout_every_hours": 24|72|168,
+     "builder": bool, "checklist": [{"item", "ok", "fix"}], "runs": [{"id", "state", "verdict", "pr_url"}]}
+    ```
+
+*   **`POST /api/harness2`** takes any subset of the three settings.
+*   **`POST /api/harness2/report`** takes `{"text", "attach_session"?, "publish_text": bool}`, and returns `{"trigger_id"}` or `409 {"error": "tainted_session"}`.
+*   **`GET /api/observe`** returns `{"switches": {...}, "consent": {...}, "sealbox": "missing|installed|running", "counts": {...}}`.
+*   **Errors** use the existing `{"error", "message"}` shape.
+
+**Config.** In `[harness2]`:
+
+*   `max_attempts = 3`
+*   `max_steps = 40`
+*   `max_tokens = 500000`
+*   `runs_per_day = 3`
+
+`publish_report_text = false` is the default for the report sheet's "OK to publish" tick. The tick decides, per report.
 
 ## Alternatives Considered
 
@@ -780,14 +995,28 @@ The model would return a diff from a read-only session, and the owner would revi
     *   **P2 (needed for Phase 2):** Do TCC grants and keychain items survive a switch between a release DMG and a Developer ID self-fix build, in both directions? What happens with an ad-hoc build?
     *   **P3 (needed for Phase 2):** Can a detached process started by the core outlive the app and the core, and rename `/Applications/Heron.app` without an admin prompt?
     *   **P4:** How long does `verify-selfheal.sh` take on a one-line Rust fix and on a one-line Swift fix?
+    *   **P5:** Do the Screen Recording, Input Monitoring, Accessibility and Full Disk Access prompts appear for an app with no usage-description strings in `Info.plist`? Apple documents no `Info.plist` key for these four permissions, so none is added unless P5 shows one is needed.
 *   **P-3.** The owner has answered, or accepted the defaults for, HQ1 to HQ5, HQ12, HQ16 to HQ18 and HQ22.
-*   **P-4. sealbox gains three additions in its own repository, as its own PR.** Its commit is then pinned. The additions are:
+*   **P-4. sealbox gains four additions in its own repository, as its own PR.** Its commit is then pinned. The additions are:
     *   `sealbox append <dataset> --kind events` (JSON lines on stdin, written as encrypted hourly segments);
     *   `sealbox prune --older-than <days>`;
     *   `sealbox serve --tools <list>`;
     *   an `observation` policy template.
 
     Its check is `python -m pytest -q && python eval/redteam.py`, with 0 leaks.
+*   **P-5. The review session's harness parts are merged, or their interfaces are fixed in their approved design doc.** Those parts are the effect journal, the loop guard, protected paths, the egress allowlist and the toolchain hash check (see [Definitions](#definitions)). Harness2 calls:
+    *   the effect journal's "ask again" hook, for interrupted runs;
+    *   the toolchain hash check, before the gate.
+
+    If that doc's interface names differ from the names used here, this doc is updated in the same change as the build.
+*   **P-6. A skeleton commit, made by hand by the build session before `skein run`, so that every unit compiles from the start.** It adds:
+    *   `[workspace] members = [".", "crates/heron-ext-api", "crates/heron-ext"]` and the path dependency `heron-ext` in `Cargo.toml`;
+    *   empty crates with their final `Cargo.toml` files;
+    *   the updated `Cargo.lock`;
+    *   `pub mod harness2; pub mod ext; pub mod observe;` in `src/lib.rs`, with empty modules;
+    *   `PromptSource::Repair`, the four `ContentEntry` variants as stubs, and the `App::assemble` tool-filter parameter (`None` everywhere).
+
+    Its check is `cargo build --locked --workspace && cargo test --locked --workspace --no-run`.
 
 ### Target Files to Create/Modify (Phase 1)
 
@@ -810,8 +1039,8 @@ The model would return a diff from a read-only session, and the owner would revi
 
 *   `const AUTO: &[&str]`, the globs from §3, using the existing `globset` crate.
 *   `fn check(repo: &Path, base: &str, fix: &str) -> FenceVerdict { AutoEligible, NeedsOwner(Vec<Reason>) }` applies the path rules and R1 and R3 to R8.
-*   **R7's banned identifiers** are read from `HeronCore/CoreClientProtocol.swift` at `base`, with the regex `func (\w+)`, plus the fixed names in §3.
-*   **R6's banned tokens** are checked after comments and string literals are stripped, with a small lexer for `//`, `/* */`, `"…"` and `r#"…"#`.
+*   **R7** uses a Swift identifier tokeniser that matches whole identifiers. Its banned set is every name declared under `HeronCore/` at `base` (the regex in §3), plus `import HeronCore`, identifiers ending in `Store` or `Client`, and `URLSession`.
+*   **R6** uses a Rust tokeniser that strips comments and literals (`//`, `/* */`, `"…"` and `r#"…"#`). It checks every `use` tree, with groups like `use std::{fs, process}` expanded, against the allowed paths. Then it scans the remaining tokens for the banned forms.
 *   **R2** is run by the gate, which reports the result back in `gate-report.json`.
 
 ##### 4. `src/harness2/repair.rs` (Create)
@@ -847,12 +1076,16 @@ The model would return a diff from a read-only session, and the owner would revi
 
 *   `trust.rs`:
     *   `decision_table_selfheal`
+    *   `redaction_hit_never_pushes`
+    *   `interrupted_run_asks_before_rerun`
+    *   `self_healing_refused_without_replay_pass`
     *   `tainted_attachment_is_refused`
     *   `failure_record_has_no_free_text`
     *   `origin_tainted_failure_is_never_auto`
 *   `fence.rs`:
     *   `fence_allows_tokens_and_schedule`
     *   `fence_denies_views_and_stores`
+    *   `avatar_is_fenced`
     *   `fence_denies_harness2_and_gate_script`
     *   `fence_denies_unlisted_src_file`
     *   `fence_denies_cargo_lock_and_build_rs`
@@ -860,8 +1093,9 @@ The model would return a diff from a read-only session, and the owner would revi
     *   `removed_test_line_needs_owner`
     *   `renamed_file_needs_owner`
     *   `diff_over_cap_needs_owner`
-    *   `redaction_hit_needs_owner`
     *   `connector_banned_token_needs_owner`
+    *   `grouped_std_use_needs_owner`
+    *   `std_alias_needs_owner`
     *   `connector_token_in_string_is_ignored`
     *   `registry_with_code_needs_owner`
     *   `manifest_with_ip_host_needs_owner`
@@ -873,6 +1107,11 @@ The model would return a diff from a read-only session, and the owner would revi
     *   `decision_table_repair_profile`
     *   `repair_registry_has_only_seven_tools`
     *   `compound_shell_is_denied_in_repair`
+*   `gate.rs`:
+    *   `r2_outcomes_follow_the_table`
+    *   `git_calls_disable_hooks`
+*   `mod.rs`:
+    *   `tick_steps_follow_their_gating`
 *   `publish.rs`:
     *   `publish_skips_existing_branch_and_pr`
     *   `pr_body_omits_report_text_by_default`
@@ -904,21 +1143,14 @@ The model would return a diff from a read-only session, and the owner would revi
 
 *   `Cargo.toml`, depending on `heron-ext-api`, `serde`, `serde_json` and `async-trait`.
 *   `src/lib.rs`, which is `#![forbid(unsafe_code)] pub mod registry;`.
-*   `src/registry.rs`, holding an empty `connectors![]`.
+*   `src/registry.rs`, holding an empty `heron_ext_api::connectors![];`, with connectors to be added under `src/registry/<name>.rs`.
 *   `tests/fixture_connector.rs`, a test-only `echo` connector under `tests/`, which checks that a registered connector's calls go through `Ctx`.
-
-#### Unit H8r: workspace
-
-##### 13. `Cargo.toml` and `Cargo.lock` (Modify)
-
-*   Add `[workspace] members = [".", "crates/heron-ext-api", "crates/heron-ext"]` and the path dependency `heron-ext`.
-*   `Cargo.lock` gains only the two path crates.
 
 #### Unit H2: wiring in existing core files
 
 ##### 14. `src/lib.rs`, `src/config.rs`, `src/main.rs` (Modify)
 
-*   **`lib.rs`:** add `pub mod harness2; pub mod ext; pub mod observe;`. In this unit, `observe` is an empty module with only its config types.
+*   **`lib.rs`:** already done in P-6.
 *   **`config.rs`:** add a `[harness2]` table with these keys and defaults:
     *   `self_healing = false`
     *   `self_evolution = false`
@@ -927,8 +1159,8 @@ The model would return a diff from a read-only session, and the owner would revi
     *   `publish_report_text = false`
     *   the HQ7 caps
 *   **`main.rs`:**
-    *   Add the subcommands `selfheal repair --run`, `selfheal check-fence <base> <fix>` and `report`.
-    *   Extend the existing panic hook (`:714-722`) to write a `FailureRecord` with `kind = panic` and the panic `location()`, before it calls the previous hook.
+    *   Add the subcommands `selfheal repair --run`, `selfheal check-fence --repo <path> <base> <fix>`, `selfheal record-replay <commit> <passed> <total> <auto_eligible>` and `report`.
+    *   Extend the existing panic hook (`:714-722`) to call the library function `harness2::record_panic(location)`, before it calls the previous hook. The function writes a `FailureRecord` with `kind = panic`, and lives in the library so that a library test can check it.
 
 ##### 15. `src/server.rs` (Modify)
 
@@ -938,7 +1170,9 @@ The model would return a diff from a read-only session, and the owner would revi
     *   `POST /api/harness2`;
     *   `POST /api/harness2/report`;
     *   `POST /api/harness2/import`;
-    *   `POST /api/harness2/connector-request`, which accepts only a session id whose session is untainted.
+    *   `POST /api/harness2/connector-request`, which accepts only a session id whose session is untainted;
+    *   `POST /api/harness2/triggers/{id}/start`, used by the inbox buttons.
+*   The bodies are in §11.
 
 ##### 16. `src/app.rs`, `src/agent.rs` (Modify)
 
@@ -964,7 +1198,9 @@ The model would return a diff from a read-only session, and the owner would revi
     *   `state_reports_commit`
     *   `harness2_routes_need_token`
     *   `scout_tick_respects_pause_and_hold`
-    *   `panic_hook_writes_failure_record`
+    *   `record_panic_writes_failure_record`
+    *   `inbox_action_starts_trigger`
+    *   `ext_first_use_ignores_yolo_and_rules`
     *   `every_prompt_block_is_trusted_or_taints`
     *   `every_content_entry_is_trusted_or_taints`
     *   `decision_table_ext_tools`
@@ -984,7 +1220,7 @@ The model would return a diff from a read-only session, and the owner would revi
     *   `fn install()`, which runs `uv tool install …@SEALBOX_COMMIT`
     *   `fn master_key()`, which uses the keychain and creates the key on first use
     *   `fn spawn_append()` and `fn spawn_serve()`, under the new Seatbelt profile `observe` in `sandbox.rs`: deny network, allow read and write in `~/.heron/observe/`, and allow reads of the `uv` tool directory
-    *   registration of `serve` as an MCP server with `trust = "outside"`
+    *   registration of `serve` with the MCP manager at runtime, with `trust = false` and no `config.toml` entry (an `src/mcp.rs` change)
 *   **`jobs.rs`:** the four fixed SQL jobs, the daily prune, and saves through the reflect path with the source `observation`.
 *   **`forget.rs`:** `fn forget_everything() -> ForgetReport`.
 *   **Routes:**
@@ -997,10 +1233,11 @@ The model would return a diff from a read-only session, and the owner would revi
     *   `ingest_keeps_nothing_outside_vault`
     *   `sealbox_profile_denies_network`
     *   `sealbox_key_never_written_to_disk`
-    *   `serve_registered_with_outside_trust`
+    *   `sealbox_serve_registered_untrusted_at_runtime`
     *   `workflow_job_uses_k_min_three_days`
     *   `forget_removes_vault_key_memories_and_suggestions`
-    *   `observers_stop_when_paused`
+    *   `ingest_refused_while_paused`
+    *   `config_never_contains_sealbox_key`
     *   `workflow_suggestion_session_is_tainted`
 
 #### Unit H3: replay suite
@@ -1017,6 +1254,7 @@ The model would return a diff from a read-only session, and the owner would revi
     It prints `replay: N/10` and `auto-eligible: M`, and exits 0 when N meets HQ10.
 *   **`genesis.yaml`** declares the grader, so `genesis audit-evaluator` can confirm that an empty patch and a patch that deletes the hidden test both fail.
 *   **The unit tests** check the grader on canned outcomes.
+*   **`eval/selfheal/required-tests.txt`** lists every Rust test name in items 10, 11, 18 and 19, one per line. `verify` uses it.
 
 #### Unit H4: gate script
 
@@ -1024,7 +1262,7 @@ The model would return a diff from a read-only session, and the owner would revi
 
 *   The steps in §4, chosen from `git diff --name-only <base> <fix>`, in the style of `verify-v1.sh` (`begin`, `fail`, and `HERON_REQUIRE_SEATBELT=1` on Darwin).
 *   It validates its arguments: two commits of 40 hex digits and an existing directory.
-*   Step 7 writes the `base` result cache in `~/.heron/selfheal/g7-base/`.
+*   Step 7 writes the `base` result cache in `~/.heron/selfheal/g7/<cli>/<commit>/`.
 *   Step 8 is behind `--install`, which only Phase 2 passes.
 
 #### Unit H5: packaging
@@ -1057,11 +1295,10 @@ The model would return a diff from a read-only session, and the owner would revi
 
 #### Unit H11: Mac app, observation
 
-##### 24. `macos/HeronMac/Sources/HeronCore/Observers/` and `macos/HeronMac/Sources/HeronUI/Observation/` (Create), `MenuBarViews.swift`, `packaging/macos/Info.plist` (Modify)
+##### 24. `macos/HeronMac/Sources/HeronCore/Observers/` and `macos/HeronMac/Sources/HeronUI/Observation/` (Create), `MenuBarViews.swift` (Modify)
 
 *   **Observers:** `ScreenObserver`, `AppUseObserver`, `BrowserHistoryObserver`, `KeystrokeObserver`, `FileEventsObserver`, `Exclusions` and `ObservationUploader`, each as in §8.
 *   **Panes:** `ObservationSettingsView`, `ConsentView`, `ExclusionsView`, and the menu bar dot with "Pause observing".
-*   **`Info.plist`:** the usage description strings for Screen Recording and Input Monitoring. This change belongs to H5's scope, so H5 makes it (see the Work units).
 *   **Tests**, in `ObservationTests.swift`:
     *   `test_everyObserverStartsOff`
     *   `test_consentShownBeforeFirstEnable`
@@ -1093,7 +1330,7 @@ It also holds the app's install notice and buttons, and step 8 of the gate. Its 
 ### Verification Plan
 
 *   **Build:** `cargo build --locked`, `swift build --package-path macos/HeronMac`, and `bash packaging/macos/build-app.sh --unsigned`.
-*   **Tests:** `cargo test --locked` (the workspace, so both crates too), `cargo test --locked --test integration`, and `swift test --package-path macos/HeronMac`. The named tests in items 10, 11, 18, 19, 23 and 24 must exist and pass (`eval/require-tests.sh`, `swift test list`).
+*   **Tests:** `cargo test --locked --workspace`, `cargo test --locked --test integration`, and `swift test --package-path macos/HeronMac`. The named tests in items 10, 11, 18, 19, 23 and 24 must exist and pass (`eval/require-tests.sh`, `swift test list`).
 *   **Lint:** `cargo clippy --locked --all-targets -- -D warnings`.
 *   **Test quality, with testteeth:** `testteeth run --base main --fail-under 70 -q`. Surviving mutants in `fence.rs`, `trust.rs`, `ext.rs`, `heron-ext-api` and `observe/` are killed, not justified, because the design rests on them.
 *   **Evaluator audits, with genesis.** All must be SOUND (exit 0) before the replay score or the fence is trusted:
@@ -1110,25 +1347,24 @@ It also holds the app's install notice and buttons, and step 8 of the gate. Its 
 
 ## Work units
 
-Phase 1 only. The graph runs on a feature branch cut from `main` after P-1. P-2's prototype file and P-4's pinned sealbox commit are committed before `skein run` starts.
+Phase 1 only. The graph runs on a feature branch cut from `main` after P-1. P-2's prototype file, P-4's pinned sealbox commit and P-6's skeleton commit are all committed before `skein run` starts.
 
 *   **Ordering.** Scopes that share a prefix (`src/**` and `src/harness2/**`; `macos/**` twice) are ordered by depends-on, so no two run at once.
 *   **Escaping.** In the check column, `\|` stands for a shell `|`.
 
 | id | what to build | scope | depends on | check | model role |
 |---|---|---|---|---|---|
-| H1 | `src/harness2/`: trust, fence (R1-R8), repair profile, gate runner, publish, scout, reports, db, inline tests (items 1-10) | `src/harness2/**` | none | `cargo test --locked --lib harness2 && cargo clippy --locked --all-targets -- -D warnings && test "$(cargo test --locked --lib -- --list \| grep -c -E 'harness2::.*::(decision_table_selfheal\|failure_record_has_no_free_text\|origin_tainted_failure_is_never_auto\|fence_denies_views_and_stores\|fence_denies_harness2_and_gate_script\|fence_denies_unlisted_src_file\|removed_test_line_needs_owner\|connector_banned_token_needs_owner\|tokens_file_calling_client_needs_owner\|fence_bans_every_client_protocol_method\|decision_table_repair_profile\|scout_note_link_comes_from_fetch\|report_never_includes_observations): test')" -eq 13` | hardest tasks: opus high |
-| H8 | `crates/heron-ext-api` and `crates/heron-ext` (items 11-12) | `crates/**` | none | `cargo test --locked --manifest-path crates/heron-ext-api/Cargo.toml && cargo test --locked --manifest-path crates/heron-ext/Cargo.toml && cargo test --locked --manifest-path crates/heron-ext-api/Cargo.toml -- --list \| grep -q 'http_refuses_unlisted_host: test'` | hardest tasks: opus high |
-| H8r | Workspace members and path dependency (item 13) | `Cargo.*` | H8 | `cargo metadata --locked --format-version 1 --no-deps \| grep -q '"name":"heron-ext-api"' && cargo build --locked` | feature, refactoring: sonnet high |
-| H2 | Wiring, adapter, trust-list change, routes, subcommands, panic hook, `ContentEntry` variants, integration test (items 14-18) | `src/**` | H1, H8r | `cargo test --locked --lib --bins && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- state_reports_commit harness2_routes_need_token scout_tick_respects_pause_and_hold panic_hook_writes_failure_record every_prompt_block_is_trusted_or_taints every_content_entry_is_trusted_or_taints decision_table_ext_tools ext_output_taints ext_op_asks_until_three_approvals ext_source_memories_start_unconfirmed observation_source_is_outside connector_request_refuses_tainted_session && test -s tests/fixtures/api/harness2.json` | hardest tasks: opus high |
-| H10 | `src/observe/`, the sealbox Seatbelt profile, observe routes (item 19) | `src/**` | H2 | `cargo test --locked --lib --bins && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- ingest_keeps_nothing_outside_vault sealbox_profile_denies_network sealbox_key_never_written_to_disk serve_registered_with_outside_trust workflow_job_uses_k_min_three_days forget_removes_vault_key_memories_and_suggestions observers_stop_when_paused workflow_suggestion_session_is_tainted` | hardest tasks: opus high |
+| H1 | `src/harness2/`: trust, fence (R1-R8), repair profile, gate runner, publish, scout, reports, db, inline tests (items 1-10) | `src/harness2/**` | none | `cargo test --locked --lib harness2 && cargo clippy --locked --all-targets -- -D warnings && test "$(cargo test --locked --lib -- --list \| grep -c -E 'harness2::.*::(decision_table_selfheal\|failure_record_has_no_free_text\|origin_tainted_failure_is_never_auto\|fence_denies_views_and_stores\|fence_denies_harness2_and_gate_script\|fence_denies_unlisted_src_file\|removed_test_line_needs_owner\|connector_banned_token_needs_owner\|grouped_std_use_needs_owner\|avatar_is_fenced\|redaction_hit_never_pushes\|r2_outcomes_follow_the_table\|tokens_file_calling_client_needs_owner\|fence_bans_every_client_protocol_method\|decision_table_repair_profile\|scout_note_link_comes_from_fetch\|report_never_includes_observations): test')" -eq 17` | hardest tasks: opus high |
+| H8 | `crates/heron-ext-api` and `crates/heron-ext` (items 11-12) | `crates/**` | none | `cargo test --locked -p heron-ext-api -p heron-ext && cargo test --locked -p heron-ext-api -- --list \| grep -q 'http_refuses_unlisted_host: test'` | hardest tasks: opus high |
+| H2 | Wiring, adapter, trust-list change, routes, subcommands, panic hook, `ContentEntry` variants, integration test (items 14-18) | `src/**` | H1, H8 | `cargo test --locked --lib --bins && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- state_reports_commit harness2_routes_need_token scout_tick_respects_pause_and_hold record_panic_writes_failure_record inbox_action_starts_trigger ext_first_use_ignores_yolo_and_rules every_prompt_block_is_trusted_or_taints every_content_entry_is_trusted_or_taints decision_table_ext_tools ext_output_taints ext_op_asks_until_three_approvals ext_source_memories_start_unconfirmed observation_source_is_outside connector_request_refuses_tainted_session && test -s tests/fixtures/api/harness2.json` | hardest tasks: opus high |
+| H10 | `src/observe/`, the sealbox Seatbelt profile, observe routes (item 19) | `src/**` | H2 | `cargo test --locked --lib --bins && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- ingest_keeps_nothing_outside_vault sealbox_profile_denies_network sealbox_key_never_written_to_disk sealbox_serve_registered_untrusted_at_runtime workflow_job_uses_k_min_three_days forget_removes_vault_key_memories_and_suggestions ingest_refused_while_paused config_never_contains_sealbox_key workflow_suggestion_session_is_tainted` | hardest tasks: opus high |
 | H3 | Replay suite, grader, genesis evaluator, grader tests (item 20) | `eval/**` | none | `python3 -I -m unittest discover -s eval/tests -t eval -p test_selfheal_replay.py && test "$(grep -c '^## case' eval/selfheal/cases.md)" -eq 10 && genesis audit-evaluator eval/selfheal/genesis.yaml` | feature, refactoring: sonnet high |
-| H4 | `scripts/verify-selfheal.sh` (item 21) | `scripts/**` | none | `bash -n scripts/verify-selfheal.sh && grep -q 'check-fence' scripts/verify-selfheal.sh && grep -q 'HERON_REQUIRE_SEATBELT=1' scripts/verify-selfheal.sh && grep -q 'eval/containment/check.py' scripts/verify-selfheal.sh && grep -q 'fail-under 70' scripts/verify-selfheal.sh && grep -q 'g7-base' scripts/verify-selfheal.sh` | feature, refactoring: sonnet high |
-| H5 | `build-app.sh` options, `HERON_COMMIT`, default signing mode, and `Info.plist` usage strings (items 22, 24) | `packaging/macos/**` | none | `bash -n packaging/macos/build-app.sh && grep -q -- '--no-dmg' packaging/macos/build-app.sh && grep -q -- '--host-arch' packaging/macos/build-app.sh && grep -q 'HERON_COMMIT' packaging/macos/build-app.sh && ! grep -q -- '--deep' packaging/macos/build-app.sh && /usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' packaging/macos/Info.plist >/dev/null` | feature, refactoring: sonnet high |
+| H4 | `scripts/verify-selfheal.sh` (item 21) | `scripts/**` | none | `bash -n scripts/verify-selfheal.sh && grep -q 'check-fence' scripts/verify-selfheal.sh && grep -q 'HERON_REQUIRE_SEATBELT=1' scripts/verify-selfheal.sh && grep -q 'eval/containment/check.py' scripts/verify-selfheal.sh && grep -q 'fail-under 70' scripts/verify-selfheal.sh && grep -q 'selfheal/g7' scripts/verify-selfheal.sh && grep -q 'core.hooksPath=/dev/null' scripts/verify-selfheal.sh` | feature, refactoring: sonnet high |
+| H5 | `build-app.sh` options, `HERON_COMMIT`, default signing mode (item 22) | `packaging/macos/**` | none | `bash -n packaging/macos/build-app.sh && grep -q -- '--no-dmg' packaging/macos/build-app.sh && grep -q -- '--host-arch' packaging/macos/build-app.sh && grep -q 'HERON_COMMIT' packaging/macos/build-app.sh && ! grep -qE '^[^#]*--deep' packaging/macos/build-app.sh` | feature, refactoring: sonnet high |
 | H6 | Self-improvement pane, report sheet, import, connector offer card, client and models (item 23) | `macos/**` | H2 | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && test "$(swift test list --package-path macos/HeronMac \| grep -c 'SelfImprovementTests')" -eq 5` | feature, refactoring: sonnet high |
 | H11 | Observers, Observation pane, consent, exclusions, menu bar indicator (item 24) | `macos/**` | H6, H10, H5 | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && test "$(swift test list --package-path macos/HeronMac \| grep -c 'ObservationTests')" -eq 7` | hardest tasks: opus high |
 | H7 | Threat-model sections and the two guides (item 25) | `docs/**` | H2, H10 | `grep -qx '## Harness2: code Heron writes into itself' docs/engineering/SECURITY_THREAT_MODEL.md && grep -qx '## Observation' docs/engineering/SECURITY_THREAT_MODEL.md && test -s docs/features/self_improvement.md && test -s docs/features/observation.md` | judgment and prose: opus high |
-| verify | Full suite, test-quality gate, evaluator audits | `scripts/gates/harness2` (check only) | H1, H2, H3, H4, H5, H6, H7, H8, H8r, H10, H11 | `cargo test --locked --workspace && cargo clippy --locked --all-targets -- -D warnings && swift test --package-path macos/HeronMac && python3 -I -m unittest discover -s eval/tests -t eval && genesis audit-evaluator eval/selfheal/genesis.yaml && testteeth run --base main --fail-under 70 -q` | feature, refactoring: sonnet high |
+| verify | Full suite, test-quality gate, evaluator audits | `scripts/gates/harness2` (check only) | H1, H2, H3, H4, H5, H6, H7, H8, H10, H11 | `cargo test --locked --workspace && bash eval/require-tests.sh --workspace -- $(cat eval/selfheal/required-tests.txt) && cargo clippy --locked --workspace --all-targets -- -D warnings && swift test --package-path macos/HeronMac && python3 -I -m unittest discover -s eval/tests -t eval && genesis audit-evaluator eval/selfheal/genesis.yaml && testteeth run --base main --fail-under 70 -q` | feature, refactoring: sonnet high |
 
 **Run notes for the build session:**
 
