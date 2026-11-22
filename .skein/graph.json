@@ -1640,11 +1640,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F1: guide, threat-model line, index line",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "bd770b9c1018a4cad0baa4ed0aebe15e56c4ab43",
+      "branch": "skein/F1d",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F1d"
     }
   },
   "F1g": {
