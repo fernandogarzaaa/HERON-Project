@@ -924,6 +924,8 @@ mod tests {
         assert_eq!(json_string_field(r#"{"command": "echo \é done"}"#, "command").as_deref(), Some("echo é done"));
         assert!(json_string_field(r#"{"command": "a\u00é9"}"#, "command").is_some());
         assert_eq!(json_string_field(r#"{"command": "\u000é"}"#, "command").as_deref(), Some("000é"));
+        assert_eq!(json_string_field(r#"{"command": "caf\u00e9!"}"#, "command").as_deref(), Some("café!"));
+        assert_eq!(json_string_field(r#"{"command": "ab\u00e"}"#, "command").as_deref(), Some("ab00e"), "too few digits before the end: the escape is skipped");
     }
 
     #[test]

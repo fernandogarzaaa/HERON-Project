@@ -1974,7 +1974,11 @@ mod tests {
     async fn today_reads_a_due_date_with_letters_outside_ascii() {
         let h = harness(scripted(vec![]), true, |_| {}).await;
         h.app.store.add_task("Call the bank", "", 2, Some("2026-11-2ñ")).unwrap();
-        assert_eq!(h.send("GET", "/today", Value::Null).await.status, 200);
+        h.app.store.add_task("File the return", "", 2, Some("2000-01-01 09:00")).unwrap();
+        h.app.store.add_task("Book the flight", "", 2, Some("2999-01-01")).unwrap();
+        let today = h.json("GET", "/today", Value::Null).await;
+        let due: Vec<&str> = today["due_tasks"].as_array().unwrap().iter().map(|t| t["title"].as_str().unwrap()).collect();
+        assert!(due.contains(&"File the return") && !due.contains(&"Book the flight"), "{today}");
     }
 
     #[test]

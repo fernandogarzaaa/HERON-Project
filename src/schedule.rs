@@ -387,6 +387,9 @@ mod tests {
         let now = at("2026-11-12 10:00");
         assert_eq!(parse_when("in 10m", now).unwrap(), When { cron: "".into(), next_run: now.timestamp() + 600 });
         assert_eq!(parse_when("in 2 hours", now).unwrap().next_run, now.timestamp() + 7200);
+        assert_eq!(parse_when("in 30 seconds", now).unwrap().next_run, now.timestamp() + 30);
+        assert_eq!(parse_when("in 2 days", now).unwrap().next_run, now.timestamp() + 2 * 86_400);
+        assert_eq!(parse_when("in 1 week", now).unwrap().next_run, now.timestamp() + 7 * 86_400);
         assert_eq!(parse_when("every 30m", now).unwrap().cron, "*/30 * * * *");
         assert_eq!(parse_when("every 2h", now).unwrap().cron, "0 */2 * * *");
         assert_eq!(parse_when("every hour", now).unwrap().cron, "0 */1 * * *");
