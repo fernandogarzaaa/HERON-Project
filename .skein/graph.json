@@ -5765,6 +5765,58 @@
       "path": null
     }
   },
+  "F8-fix-1": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F8s"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F8-fix-1",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- draft_email_rejects_overlong_addresses draft_email_rejects_control_characters_in_the_subject draft_email_rejects_addresses_with_query_characters",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1-features.md, F8 ('The URL', the approval shows the recipients, the subject and the full body). Inside your sandbox about 27 unrelated cargo tests fail; run your tests by name.",
+      "goal": "Fix two findings from the F8 review (src/tools/mail_draft.rs). (1) The address regex (~line 51) has no length limit, so one very long address can push a second recipient out of view on an approval surface that cuts long detail. Refuse an address over 254 characters, or with more than 64 before the @, with 'That isn't a plain email address.' Test: draft_email_rejects_overlong_addresses. (2) The subject (~69-74) accepts CR, LF, other control characters and bidirectional override characters, so 'Hi\\nTo: boss@corp.example' adds a fake To: line to the approval text. Refuse a subject with any control or bidi formatting character, and cap it at 200 characters. Test: draft_email_rejects_control_characters_in_the_subject. Fix nothing else; do not touch telegram.rs or main.rs (their once-only display is fixed on F5's branch)."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fix F8 review findings (core)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F8a": {
     "attempts": [
       {
