@@ -1146,7 +1146,16 @@
     }
   },
   "B6r2": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "c209adb9bd50407088ec95b71db860a3",
+        "ended_at": "2026-11-22T08:33:32.941864+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T07:51:44.377203+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1158,22 +1167,34 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "c209adb9bd50407088ec95b71db860a3",
-      "base_branch": "skein/B6r2__integrate-base",
-      "claim_token": "714883347bf04fa8bc58fa99ac1be13a",
-      "claimed_at": "2026-11-22T07:51:44.377203+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T07:51:44.377203+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "B6",
       "B2-fix-2"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash scripts/verify-feature.sh base",
+        "duration_ms": 2496444,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B6r2_20261122T075156424928_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B6r2_20261122T083332883511_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: the supervisor runs `bash scripts/verify-feature.sh base`.",
     "id": "B6r2",
     "integration_for": null,
     "intent": {
@@ -1185,13 +1206,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "c209adb9bd50407088ec95b71db860a3",
+      "base_commit": "b54d83005dead8cb56fefcadf5d63f1a45a62760",
+      "changed_files": [],
+      "commit": "b54d83005dead8cb56fefcadf5d63f1a45a62760",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Base gate re-run with the B2 review fixes",
-    "version": 4,
+    "version": 88,
     "worktree": {
       "base_branch": "skein/B6r2__integrate-base",
       "base_commit": "b54d83005dead8cb56fefcadf5d63f1a45a62760",
