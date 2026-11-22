@@ -2418,7 +2418,7 @@
       "claim_token": "1f014c3a96984528ab2ff113b628355d",
       "claimed_at": "2026-11-22T10:20:18.264975+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T10:24:49.249063+00:00",
+      "last_heartbeat": "2026-11-22T10:29:50.231655+00:00",
       "node_version": 7,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -2448,7 +2448,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: ask_reasons",
-    "version": 18,
+    "version": 28,
     "worktree": {
       "base_branch": "skein/F2g__integrate-base",
       "base_commit": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
@@ -4192,7 +4192,16 @@
     }
   },
   "F6a": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "eb3457e93341481ab4206a9605cbf52e",
+        "ended_at": "2026-11-22T10:29:59.470898+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:25:10.162758+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -4204,21 +4213,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "eb3457e93341481ab4206a9605cbf52e",
-      "base_branch": "9582dd3e819d67992625647b36f42203298ffb57",
-      "claim_token": "4ab0bf0f655144c38b39b3479241ae3b",
-      "claimed_at": "2026-11-22T10:25:10.162758+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:25:10.162758+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F6s"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q 'BriefTests.*scheduleHasNoModelStep'",
+        "duration_ms": 59705,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F6a_20261122T102859337667_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F6a_20261122T102959053535_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Not done: `testteeth` grading of `BriefTests`, which also needs a working `swift test`.",
     "id": "F6a",
     "integration_for": null,
     "intent": {
@@ -4230,13 +4251,51 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "eb3457e93341481ab4206a9605cbf52e",
+      "base_commit": "9582dd3e819d67992625647b36f42203298ffb57",
+      "changed_files": [
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeaturesSettings.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift",
+        "macos/HeronMac/Sources/HeronCore/ScheduleRoutesClient.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Brief/BriefController.swift",
+        "macos/HeronMac/Tests/HeronUITests/Features/BriefTests.swift"
+      ],
+      "commit": "fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd",
+      "diff_stats": {
+        "macos/HeronMac/Sources/HeronCore/ScheduleRoutesClient.swift": {
+          "added": 122,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Brief/BriefController.swift": {
+          "added": 107,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift": {
+          "added": 3,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeaturesSettings.swift": {
+          "added": 19,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift": {
+          "added": 20,
+          "deleted": 2
+        },
+        "macos/HeronMac/Tests/HeronUITests/Features/BriefTests.swift": {
+          "added": 289,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "F6: brief switch",
-    "version": 3,
+    "version": 13,
     "worktree": {
       "base_branch": "9582dd3e819d67992625647b36f42203298ffb57",
       "base_commit": "9582dd3e819d67992625647b36f42203298ffb57",
@@ -4969,7 +5028,7 @@
       "claim_token": "26de304cf52c45d283e714032fca4e60",
       "claimed_at": "2026-11-22T10:19:23.146591+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:24:54.291440+00:00",
+      "last_heartbeat": "2026-11-22T10:29:55.067531+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4994,7 +5053,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F8: draft_email, key",
-    "version": 14,
+    "version": 24,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "b13942e9f6196e1009af8e865292d2efa5bf1466",
