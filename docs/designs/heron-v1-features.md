@@ -956,6 +956,7 @@ Low findings from the build's independent reviews that were left as they are. Me
 *   **F4: a file edit whose checkpoint never reached the run record is in neither list (low).** It is neither restored nor listed under "Can't be undone here".
 *   **F4: calls that failed are listed under "Also changed" (low).** A `remember` that errored shows as "Saved a memory".
 *   **F4: a failed audit write isn't reported (low).** Files are restored, but no `undo_run` row records it.
+*   **F4: `POST /api/undo` takes no lock against a run's undo (low, from before F4).** When both remove the same file Heron created, the second gets a 500 after the first succeeded. Restores of overwritten files are safe: the exchange-and-verify makes the second call back off.
 *   **F3: a core notice body can reach the lock screen (low).** A `notification` event's body holds up to 180 characters of a schedule's result. The app posts it as is, so the lock screen shows it when macOS allows previews. The core's own desktop notice showed the same text before F3, so nothing new leaks; only the app's own "needs your OK" and "finished" notices are limited to the tool name and the owner's title.
 *   **F3: run records are written under the event bus's lock (low).** `RunLog` writes kv inside `publish`, as the design asks, so a long store operation elsewhere briefly stalls every publisher. Nothing awaits under the lock.
 
