@@ -75,10 +75,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/harness2-1a": {
+        "base_commit": "504bc450b3e1c072ecb472b2e56dd3557ccfa9fb",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "a86cf9c2505ca5e9e7b2ec6bf54261eb7883f849",
+        "result_commit": "63f4b2c5e1e5797d6989e684e85012616d14cc44",
+        "shipped_at": "2026-11-22T16:33:24.313479+00:00",
+        "target_branch": "feat/harness2-1a"
+      }
+    },
     "status": "done",
     "title": ".github/workflows/selfheal.yml (item 26)",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "504bc450b3e1c072ecb472b2e56dd3557ccfa9fb",
       "base_commit": "504bc450b3e1c072ecb472b2e56dd3557ccfa9fb",
