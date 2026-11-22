@@ -144,6 +144,19 @@ final class CoreClientTests: XCTestCase {
         XCTAssertEqual(try body(seen)["rule"] as? String, "web_fetch:*example.com*")
     }
 
+    func testICloudMailIsTheEmailSourceWithIcloudsServerFilledIn() async throws {
+        let client = makeClient { _ in .init(200, json: #"{"indexed":3}"#) }
+        try await client.connectSource(.iCloudMail(address: "sam@icloud.com", password: "abcd-efgh-ijkl-mnop"))
+        let seen = StubProtocol.seen
+        XCTAssertEqual(seen.map(\.path), ["/api/sources/email"])
+        let sent = try body(seen[0])
+        XCTAssertEqual(sent["host"] as? String, "imap.mail.me.com")
+        XCTAssertEqual(sent["username"] as? String, "sam@icloud.com")
+        XCTAssertEqual(sent["port"] as? Int, 993)
+        XCTAssertEqual(sent["tls"] as? Bool, true)
+        XCTAssertFalse("\(SourceConnection.iCloudMail(address: "sam@icloud.com", password: "abcd-efgh-ijkl-mnop"))".contains("abcd"), "the password is never printed")
+    }
+
     func testConnectingEachSourceSendsItsFieldsToItsRoute() async throws {
         let client = makeClient { _ in .init(200, json: #"{"indexed":3}"#) }
         try await client.connectSource(.documents(path: "/Users/sam/Notes"))

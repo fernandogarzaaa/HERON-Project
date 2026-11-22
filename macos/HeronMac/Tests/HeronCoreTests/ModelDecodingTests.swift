@@ -123,6 +123,23 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(rows.last?.connected, true)
     }
 
+    func testMailAndCalendarRowsReadTheirOwnStateNotTheSignedInAccounts() throws {
+        // Google is signed in (the combined flags are true) but no password mailbox and no calendar link exist.
+        let json = #"{"email":{"connected":true,"address":null,"indexed":40,"imap_connected":false,"imap_host":null,"imap_indexed":0},"calendar":{"connected":true,"hosts":[],"indexed":9,"ics_connected":false,"ics_indexed":0}}"#
+        let rows = CoreWire.connections(Data(json.utf8))
+        XCTAssertEqual(rows.map(\.id), ["calendar", "email"])
+        XCTAssertEqual(rows.map(\.connected), [false, false])
+        XCTAssertEqual(rows[1].name, "iCloud Mail")
+    }
+
+    func testAnIcloudMailboxAndAGoogleAccountAreBothThere() throws {
+        let icloud = #"{"email":{"connected":true,"address":"sam@icloud.com","indexed":5,"imap_connected":true,"imap_host":"imap.mail.me.com","imap_indexed":5}}"#
+        let mail = try XCTUnwrap(CoreWire.connections(Data(icloud.utf8)).first)
+        XCTAssertEqual([mail.name, mail.detail, "\(mail.connected)"], ["iCloud Mail", "sam@icloud.com", "true"])
+        let other = #"{"email":{"connected":true,"address":"sam@work.example","indexed":5,"imap_connected":true,"imap_host":"mail.work.example","imap_indexed":5}}"#
+        XCTAssertEqual(CoreWire.connections(Data(other.utf8)).first?.name, "Mailbox (mail.work.example)")
+    }
+
     func testSandboxNoneIsOff() throws {
         let json = String(decoding: try Fixtures.data("state.json"), as: UTF8.self).replacingOccurrences(of: "\"seatbelt\"", with: "\"none\"")
         XCTAssertFalse(try CoreWire.state(Data(json.utf8)).sandboxOn)

@@ -7,6 +7,9 @@ enum SourceCopy {
     static let scanSentence = "Reads your operating system, time zone, which developer tools are installed, the names of the folders in your home folder, and your Git name. It opens no files."
     static let documentsSentence = "Pick a folder of notes or documents. Heron reads the files in it and remembers what it learns. Folders that hold keys or passwords are refused."
     static let calendarHint = "Google Calendar: Settings › your calendar › “Secret address in iCal format”. iCloud: the calendar's public (subscription) link. Anyone with the link can read the calendar, so keep it private."
+    static let iCloudWhy = "iCloud doesn't let apps use your Apple ID password. Create an app-specific password for Heron under Sign-In and Security › App-Specific Passwords. Heron stores it only in its own protected secret store."
+    static let iCloudURL = "https://account.apple.com"
+    static let otherMailboxButton = "Connect another mailbox by app password…"
     static let emailHint = "Gmail and iCloud need an app-specific password, not your usual one. Create one in your account's security settings. Heron checks the sign-in before saving anything."
 
     static let accountsIntro = "One sign-in connects both your email and your calendar for that account. Heron can only read them, and it asks for nothing else."
@@ -41,7 +44,7 @@ enum SourceCopy {
 
 /// Which sheet is open.
 enum SourceSheet: String, Identifiable {
-    case calendar, email
+    case calendar, email, icloud
     var id: String { rawValue }
 }
 
@@ -66,12 +69,17 @@ struct ConnectionsPanel: View {
                     LocalCalendarRow(store: store)
                 }
             }
-            SourceRows(store: store, ids: ["documents", "computer"], onSheet: { sheet = $0 })
+            SourceRows(store: store, ids: ["email", "documents", "computer"], onSheet: { sheet = $0 })
             DisclosureGroup(isExpanded: $showsOtherWays) {
                 VStack(alignment: .leading, spacing: Spacing.s2) {
-                    Text("A calendar's private link, or a mailbox's app password. Use these if you can't sign in above.")
+                    Text("A calendar's private link, or the app password of any other mailbox. Use these if you can't sign in above.")
                         .font(HeronFont.callout).foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
-                    SourceRows(store: store, ids: ["calendar", "email"], onSheet: { sheet = $0 })
+                    SourceRows(store: store, ids: ["calendar"], onSheet: { sheet = $0 })
+                    // Heron keeps one password-based mailbox: iCloud above, or another server here.
+                    if store.settings?.connections.first(where: { $0.id == "email" })?.connected != true {
+                        Button(SourceCopy.otherMailboxButton) { store.clearSourceError("email"); sheet = .email }
+                            .buttonStyle(HButtonStyle(.link))
+                    }
                 }.padding(.top, Spacing.s2)
             } label: {
                 Text("Other ways to connect").font(HeronFont.subLabel).foregroundStyle(theme.ink)
@@ -82,6 +90,7 @@ struct ConnectionsPanel: View {
             switch which {
             case .calendar: CalendarConnectSheet(store: store)
             case .email: EmailConnectSheet(store: store)
+            case .icloud: ICloudConnectSheet(store: store)
             }
         }
         .sheet(item: Binding(get: { store.pendingDisconnect }, set: { if $0 == nil { store.cancelDisconnect() } })) { row in
@@ -228,7 +237,7 @@ struct SourceRows: View {
         switch id {
         case "documents": chooseFolder()
         case "calendar": onSheet(.calendar)
-        case "email": onSheet(.email)
+        case "email": onSheet(.icloud)
         case "computer": Task { await store.connect(.computer) }
         default: break
         }
@@ -370,6 +379,57 @@ struct CalendarConnectSheet: View {
 
     private func submit() {
         Task { if await store.connect(.calendar(url: link.trimmingCharacters(in: .whitespacesAndNewlines))) { dismiss() } }
+    }
+}
+
+/// iCloud Mail: just the address and an app-specific password. The server, port and TLS are filled in.
+struct ICloudConnectSheet: View {
+    let store: SettingsStore
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.heronTheme) private var theme
+    @State private var address = ""
+    /// Lives only in this sheet: sent once with the request, then cleared.
+    @State private var password = ""
+
+    private var busy: Bool { store.isBusy(source: "email") }
+    private var canConnect: Bool {
+        ![address, password].contains { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } && !busy
+    }
+
+    var body: some View {
+        SheetFrame(title: "Connect iCloud Mail") {
+            Text("Heron reads recent messages in your iCloud inbox so it can answer questions about them. It only reads.")
+                .foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: Spacing.s2) {
+                SectionLabel("iCloud email address")
+                TextField("you@icloud.com", text: $address).textFieldStyle(.roundedBorder).disabled(busy).accessibilityLabel("iCloud email address")
+            }
+            VStack(alignment: .leading, spacing: Spacing.s2) {
+                SectionLabel("App-specific password")
+                SecureField("xxxx-xxxx-xxxx-xxxx", text: $password).textFieldStyle(.roundedBorder).disabled(busy)
+                    .accessibilityLabel("App-specific password").onSubmit { if canConnect { submit() } }
+            }
+            Text(SourceCopy.iCloudWhy).font(HeronFont.callout).foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
+            Button("Open account.apple.com") {
+                if let url = URL(string: SourceCopy.iCloudURL) { NSWorkspace.shared.open(url) }
+            }.buttonStyle(HButtonStyle(.link))
+            SheetError(message: store.sourceErrors["email"])
+            HStack {
+                if busy { ProgressView().controlSize(.small); Text("Signing in…").font(HeronFont.callout).foregroundStyle(theme.ink2) }
+                Spacer()
+                Button("Cancel") { dismiss() }.buttonStyle(HButtonStyle(.secondary)).keyboardShortcut(.cancelAction).disabled(busy)
+                Button("Connect") { submit() }.buttonStyle(HButtonStyle(.primary)).disabled(!canConnect).keyboardShortcut(.defaultAction)
+            }
+        }
+        .onAppear { store.clearSourceError("email") }
+        .onDisappear { password = "" }
+    }
+
+    private func submit() {
+        let request = SourceConnection.iCloudMail(address: address.trimmingCharacters(in: .whitespacesAndNewlines), password: password)
+        Task {
+            if await store.connect(request) { password = ""; dismiss() }
+        }
     }
 }
 

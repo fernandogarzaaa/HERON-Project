@@ -563,6 +563,14 @@ public enum SourceConnection: Sendable, Equatable, CustomStringConvertible {
     /// Events the app read from the Mac's Calendar app (EventKit); each sync replaces the last.
     case localCalendar(events: [LocalCalendarEvent])
 
+    /// iCloud Mail is the `email` IMAP source with iCloud's server filled in: imap.mail.me.com, port 993, TLS,
+    /// and the full address as the username. The app-specific password goes to the core once, as any IMAP password does.
+    public static let iCloudMailHost = "imap.mail.me.com"
+
+    public static func iCloudMail(address: String, password: String) -> SourceConnection {
+        .email(host: iCloudMailHost, username: address, password: password, port: 993, tls: true)
+    }
+
     /// The `{name}` in the route, and the id of the matching `ConnectionInfo`.
     public var sourceID: String {
         switch self {

@@ -230,8 +230,8 @@ struct PreviewData {
             RuleNotice(rule: "read_file:*", notice: "From your settings file. It no longer opens reads outside your working folder. Add a folder above instead."),
         ]
         d.connections = [
-            ConnectionInfo(id: "email", name: "Email", connected: true, detail: "sam@northwind.example"),
-            ConnectionInfo(id: "calendar", name: "Calendar", connected: true, detail: "3 events today"),
+            ConnectionInfo(id: "email", name: "iCloud Mail", connected: true, detail: "sam@northwind.example"),
+            ConnectionInfo(id: "calendar", name: "Calendar link", connected: true, detail: "3 events today"),
             ConnectionInfo(id: "documents", name: "Documents", connected: false, detail: "Not connected"),
             ConnectionInfo(id: "computer", name: "This Mac", connected: false, detail: "Not connected"),
             ConnectionInfo(id: "calendar_local", name: "Mac Calendar", connected: false, detail: "Not connected"),

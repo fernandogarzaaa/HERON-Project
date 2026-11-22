@@ -499,6 +499,20 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertEqual(client.sourceRequests, [.documents(path: "/Users/sam/Notes")])
     }
 
+    func testConnectingICloudMailKeepsASignedInGoogleAccountAndSendsOnlyTheEmailRequest() async throws {
+        let (store, client) = try await connectionsStore()
+        let ok = await store.connect(.iCloudMail(address: "sam@icloud.com", password: "abcd-efgh-ijkl-mnop"))
+        XCTAssertTrue(ok)
+        XCTAssertEqual(client.sourceRequests, [.iCloudMail(address: "sam@icloud.com", password: "abcd-efgh-ijkl-mnop")])
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "email" }?.connected, true)
+        XCTAssertTrue(client.oauthSyncs.isEmpty, "no account was touched")
+    }
+
+    func testICloudCopyNamesWhereToMakeTheAppPassword() {
+        XCTAssertEqual(SourceCopy.iCloudURL, "https://account.apple.com")
+        XCTAssertTrue(SourceCopy.iCloudWhy.contains("App-Specific Passwords"))
+    }
+
     func testAFailedConnectShowsTheCoresSentenceOnThatRowAndChangesNothing() async throws {
         let (store, client) = try await connectionsStore()
         client.failNextSourceChange(with: .failed("Couldn't sign in to imap.gmail.com. Check the app password."))

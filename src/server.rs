@@ -1493,9 +1493,13 @@ async fn get_sources(State(st): S) -> ApiResult {
         "about": {"saved": learned("onboarding"), "indexed": store.knowledge_count("about"), "learned": learned("about")},
         "computer": {"connected": store.knowledge_count("computer") > 0, "indexed": store.knowledge_count("computer"), "learned": learned("computer")},
         "documents": {"connected": !cfg.sources.folders.is_empty(), "folders": cfg.sources.folders, "indexed": store.knowledge_count("documents"), "learned": learned("documents")},
-        "calendar": {"connected": !hosts.is_empty() || google || microsoft, "hosts": hosts, "indexed": store.knowledge_count("calendar") + oauth_calendar_count, "learned": learned("calendar")},
+        "calendar": {"connected": !hosts.is_empty() || google || microsoft, "hosts": hosts, "indexed": store.knowledge_count("calendar") + oauth_calendar_count, "learned": learned("calendar"),
+            // The link-based calendar on its own: Google/Microsoft accounts are separate sources with their own state.
+            "ics_connected": !hosts.is_empty(), "ics_indexed": store.knowledge_count("calendar")},
         "calendar_local": {"connected": store.kv_get("calendar_local").is_some(), "indexed": store.knowledge_count("calendar_local"), "learned": learned("calendar_local")},
-        "email": {"connected": cfg.sources.email.is_some() || google || microsoft, "address": cfg.sources.email.as_ref().map(|e| e.username.clone()), "indexed": store.knowledge_count("email") + oauth_email_count, "learned": learned("email")},
+        "email": {"connected": cfg.sources.email.is_some() || google || microsoft, "address": cfg.sources.email.as_ref().map(|e| e.username.clone()), "indexed": store.knowledge_count("email") + oauth_email_count, "learned": learned("email"),
+            // The password-based mailbox (iCloud, or any IMAP server) on its own, independent of the Google/Microsoft accounts.
+            "imap_connected": cfg.sources.email.is_some(), "imap_host": cfg.sources.email.as_ref().map(|e| e.host.clone()), "imap_indexed": store.knowledge_count("email")},
         "oauth": {"google": google, "microsoft": microsoft},
     })))
 }
@@ -1587,12 +1591,9 @@ async fn disconnect_source(State(st): S, Path(name): Path<String>) -> ApiResult 
         return Err(bad("Disconnect Google or Microsoft under Settings > Google and Microsoft accounts to remove its data."));
     }
     let cfg = st.app.cfg();
-    // OAuth consent covers both mail and calendar. Do not silently claim that
-    // clicking a legacy source's Disconnect button revoked an OAuth account.
-    if (name == "email" || name == "calendar") &&
-        (crate::oauth::Provider::Google.connected(&cfg) || crate::oauth::Provider::Microsoft.connected(&cfg)) {
-        return Err(bad("An OAuth account is still connected. Disconnect Google or Microsoft under Settings > Google and Microsoft accounts first."));
-    }
+    // The password-based mailbox and the link-based calendar are their own sources. Disconnecting them touches only
+    // what they hold ("email" and "calendar" rows), never a signed-in Google or Microsoft account, which has
+    // its own Disconnect and its own sources (google_email, microsoft_calendar, ...).
     match name.as_str() {
         "email" => cfg.store_secret("email_password", "")?,
         "calendar" => cfg.store_secret("calendar_links", "")?,
@@ -1718,6 +1719,50 @@ mod tests {
         let end = h.json("GET", "/sources", Value::Null).await;
         assert_eq!(end["calendar_local"]["connected"], false);
         assert_eq!(h.app.store.knowledge_count("calendar_local"), 0);
+    }
+
+    /// A signed-in Google account and a password-based mailbox side by side: connecting the second is
+    /// not refused, each reports its own state, they are searched together, and each disconnects alone.
+    #[tokio::test]
+    async fn password_mailbox_and_oauth_account_coexist_with_independent_state() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let cfg = (*h.app.cfg()).clone();
+        let _forget = (ForgetSecret(cfg.clone(), "oauth_google_refresh_token"), ForgetSecret(cfg.clone(), "email_password"));
+        cfg.store_secret("oauth_google_refresh_token", "refresh").unwrap();
+        let now = crate::util::now_ts();
+        h.app.store.upsert_knowledge("google_email", "g1", "Invoice from Acme", "Please pay the Acme invoice", now).unwrap();
+        h.app.store.upsert_knowledge("google_calendar", "g2", "Acme review", "When: soon", now + 60).unwrap();
+        let before = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(before["email"]["connected"], true, "the combined flag still counts the account");
+        assert_eq!(before["email"]["imap_connected"], false, "but the password mailbox is not connected");
+        assert_eq!(before["calendar"]["ics_connected"], false);
+        assert_eq!(before["oauth"]["google"], true);
+
+        // Connecting the mailbox is not refused because Google is connected.
+        assert_eq!(connect_mail_while(&h, async {}).await, 200);
+        let both = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(both["email"]["imap_connected"], true);
+        assert_eq!(both["email"]["imap_host"], "127.0.0.1");
+        assert_eq!(both["oauth"]["google"], true, "Google is untouched");
+        h.app.store.upsert_knowledge("email", "m1", "Invoice from Beta", "Please pay the Beta invoice", now).unwrap();
+        // Both mailboxes are read together.
+        let found = crate::sources::search(&h.app.store, "invoice", Some("email"), 10).unwrap();
+        assert!(found.contains("[google_email] Invoice from Acme") && found.contains("[email] Invoice from Beta"), "{found}");
+        assert!(crate::sources::search(&h.app.store, "invoice", None, 10).unwrap().contains("Acme"));
+
+        // Disconnecting the mailbox leaves the Google account, its data and its connection.
+        assert_eq!(h.send("DELETE", "/sources/email", Value::Null).await.status, 200, "no longer refused because an account is connected");
+        let after = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(after["email"]["imap_connected"], false);
+        assert_eq!(after["oauth"]["google"], true);
+        assert_eq!(h.app.store.knowledge_count("email"), 0);
+        assert_eq!(h.app.store.knowledge_count("google_email"), 1);
+        assert_eq!(h.app.store.knowledge_count("google_calendar"), 1);
+        // The link calendar is just as independent of the account calendars.
+        h.app.store.upsert_knowledge("calendar", "c1", "Dentist", "When: soon", now + 120).unwrap();
+        assert_eq!(h.send("DELETE", "/sources/calendar", Value::Null).await.status, 200);
+        assert_eq!(h.app.store.knowledge_count("calendar"), 0);
+        assert_eq!(h.app.store.knowledge_count("google_calendar"), 1);
     }
 
     #[test]

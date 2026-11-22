@@ -503,6 +503,27 @@ mod tests {
         assert_eq!(with(Provider::Google, Some("bundled.apps.example"), Some("s")).len(), fields.len() + 1, "the other fields are kept");
     }
 
+    /// Entra "Mobile and desktop" registration: authorization code + PKCE (S256), a localhost redirect whose port
+    /// Entra ignores, no client secret anywhere (consent URL and token request).
+    #[test]
+    fn microsoft_signs_in_as_a_public_client_with_pkce_and_no_secret() {
+        let (_, pending, url) = begin(Provider::Microsoft, "entra-app-id", "http://localhost:51234/oauth/callback/microsoft").unwrap();
+        assert_eq!(url.host_str(), Some("login.microsoftonline.com"));
+        assert!(url.path().starts_with("/common/"), "multi-tenant plus personal accounts");
+        let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(q["code_challenge_method"], "S256");
+        assert_eq!(q["code_challenge"], challenge(&pending.verifier));
+        assert_eq!(q["redirect_uri"], "http://localhost:51234/oauth/callback/microsoft");
+        assert!(!q.contains_key("client_secret"));
+        for scope in ["offline_access", "Mail.Read", "Calendars.Read"] { assert!(q["scope"].contains(scope), "{scope}"); }
+        // The token request proves the same verifier and carries no secret, even if a Google secret is bundled.
+        let fields = [("client_id", "entra-app-id"), ("code", "c"), ("code_verifier", pending.verifier.as_str()),
+                      ("redirect_uri", pending.redirect_uri.as_str()), ("grant_type", "authorization_code")];
+        let sent = token_fields(Provider::Microsoft, &fields, Some("entra-app-id"), Some("google-secret"));
+        assert_eq!(sent.len(), fields.len());
+        assert!(sent.iter().all(|(k, _)| *k != "client_secret"));
+    }
+
     #[test]
     fn the_account_label_is_the_email_claim_or_the_microsoft_username() {
         let token = |claims: Value| serde_json::json!({"id_token": id_token(claims)});
