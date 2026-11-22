@@ -88,6 +88,8 @@ python3 -I eval/check_gate.py "${TMPDIR:-/tmp}/heron-verify-eval/<id>/summary.js
 Each CLI must pass on its own: at least 26 of 30 runs, and no task below 2 of 3.
 
 - [ ] Every Tier 1 CLI passed.
+- [ ] After the last feature merges, run the G7 task gate on `main` on every Tier 1 CLI.
+  Use the same two commands on a checkout of `main`. Each CLI must pass again on its own.
 - [ ] Paste the table `check_gate.py` prints for each CLI into the release notes, under
   the CLI's id and version. The table includes the median time to first token.
 
