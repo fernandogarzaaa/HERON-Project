@@ -615,7 +615,7 @@ pub struct ProviderStatus {
 /// Ask the CLI who it is logged in as, the T3 Code way. The probe never
 /// sends a model request and never starts a session: `claude auth status`
 /// reads the local credential store, `codex login status` reads the cached
-/// login token. Anything unexpected returns unknown, never a failure.
+/// login token. Output with no login words returns unknown, never logged out.
 /// Whole-word match on lowercased output, so "pro" does not match
 /// "profile" and "max" does not match "maximum".
 fn words_contain(lower: &str, word: &str) -> bool {
@@ -639,13 +639,15 @@ fn parse_login_output(spec_id: &str, out: &str) -> (Option<bool>, Option<String>
                 }
             }
             // "Not logged in" contains "logged in", so the negation check
-            // must come first.
-            let logged = (lower.contains("logged in")
-                || lower.contains("active account")
-                || lower.contains("authenticated"))
-                && !lower.contains("not logged in")
-                && !lower.contains("not authenticated")
-                && !lower.contains("no active account");
+            // must come first. Claude Code 2.1.330 dropped the words "logged
+            // in" from --text and prints "Login method: Claude Max account".
+            if ["not logged in", "not authenticated", "no active account", "logged out"].iter().any(|n| lower.contains(n)) {
+                return (Some(false), None);
+            }
+            let logged = ["logged in", "active account", "authenticated", "login method:"].iter().any(|w| lower.contains(w));
+            if !logged {
+                return (None, None);
+            }
             let plan = logged
                 .then(|| {
                     ["max", "pro", "team", "enterprise"]
@@ -654,20 +656,20 @@ fn parse_login_output(spec_id: &str, out: &str) -> (Option<bool>, Option<String>
                         .map(|p| format!("Claude {p}"))
                 })
                 .flatten();
-            (Some(logged), plan)
+            (Some(true), plan)
         }
         "codex-cli" => {
-            let logged = (lower.contains("logged in using chatgpt") || lower.contains("logged in"))
-                && !lower.contains("not logged in");
-            let plan = logged
-                .then(|| {
-                    ["plus", "pro", "team", "enterprise"]
-                        .iter()
-                        .find(|p| words_contain(&lower, p))
-                        .map(|p| format!("ChatGPT {p}"))
-                })
-                .flatten();
-            (Some(logged), plan)
+            if lower.contains("not logged in") || lower.contains("logged out") {
+                return (Some(false), None);
+            }
+            if !lower.contains("logged in") {
+                return (None, None);
+            }
+            let plan = ["plus", "pro", "team", "enterprise"]
+                .iter()
+                .find(|p| words_contain(&lower, p))
+                .map(|p| format!("ChatGPT {p}"));
+            (Some(true), plan)
         }
         _ => (None, None),
     }
@@ -862,7 +864,9 @@ async fn capture(mut cmd: Command, path: &Path, timeout_secs: u64) -> Result<Str
         }
     };
     if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+        // `codex login status` answers on stderr and leaves stdout empty.
+        let stream = if out.stdout.iter().all(u8::is_ascii_whitespace) { &out.stderr } else { &out.stdout };
+        Ok(String::from_utf8_lossy(stream).to_string())
     } else {
         Ok(String::from_utf8_lossy(&out.stderr).to_string())
     }
@@ -2431,7 +2435,7 @@ impl CliLlm {
                     bail!("{logged_out}, then try again. (CLI said: {preview})");
                 }
                 // A CLI with no login probe cannot say; the hint goes with the failure.
-                let hint = if parse_login_output(self.spec.id, "").0.is_none() { format!(" If {logged_out}.") } else { String::new() };
+                let hint = if !matches!(self.spec.id, "claude-cli" | "codex-cli") { format!(" If {logged_out}.") } else { String::new() };
                 if names_a_provider_limit(&lower) {
                     bail!("{}", limit_msg(&preview));
                 }
