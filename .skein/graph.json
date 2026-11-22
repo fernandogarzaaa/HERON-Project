@@ -2246,15 +2246,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "97f85a10fda34061a6e042fd0b4f03be",
+      "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
+      "claim_token": "0ebf5775613e493184cdd5a82af5a89f",
+      "claimed_at": "2026-11-22T09:52:17.609762+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T09:52:17.609762+00:00",
+      "node_version": 20,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "F2s"
@@ -2288,9 +2288,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F2: re-recorded fixtures, api_approval_carries_why",
-    "version": 20,
+    "version": 21,
     "worktree": {
       "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
       "base_commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
@@ -2316,7 +2316,7 @@
       "claim_token": "2beedbc9d19f4ed2969873c30c49a682",
       "claimed_at": "2026-11-22T09:50:32.939784+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:51:03.400045+00:00",
+      "last_heartbeat": "2026-11-22T09:52:03.527013+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -2343,7 +2343,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F3: Runs screen, badge, notifications",
-    "version": 4,
+    "version": 6,
     "worktree": {
       "base_branch": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
       "base_commit": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
@@ -3180,7 +3180,7 @@
       "claim_token": "4729963a6b124f52affe1bc0ca83e299",
       "claimed_at": "2026-11-22T09:47:41.942322+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:51:12.827714+00:00",
+      "last_heartbeat": "2026-11-22T09:52:12.971523+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -3205,7 +3205,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F5: run_shortcut, shortcuts routes, key",
-    "version": 10,
+    "version": 12,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "a5c863430fd6d88e8fe59e19063303332f903064",
