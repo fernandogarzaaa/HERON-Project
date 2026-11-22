@@ -5609,15 +5609,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "f40ca6bfa17a4e65bd9a913cde8794c6",
+      "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
+      "claim_token": "2a331cac60e3486ea5398511e0f7f1ad",
+      "claimed_at": "2026-11-22T10:48:33.076268+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T10:48:33.076268+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F1g"
@@ -5639,11 +5639,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F9: window picker, text recognition",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "branch": null,
       "path": null
     }
