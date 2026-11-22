@@ -2395,6 +2395,58 @@
       "path": null
     }
   },
+  "F3-fix-2": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_swift",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "macos/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F3a"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F3-fix-2",
+    "integration_for": null,
+    "intent": {
+      "completion": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q 'RunsTests.*notifyFlagIsOffWhileNotificationsAreDenied'",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1-features.md, 'Notifications have one owner' and F3. You may run swift build and swift test yourself.",
+      "goal": "Fix one finding from the F3 review. The app opens GET /api/events with notify=1 whenever the Runs and notifications switch is on (AppModel.swift ~217), so the core stops posting its own desktop notices, but RunNotifier.post (RunNotifier.swift ~96-99) drops every notice when macOS notification authorization is denied. Schedule, automation and suggestion notices then reach only the inbox. Send notify=1 only while the switch is on AND authorization is not denied, and reopen the stream when authorization changes. Also correct the comment at RunNotifier.swift ~42: a core notification body can hold up to 180 characters of a schedule's result. Test in RunsTests: notifyFlagIsOffWhileNotificationsAreDenied."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fix: core notices lost when notifications are denied",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F3a": {
     "attempts": [
       {
