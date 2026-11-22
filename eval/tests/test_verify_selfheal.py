@@ -27,7 +27,7 @@ Every stub appends one line to ``$STUB_LOG`` per call, so a test can see what th
     exit 0 unless the checkout does not compile. A test run prints ``test result: ok. 1 passed; 0
     failed`` and exits 0, or prints ``test result: FAILED. 0 passed; 1 failed`` and exits 101
     (swift prints ``Executed 1 test, with 0 failures`` or ``with 1 failure``, and exits 0 or 1).
-* **testteeth** prints ``mutation score: <STUB_SCORE>%`` (default 84) and exits 0 when the score is at
+* **testteeth** prints ``Mutation score: <STUB_SCORE>.0%  (PASS|FAIL: --fail-under 70)``, the format testteeth 0.2.0 prints (default 84), and exits 0 when the score is at
   least 70, else 1. The script reads the score from that line.
 
 A scenario is one row of the R2 table in §4 (``passes``, ``catches_nothing``, ``no_compile_on_base``,
@@ -94,8 +94,12 @@ echo "Executed 1 test, with 0 failures"
 TESTTEETH_STUB = r"""#!/bin/sh
 echo "testteeth $*" >> "$STUB_LOG"
 score="${STUB_SCORE:-84}"
-echo "mutation score: ${score}%"
-[ "$score" -ge 70 ]
+if [ "$score" -ge 70 ]; then
+  echo "Mutation score: ${score}.0%  (PASS: --fail-under 70)"
+else
+  echo "Mutation score: ${score}.0%  (FAIL: --fail-under 70)"
+  exit 1
+fi
 """
 
 SCHEDULE_TEST = "tests/schedule_local_time.rs"

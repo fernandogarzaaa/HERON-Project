@@ -1,42 +1,53 @@
-diff --git a/src/oauth.rs b/src/oauth.rs
-index 037f8f1..c08ce42 100644
---- a/src/oauth.rs
-+++ b/src/oauth.rs
-@@ -561,3 +561,37 @@
-         assert!(!pairs.get("scope").unwrap().contains("Mail.Send"));
+diff --git a/src/telegram.rs b/src/telegram.rs
+index b0e6da8..7c5fd56 100644
+--- a/src/telegram.rs
++++ b/src/telegram.rs
+@@ -643,3 +643,48 @@ mod tests {
+         assert!(!wrong_code(&app), "and the count starts again");
      }
  }
 +
-+// Linux has no verified vault, so installing the refresh token always fails there: the same failure a
-+// locked Keychain or Credential Manager gives on the desktop. Where a real vault exists the test would
-+// touch the owner's credentials, so it is not built.
-+#[cfg(all(test, not(any(target_os = "macos", windows))))]
++#[cfg(test)]
 +mod selfheal_hidden_case_4 {
 +    use super::*;
++    use crate::config::Config;
 +    use crate::llm::ScriptedLlm;
-+    use serde_json::json;
-+
-+    fn id_token(claims: Value) -> String {
-+        format!("e30.{}.signature", URL_SAFE_NO_PAD.encode(claims.to_string()))
-+    }
++    use crate::permissions::Effect;
++    use crate::store::Store;
 +
 +    #[tokio::test]
 +    async fn selfheal_hidden_case_4() {
 +        let dir = tempfile::tempdir().unwrap();
 +        let mut cfg = Config::default();
 +        cfg.home = dir.path().join("home");
-+        cfg.ensure_home().unwrap();
-+        std::fs::write(cfg.home.join("secrets.json"), json!({
-+            "oauth_google_refresh_token": "working-refresh", "oauth_google_account_epoch": "e1",
-+            "oauth_google_client_id": "old-cid", "oauth_google_account_subject": "user-1",
-+        }).to_string()).unwrap();
-+        let app = App::assemble(cfg, dir.path().join("ws"), crate::store::Store::in_memory().unwrap(), std::sync::Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
-+        let p = Provider::Google;
-+        let token = json!({"scope": p.scopes(), "refresh_token": "new-refresh", "id_token": id_token(json!({"aud": "new-cid", "sub": "user-1"}))});
-+        assert!(install(&app.cfg(), p, "new-cid", &token).is_err());
-+        let cfg = app.cfg();
-+        assert_eq!(cfg.secret("oauth_google_client_id").as_deref(), Some("old-cid"));
-+        assert_eq!(cfg.secret("oauth_google_refresh_token").as_deref(), Some("working-refresh"));
-+        assert_eq!(p.account_epoch(&cfg).as_deref(), Some("e1"));
++        let app = Arc::new(App::assemble(
++            cfg, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(vec![])),
++        ).await.unwrap());
++        let code = pairing_code(&app);
++        app.store.kv_set("telegram_chat", "42").unwrap();
++        let bot = Bot {
++            client: reqwest::Client::new(),
++            base: "http://127.0.0.1:1/botDISABLED".into(),
++            app: app.clone(),
++            account_id: "hidden-case-bot".into(),
++            pairing_epoch: code,
++            spool: ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap(),
++            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
++        };
++        // The owner unpairs while a turn that started earlier is still running.
++        unpair(&app);
++        let shared = Arc::<Shared>::default();
++        let approver = TelegramApprover { bot, chat: 42, shared: shared.clone() };
++        let approval = approver.approve(&ApprovalRequest {
++            tool: "write_file".into(),
++            summary: "change a file".into(),
++            risk: Effect::WorkspaceWrite,
++            detail: "must never reach the former owner".into(),
++            tainted: false,
++            args: json!({"path": "notes.txt"}),
++            session_id: "stale-turn".into(),
++        }).await;
++        assert!(matches!(&approval, Approval::Deny(Some(reason)) if reason.contains("revoked")), "{approval:?}");
++        assert!(shared.pending.lock().unwrap().is_none());
 +    }
 +}

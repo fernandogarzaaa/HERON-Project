@@ -171,8 +171,15 @@ def worktree(commit, root=ROOT, git="git"):
 
 
 def apply_hidden(case, tree, root=ROOT, git="git"):
-    """Apply the case's hidden test to ``tree``. False when it conflicts with what is there."""
+    """Apply the case's hidden test to ``tree``. False when it conflicts with what is there.
+
+    A plain apply comes first: when the patch's context still matches, a 3-way merge can only add
+    conflicts (both sides appending tests at the end of a file conflict). ``--3way`` is the fallback
+    for a checkout whose lines moved."""
     patch = os.path.join(root, case["hidden"])
+    code, _ = run_command([git, "-C", tree, "apply", patch])
+    if code == 0:
+        return True
     code, _ = run_command([git, "-C", tree, "apply", "--3way", patch])
     return code == 0
 

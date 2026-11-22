@@ -151,7 +151,7 @@ if printf '%s\n' "$changed" | grep -q '\.rs$'; then
   mutation_status=0
   mutation_out="$(in_fix "$testteeth_bin" run --base "$base" --fail-under 70 -q 2>&1)" || mutation_status=$?
   printf '%s\n' "$mutation_out"
-  score="$(printf '%s\n' "$mutation_out" | sed -n 's/.*mutation score: *\([0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\) *%.*/\1/p' | tail -1)"
+  score="$(printf '%s\n' "$mutation_out" | sed -n 's/.*[Mm]utation score: *\([0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\) *%.*/\1/p' | tail -1)"
   [ -z "$score" ] || mutation_score="$score"
   [ "$mutation_status" -eq 0 ] || mutation_passed="false"
 fi

@@ -206,7 +206,7 @@ class Patches(unittest.TestCase):
                 self.assertTrue(path.startswith("src/") and path.endswith(".rs"), path)
                 self.assertRegex(lines[1], r"^index [0-9a-f]{7}\.\.[0-9a-f]{7} 100644$")
                 self.assertEqual(lines[2:4], ["--- a/" + path, "+++ b/" + path])
-                hunk = re.fullmatch(r"@@ -(\d+),(\d+) \+(\d+),(\d+) @@", lines[4])
+                hunk = re.fullmatch(r"@@ -(\d+),(\d+) \+(\d+),(\d+) @@( .*)?", lines[4])
                 self.assertIsNotNone(hunk, lines[4])
                 body = lines[5:]
                 self.assertEqual(sum(1 for l in body if l.startswith("@@")), 0, "one hunk")
@@ -404,7 +404,7 @@ class FakeWorld:
             return 0, ""
         if "diff --cached --quiet" in joined:
             return (1 if s["agent_changed"] else 0), ""
-        if "apply --3way" in joined:
+        if "apply" in argv and "--cached" not in argv:
             return (0 if s["applies"] else 1), ""
         if argv[:3] == ["cargo", "test", "--locked"] and len(argv) == 3:
             return s["suite"], ""
@@ -1297,12 +1297,21 @@ class WorktreeLifecycle(unittest.TestCase):
 
 
 class HiddenTestOnACheckout(unittest.TestCase):
-    def test_the_hidden_patch_is_applied_three_way_and_conflicts_are_false(self):
-        for code, want in ((0, True), (1, False)):
+    def test_the_hidden_patch_is_applied_plainly_then_three_way_and_conflicts_are_false(self):
+        patch = os.path.join("/repo", CASES[0]["hidden"])
+        plain = ["mygit", "-C", "/t", "apply", patch]
+        three_way = ["mygit", "-C", "/t", "apply", "--3way", patch]
+        for plain_code, three_way_code, want, tried in ((0, 1, True, [plain]),
+                                                         (1, 0, True, [plain, three_way]),
+                                                         (1, 1, False, [plain, three_way])):
             calls = []
-            with mock.patch.object(run_replay, "run_command", lambda argv, **kw: (calls.append(list(argv)), (code, ""))[1]):
+
+            def fake(argv, **kw):
+                calls.append(list(argv))
+                return (three_way_code if "--3way" in argv else plain_code), ""
+            with mock.patch.object(run_replay, "run_command", fake):
                 self.assertIs(run_replay.apply_hidden(CASES[0], "/t", "/repo", "mygit"), want)
-            self.assertEqual(calls, [["mygit", "-C", "/t", "apply", "--3way", os.path.join("/repo", CASES[0]["hidden"])]])
+            self.assertEqual(calls, tried)
 
     def status(self, **state):
         seen = []

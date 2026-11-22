@@ -4,6 +4,8 @@ Ten bugs Heron's own history fixed. For each, `base` is the commit before the fi
 
 The cases are the first ten commits in `git log --no-merges 39dbdf5` whose subject starts with `fix`, whose changes outside tests are all under `src/` or `macos/HeronMac/Sources/`, and whose diff has at most 200 changed lines. `eval/selfheal/run_replay.py --validate` checks that each hidden test fails on `base` and passes on `fix`.
 
+Case 4 is the eleventh qualifying commit. The fourth, `2cdc0643e197` (an OAuth reconnect fix), was replaced because its only workable test needs a vault that fails to store, which exists only on Linux, so on the owner's Mac it could never be graded (item 20, replacing a case).
+
 ## case 1
 base: 2b4036ac1220abddd2e98670de78cab1bfb7d602
 fix: 6adce3926db72926e7a6f1bd7072d5804b2bc893
@@ -26,12 +28,11 @@ hidden: eval/selfheal/cases/3.patch
 test: cargo --lib selfheal_hidden_case_3
 
 ## case 4
-base: 01dee9e614ce631b33c59f6c87e7d16f6b8c42b2
-fix: 2cdc0643e197a55d9fa560f7d0f7391acc4ae6cf
-report: I reconnected my Google account with a different client ID, saving it failed, and now my connection that was working no longer syncs.
+base: 758e2c0e3f6d619aeecf333a8ae8e961d64f0926
+fix: 1c348ab93323950e4a0d57fd2b8548ff75bb6f25
+report: I unpaired my phone from Heron while it was still working on something, and my old Telegram chat still got asked to approve a file change.
 hidden: eval/selfheal/cases/4.patch
 test: cargo --lib selfheal_hidden_case_4
-
 ## case 5
 base: 5ee7a8eb4671c4d6116546e007dcb49f7aaa89a1
 fix: 3d53be81b2a2d8bdcd42c2f146497d7cd7266f91

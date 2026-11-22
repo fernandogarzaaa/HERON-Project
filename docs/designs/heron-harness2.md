@@ -1317,21 +1317,21 @@ These subcommands use the standalone path, `run_standalone` (`src/main.rs:733`).
 *   **`cases.md`** lists 10 cases. Few existing fixes ship separable tests: of the 120 `fix` commits in `git log 39dbdf5`, none adds only new test files, because most Rust tests are inline. So each case comes with a hidden test written for the suite.
     *   **Which commits.** The cases are the first 10 commits in `git log 39dbdf5` whose subject starts with `fix`, whose changes outside tests are all under `src/` or `macos/HeronMac/Sources/`, and whose diff has at most 200 lines.
     *   **Format.** Each case is a `## case <n>` heading followed by four lines: `base: <sha>`, `fix: <sha>`, `report: <one sentence in the owner's words, without the fix>`, `hidden: eval/selfheal/cases/<n>.patch`, and `test: <selector>`. The selector is `cargo --lib <name>`, `cargo --test <stem>` or `swift <Class>`.
-    *   **The hidden test.** Each `<n>.patch` adds one test: an integration test under `tests/`, a Swift test, or a `#[test]` appended to the changed file's test module. When applied with `git apply --3way`, it must fail on `base` and pass on `fix`.
+    *   **The hidden test.** Each `<n>.patch` adds one test: an integration test under `tests/`, a Swift test, or a `#[test]` appended to the changed file's test module. When applied (a plain `git apply`, falling back to `git apply --3way`), it must fail on `base` and pass on `fix`.
     *   **Validation.** `run_replay.py --validate` checks both of those for every case. It runs by hand, because it builds 20 commits.
     *   **Replacing a case.** A patch that conflicts with an agent's fix makes that case `ungradable`. It is then replaced by the next qualifying commit.
 *   **`run_replay.py`** works like this:
     1.  Build `target/release/heron` from HEAD.
     2.  For each case, run `git worktree add <tmp> <base>`.
     3.  Run `heron selfheal replay --case <n> --worktree <tmp> --cases eval/selfheal/cases.md`.
-    4.  Apply `eval/selfheal/cases/<n>.patch` to `<tmp>` with `git apply --3way`.
+    4.  Apply `eval/selfheal/cases/<n>.patch` to `<tmp>` with a plain `git apply`, falling back to `git apply --3way`. A 3-way merge alone conflicts whenever both the patch and the code under test append at the end of the same file.
     5.  The case passes if the case's `test:` selector passes and `cargo test --locked` passes in `<tmp>`. `selfheal replay` prints `{"verdict": "auto_eligible"|"needs_owner", "attempts": n}`, and the `verdict` values are counted to give `K`.
 
     It prints `replay: N/M` and `auto-eligible: K`. It calls `record-replay` with `git merge-base HEAD main` as the commit, which is the same key the core checks. It exits 0 when N is at least the threshold.
 *   **Threshold.** It comes from `[harness2] replay_threshold`, default 6. That value is HQ10.
 *   **`grade.py` and `genesis.yaml`.**
     *   **What is audited:** the pure function `grade(outcome: dict) -> bool` in `eval/selfheal/grade.py`. `run_replay.py` calls it with `{patch_empty, hidden_test_deleted, hidden_failed_on_base, hidden_passed_on_fix, suite_passed}`.
-    *   **How:** `genesis.yaml` audits it with `--suite json`, shaped like `eval/genesis/pass-rules-json.yaml`, over the cases in `eval/selfheal/genesis_cases.json`.
+    *   **How:** `genesis.yaml` audits it with `--suite json`, shaped like `eval/genesis/pass-rules-json.yaml`, over the cases in `eval/selfheal/genesis_cases.jsonl`, which `eval/selfheal/build_genesis_cases.py` generates from `cases.md`.
     *   **The rule:** an empty patch, or one that deletes a hidden test, must grade `false`.
     *   **Required verdict:** `TRUSTED`.
 *   **`required-tests.txt`** has one line per test: `<graph> <selection> <name>`, for example `1a --lib decision_table_selfheal` or `1a --test=integration api_harness2_lists_switches_and_checklist`. It covers unit H0 and items 10, 11, 17, 18 and 19.
@@ -1566,6 +1566,22 @@ The workflow uses no secrets. The job's check name is `selfheal-gate`, which `po
 
 *   The threat model gains `## Observation`. It covers the observers, sealbox, what leaves the vault, and sealbox's shortfalls.
 *   New file: `docs/features/observation.md`.
+
+### Build notes: graph 1a subset (2026-11-23)
+
+The owner approved building H3, H4, H12 and H5 before Pre-1 and Pre-5 land. These are where the build departs from the items above, and why.
+
+*   **Item 20 (H3).**
+    *   `run_replay.py --check-patches` was added. It checks that every patch applies to `base` and `fix` through a temporary index, with no build, so the unit's check can run it.
+    *   Case 4 is the eleventh qualifying commit (`1c348ab`). The fourth, `2cdc064`, was replaced as the item allows: its only workable test needs a vault that fails to store, which exists only on Linux, so it can't be graded on a Mac.
+    *   `run_replay.py --validate` ran on the owner's Mac on 2026-11-23: all 10 hidden tests fail on `base` and pass on `fix`.
+    *   `requirements-ci.txt` was generated by the build supervisor (testteeth 0.2.0, every dependency hashed; `# cargo-mutants==27.1.0` on line 1).
+    *   genesis 0.4.0 prints `EVALUATOR VERDICT: SOUND` when it exits 0; that exit code is the `TRUSTED` this doc asks for.
+*   **Item 21 (H4).** testteeth 0.2.0 prints `Mutation score: <n>%`, capitalised. The script matches both cases, and the test stub prints the real format.
+*   **Item 26 (H12).** The workflow has a top-level `name: selfheal`. It adds `actions/setup-python@v5` (Python 3.12) before `pip install`, because the macOS runner's Homebrew Python refuses pip installs (PEP 668; inferred, not yet run on a runner). It reads the cargo-mutants pin from line 1 of `requirements-ci.txt` and refuses a malformed line.
+*   **Item 22 (H5).** Default mode also passes `--entitlements packaging/macos/Heron.entitlements` on the app's signature when that file exists. PR #72 adds the file and uses it in `--sign` builds; the hardened runtime needs it for the Calendar prompt. The `unsigned` and `sign` branches are unchanged, so #72 merges cleanly.
+*   **Open owner question (R2).** R2 credits only new test files. Most Rust tests in this repo are inline, so a self-fix that adds only an inline `#[test]` gets `catches_nothing` and fails the gate. The repair prompt has to ask for a test under `tests/`, or R2 has to learn inline tests (for example, by applying the fix's own test hunks to `base`).
+*   **skein bookkeeping.** `skein ship` refused H5 and H3q because the branch had moved past their recorded base, and the owner's rule forbids `--force`. They were merged by hand in `01f93e7`, a plain non-fast-forward merge of `skein/H3q`, which contains H5. `skein ship` now answers "already shipped" for both, but writes no shipped record, so the dashboard still lists them as unshipped. The `verify-1a-subset` node failed on a stale reused worktree (65%); the same check was run by hand on the merged branch and passed.
 
 ### Verification Plan
 
