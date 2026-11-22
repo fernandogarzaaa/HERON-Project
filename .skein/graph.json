@@ -99,6 +99,58 @@
       "path": null
     }
   },
+  "B2t": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "tests/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "B2"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "B2t",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_features_lists_and_sets_keys api_chat_context_taints_the_session api_events_notify_flag_routes_notices && test -s tests/fixtures/api/features.json",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates (the spec says no feature adds a dependency). Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app (src/ui/**, src/bin/desktop/**) beyond what the spec names. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1-features.md, 'Detailed Implementation Plan', Base unit B2t (item 9), and the B2 routes it tests (item 7). Inside your sandbox about 27 unrelated cargo tests fail (local port binding is refused and nested Seatbelt is unavailable), and bash eval/require-tests.sh may be refused. Run your own new tests by name (cargo test --locked --lib <name>) and list names with cargo test --locked --lib -- --list; the supervisor runs the full check outside the sandbox.",
+      "goal": "Build base unit B2t (item 9): in tests/integration.rs add api_features_lists_and_sets_keys, api_chat_context_taints_the_session and api_events_notify_flag_routes_notices; add features to the fixture list of api_fixtures_match_the_live_core and record tests/fixtures/api/features.json by running that test."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Integration tests and the features fixture",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {
