@@ -1522,7 +1522,7 @@
       "claim_token": "b592670ee6b24d21856d2da79abd8222",
       "claimed_at": "2026-11-22T09:42:29.350643+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T09:42:59.653462+00:00",
+      "last_heartbeat": "2026-11-22T09:43:29.715642+00:00",
       "node_version": 32,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1559,7 +1559,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 35,
+    "version": 36,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -2811,7 +2811,7 @@
     "id": "F5c",
     "integration_for": null,
     "intent": {
-      "completion": "python3 -I eval/check_tasks.py --features eval/features/shortcuts.md && test -x eval/fixtures/features/shortcuts/bin/shortcuts",
+      "completion": "python3 -I eval/check_tasks.py --features eval/features/shortcuts.md && test -f eval/fixtures/features/shortcuts/bin/shortcuts && chmod +x eval/fixtures/features/shortcuts/bin/shortcuts && test -x eval/fixtures/features/shortcuts/bin/shortcuts",
       "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
       "context": "Spec: docs/designs/heron-v1-features.md, section 'F5' under 'The features' (with its check table) and 'Detailed Implementation Plan', F5 items 29. Base unit B1 defined the feature task format; read eval/features/README.md and eval/core-tasks.md first.",
       "goal": "Build item 29: eval/features/shortcuts.md with ft5 and ft5b exactly as F5's EVE row gives them, the executable fake bin/shortcuts (list, and run <name> --output-path <file> writing canned text), and web/note.html, under eval/fixtures/features/shortcuts/."
@@ -2825,7 +2825,7 @@
     "shipped": {},
     "status": "failed",
     "title": "F5: ft5, ft5b, fake binary, page",
-    "version": 17,
+    "version": 18,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "f4b709336df0e4922d480595e7ce1c641cf4b234",
