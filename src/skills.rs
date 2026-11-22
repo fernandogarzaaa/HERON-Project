@@ -10,6 +10,9 @@ use std::io::Read;
 use std::path::Path;
 
 const MAX_SKILLS: usize = 128;
+// Bound directory enumeration as well as the number and size of loaded skills.
+// Allow unrelated files, but fail closed rather than materializing an unbounded listing.
+const MAX_SKILL_ENTRIES: usize = MAX_SKILLS * 8;
 pub const MAX_SKILL_BYTES: u64 = 64 * 1024;
 
 /// Reject a save before modifying any existing skill if the loader would
@@ -178,8 +181,16 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return vec![];
     };
-    let mut entries: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
-    entries.sort_by_key(|entry| entry.file_name());
+    let mut bounded_entries = Vec::with_capacity(MAX_SKILL_ENTRIES);
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        if bounded_entries.len() == MAX_SKILL_ENTRIES {
+            // More entries than the bounded scan can safely inspect. Fail closed
+            // instead of allocating memory proportional to an untrusted directory.
+            return vec![];
+        }
+        bounded_entries.push(entry);
+    }
+    bounded_entries.sort_by_key(|entry| entry.file_name());
     let mut out = Vec::new();
     let mut names = std::collections::HashSet::new();
 
@@ -250,6 +261,19 @@ pub fn find(dir: &Path, name: &str) -> Option<Skill> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_directories_with_more_entries_than_the_bounded_scan() {
+        let dir = tempfile::tempdir().unwrap();
+        for index in 0..=MAX_SKILL_ENTRIES {
+            std::fs::write(
+                dir.path().join(format!("noise-{index:04}.txt")),
+                "not a skill",
+            ).unwrap();
+        }
+        std::fs::write(dir.path().join("valid.md"), "# Valid skill").unwrap();
+        assert!(load_all(dir.path()).is_empty());
+    }
 
     #[test]
     fn loads_local_skills_with_immutable_review_fingerprints() {
