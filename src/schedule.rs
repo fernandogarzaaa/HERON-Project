@@ -182,7 +182,7 @@ pub fn parse_trigger(expr: &str) -> Option<String> {
     let rest = lower.strip_prefix("when ").or_else(|| lower.strip_prefix("whenever "))?;
     let rest = rest.trim();
     if rest.contains("email") || rest.contains("mail arrives") {
-        let needle = rest.split_once(" from ").or_else(|| rest.split_once(" about ")).map(|(_, n)| n.trim().trim_matches(['"', '\'', '.']).to_string()).unwrap_or_default();
+        let needle = rest.split_once(" from ").or_else(|| rest.split_once(" about ")).map(|(_, n)| n.trim().trim_matches(['"', '\'', '.']).to_lowercase()).unwrap_or_default();
         return Some(format!("@email:{needle}"));
     }
     // "when notes/*.md changes", "when a file changes in notes", "when anything in drafts changes"
@@ -337,6 +337,7 @@ mod tests {
     fn a_trigger_with_letters_that_grow_when_lowercased_is_parsed() {
         assert_eq!(parse_trigger("When İİİ/*.md changes").as_deref(), Some("@file:İİİ/*.md"));
         assert_eq!(parse_trigger("WHENEVER anything in İzmir changes").as_deref(), Some("@file:İzmir/**"));
+        assert_eq!(parse_trigger("when email from ÉMILE arrives").as_deref(), Some("@email:émile arrives"));
     }
 
     fn next(cron: &str, from: &str) -> String {

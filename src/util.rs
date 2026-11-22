@@ -75,7 +75,7 @@ pub fn redact_secrets(s: &str) -> String {
 /// The outermost `[...]` in a model's reply, if the reply holds one.
 pub fn json_array_span(text: &str) -> Option<&str> {
     let start = text.find('[')?;
-    let end = text.rfind(']')?;
+    let end = text.rfind(']').filter(|&end| end > start)?;
     text.get(start..=end)
 }
 
@@ -128,6 +128,7 @@ mod tests {
     fn json_array_span_finds_the_outer_array_or_nothing() {
         assert_eq!(json_array_span("Here: [1, [2]] done"), Some("[1, [2]]"));
         assert_eq!(json_array_span("] then ["), None);
+        assert_eq!(json_array_span("]["), None);
         assert_eq!(json_array_span("no array"), None);
         assert_eq!(json_array_span("[]"), Some("[]"));
     }

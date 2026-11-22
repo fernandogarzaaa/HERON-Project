@@ -411,13 +411,13 @@ pub fn json_string_field(json: &str, key: &str) -> Option<String> {
                         b'"' => out.push('"'),
                         b'/' => out.push('/'),
                         b'u' if i + 5 < bytes.len() => {
-                            let hex = json.get(i + 2..i + 6).unwrap_or("");
-                            if let Ok(n) = u32::from_str_radix(hex, 16) {
+                            // Four hex digits, or the escape is skipped and what follows is read as text.
+                            if let Some(n) = json.get(i + 2..i + 6).and_then(|h| u32::from_str_radix(h, 16).ok()) {
                                 if let Some(c) = char::from_u32(n) {
                                     out.push(c);
                                 }
+                                i += 4;
                             }
-                            i += 4;
                         }
                         other if other.is_ascii() => out.push(other as char),
                         _ => {
@@ -923,6 +923,7 @@ mod tests {
     fn a_json_string_with_an_odd_escape_before_non_ascii_is_read() {
         assert_eq!(json_string_field(r#"{"command": "echo \é done"}"#, "command").as_deref(), Some("echo é done"));
         assert!(json_string_field(r#"{"command": "a\u00é9"}"#, "command").is_some());
+        assert_eq!(json_string_field(r#"{"command": "\u000é"}"#, "command").as_deref(), Some("000é"));
     }
 
     #[test]

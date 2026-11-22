@@ -593,20 +593,47 @@ fn sse(item: &Item) -> SseEvent {
 
 /// One chat run, as its own task. Whoever ends the run publishes its last events: this task when the
 /// turn ends, or `cancel` when it stops the run first.
+/// How far a run got, so a panic anywhere still leaves it freed and ended exactly once.
+#[derive(Clone, Copy, PartialEq)]
+enum RunStage {
+    Running,
+    Freed,
+    Ended,
+}
+
 async fn run_chat(st: Arc<ServerState>, session: Session, message: String, run_id: String) {
     use futures_util::FutureExt;
     let sid = session.id.clone();
+    let stage = Arc::new(Mutex::new(RunStage::Running));
     // A panic in the turn must still free the conversation and end its stream, or every new
     // message to it is refused as busy until Heron restarts.
-    let finished = std::panic::AssertUnwindSafe(run_chat_turn(st.clone(), session, message, run_id.clone())).catch_unwind().await;
-    if finished.is_err() && st.finish(&sid, &run_id) {
+    let finished = std::panic::AssertUnwindSafe(run_chat_turn(st.clone(), session, message, run_id.clone(), stage.clone())).catch_unwind().await;
+    if finished.is_ok() {
+        return;
+    }
+    let at = *stage.lock().unwrap_or_else(|e| e.into_inner());
+    if at == RunStage::Running {
+        // A run `cancel` already took ends there; only one still registered ends here.
+        if !st.finish(&sid, &run_id) {
+            return;
+        }
+        let left: Vec<(String, PendingApproval)> = {
+            let mut approvals = st.approvals.lock().unwrap_or_else(|e| e.into_inner());
+            let ids: Vec<String> = approvals.iter().filter(|(_, p)| p.run_id == run_id).map(|(id, _)| id.clone()).collect();
+            ids.into_iter().filter_map(|id| approvals.remove(&id).map(|p| (id, p))).collect()
+        };
+        for (id, p) in left {
+            st.app.events.publish(&p.session_id, &p.run_id, json!({"type": "approval_resolved", "id": id, "decision": "cancelled"}));
+        }
         let err = anyhow::anyhow!("Heron hit an internal error while replying. Try again, or start a new conversation.");
         st.app.publish_outcome(&sid, &run_id, Err(&err));
+    }
+    if at != RunStage::Ended {
         st.app.publish_run_end(&sid, &run_id);
     }
 }
 
-async fn run_chat_turn(st: Arc<ServerState>, mut session: Session, message: String, run_id: String) {
+async fn run_chat_turn(st: Arc<ServerState>, mut session: Session, message: String, run_id: String, stage: Arc<Mutex<RunStage>>) {
     let sid = session.id.clone();
     // Rules another Heron on this home revoked or added since this one last looked apply from here.
     st.app.reload_rules();
@@ -616,6 +643,7 @@ async fn run_chat_turn(st: Arc<ServerState>, mut session: Session, message: Stri
     if !st.finish(&sid, &run_id) {
         return;
     }
+    *stage.lock().unwrap_or_else(|e| e.into_inner()) = RunStage::Freed;
     if outcome.is_ok() {
         st.app.persist_rules();
     }
@@ -626,6 +654,7 @@ async fn run_chat_turn(st: Arc<ServerState>, mut session: Session, message: Stri
             st.app.events.publish(&sid, &run_id, json!({"type": "learned", "items": learned}));
         }
     }
+    *stage.lock().unwrap_or_else(|e| e.into_inner()) = RunStage::Ended;
     st.app.publish_run_end(&sid, &run_id);
 }
 
@@ -1915,6 +1944,30 @@ mod tests {
         assert_eq!(events.last().unwrap()["type"], "run_end", "{events:?}");
         assert!(events.iter().any(|e| e["type"] == "error"), "the owner is told the reply failed: {events:?}");
         assert_eq!(h.json("GET", &format!("/sessions/{sid}"), Value::Null).await["busy"], false);
+    }
+
+    /// Answers once, then panics: the learning step after the reply is what breaks.
+    struct PanicsWhenLearning(std::sync::atomic::AtomicUsize);
+
+    #[async_trait]
+    impl Llm for PanicsWhenLearning {
+        async fn chat(&self, _req: ChatRequest, _on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
+            if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) > 0 {
+                panic!("odd model output while learning");
+            }
+            Ok(ChatResponse { message: Message::assistant("Hello. I live in Lisbon."), usage: Default::default(), model: "t".into() })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_panic_after_the_reply_still_ends_the_stream_once() {
+        let llm = Arc::new(PanicsWhenLearning(Default::default()));
+        let h = harness(llm.clone(), true, |c| c.agent.auto_memory = true).await;
+        let events = tokio::time::timeout(Duration::from_secs(10), async { h.chat(json!({"message": "I live in Lisbon"})).await.all().await }).await.expect("the stream ends");
+        assert_eq!(find(&events, "done")["text"], "Hello. I live in Lisbon.", "{events:?}");
+        assert_eq!(events.iter().filter(|e| e["type"] == "run_end").count(), 1, "{events:?}");
+        assert!(!events.iter().any(|e| e["type"] == "error"), "the reply itself succeeded: {events:?}");
+        assert!(llm.0.load(std::sync::atomic::Ordering::SeqCst) >= 2, "the learning step called the model");
     }
 
     #[tokio::test]
