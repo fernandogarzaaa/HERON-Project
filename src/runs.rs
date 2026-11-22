@@ -76,15 +76,32 @@ impl RunLog {
         log
     }
 
+    /// End, as `cancelled` now, every record that never ended: its run belonged to a core that
+    /// stopped, and no process carries a run over a restart. Only the core that serves the app calls
+    /// this, once as it starts and before any run of its own; a process that merely opens the same
+    /// store (`heron mcp-serve`, a terminal command) never does. Returns how many it ended.
+    pub fn close_unfinished(&self) -> usize {
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let Cache { records, pending } = &mut *cache;
+        let now = now_ts();
+        let mut closed = 0;
+        for rec in records.iter_mut().filter(|r| !r.finished()) {
+            pending.remove(&rec.run_id);
+            rec.status = "cancelled".into();
+            rec.ended = Some(now);
+            self.save(rec);
+            closed += 1;
+        }
+        closed
+    }
+
     /// Follow one published event. The bus calls this before it broadcasts the event.
     pub fn record(&self, ev: &BusEvent) {
         if ev.no_run || ev.run_id.is_empty() {
             return;
         }
         let kind = ev.kind();
-        if !matches!(kind, "session" | "tool_end" | "approval" | "approval_resolved" | "approval_parked" | "done" | "error" | "cancelled") {
-            return;
-        }
+        let follows = matches!(kind, "session" | "tool_end" | "approval" | "approval_resolved" | "approval_parked" | "done" | "error" | "cancelled");
         let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         if kind == "session" {
             if cache.records.iter().any(|r| r.run_id == ev.run_id) {
@@ -105,6 +122,21 @@ impl RunLog {
         if rec.finished() {
             return;
         }
+        // A new chat's session is created untitled and titled once its run has started, so its record
+        // takes the title from the first event after that, whatever the event.
+        let titled = rec.title.is_empty() && {
+            let title = self.store.session_title(&rec.session_id);
+            !title.is_empty() && {
+                rec.title = title;
+                true
+            }
+        };
+        if !follows {
+            if titled {
+                self.save(rec);
+            }
+            return;
+        }
         let approval_id = ev.json.get("id").and_then(Value::as_str).unwrap_or_default();
         match kind {
             "tool_end" => {
@@ -114,6 +146,13 @@ impl RunLog {
                 }
                 if let Some(cp) = ev.json.get("checkpoint").and_then(|c| serde_json::from_value::<RecordedCheckpoint>(c.clone()).ok()) {
                     rec.checkpoints.push(cp);
+                }
+                // A `delegate` call carries what its sub-agent appended and saved.
+                if let Some(ids) = ev.json.get("delegated_audit_ids").and_then(Value::as_array) {
+                    rec.audit_ids.extend(ids.iter().filter_map(Value::as_i64));
+                }
+                if let Some(cps) = ev.json.get("delegated_checkpoints").and_then(Value::as_array) {
+                    rec.checkpoints.extend(cps.iter().filter_map(|c| serde_json::from_value::<RecordedCheckpoint>(c.clone()).ok()));
                 }
             }
             "approval" => {

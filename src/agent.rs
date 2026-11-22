@@ -21,8 +21,9 @@ pub enum Event {
     Text(String),
     ToolStart { id: String, name: String, summary: String, risk: Effect },
     /// `audit_id` is the audit row this call appended; `checkpoint` is the one a file tool saved
-    /// (see [`Agent::execute_call`]). Both are for the run record (F3).
-    ToolEnd { id: String, name: String, ok: bool, preview: String, audit_id: Option<i64>, checkpoint: Option<crate::store::RecordedCheckpoint> },
+    /// (see [`Agent::execute_call`]). `delegated` is what a `delegate` call's sub-agent appended and
+    /// saved. All three are for the run record (F3).
+    ToolEnd { id: String, name: String, ok: bool, preview: String, audit_id: Option<i64>, checkpoint: Option<crate::store::RecordedCheckpoint>, delegated: Delegated },
     /// Out-of-band information for the user (compaction, sub-agent activity, ...).
     Notice(String),
     Usage(Usage),
@@ -33,6 +34,45 @@ pub enum Event {
 }
 
 pub type EventSink = Arc<dyn Fn(Event) + Send + Sync>;
+
+/// The audit rows a `delegate` call's sub-agent appended and the checkpoints its file tools saved,
+/// its own sub-agents' included, in the order they were made.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Delegated {
+    pub audit_ids: Vec<i64>,
+    pub checkpoints: Vec<crate::store::RecordedCheckpoint>,
+}
+
+/// Sends a `delegate` call's `tool_end` with what its sub-agent did. A run cancelled mid-delegation
+/// drops it unsent; it then still sends what the sub-agent had done by then, before the run's
+/// `cancelled`, so the files the sub-agent changed reach the run record.
+struct DelegateEnd {
+    sink: EventSink,
+    call_id: String,
+    delegated: Arc<Mutex<Delegated>>,
+    ended: bool,
+}
+
+impl DelegateEnd {
+    fn end(mut self, ok: bool, preview: String) {
+        self.send(ok, preview);
+    }
+
+    fn send(&mut self, ok: bool, preview: String) {
+        self.ended = true;
+        let delegated = std::mem::take(&mut *self.delegated.lock().unwrap_or_else(|e| e.into_inner()));
+        (self.sink)(Event::ToolEnd { id: self.call_id.clone(), name: DELEGATE.into(), ok, preview, audit_id: None, checkpoint: None, delegated });
+    }
+}
+
+impl Drop for DelegateEnd {
+    fn drop(&mut self) {
+        let did_something = { let d = self.delegated.lock().unwrap_or_else(|e| e.into_inner()); !d.audit_ids.is_empty() || !d.checkpoints.is_empty() };
+        if !self.ended && did_something {
+            self.send(false, "stopped before it finished".into());
+        }
+    }
+}
 
 pub fn null_sink() -> EventSink {
     Arc::new(|_| {})
@@ -814,7 +854,7 @@ impl Agent {
                 Verdict::Deny(reason) => {
                     let audit_id = self.audit(&ctx.session_id, name, &audit_args, "denied-by-policy", &reason);
                     sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk });
-                    sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: format!("blocked: {reason}"), audit_id, checkpoint: None });
+                    sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: format!("blocked: {reason}"), audit_id, checkpoint: None, delegated: Delegated::default() });
                     return format!("Permission denied: {reason}. Do not retry or work around this; tell the user.");
                 }
                 // Already allowed for this conversation by the user (never for risky actions, never once
@@ -849,7 +889,7 @@ impl Agent {
                             let reason = reason.unwrap_or_else(|| "the user declined this action".into());
                             let audit_id = self.audit(&ctx.session_id, name, &audit_args, "denied-by-user", &reason);
                             sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk });
-                            sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: "Not allowed, so this was not done.".into(), audit_id, checkpoint: None });
+                            sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: "Not allowed, so this was not done.".into(), audit_id, checkpoint: None, delegated: Delegated::default() });
                             return format!("Permission denied: {reason}. Do not retry or work around this; ask the user how they want to proceed.");
                         }
                     }
@@ -859,11 +899,10 @@ impl Agent {
             sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk });
             // The shell tool enforces its own (argument-controlled) timeout.
             let limit = if name == "shell" { Duration::from_secs(1900) } else { Duration::from_secs(self.cfg.agent.tool_timeout_secs) };
-            // A file tool's own checkpoint is the session's newest one that was not there before the
-            // call. File tools write, so they run one at a time, and a session has one active run.
-            let saves_checkpoint = matches!(name, "write_file" | "edit_file");
-            let newest_before = if saves_checkpoint { ctx.store.newest_checkpoint(&ctx.session_id) } else { None };
-            let outcome = match tokio::time::timeout(limit, tool.call(&args, ctx)).await {
+            // A file tool reports the checkpoint it saved for this call, and that one alone is the
+            // call's: a parked call or an undo can change the session's checkpoints meanwhile.
+            let (outcome, checkpoint) = crate::tools::saving_checkpoint(tokio::time::timeout(limit, tool.call(&args, ctx))).await;
+            let outcome = match outcome {
                 Ok(r) => r,
                 Err(_) => Err(anyhow::anyhow!("tool timed out after {}s", limit.as_secs())),
             };
@@ -883,8 +922,7 @@ impl Agent {
                 Err(e) => (false, format!("Error: {e:#}")),
             };
             let audit_id = self.audit(&ctx.session_id, name, &audit_args, decision, &redact_secrets(&preview(&text, 300)));
-            let checkpoint = if saves_checkpoint { ctx.store.newest_checkpoint(&ctx.session_id).filter(|after| newest_before.as_ref() != Some(after)) } else { None };
-            sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok, preview: preview(&text, 200), audit_id, checkpoint });
+            sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok, preview: preview(&text, 200), audit_id, checkpoint, delegated: Delegated::default() });
             text
         })
     }
@@ -904,10 +942,21 @@ impl Agent {
         limits.agent.max_steps = (limits.agent.max_steps / 2).max(6);
         child.cfg = Arc::new(limits);
         let mut session = Session::ephemeral(&ctx.session_id, ctx.tainted.clone(), ctx.seen_urls.clone());
-        // Surface the sub-agent's tool activity, but not its text stream.
+        // Surface the sub-agent's tool activity, but not its text stream. Its audit rows and
+        // checkpoints go to the run record on this call's `tool_end`.
         let parent_sink = sink.clone();
+        let collected = DelegateEnd { sink: sink.clone(), call_id: call_id.into(), delegated: Default::default(), ended: false };
+        let gathered = collected.delegated.clone();
         let child_sink: EventSink = Arc::new(move |e| match e {
             Event::ToolStart { name, summary, .. } => parent_sink(Event::Notice(format!("  ↳ sub-agent: {name} {summary}"))),
+            Event::ToolEnd { audit_id, checkpoint, delegated, .. } => {
+                let mut all = gathered.lock().unwrap_or_else(|e| e.into_inner());
+                all.audit_ids.extend(audit_id);
+                all.checkpoints.extend(checkpoint);
+                // A sub-agent's own `delegate` call carries what its sub-agent did.
+                all.audit_ids.extend(delegated.audit_ids);
+                all.checkpoints.extend(delegated.checkpoints);
+            }
             Event::Usage(u) => parent_sink(Event::Usage(u)),
             Event::Model { .. } => {}
             // The taint flag is shared, so a sub-agent's first taint is its parent's first taint.
@@ -919,7 +968,7 @@ impl Agent {
             Ok(t) => (true, truncate_middle(&t, self.cfg.agent.max_tool_output_chars)),
             Err(e) => (false, format!("Error: sub-agent failed: {e:#}")),
         };
-        sink(Event::ToolEnd { id: call_id.into(), name: DELEGATE.into(), ok, preview: preview(&text, 200), audit_id: None, checkpoint: None });
+        collected.end(ok, preview(&text, 200));
         text
     }
 
@@ -1100,6 +1149,214 @@ mod tests {
         let ends = tool_ends(&agent).await;
         let [Event::ToolEnd { ok: false, audit_id: Some(_), checkpoint: None, .. }] = ends.as_slice() else { panic!("{ends:?}") };
         assert_eq!(agent.store.audit_log(5).unwrap()[0].decision, "denied-by-user");
+    }
+
+    /// What another party does to the conversation's checkpoints while a file tool runs, from a task
+    /// of its own as `run_parked` or `POST /api/undo` would. Gets the conversation's context and the
+    /// call's arguments.
+    type Meanwhile = fn(ToolCtx, Value) -> BoxFuture<'static, ()>;
+
+    /// A file tool that lets [`Meanwhile`] work before and after the real tool runs.
+    struct Interleaved {
+        real: Arc<dyn crate::tools::Tool>,
+        before: Option<Meanwhile>,
+        after: Option<Meanwhile>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::tools::Tool for Interleaved {
+        fn name(&self) -> &str {
+            self.real.name()
+        }
+        fn description(&self) -> &str {
+            self.real.description()
+        }
+        fn parameters(&self) -> Value {
+            self.real.parameters()
+        }
+        fn summary(&self, args: &Value) -> String {
+            self.real.summary(args)
+        }
+        fn risk(&self, args: &Value, ctx: &ToolCtx) -> Effect {
+            self.real.risk(args, ctx)
+        }
+        async fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<String> {
+            if let Some(f) = self.before {
+                tokio::spawn(f(ctx.clone(), args.clone())).await.unwrap();
+            }
+            let out = self.real.call(args, ctx).await;
+            if let Some(f) = self.after {
+                tokio::spawn(f(ctx.clone(), args.clone())).await.unwrap();
+            }
+            out
+        }
+    }
+
+    fn interleave(agent: &mut Agent, tool: &str, before: Option<Meanwhile>, after: Option<Meanwhile>) {
+        let mut tools = ToolRegistry::builtin();
+        tools.register(Arc::new(Interleaved { real: tools.get(tool).unwrap(), before, after }));
+        agent.tools = Arc::new(tools);
+    }
+
+    /// A call `run_parked` runs for the same conversation: the real `write_file`, outside any run.
+    fn parked_write(ctx: ToolCtx, path: &str) -> BoxFuture<'static, ()> {
+        let args = json!({"path": path, "content": "the parked call's"});
+        Box::pin(async move {
+            ToolRegistry::builtin().get("write_file").unwrap().call(&args, &ctx).await.unwrap();
+        })
+    }
+
+    fn checkpoint_of(e: &Event) -> (bool, Option<crate::store::RecordedCheckpoint>) {
+        match e {
+            Event::ToolEnd { ok, checkpoint, .. } => (*ok, checkpoint.clone()),
+            _ => unreachable!(),
+        }
+    }
+
+    #[tokio::test]
+    async fn parked_write_during_a_run_is_not_claimed_by_it() {
+        let ws = tempfile::tempdir().unwrap();
+        std::fs::write(ws.path().join("notes.md"), "alpha\n").unwrap();
+        let script = ScriptedLlm::new(vec![
+            ScriptedLlm::tool_call("edit_file", json!({"path": "notes.md", "old_string": "not there", "new_string": "x"})),
+            ScriptedLlm::tool_call("edit_file", json!({"path": "notes.md", "old_string": "alpha", "new_string": "beta"})),
+            Message::assistant("done"),
+        ]);
+        let (mut agent, _) = agent_with(script, Mode::Auto, Arc::new(DenyAll), ws.path());
+        // A parked write lands while the failing edit runs, and another just after the edit that saves.
+        let before: Meanwhile = |ctx, args| if args["old_string"] == "not there" { parked_write(ctx, "parked-1.txt") } else { Box::pin(async {}) };
+        let after: Meanwhile = |ctx, args| if args["old_string"] == "alpha" { parked_write(ctx, "parked-2.txt") } else { Box::pin(async {}) };
+        interleave(&mut agent, "edit_file", Some(before), Some(after));
+        let ends = tool_ends(&agent).await;
+        let [(failed_ok, failed_cp), (edit_ok, edit_cp)] = ends.iter().map(checkpoint_of).collect::<Vec<_>>().try_into().unwrap_or_else(|v: Vec<_>| panic!("{v:?}"));
+        assert!(ws.path().join("parked-1.txt").exists() && ws.path().join("parked-2.txt").exists(), "both parked writes ran");
+        // The failed edit saved nothing: the parked write's checkpoint, new during the call, is not its.
+        assert!(!failed_ok);
+        assert_eq!(failed_cp, None);
+        // The edit that saved attaches its own checkpoint, not the parked one that is now the newest.
+        assert!(edit_ok);
+        let cp = edit_cp.expect("the edit attaches the checkpoint it saved");
+        assert!(cp.path.ends_with("notes.md"), "{cp:?}");
+        assert_eq!(cp.prev_hash, crate::tools::fs::content_hash(b"alpha\n"));
+        let session = agent.store.audit_log(5).unwrap()[0].session_id.clone();
+        let newest = agent.store.newest_checkpoint(&session).unwrap();
+        assert!(newest.path.ends_with("parked-2.txt") && newest.id != cp.id, "{newest:?}");
+    }
+
+    #[tokio::test]
+    async fn undo_during_a_failed_edit_attaches_nothing() {
+        let ws = tempfile::tempdir().unwrap();
+        std::fs::write(ws.path().join("notes.md"), "alpha\n").unwrap();
+        let script = ScriptedLlm::new(vec![
+            ScriptedLlm::tool_call("write_file", json!({"path": "first.txt", "content": "one"})),
+            ScriptedLlm::tool_call("write_file", json!({"path": "second.txt", "content": "two"})),
+            ScriptedLlm::tool_call("edit_file", json!({"path": "notes.md", "old_string": "not there", "new_string": "x"})),
+            Message::assistant("done"),
+        ]);
+        let (mut agent, _) = agent_with(script, Mode::Auto, Arc::new(DenyAll), ws.path());
+        // The owner presses undo while the edit runs: the second write's checkpoint goes, and the
+        // first one is the conversation's newest again.
+        let undo: Meanwhile = |ctx, _| {
+            Box::pin(async move {
+                crate::tools::fs::undo_last(&ctx).unwrap().expect("there was a change to undo");
+            })
+        };
+        interleave(&mut agent, "edit_file", Some(undo), None);
+        let ends = tool_ends(&agent).await;
+        let [first, second, failed] = ends.iter().map(checkpoint_of).collect::<Vec<_>>().try_into().unwrap_or_else(|v: Vec<_>| panic!("{v:?}"));
+        assert!(!ws.path().join("second.txt").exists(), "the undo ran during the edit");
+        assert!(first.1.is_some_and(|c| c.path.ends_with("first.txt")) && second.1.is_some_and(|c| c.path.ends_with("second.txt")));
+        // The edit saved nothing, so it attaches nothing, not the first write's checkpoint.
+        assert!(!failed.0);
+        assert_eq!(failed.1, None);
+    }
+
+    /// A bus that keeps run records, as the app's does, with one run started on it, and a sink that
+    /// publishes a turn's events for that run.
+    fn recorded_run(store: &Store, session_id: &str) -> (crate::events::EventBus, String, EventSink) {
+        let bus = crate::events::EventBus::with_runs(store.clone());
+        let run = crate::events::new_run_id();
+        bus.publish(session_id, &run, json!({"type": "session", "id": session_id, "run_id": run}));
+        let (b, sid, r) = (bus.clone(), session_id.to_string(), run.clone());
+        let sink: EventSink = Arc::new(move |e| {
+            b.publish(&sid, &r, crate::events::event_json(e));
+        });
+        (bus, run, sink)
+    }
+
+    fn record_of(bus: &crate::events::EventBus, run: &str) -> crate::runs::RunRecord {
+        bus.runs().unwrap().list().into_iter().find(|rec| rec.run_id == run).unwrap()
+    }
+
+    #[tokio::test]
+    async fn delegated_file_edits_reach_the_run_record() {
+        let ws = tempfile::tempdir().unwrap();
+        std::fs::write(ws.path().join("notes.md"), "alpha\n").unwrap();
+        let script = ScriptedLlm::new(vec![
+            ScriptedLlm::tool_call("delegate", json!({"task": "tidy up"})),
+            // The sub-agent writes a file, then hands an edit to a sub-agent of its own.
+            ScriptedLlm::tool_call("write_file", json!({"path": "sub.txt", "content": "one"})),
+            ScriptedLlm::tool_call("delegate", json!({"task": "edit the notes"})),
+            ScriptedLlm::tool_call("edit_file", json!({"path": "notes.md", "old_string": "alpha", "new_string": "beta"})),
+            Message::assistant("edited"),
+            Message::assistant("tidied"),
+            ScriptedLlm::tool_call("write_file", json!({"path": "own.txt", "content": "own"})),
+            Message::assistant("done"),
+        ]);
+        let (agent, _) = agent_with(script, Mode::Auto, Arc::new(DenyAll), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let (bus, run, sink) = recorded_run(&agent.store, &s.id);
+        agent.run_turn(&mut s, "go", &[], &sink).await.unwrap();
+        bus.publish(&s.id, &run, json!({"type": "done", "text": "done"}));
+        let rec = record_of(&bus, &run);
+        assert_eq!(std::fs::read_to_string(ws.path().join("notes.md")).unwrap(), "beta\n");
+        // Every checkpoint the turn saved is listed, the sub-agents' included, in the order they were made.
+        let paths: Vec<&str> = rec.checkpoints.iter().map(|c| c.path.rsplit('/').next().unwrap()).collect();
+        assert_eq!(paths, ["sub.txt", "notes.md", "own.txt"], "{rec:?}");
+        for cp in &rec.checkpoints {
+            assert_eq!(Some(cp.clone()), agent.store.checkpoint_row(cp.id));
+        }
+        // So is every audit row: the two sub-agents' calls and the turn's own write, in order.
+        assert_eq!(agent.store.audit_log(10).unwrap().len(), 3);
+        assert_eq!(rec.audit_ids.len(), 3, "{rec:?}");
+        assert!(rec.audit_ids.windows(2).all(|w| w[0] < w[1]), "{rec:?}");
+        // The run's own calls are the delegation and the write.
+        assert_eq!((rec.tool_calls, rec.status.as_str()), (2, "done"));
+    }
+
+    #[tokio::test]
+    async fn cancelled_delegation_still_reaches_the_run_record() {
+        let ws = tempfile::tempdir().unwrap();
+        let script = ScriptedLlm::new(vec![
+            ScriptedLlm::tool_call("delegate", json!({"task": "write then read"})),
+            ScriptedLlm::tool_call("write_file", json!({"path": "sub.txt", "content": "one"})),
+            ScriptedLlm::tool_call("read_file", json!({"path": "sub.txt"})),
+            Message::assistant("never reached"),
+        ]);
+        let (mut agent, _) = agent_with(script, Mode::Auto, Arc::new(DenyAll), ws.path());
+        // The sub-agent's read never finishes, so the run is cancelled in the middle of the delegation.
+        let stuck: Meanwhile = |_, _| Box::pin(std::future::pending());
+        interleave(&mut agent, "read_file", Some(stuck), None);
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let session_id = s.id.clone();
+        let (bus, run, sink) = recorded_run(&agent.store, &s.id);
+        let task = tokio::spawn(async move { agent.run_turn(&mut s, "go", &[], &sink).await });
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !ws.path().join("sub.txt").exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the sub-agent wrote its file");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Stopped as `POST /api/cancel` stops a run: abort, wait for the task, then `cancelled`.
+        task.abort();
+        let _ = task.await;
+        bus.publish(&session_id, &run, json!({"type": "cancelled"}));
+        let rec = record_of(&bus, &run);
+        assert_eq!(rec.status, "cancelled");
+        assert_eq!(rec.checkpoints.iter().map(|c| c.path.ends_with("sub.txt")).collect::<Vec<_>>(), [true], "{rec:?}");
+        assert_eq!(rec.audit_ids.len(), 1, "{rec:?}");
     }
 
     #[tokio::test]

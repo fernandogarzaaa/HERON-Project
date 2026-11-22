@@ -479,6 +479,11 @@ fn write_with_checkpoint(ctx: &ToolCtx, path: &Path, bytes: &[u8]) -> Result<()>
         let _ = ctx.store.drop_checkpoint(id);
         return Err(e);
     }
+    // The run record (F3) lists exactly this checkpoint for the call that saved it, read now: a row
+    // id can be handed to a later row once an undo deletes this one.
+    if let Some(saved) = ctx.store.checkpoint_row(id) {
+        super::note_saved_checkpoint(saved);
+    }
     Ok(())
 }
 

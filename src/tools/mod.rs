@@ -51,6 +51,29 @@ impl ToolCtx {
     }
 }
 
+tokio::task_local! {
+    /// Where a file tool notes the checkpoint it saved, while the agent runs one call (see
+    /// [`saving_checkpoint`]).
+    static SAVED_CHECKPOINT: Arc<std::sync::Mutex<Option<crate::store::RecordedCheckpoint>>>;
+}
+
+/// Run one tool call and return what it returned together with the checkpoint the call itself
+/// saved, if any, as it was when saved. Only a save made inside `call` is reported: a checkpoint
+/// another task saves for the same conversation meanwhile (a parked call run later, an undo) is not
+/// this call's. The slot outlives `call`, so a call cut off after its save (a timeout) still reports it.
+pub async fn saving_checkpoint<T>(call: impl std::future::Future<Output = T>) -> (T, Option<crate::store::RecordedCheckpoint>) {
+    let slot: Arc<std::sync::Mutex<Option<crate::store::RecordedCheckpoint>>> = Default::default();
+    let out = SAVED_CHECKPOINT.scope(slot.clone(), call).await;
+    let saved = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
+    (out, saved)
+}
+
+/// Note that the running call saved `checkpoint`. Outside [`saving_checkpoint`] (a tool called
+/// directly) it notes nothing.
+pub(crate) fn note_saved_checkpoint(checkpoint: crate::store::RecordedCheckpoint) {
+    let _ = SAVED_CHECKPOINT.try_with(|slot| *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(checkpoint));
+}
+
 /// The web addresses that have appeared in a conversation: typed by the user, or returned by a tool.
 ///
 /// After outside content has been read, a hidden instruction can try to make the agent "fetch" an address
