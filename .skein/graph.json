@@ -5132,7 +5132,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "F7: dictation button, spoken replies",
-    "version": 18,
+    "version": 19,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
