@@ -3,7 +3,7 @@
 
 use crate::agent::{Agent, EventSink, Session};
 use crate::events::EventBus;
-use crate::config::{Config, SavedRules};
+use crate::config::{Config, FeaturesConfig, SavedRules};
 use crate::llm::{Llm, SwappableLlm, Usage};
 use crate::memory::Memory;
 use crate::permissions::{Approver, DenyAll, Mode, Policy};
@@ -302,7 +302,8 @@ fn rules_json(rules: &[String]) -> String {
 enum ConfigFile {
     Missing,
     Unreadable(String),
-    Rules(SavedRules),
+    /// The standing rules, and the `[features]` table (a reload applies the second to the settings).
+    Rules(SavedRules, FeaturesConfig),
 }
 
 /// How a reload stands with `config.lock`.
@@ -324,7 +325,7 @@ fn read_config_rules(home: &std::path::Path) -> ConfigFile {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => ConfigFile::Missing,
         Err(e) => ConfigFile::Unreadable(format!("could not read {}: {e}", path.display())),
         Ok(text) => match toml::from_str::<Config>(&text) {
-            Ok(c) => ConfigFile::Rules(SavedRules { allow: c.permissions.allow, deny: c.permissions.deny }),
+            Ok(c) => ConfigFile::Rules(SavedRules { allow: c.permissions.allow, deny: c.permissions.deny }, c.features),
             Err(e) => ConfigFile::Unreadable(format!("could not parse {}: {e}", path.display())),
         },
     }
@@ -450,7 +451,7 @@ pub fn repair_saved_nevers(cfg: &Config, store: &Store) -> Result<NeversCheck> {
         return Ok(NeversCheck::Sound(rules.len()));
     }
     let file = match read_config_rules(&cfg.home) {
-        ConfigFile::Rules(rules) => Some(rules.deny),
+        ConfigFile::Rules(rules, _) => Some(rules.deny),
         ConfigFile::Missing => None,
         ConfigFile::Unreadable(why) => anyhow::bail!("the \"never\" rules saved in heron.db (`{DENY_KEY}`) are damaged, and were not rebuilt because {why}; fix config.toml, then run `heron doctor` again"),
     };
@@ -1139,7 +1140,7 @@ impl App {
 
     fn nevers_now(&self) -> Result<Vec<Never>> {
         let file_deny = match read_config_rules(&self.cfg().home) {
-            ConfigFile::Rules(rules) => rules.deny,
+            ConfigFile::Rules(rules, _) => rules.deny,
             ConfigFile::Missing | ConfigFile::Unreadable(_) => vec![],
         };
         let rules = union(self.saved_nevers()?, file_deny.iter().cloned());
@@ -1257,8 +1258,9 @@ impl App {
     }
 
     /// One turn of the terminal conversation (`heron chat`). The agent is built here, for each turn,
-    /// from the settings as they are now, so a feature key or other setting changed while the
-    /// conversation is open (in the app, or through `POST /api/features`) applies from the next turn.
+    /// from the settings as they are now. A feature key switched in this process (`update_config`)
+    /// is already in them, and one switched by another Heron on this home (the app's `heron serve`
+    /// writing `config.toml`) is taken in by the reload below, so either applies from the next turn.
     /// Returns the reply and the turn's agent, for the caller to `learn` from the turn with.
     pub async fn repl_turn(&self, approver: Arc<dyn Approver>, session: &mut Session, input: &str, sink: &EventSink) -> Result<(String, Agent)> {
         // What another Heron on this home granted or revoked since the last turn applies to this one.
@@ -1427,6 +1429,9 @@ impl App {
     /// heron.db is not written: the allow rules that came from the file are dropped, as for a file
     /// that cannot be read, and every "never" saved in heron.db that this one lacks is taken in, until
     /// a reload gets the lock. None is lifted meanwhile, as the holder may be half-way through a lift.
+    ///
+    /// The `[features]` table (the keys and `shortcuts_allowed`) is taken from the same read, when
+    /// the file is readable; otherwise the settings keep the table they have.
     fn take_config_rules(&self, saved_rules: &[String]) {
         let mut seen = self.lock_config_seen();
         // Under the file lock, so a read of the file made before another Heron lifts a "never" (from
@@ -1448,10 +1453,11 @@ impl App {
         };
         seen.lock_held = matches!(lock, FileLock::TimedOut(_));
         let (disk_allow, file_deny) = match file {
-            ConfigFile::Rules(rules) => {
+            ConfigFile::Rules(rules, features) => {
                 if seen.unreadable.take().is_some() {
                     eprintln!("heron: config.toml can be read again; its rules apply again.");
                 }
+                self.take_features(features);
                 (rules.allow, Some(rules.deny))
             }
             ConfigFile::Missing => {
@@ -1527,6 +1533,21 @@ impl App {
             // A deny rule that is not a valid glob was never loaded at startup either.
             let _ = self.policy.add_deny(r);
         }
+    }
+
+    /// Make the `[features]` table that another Heron on this home saved (`features`, read from
+    /// `config.toml` under the file lock) this one's own, so a key switched there applies from the
+    /// next turn here. A file that is missing, cannot be read, or is not locked leaves the settings as
+    /// they are: this is only called with a table that was read.
+    fn take_features(&self, features: FeaturesConfig) {
+        let mut slot = self.cfg.write().unwrap();
+        if slot.features == features {
+            return;
+        }
+        let mut cfg = (**slot).clone();
+        cfg.features = features;
+        cfg.revision += 1;
+        *slot = Arc::new(cfg);
     }
 
     /// Bring the policy from `seen` (the saved list as this one knows it) to `saved`. Rules this one
@@ -2532,6 +2553,39 @@ mod tests {
         app.repl_turn(Arc::new(DenyAll), &mut session, "once more", &sink).await.unwrap();
         assert!(!offered(2), "and drops it once switched off");
         assert_eq!(session.messages.len(), 6, "all three turns ran in the one session");
+    }
+
+    /// A feature key the owner turns off in the app (a separate process writing `config.toml`) is gone
+    /// from the next turn of a `heron chat` that is already open, with no `update_config` of its own.
+    #[tokio::test]
+    async fn repl_sees_feature_change_from_another_process() {
+        let dir = tempfile::tempdir().unwrap();
+        let mk = |answers: Vec<Message>| {
+            let cfg = Config { home: dir.path().join("home"), agent: crate::config::AgentConfig { auto_memory: false, ..Default::default() }, ..Default::default() };
+            let llm = Arc::new(ScriptedLlm::new(answers));
+            (cfg, llm)
+        };
+        let (cfg, llm) = mk(vec![Message::assistant("one"), Message::assistant("two")]);
+        let chat = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap();
+        crate::risk_notice::accept_current(&chat.store).unwrap();
+        let offered = |n: usize| llm.requests.lock().unwrap()[n].tools.iter().any(|t| t["function"]["name"] == "test_feature_tool");
+        set_test_key(&chat, true);
+        chat.llm.swap(llm.clone());
+        let mut session = Session::create(&chat.store, "").unwrap();
+        let sink = crate::agent::null_sink();
+        chat.repl_turn(Arc::new(DenyAll), &mut session, "hello", &sink).await.unwrap();
+        assert!(offered(0), "the key is on, so the tool is offered");
+
+        // The other process, started on the same home after the key was switched on, switches it off.
+        let (cfg, other_llm) = mk(vec![]);
+        let app = App::assemble(Config::read_saved(&cfg.home).unwrap(), dir.path().join("ws"), Store::in_memory().unwrap(), other_llm).await.unwrap();
+        assert!(app.cfg().feature_on("test_key"), "it started from the file, with the key on");
+        set_test_key(&app, false);
+        assert!(chat.cfg().feature_on("test_key"), "nothing has told the open chat yet");
+
+        chat.repl_turn(Arc::new(DenyAll), &mut session, "again", &sink).await.unwrap();
+        assert!(!offered(1), "the next turn no longer offers the tool");
+        assert!(!chat.cfg().feature_on("test_key"));
     }
 
     /// The first taint of an automation's session, from a `do: tool` step or from the event that set
