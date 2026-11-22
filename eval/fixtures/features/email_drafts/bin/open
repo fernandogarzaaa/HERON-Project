@@ -1,0 +1,8 @@
+#!/bin/sh
+# Fake /usr/bin/open for the F8 eval. Heron's draft_email passes one mailto: URL. This records its
+# arguments, one per line, in opened.txt beside this script, and opens nothing and sends nothing.
+dir=$(dirname "$0")
+for arg in "$@"; do
+  printf '%s\n' "$arg" >> "$dir/opened.txt"
+done
+exit 0
