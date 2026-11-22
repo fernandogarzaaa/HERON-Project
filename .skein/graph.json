@@ -3772,7 +3772,7 @@
       "claim_token": "e3df20df716f4587b6d0bfa8489b53ea",
       "claimed_at": "2026-11-22T12:13:10.853447+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T12:13:10.853447+00:00",
+      "last_heartbeat": "2026-11-22T12:13:41.549767+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -3797,9 +3797,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Kill or justify F3's surviving mutants",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
       "base_commit": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
@@ -4272,11 +4272,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F4: integration tests, undo-files fixture",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "b57635286d7fcdccca2967f5977f1a1639078dbf",
-      "branch": null,
-      "path": null
+      "base_commit": "b57635286d7fcdccca2967f5977f1a1639078dbf",
+      "branch": "skein/F4t",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F4t"
     }
   },
   "F5-fix-1": {
