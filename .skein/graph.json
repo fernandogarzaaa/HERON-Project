@@ -3337,15 +3337,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "e302eb993fea4adda601df4665d070d9",
+      "base_branch": "feat/v1-features-base",
+      "claim_token": "07b8a429a422420ba5a3c410a2b689eb",
+      "claimed_at": "2026-11-22T09:34:06.527226+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T09:34:06.527226+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [],
     "evidence": [],
@@ -3365,11 +3365,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F8: ft8, fake binary, page",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/v1-features-base",
       "branch": null,
       "path": null
     }
