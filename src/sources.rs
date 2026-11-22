@@ -13,7 +13,7 @@ use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone};
 use serde::Deserialize;
 use std::path::Path;
 
-pub const SOURCES: &[&str] = &["email", "calendar", "documents", "computer", "about", "google_email", "google_calendar", "microsoft_email", "microsoft_calendar"];
+pub const SOURCES: &[&str] = &["email", "calendar", "documents", "computer", "about", "google_email", "google_calendar", "microsoft_email", "microsoft_calendar", "calendar_local"];
 const DAY: i64 = 86_400;
 
 // ---------------- calendar (ICS) ----------------
@@ -194,6 +194,44 @@ pub async fn sync_calendar(app: &App) -> Result<usize> {
     Ok(all.len())
 }
 
+/// One event the Mac app read from the Calendar app (EventKit) and sends to `POST /api/sources/calendar_local`.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LocalEvent {
+    pub uid: String,
+    pub title: String,
+    /// Unix seconds.
+    pub start: i64,
+    #[serde(default)]
+    pub end: Option<i64>,
+    #[serde(default)]
+    pub all_day: bool,
+    #[serde(default)]
+    pub location: String,
+}
+
+/// The most events one sync keeps; the app sends a few months either side of today.
+pub const LOCAL_EVENT_LIMIT: usize = 2000;
+
+/// Replace the events from the Mac's Calendar app. Like every calendar source this is outside content:
+/// it lands in knowledge (read with `upcoming_events` and `search_knowledge`, which taint the
+/// conversation), and anything learned from it is saved unconfirmed (`OUTSIDE_SOURCES`).
+pub fn sync_calendar_local(app: &App, events: Vec<LocalEvent>) -> Result<usize> {
+    if events.len() > LOCAL_EVENT_LIMIT {
+        bail!("That is more than {LOCAL_EVENT_LIMIT} events. Send a shorter date range.");
+    }
+    let clip = |s: &str, n: usize| s.chars().take(n).collect::<String>();
+    app.store.clear_knowledge("calendar_local")?;
+    let mut kept = 0;
+    for e in events.iter().filter(|e| !e.uid.is_empty() && !e.title.trim().is_empty()) {
+        let event = Event { uid: clip(&e.uid, 200), title: clip(e.title.trim(), 200), start: e.start, end: e.end, all_day: e.all_day, location: clip(e.location.trim(), 200), repeats: String::new() };
+        let body = format!("When: {}{}", when_text(&event), if event.location.is_empty() { String::new() } else { format!("\nWhere: {}", event.location) });
+        app.store.upsert_knowledge("calendar_local", &format!("{}@{}", event.uid, event.start), &event.title, &body, event.start)?;
+        kept += 1;
+    }
+    app.store.kv_set("calendar_local", "1")?;
+    Ok(kept)
+}
+
 /// Private calendar links are as sensitive as passwords, so the app stores them with the secrets.
 /// Links written by hand into config.toml are honoured too.
 pub fn calendar_links(cfg: &crate::config::Config) -> Vec<String> {
@@ -211,7 +249,7 @@ pub fn normalize_calendar_url(raw: &str) -> String {
 /// Calendar events in the next `hours`, as short lines for the prompt.
 pub fn upcoming(store: &Store, hours: i64, limit: usize) -> Vec<String> {
     let now = now_ts();
-    let mut all: Vec<KnowledgeItem> = ["calendar", "google_calendar", "microsoft_calendar"]
+    let mut all: Vec<KnowledgeItem> = ["calendar", "google_calendar", "microsoft_calendar", "calendar_local"]
         .iter()
         .flat_map(|source| store.knowledge_between(source, now - 3600, now + hours.saturating_mul(3600), limit).unwrap_or_default())
         .collect();
@@ -221,6 +259,7 @@ pub fn upcoming(store: &Store, hours: i64, limit: usize) -> Vec<String> {
         let label = match k.source.as_str() {
             "google_calendar" => "[Google Calendar] ",
             "microsoft_calendar" => "[Microsoft Calendar] ",
+            "calendar_local" => "[Mac Calendar] ",
             _ => "",
         };
         format!("{label}{} — {}", preview(&k.title, 80),
@@ -405,7 +444,7 @@ pub async fn save_about(app: &App, about: &About) -> Result<Vec<String>> {
 fn source_label(source: &str) -> &'static str {
     match source {
         "email" | "google_email" | "microsoft_email" => "recent emails from the user's inbox",
-        "calendar" | "google_calendar" | "microsoft_calendar" => "events from the user's calendar",
+        "calendar" | "google_calendar" | "microsoft_calendar" | "calendar_local" => "events from the user's calendar",
         "documents" => "the user's notes and documents",
         "about" => "text the user wrote about themselves",
         _ => "information about the user's computer",
@@ -420,7 +459,7 @@ pub async fn learn(app: &App, source: &str) -> Result<Vec<String>> {
     // provenance and are deleted when that account is disconnected.
     let members: &[&str] = match source {
         "email" => &["email", "google_email", "microsoft_email"],
-        "calendar" => &["calendar", "google_calendar", "microsoft_calendar"],
+        "calendar" => &["calendar", "google_calendar", "microsoft_calendar", "calendar_local"],
         _ => &[],
     };
     if !members.is_empty() {
@@ -568,7 +607,7 @@ pub fn search(store: &Store, query: &str, source: Option<&str>, limit: usize) ->
     let expr = tokens.iter().map(|t| format!("\"{}\"", t.replace('"', ""))).collect::<Vec<_>>().join(" OR ");
     let aliases: &[&str] = match source {
         Some("email") => &["email", "google_email", "microsoft_email"],
-        Some("calendar") => &["calendar", "google_calendar", "microsoft_calendar"],
+        Some("calendar") => &["calendar", "google_calendar", "microsoft_calendar", "calendar_local"],
         _ => &[],
     };
     // The best matches are chosen by relevance across every alias at once; only then are they shown
@@ -587,7 +626,7 @@ pub fn search(store: &Store, query: &str, source: Option<&str>, limit: usize) ->
 pub fn connected_summary(store: &Store) -> String {
     let counts = [
         (store.knowledge_count("email") + store.knowledge_count("google_email") + store.knowledge_count("microsoft_email"), "emails"),
-        (store.knowledge_count("calendar") + store.knowledge_count("google_calendar") + store.knowledge_count("microsoft_calendar"), "calendar events"),
+        (store.knowledge_count("calendar") + store.knowledge_count("google_calendar") + store.knowledge_count("microsoft_calendar") + store.knowledge_count("calendar_local"), "calendar events"),
         (store.knowledge_count("documents"), "documents"),
     ];
     let parts: Vec<String> = counts.iter().filter(|(count, _)| *count > 0)
@@ -749,7 +788,7 @@ mod tests {
     #[tokio::test]
     async fn learning_from_email_reports_items_as_waiting() {
         let fact = "The landlord Mr Weber wants the rent paid by the first of each month";
-        for (source, learn_source) in [("email", "email"), ("calendar", "calendar"), ("documents", "documents")] {
+        for (source, learn_source) in [("email", "email"), ("calendar", "calendar"), ("calendar_local", "calendar"), ("documents", "documents")] {
             let dir = tempfile::tempdir().unwrap();
             let reply = format!("[{{\"content\":\"{fact}\",\"kind\":\"person\",\"importance\":0.8}}]");
             let (app, _) = app_with(ScriptedLlm::new(vec![Message::assistant(&reply)]), dir.path()).await;
@@ -761,6 +800,40 @@ mod tests {
             assert!(!saved[0].confirmed, "{source}: the item was saved confirmed");
             assert!(app.memory.core(10).unwrap().is_empty(), "{source}: an outside fact reached the core");
         }
+    }
+
+    fn local_event(uid: &str, title: &str, start: i64) -> LocalEvent {
+        LocalEvent { uid: uid.into(), title: title.into(), start, end: Some(start + 1800), all_day: false, location: "Room 4".into() }
+    }
+
+    #[tokio::test]
+    async fn mac_calendar_events_replace_each_sync_and_show_in_upcoming() {
+        let dir = tempfile::tempdir().unwrap();
+        let (app, _) = app_with(ScriptedLlm::new(vec![]), dir.path()).await;
+        let soon = now_ts() + 3600;
+        let n = sync_calendar_local(&app, vec![local_event("a", "Dentist", soon), local_event("b", "Standup", soon + 60), local_event("", "No id", soon), local_event("c", "  ", soon)]).unwrap();
+        assert_eq!(n, 2, "events with no id or no title are skipped");
+        assert_eq!(app.store.knowledge_count("calendar_local"), 2);
+        assert!(upcoming(&app.store, 72, 5).iter().any(|l| l.starts_with("[Mac Calendar] Dentist")), "{:?}", upcoming(&app.store, 72, 5));
+        // The next sync replaces: a cancelled event disappears.
+        sync_calendar_local(&app, vec![local_event("b", "Standup", soon + 60)]).unwrap();
+        assert_eq!(app.store.knowledge_count("calendar_local"), 1);
+        assert!(search(&app.store, "Dentist", Some("calendar"), 3).unwrap().starts_with("nothing found"));
+        assert!(search(&app.store, "Standup", Some("calendar"), 3).unwrap().contains("[calendar_local] Standup"));
+        assert_eq!(connected_summary(&app.store), "1 calendar events");
+    }
+
+    #[tokio::test]
+    async fn mac_calendar_sync_clips_long_text_and_refuses_a_flood() {
+        let dir = tempfile::tempdir().unwrap();
+        let (app, _) = app_with(ScriptedLlm::new(vec![]), dir.path()).await;
+        let long = "x".repeat(5000);
+        sync_calendar_local(&app, vec![local_event("a", &long, now_ts() + 60)]).unwrap();
+        let item = &app.store.knowledge_of("calendar_local", false, 5).unwrap()[0];
+        assert_eq!(item.title.chars().count(), 200);
+        let flood: Vec<LocalEvent> = (0..=LOCAL_EVENT_LIMIT).map(|i| local_event(&i.to_string(), "e", now_ts())).collect();
+        assert!(sync_calendar_local(&app, flood).is_err());
+        assert_eq!(app.store.knowledge_count("calendar_local"), 1, "a refused sync changes nothing");
     }
 
     #[tokio::test]

@@ -1361,6 +1361,7 @@ async fn get_oauth_status(State(st): S) -> ApiResult {
                 crate::oauth::Provider::Google => option_env!("HERON_GOOGLE_OAUTH_CLIENT_ID").is_some(),
                 crate::oauth::Provider::Microsoft => option_env!("HERON_MICROSOFT_OAUTH_CLIENT_ID").is_some(),
             },
+            "account": if p.connected(&cfg) { crate::oauth::account_name(&cfg, *p) } else { None },
             "read_only": true
         })).collect();
     Ok(Json(json!({"providers": providers})))
@@ -1493,6 +1494,7 @@ async fn get_sources(State(st): S) -> ApiResult {
         "computer": {"connected": store.knowledge_count("computer") > 0, "indexed": store.knowledge_count("computer"), "learned": learned("computer")},
         "documents": {"connected": !cfg.sources.folders.is_empty(), "folders": cfg.sources.folders, "indexed": store.knowledge_count("documents"), "learned": learned("documents")},
         "calendar": {"connected": !hosts.is_empty() || google || microsoft, "hosts": hosts, "indexed": store.knowledge_count("calendar") + oauth_calendar_count, "learned": learned("calendar")},
+        "calendar_local": {"connected": store.kv_get("calendar_local").is_some(), "indexed": store.knowledge_count("calendar_local"), "learned": learned("calendar_local")},
         "email": {"connected": cfg.sources.email.is_some() || google || microsoft, "address": cfg.sources.email.as_ref().map(|e| e.username.clone()), "indexed": store.knowledge_count("email") + oauth_email_count, "learned": learned("email")},
         "oauth": {"google": google, "microsoft": microsoft},
     })))
@@ -1556,6 +1558,12 @@ async fn connect_source(State(st): S, Path(name): Path<String>, Json(b): Json<Va
             app.update_config(ConfigChange::edit(|c| c.sources.email = Some(email)))?;
             json!({"indexed": crate::sources::sync_email(app).await?})
         }
+        // Events the Mac app read with EventKit. Outside content, like every calendar source.
+        "calendar_local" => {
+            let events: Vec<crate::sources::LocalEvent> = serde_json::from_value(b.get("events").cloned().unwrap_or(Value::Null))
+                .map_err(|_| bad("The calendar events were not in the expected format."))?;
+            json!({"indexed": crate::sources::sync_calendar_local(app, events)?})
+        }
         _ => return Err(ApiError(StatusCode::NOT_FOUND, "Unknown source.".into())),
     };
     Ok(Json(result))
@@ -1596,6 +1604,9 @@ async fn disconnect_source(State(st): S, Path(name): Path<String>) -> ApiResult 
         "documents" => c.sources.folders.clear(),
         _ => {}
     }))?;
+    if name == "calendar_local" {
+        st.app.store.kv_delete("calendar_local")?;
+    }
     let items = st.app.store.clear_knowledge(&name)?;
     let memories = st.app.store.delete_memories_by_source(&name)?;
     Ok(Json(json!({"removed_items": items, "removed_memories": memories})))
@@ -1684,6 +1695,29 @@ mod tests {
         let served = router(app.clone(), "test-token".into());
         tokio::spawn(async move { axum::serve(Pipes(incoming), served).await });
         Harness { dir, app, connect }
+    }
+
+    #[tokio::test]
+    async fn mac_calendar_events_connect_show_and_disconnect() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let before = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(before["calendar_local"]["connected"], false);
+        let soon = crate::util::now_ts() + 3600;
+        let sent = json!({"events": [{"uid": "e1", "title": "Dentist", "start": soon, "end": soon + 1800, "all_day": false, "location": "Main St"}]});
+        assert_eq!(h.json("POST", "/sources/calendar_local", sent).await["indexed"], 1);
+        let after = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(after["calendar_local"]["connected"], true);
+        assert_eq!(after["calendar_local"]["indexed"], 1);
+        // Outside content: its learned facts start unconfirmed (OUTSIDE_SOURCES), and the events are never in the prompt.
+        assert!(crate::memory::OUTSIDE_SOURCES.contains(&"calendar_local"));
+        let bad_shape = h.send("POST", "/sources/calendar_local", json!({"events": "nope"})).await;
+        assert_eq!(bad_shape.status, 400);
+        assert_eq!(h.send("POST", "/sources/calendar_local", json!({})).await.status, 400, "no events key is not a sync");
+        let gone = h.json("DELETE", "/sources/calendar_local", Value::Null).await;
+        assert_eq!(gone["removed_items"], 1);
+        let end = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(end["calendar_local"]["connected"], false);
+        assert_eq!(h.app.store.knowledge_count("calendar_local"), 0);
     }
 
     #[test]
