@@ -12,7 +12,7 @@ use std::path::Path;
 const MAX_SKILLS: usize = 128;
 // Bound directory enumeration as well as the number and size of loaded skills.
 // Allow unrelated files, but fail closed rather than materializing an unbounded listing.
-const MAX_SKILL_ENTRIES: usize = MAX_SKILLS * 8;
+pub const MAX_SKILL_ENTRIES: usize = MAX_SKILLS * 8;
 pub const MAX_SKILL_BYTES: u64 = 64 * 1024;
 
 /// Reject a save before modifying any existing skill if the loader would
@@ -185,6 +185,54 @@ fn collect_bounded_entries(
         bounded_entries.push(entry);
     }
     Some(bounded_entries)
+}
+
+/// Hold a home-scoped lock while checking and changing the bounded skills inventory.
+/// The lock lives beside (not inside) the skills directory, so it is not counted as a skill entry.
+pub(crate) fn lock_skill_writes(home: &Path) -> anyhow::Result<crate::config::ConfigLock> {
+    std::fs::create_dir_all(home)?;
+    let path = home.join("skills.lock");
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(false).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(&path)?;
+    let wait = crate::config::CONFIG_LOCK_WAIT;
+    if !crate::config::lock_within(&file, wait)? {
+        return Err(crate::config::lock_timed_out(wait));
+    }
+    Ok(crate::config::ConfigLock::held(file))
+}
+
+/// Ensure a save will not make the directory exceed the loader's entry cap.
+/// Existing files may be updated at capacity; a new name must reserve a slot.
+/// Iterator errors and already-oversized directories fail closed.
+pub(crate) fn validate_entry_capacity(dir: &Path, filename: &std::ffi::OsStr) -> anyhow::Result<()> {
+    let entries = std::fs::read_dir(dir)?;
+    let mut count = 0usize;
+    let mut target_exists = false;
+    for entry in entries.take(MAX_SKILL_ENTRIES + 1) {
+        let entry = entry?;
+        count += 1;
+        if entry.file_name() == filename {
+            target_exists = true;
+        }
+        anyhow::ensure!(
+            count <= MAX_SKILL_ENTRIES,
+            "skills directory exceeds the maximum of {} entries",
+            MAX_SKILL_ENTRIES
+        );
+    }
+    if !target_exists && count >= MAX_SKILL_ENTRIES {
+        anyhow::bail!(
+            "skills directory is full (maximum {} entries); remove an unused file before adding another skill",
+            MAX_SKILL_ENTRIES
+        );
+    }
+    Ok(())
 }
 
 /// Read skills deterministically, imposing a limit on each file and the
