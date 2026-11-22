@@ -13474,7 +13474,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Verify the 1a subset: eval suite, patches, gate script, workflow lint, genesis, testteeth",
-    "version": 23,
+    "version": 24,
     "worktree": {
       "base_branch": "skein/verify-1a-subset__integrate-base",
       "base_commit": "92140cb233fd261c1bc00b0c64645a2b7fc87830",
