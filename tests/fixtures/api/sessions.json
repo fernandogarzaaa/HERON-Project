@@ -1,8 +1,10 @@
 [
   {
+    "archived": false,
     "created_at": 1795043277,
     "id": "d7b37882d0ad",
     "messages": 4,
+    "pinned": false,
     "title": "Save a plan as plan.md",
     "updated_at": 1795043277
   }
