@@ -1513,7 +1513,7 @@
       "claim_token": "4bafa9a67ed846819d1820dc75c7913d",
       "claimed_at": "2026-11-22T09:26:45.215217+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T09:27:15.657113+00:00",
+      "last_heartbeat": "2026-11-22T09:27:45.716070+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1538,7 +1538,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -1649,7 +1649,7 @@
       "claim_token": "d5732699b8a641d5b0383870a76ec01b",
       "claimed_at": "2026-11-22T09:27:25.270063+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:27:25.270063+00:00",
+      "last_heartbeat": "2026-11-22T09:27:55.721089+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -1672,9 +1672,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F1: guide, threat-model line, index line",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "bd770b9c1018a4cad0baa4ed0aebe15e56c4ab43",
@@ -1840,7 +1840,16 @@
     }
   },
   "F2c": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "ff68583b622549b78b27b4e59ed0dafc",
+        "ended_at": "2026-11-22T09:28:07.769558+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:27:40.244033+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1852,19 +1861,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "ff68583b622549b78b27b4e59ed0dafc",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "b7d829129d36458f97a4fb180cd9218d",
-      "claimed_at": "2026-11-22T09:27:40.244033+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:27:40.244033+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I eval/check_tasks.py --features eval/features/ask_reasons.md",
+        "duration_ms": 234,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2c_20261122T092807386138_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2c_20261122T092807621190_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I made no edits to `core-tasks.md`, and `check_tasks.py` still accepts it.",
     "id": "F2c",
     "integration_for": null,
     "intent": {
@@ -1876,13 +1897,26 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "ff68583b622549b78b27b4e59ed0dafc",
+      "base_commit": "84f283e9123a06fe7bd955fb827aa07df075c331",
+      "changed_files": [
+        "eval/features/ask_reasons.md"
+      ],
+      "commit": "719e2195304baffbd65707dabc143706a820e9dd",
+      "diff_stats": {
+        "eval/features/ask_reasons.md": {
+          "added": 28,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "F2: feature task ft2",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "84f283e9123a06fe7bd955fb827aa07df075c331",
