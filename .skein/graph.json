@@ -1295,7 +1295,16 @@
     }
   },
   "B6r3": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "e064f323d5024bcea197c3d6c6f01846",
+        "ended_at": "2026-11-22T09:25:35.739760+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T08:43:57.053668+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1307,21 +1316,33 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "e064f323d5024bcea197c3d6c6f01846",
-      "base_branch": "a4f2d5393e96a0cf9c77563fa0065ea90c346377",
-      "claim_token": "f32bd3f6042b45058f68fcb838cffa93",
-      "claimed_at": "2026-11-22T08:43:57.053668+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T08:43:57.053668+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "Bmut"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash scripts/verify-feature.sh base",
+        "duration_ms": 2487857,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B6r3_20261122T084407815215_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B6r3_20261122T092535684133_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run `bash scripts/verify-feature.sh base` from the supervisor. Per my memory notes, Heron's cargo tests need unsandboxed Bash, because about 27 unrelated tests fail inside the sandbox.",
     "id": "B6r3",
     "integration_for": null,
     "intent": {
@@ -1333,13 +1354,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "e064f323d5024bcea197c3d6c6f01846",
+      "base_commit": "a4f2d5393e96a0cf9c77563fa0065ea90c346377",
+      "changed_files": [],
+      "commit": "a4f2d5393e96a0cf9c77563fa0065ea90c346377",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Base gate after the mutant pass",
-    "version": 3,
+    "version": 87,
     "worktree": {
       "base_branch": "a4f2d5393e96a0cf9c77563fa0065ea90c346377",
       "base_commit": "a4f2d5393e96a0cf9c77563fa0065ea90c346377",
