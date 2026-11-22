@@ -13264,6 +13264,56 @@
       "path": null
     }
   },
+  "verify-1a-subset__integrate": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "H3",
+      "H4",
+      "H12",
+      "H5"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "verify-1a-subset__integrate",
+    "integration_for": "verify-1a-subset",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['H3', 'H4', 'H12', 'H5'] into one base branch for verify-1a-subset."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Integrate parents of verify-1a-subset",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "verify__integrate": {
     "attempts": [
       {
