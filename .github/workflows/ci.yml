@@ -78,8 +78,22 @@ jobs:
           fetch-depth: 0
       - name: Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
+      - name: "Diag: crashing test alone (x3)"
+        continue-on-error: true
+        env: { SWIFT_BACKTRACE: "enable=yes,interactive=no" }
+        run: for i in 1 2 3; do swift test --package-path macos/HeronMac --filter 'ConnectionsSnapshotTests/testConnectionsTabWithAGoogleAccountConnectedLight' || echo "ALONE RUN $i FAILED"; done
+      - name: "Diag: ConnectionsSnapshotTests class alone"
+        continue-on-error: true
+        env: { SWIFT_BACKTRACE: "enable=yes,interactive=no" }
+        run: swift test --package-path macos/HeronMac --filter 'ConnectionsSnapshotTests' || echo "CLASS RUN FAILED"
       - name: Swift tests
+        env: { SWIFT_BACKTRACE: "enable=yes,interactive=no" }
         run: swift test --package-path macos/HeronMac
+      - name: "Diag: crash reports"
+        if: always()
+        run: |
+          ls -la ~/Library/Logs/DiagnosticReports/ || true
+          for f in $(ls -t ~/Library/Logs/DiagnosticReports/xctest* 2>/dev/null | head -2); do echo "=== $f"; head -c 60000 "$f"; done
       - name: Build the unsigned app
         run: bash packaging/macos/build-app.sh --unsigned
       - name: Upgrade test
