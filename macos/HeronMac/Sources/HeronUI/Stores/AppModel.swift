@@ -110,7 +110,8 @@ public final class AppModel {
         let brief = BriefController(client: scheduleBackend, defaults: briefDefaults)
         self.brief = brief
         features = FeaturesSettingsStore(client: featuresBackend, defaults: briefDefaults,
-                                         appSwitches: [FeatureRow.morningBrief.key: { on in try await brief.set(on) }])
+                                         appSwitches: [FeatureRow.morningBrief.key: { on in try await brief.set(on) }],
+                                         brief: brief)
         chat.onOtherApproval = { [weak self] event in self?.addToFeed(event) }
     }
 

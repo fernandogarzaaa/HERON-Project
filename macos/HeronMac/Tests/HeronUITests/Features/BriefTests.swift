@@ -169,17 +169,135 @@ final class BriefTests: XCTestCase {
         XCTAssertTrue(d.bool(forKey: BriefSchedule.createdKey))
     }
 
-    func test_firstLaunchDoesNotDuplicateAScheduleThatIsAlreadyThere() async {
+    func test_firstLaunchDoesNotAdoptTheOwnersSchedule() async {
         let d = defaults()
         let core = FakeScheduleRoutes()
         core.seed(name: "Morning brief")
         await BriefController(client: core, defaults: d).createOnFirstLaunch()
-        XCTAssertTrue(core.bodies.isEmpty)
-        XCTAssertEqual(core.schedules.count, 1)
+        XCTAssertEqual(core.bodies.count, 1, "the app makes its own; it never takes the owner's by name")
+        XCTAssertEqual(core.schedules.count, 2)
+        XCTAssertEqual(d.object(forKey: BriefSchedule.scheduleIDKey) as? Int, core.schedules.last?.id)
         XCTAssertTrue(d.bool(forKey: BriefSchedule.createdKey))
     }
 
+    func test_firstLaunchKeepsTheScheduleItMadeWhenItIsStillThere() async throws {
+        let d = defaults()
+        let core = FakeScheduleRoutes()
+        let brief = BriefController(client: core, defaults: d)
+        try await brief.set(true)
+        d.removeObject(forKey: BriefSchedule.createdKey)
+        await brief.createOnFirstLaunch()
+        XCTAssertEqual(core.bodies.count, 1, "the stored id still exists, so nothing is made again")
+    }
+
     // MARK: The switch
+
+    func test_switchOffLeavesTheOwnersSameNamedSchedule() async throws {
+        let d = defaults()
+        let core = FakeScheduleRoutes()
+        core.seed(name: "Morning brief")
+        let ownersID = core.schedules[0].id
+        let brief = BriefController(client: core, defaults: d)
+        try await brief.set(true)
+        XCTAssertEqual(core.schedules.count, 2)
+
+        try await brief.set(false)
+        XCTAssertEqual(core.schedules.map(\.id), [ownersID], "only the app's own schedule is deleted")
+        XCTAssertEqual(core.deleted.count, 1)
+        XCTAssertNotEqual(core.deleted.first, ownersID)
+
+        // With nothing of the app's left, off touches nothing, and the owner's schedule survives it.
+        try await brief.set(false)
+        XCTAssertEqual(core.schedules.map(\.id), [ownersID])
+        XCTAssertEqual(core.deleted.count, 1)
+    }
+
+    func test_switchOffWithNoScheduleOfItsOwnDeletesNothing() async throws {
+        let core = FakeScheduleRoutes()
+        core.seed(name: "Morning brief")
+        try await BriefController(client: core, defaults: defaults()).set(false)
+        XCTAssertEqual(core.schedules.count, 1)
+        XCTAssertTrue(core.deleted.isEmpty)
+    }
+
+    // MARK: The time
+
+    func test_changingTheTimeRecreatesTheSchedule() async throws {
+        let d = defaults()
+        let core = FakeScheduleRoutes()
+        core.seed(name: "Morning brief")
+        let ownersID = core.schedules[0].id
+        let brief = BriefController(client: core, defaults: d)
+        try await brief.set(true)
+        let firstID = try XCTUnwrap(d.object(forKey: BriefSchedule.scheduleIDKey) as? Int)
+
+        try await brief.setTime("07:15")
+        XCTAssertEqual(brief.time, "07:15")
+        XCTAssertEqual(core.deleted, [firstID], "the app's schedule is deleted by its stored id")
+        XCTAssertEqual(core.bodies.count, 2)
+        XCTAssertEqual(try decoded(core.bodies[1])["when"] as? String, "daily 07:15")
+        XCTAssertEqual(core.schedules.count, 2)
+        XCTAssertTrue(core.schedules.contains { $0.id == ownersID }, "the owner's schedule is left alone")
+        let newID = try XCTUnwrap(d.object(forKey: BriefSchedule.scheduleIDKey) as? Int)
+        XCTAssertNotEqual(newID, firstID)
+        XCTAssertTrue(core.schedules.contains { $0.id == newID })
+
+        // Off now deletes the new one, by the new id.
+        try await brief.set(false)
+        XCTAssertEqual(core.schedules.map(\.id), [ownersID])
+    }
+
+    func test_aTimeChangeWithNoScheduleOfItsOwnOnlySavesTheTime() async throws {
+        let d = defaults()
+        let core = FakeScheduleRoutes()
+        let brief = BriefController(client: core, defaults: d)
+        try await brief.setTime("06:45")
+        XCTAssertEqual(brief.time, "06:45")
+        XCTAssertTrue(core.bodies.isEmpty)
+        // Switching on later uses the saved time.
+        try await brief.set(true)
+        XCTAssertEqual(try decoded(core.bodies[0])["when"] as? String, "daily 06:45")
+    }
+
+    func test_aBadTimeOrARefusedChangeLeavesTheTimeAndScheduleAlone() async throws {
+        let d = defaults()
+        let core = FakeScheduleRoutes()
+        let brief = BriefController(client: core, defaults: d)
+        try await brief.set(true)
+        let id = core.schedules[0].id
+        do { try await brief.setTime("25:00"); XCTFail("expected a refusal") } catch {}
+        core.fail = true
+        do { try await brief.setTime("07:15"); XCTFail("expected the failure") } catch {}
+        core.fail = false
+        XCTAssertEqual(brief.time, "08:30")
+        XCTAssertEqual(core.schedules.map(\.id), [id])
+    }
+
+    func test_theRowsTimePickerChangesTheTimeAndReportsARefusal() async {
+        let d = defaults()
+        let core = FakeScheduleRoutes()
+        let brief = BriefController(client: core, defaults: d)
+        let store = FeaturesSettingsStore(client: OffFeaturesClient(), rows: [.morningBrief], defaults: d, poster: AllowingPoster(),
+                                          appSwitches: [FeatureRow.morningBrief.key: { on in try await brief.set(on) }], brief: brief)
+        XCTAssertEqual(store.briefTime, "08:30")
+        await store.set(.morningBrief, on: true)
+        let changed = await store.setBriefTime("09:00")
+        XCTAssertTrue(changed)
+        XCTAssertEqual(store.briefTime, "09:00")
+        XCTAssertNil(store.errorMessage)
+
+        core.fail = true
+        let refused = await store.setBriefTime("10:00")
+        XCTAssertFalse(refused)
+        XCTAssertEqual(store.briefTime, "09:00", "the picker goes back to the stored time")
+        XCTAssertNotNil(store.errorMessage)
+    }
+
+    func test_thePickersDateRoundTripsToTheTime() {
+        for t in ["00:00", "08:30", "23:59"] {
+            XCTAssertEqual(BriefSchedule.time(from: BriefSchedule.date(fromTime: t)), t)
+        }
+    }
 
     func test_switchOffDeletesTheSchedule() async throws {
         let d = defaults()
