@@ -3244,7 +3244,16 @@
     }
   },
   "F3-fix-3": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "a545b5226bd04b808bd2e4fa2582f082",
+        "ended_at": "2026-11-22T11:16:04.052795+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T11:09:06.989486+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -3256,22 +3265,34 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "a545b5226bd04b808bd2e4fa2582f082",
-      "base_branch": "skein/F3-fix-3__integrate-base",
-      "claim_token": "a3f841117db542f293a88281d849203a",
-      "claimed_at": "2026-11-22T11:09:06.989486+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T11:09:37.541037+00:00",
-      "node_version": 3,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F3-fix-1",
       "F3-fix-2"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib --bins -- unfinished_runs_are_not_closed_by_a_second_core unfinished_runs_are_closed_on_restart",
+        "duration_ms": 240174,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F3-fix-3_20261122T111203066839_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F3-fix-3_20261122T111603297839_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F3-fix-3",
     "integration_for": null,
     "intent": {
@@ -3283,13 +3304,41 @@
     "max_retries": 3,
     "rejected_count": 1,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "a545b5226bd04b808bd2e4fa2582f082",
+      "base_commit": "1b35866289a3f7720b407a01c7842aa2211c3492",
+      "changed_files": [
+        "src/app.rs",
+        "src/main.rs",
+        "src/runs.rs",
+        "src/server.rs"
+      ],
+      "commit": "cfe348583e13767987bc70e18dc162e50a557f9a",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 16,
+          "deleted": 0
+        },
+        "src/main.rs": {
+          "added": 1,
+          "deleted": 1
+        },
+        "src/runs.rs": {
+          "added": 3,
+          "deleted": 2
+        },
+        "src/server.rs": {
+          "added": 26,
+          "deleted": 7
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Fix: close unfinished runs only in the lock owner",
-    "version": 6,
+    "version": 19,
     "worktree": {
       "base_branch": "skein/F3-fix-3__integrate-base",
       "base_commit": "1b35866289a3f7720b407a01c7842aa2211c3492",
@@ -4495,7 +4544,7 @@
       "claim_token": "d6eba2ac22574a3aa970b93716ba54ed",
       "claimed_at": "2026-11-22T11:04:41.231540+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:09:42.372661+00:00",
+      "last_heartbeat": "2026-11-22T11:15:44.077637+00:00",
       "node_version": 5,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4527,7 +4576,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: shortcuts",
-    "version": 17,
+    "version": 29,
     "worktree": {
       "base_branch": "skein/F5g__integrate-base",
       "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
