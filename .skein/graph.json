@@ -3483,11 +3483,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F5: Shortcuts picker",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "441b55f486289e28f550be7dfdb6f63eeca4f352",
-      "branch": null,
-      "path": null
+      "base_commit": "441b55f486289e28f550be7dfdb6f63eeca4f352",
+      "branch": "skein/F5a",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F5a"
     }
   },
   "F5c": {
