@@ -379,15 +379,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "5a591b7d6f6a4a6284ca4167ea995c28",
+      "base_branch": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
+      "claim_token": "4f1e076f345b4eed93ee1c01d2f1e15a",
+      "claimed_at": "2026-11-22T07:12:26.903559+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T07:12:26.903559+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "B2"
@@ -409,11 +409,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fix B2 review findings",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
       "branch": null,
       "path": null
     }
