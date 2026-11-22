@@ -4114,15 +4114,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "431f42ac5f5f4f4ab4ded2292a7674c0",
+      "base_branch": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
+      "claim_token": "ae47d8ee458346848d84fd8eb7ac55fc",
+      "claimed_at": "2026-11-22T13:08:37.145450+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T13:08:37.145450+00:00",
+      "node_version": 49,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "F4t"
@@ -4156,9 +4156,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F4: undo button and lists",
-    "version": 49,
+    "version": 50,
     "worktree": {
       "base_branch": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
       "base_commit": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
