@@ -1160,6 +1160,71 @@ mod tests {
         }
     }
 
+    /// The terminal question's answers: y and yes approve once; n, no and an empty line decline and
+    /// stop asking; any other answer longer than three letters declines and carries the user's
+    /// words to the model; shorter ones are not an answer, so it asks again. Every reply here is
+    /// followed by a "y", so a reply that does not end the question is seen approving.
+    #[test]
+    fn terminal_ask_reads_the_answer_the_user_gives() {
+        use heron::permissions::{always_rule, Approval, ApprovalRequest, Effect};
+        let req = ApprovalRequest {
+            tool: "write_file".into(),
+            summary: "a.txt".into(),
+            risk: Effect::WorkspaceWrite,
+            detail: "Write a.txt".into(),
+            tainted: false,
+            args: serde_json::json!({"path": "a.txt"}),
+            session_id: "s".into(),
+            always_rule: always_rule("write_file", "a.txt", None),
+        };
+        assert!(req.can_always());
+        let ask = |answers: &str| {
+            let mut out = Vec::new();
+            let got = terminal_ask(&req, Style { on: false }, &mut answers.as_bytes(), &mut out);
+            (got, String::from_utf8(out).unwrap().matches("Allow? [y]es / [a]lways / [n]o: ").count())
+        };
+        // Decline, and the question ends there: the "y" after it is never read.
+        for no in ["n", "no", "N", "No", "NO", "", "  ", " n "] {
+            assert_eq!(ask(&format!("{no}\ny\n")), (Approval::Deny(None), 1), "{no:?}");
+        }
+        // Approve.
+        for yes in ["y", "yes", "Y", "YES", " y "] {
+            assert_eq!(ask(&format!("{yes}\n")), (Approval::Once, 1), "{yes:?}");
+        }
+        assert_eq!(ask("a\n"), (Approval::Always, 1));
+        assert_eq!(ask("Always\n"), (Approval::Always, 1));
+        // Words longer than three letters are a refusal with the user's reasons (lower-cased, trimmed).
+        for (said, want) in [("nope", "nope"), ("stop", "stop"), ("not now", "not now"), ("  NOPE  ", "nope"), ("please do not", "please do not")] {
+            assert_eq!(ask(&format!("{said}\ny\n")), (Approval::Deny(Some(format!("the user declined and said: {want}"))), 1), "{said:?}");
+        }
+        // Up to three letters that mean neither yes nor no are not an answer: it asks again.
+        for short in ["yep", "nah", "ok", "abc", "x", "?"] {
+            assert_eq!(ask(&format!("{short}\ny\n")), (Approval::Once, 2), "{short:?}");
+        }
+        // Nobody answers (end of input): declined, with no reason to pass on.
+        assert_eq!(ask(""), (Approval::Deny(None), 1));
+        assert_eq!(ask("yep\n"), (Approval::Deny(None), 2));
+    }
+
+    /// A turn on the terminal: the demo model answers, the reply is what `turn` returns, and the
+    /// conversation holds both sides, so `heron run` and the chat loop have something to show and keep.
+    #[tokio::test]
+    async fn turn_returns_the_reply_and_keeps_the_conversation() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        let llm = Arc::new(heron::llm::ScriptedLlm::new(vec![heron::llm::Message::assistant("The scripted answer.")]));
+        let app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap();
+        heron::risk_notice::accept_current(&app.store).unwrap();
+        let mut session = Session::create(&app.store, "").unwrap();
+        let text = turn(&app, &mut session, "Say something").await.unwrap();
+        assert_eq!(text, "The scripted answer.");
+        assert_eq!(llm.requests.lock().unwrap().len(), 1, "the model was asked once");
+        let roles: Vec<(&str, &str)> = session.messages.iter().map(|m| (m.role.as_str(), m.text())).collect();
+        assert_eq!(roles, vec![("user", "Say something"), ("assistant", "The scripted answer.")]);
+        assert_eq!(app.store.load_messages(&session.id).unwrap().len(), 2, "and it is saved");
+    }
+
     #[test]
     fn providers_shows_the_hint_when_probes_are_refused() {
         let st = |installed: bool, logged_in: Option<bool>| heron::cli_llm::ProviderStatus {

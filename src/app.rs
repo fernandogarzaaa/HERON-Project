@@ -2500,6 +2500,35 @@ mod tests {
         assert_eq!(restarted.cfg().agent.name, "Wren");
     }
 
+    /// A `[features]` table another Heron saved becomes this one's own: the settings change, and
+    /// their revision goes up by exactly one so everything that watches it sees one new revision. The
+    /// same table again changes nothing, and the rest of the settings are kept.
+    #[tokio::test]
+    async fn take_features_applies_a_changed_table_as_one_new_revision() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![], |c| c.agent.name = "Wren".into()).await;
+        let start = app.cfg().revision;
+        let mut table = FeaturesConfig::default();
+        table.flags.insert("test_key".into(), true);
+        table.shortcuts_allowed = vec!["Get Notes".into()];
+
+        app.take_features(table.clone());
+        assert_eq!(app.cfg().features, table);
+        assert!(app.cfg().feature_on("test_key"));
+        assert_eq!(app.cfg().revision, start + 1);
+        assert_eq!(app.cfg().agent.name, "Wren", "the rest of the settings are kept");
+
+        // The same table: nothing to take, so the revision stays.
+        app.take_features(table.clone());
+        assert_eq!(app.cfg().revision, start + 1);
+
+        // A later change is one more revision (counted from where it is, not from zero).
+        table.flags.insert("test_key".into(), false);
+        app.take_features(table.clone());
+        assert!(!app.cfg().feature_on("test_key"));
+        assert_eq!(app.cfg().revision, start + 2);
+    }
+
     #[tokio::test]
     async fn tools_follow_their_key_without_restart() {
         let dir = tempfile::tempdir().unwrap();

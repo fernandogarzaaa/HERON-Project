@@ -2100,6 +2100,42 @@ mod tests {
         assert_eq!(crate::taint::source(&agent.store, &s.id).unwrap()["name"], "search_knowledge");
     }
 
+    /// Only a `browser_*` tool and the two web tools name a host: another tool is given an address
+    /// in its arguments and still records nothing, and no tool's taint source ever holds content.
+    #[test]
+    fn only_web_and_browser_tools_name_a_host_for_taint() {
+        for tool in ["read_file", "search_knowledge", "shell", "browser", "my_browser_tool", "mcp_browser_open"] {
+            assert_eq!(taint_detail(tool, &json!({"url": "https://example.com/page", "query": "https://evil.example/x"})), "", "{tool}");
+        }
+        for tool in ["browser_open", "browser_click", "browser_type", "browser_anything_else"] {
+            assert_eq!(taint_detail(tool, &json!({"url": "https://example.com/page?q=secret"})), "example.com", "{tool}");
+        }
+        assert_eq!(taint_detail("browser_open", &json!({"url": 7})), "", "an address that is not text names no host");
+    }
+
+    /// What a turn learns about a call before it runs: the effect of a tool this turn's settings make
+    /// available, and nothing for a tool whose feature key is off (it is refused, so it is never
+    /// treated as read-only), an unknown tool, or arguments that are not JSON.
+    #[tokio::test]
+    async fn assess_gives_the_effect_of_available_tools_only() {
+        let ws = tempfile::tempdir().unwrap();
+        let (agent, _) = agent_with(ScriptedLlm::new(vec![]), Mode::Auto, Arc::new(DenyAll), ws.path());
+        let ctx = agent.tool_ctx("s");
+        let call = |name: &str, arguments: &str| ToolCall { id: "c1".into(), kind: "function".into(), function: FunctionCall { name: name.into(), arguments: arguments.into() } };
+        let reads = agent.assess(&call("search_knowledge", r#"{"query": "invoice"}"#), &ctx).expect("a tool with no key is assessed");
+        assert!(reads.reads_only(), "{reads:?}");
+        let writes = agent.assess(&call("write_file", r#"{"path": "a.txt", "content": "1"}"#), &ctx).expect("a tool with no key is assessed");
+        assert!(!writes.reads_only(), "{writes:?}");
+
+        assert!(!agent.cfg.feature_on("test_key"));
+        assert!(agent.assess(&call("test_feature_tool", "{}"), &ctx).is_none(), "a tool whose feature is off is refused, not assessed");
+        let on = with_test_key(&agent, true);
+        assert!(on.assess(&call("test_feature_tool", "{}"), &ctx).expect("the same tool with its key on").reads_only());
+
+        assert!(agent.assess(&call("no_such_tool", "{}"), &ctx).is_none());
+        assert!(agent.assess(&call("search_knowledge", "not json"), &ctx).is_none());
+    }
+
     /// A test-only tool named like F5's, which is approved one call at a time.
     fn fake_run_shortcut() -> crate::tools::FnTool {
         crate::tools::FnTool {
