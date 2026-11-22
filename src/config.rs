@@ -356,6 +356,30 @@ impl Config {
         self.home.join("secrets.json")
     }
 
+    /// Lock every cross-process read-modify-write of secrets.json. Keep this
+    /// owner-only lock file in place: unlinking a locked inode can split the
+    /// lock domain between processes sharing the same HERON_HOME.
+    fn lock_legacy_secrets_file(&self) -> Result<std::fs::File> {
+        self.ensure_home()?;
+        let home = std::fs::canonicalize(&self.home)?;
+        let path = home.join("secrets-json-write.lock");
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).write(true).create(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let file = options.open(&path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        file.lock().with_context(|| format!("could not lock {}", path.display()))?;
+        Ok(file)
+    }
+
     /// The fallback secrets file. A file that is there but cannot be read or understood is an error,
     /// never "no secrets": treating it as empty would let the next save wipe every other key in it.
     fn read_file_secrets(&self) -> Result<serde_json::Map<String, serde_json::Value>> {
@@ -418,8 +442,9 @@ impl Config {
 
     /// Save (or with an empty value, remove) a secret.
     pub fn store_secret(&self, name: &str, value: &str) -> Result<()> {
-        // Serialize read-modify-write operations so concurrent saves cannot lose keys.
+        // Serialize both same-process and cross-process read-modify-write operations.
         let _one_at_a_time = LEGACY_SECRETS_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _file_lock = self.lock_legacy_secrets_file()?;
         self.ensure_home()?;
         let value = value.trim();
         let mut file = self.read_file_secrets()?;
@@ -439,6 +464,7 @@ impl Config {
     /// so a failed file cleanup cannot leave a stale plaintext credential.
     pub fn clear_legacy_secret(&self, name: &str) -> Result<()> {
         let _one_at_a_time = LEGACY_SECRETS_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _file_lock = self.lock_legacy_secrets_file()?;
         self.ensure_home()?;
         let mut file = self.read_file_secrets()?;
         if file.remove(name).is_some() {
@@ -463,6 +489,7 @@ impl Config {
         if !cfg!(any(target_os = "macos", windows)) {
             anyhow::bail!("Secure connector vault is not available on this OS. A native Secret Service or encrypted vault must be configured first.");
         }
+        let _file_lock = self.lock_legacy_secrets_file()?;
         self.ensure_home()?;
         // Inspect the legacy store BEFORE writing to Keychain/Credential
         // Manager. A damaged file must never turn a failed API response into
@@ -938,5 +965,86 @@ mod legacy_secret_cleanup_tests {
 
         assert!(cfg.clear_legacy_secret("telegram_token").is_err());
         assert_eq!(std::fs::read_to_string(path).unwrap(), "{damaged");
+    }
+
+    #[test]
+    fn legacy_secret_lock_child_process() {
+        let (Ok(home), Ok(action)) = (
+            std::env::var("HERON_LEGACY_SECRET_LOCK_TEST_HOME"),
+            std::env::var("HERON_LEGACY_SECRET_LOCK_TEST_ACTION"),
+        ) else {
+            return;
+        };
+        let mut cfg = Config::default();
+        cfg.home = PathBuf::from(home);
+        std::fs::write(cfg.home.join(format!("{action}-started")), b"started").unwrap();
+        match action.as_str() {
+            "store" => cfg.store_secret("email_password", "replacement").unwrap(),
+            "clear" => cfg.clear_legacy_secret("telegram_token").unwrap(),
+            _ => panic!("unknown child action: {action}"),
+        }
+        std::fs::write(cfg.home.join(format!("{action}-complete")), b"done").unwrap();
+    }
+
+    fn assert_secret_writer_waits_for_process_lock(cfg: &Config, action: &str) {
+        let lock = cfg.lock_legacy_secrets_file().unwrap();
+        let started = cfg.home.join(format!("{action}-started"));
+        let completed = cfg.home.join(format!("{action}-complete"));
+        let executable = std::env::current_exe().unwrap();
+        let mut child = std::process::Command::new(executable)
+            .args([
+                "--exact",
+                "config::legacy_secret_cleanup_tests::legacy_secret_lock_child_process",
+                "--nocapture",
+            ])
+            .env("HERON_LEGACY_SECRET_LOCK_TEST_HOME", &cfg.home)
+            .env("HERON_LEGACY_SECRET_LOCK_TEST_ACTION", action)
+            .spawn()
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !started.exists() {
+            if let Some(status) = child.try_wait().unwrap() {
+                panic!("secret writer child exited before attempting the lock: {status}");
+            }
+            assert!(std::time::Instant::now() < deadline, "secret writer child did not start");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "{action} must wait while another process owns the secrets-file lock"
+        );
+
+        drop(lock);
+        let status = child.wait().unwrap();
+        assert!(status.success(), "secret writer child failed: {status}");
+        assert!(completed.exists(), "child did not complete {action}");
+    }
+
+    #[test]
+    fn secrets_json_writers_are_serialized_across_processes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().to_path_buf();
+        cfg.ensure_home().unwrap();
+        std::fs::write(
+            cfg.secrets_path(),
+            serde_json::json!({
+                "telegram_token": "legacy-token",
+                "email_password": "old-password",
+                "other_secret": "keep-me"
+            }).to_string(),
+        ).unwrap();
+
+        // Exercise both kinds of writer while a different process owns the
+        // lock. Without the OS lock these children would complete immediately.
+        assert_secret_writer_waits_for_process_lock(&cfg, "store");
+        assert_secret_writer_waits_for_process_lock(&cfg, "clear");
+
+        let remaining = cfg.read_file_secrets().unwrap();
+        assert!(!remaining.contains_key("telegram_token"));
+        assert_eq!(cfg.secret("email_password").as_deref(), Some("replacement"));
+        assert_eq!(remaining.get("other_secret").and_then(|v| v.as_str()), Some("keep-me"));
     }
 }
