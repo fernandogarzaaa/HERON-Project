@@ -5641,11 +5641,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F9: window picker, text recognition",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
-      "branch": null,
-      "path": null
+      "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
+      "branch": "skein/F9a",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F9a"
     }
   },
   "F9c": {
