@@ -1563,7 +1563,7 @@ mod stream_backpressure_tests {
         let mut child = std::process::Command::new(executable)
             .args([
                 "--exact",
-                "server::tests::telegram_credential_transition_lock_child_process",
+                "server::stream_backpressure_tests::telegram_credential_transition_lock_child_process",
                 "--nocapture",
             ])
             .env("HERON_TELEGRAM_LOCK_TEST_HOME", &home)
