@@ -3926,7 +3926,7 @@
       "claim_token": "cf317b355394452687973eb9ae8a71fa",
       "claimed_at": "2026-11-22T11:00:03.653676+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T11:00:03.653676+00:00",
+      "last_heartbeat": "2026-11-22T11:01:04.152257+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3951,9 +3951,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Fix F5 review findings (core)",
-    "version": 3,
+    "version": 5,
     "worktree": {
       "base_branch": "271ce07d639562a10b67169cb722d64080194bdf",
       "base_commit": "271ce07d639562a10b67169cb722d64080194bdf",
@@ -5161,7 +5161,7 @@
       "claim_token": "08d6388ca40d4220943b34fa0b260bf1",
       "claimed_at": "2026-11-22T10:59:41.905212+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:59:41.905212+00:00",
+      "last_heartbeat": "2026-11-22T11:01:12.549234+00:00",
       "node_version": 24,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -5198,9 +5198,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F7: dictation button, spoken replies",
-    "version": 28,
+    "version": 31,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
@@ -5689,6 +5689,58 @@
       "base_commit": "b13942e9f6196e1009af8e865292d2efa5bf1466",
       "branch": "skein/F8s",
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F8s"
+    }
+  },
+  "F9-fix-1": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_swift",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "macos/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F9a"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F9-fix-1",
+    "integration_for": null,
+    "intent": {
+      "completion": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac > \"${TMPDIR:-/tmp}/f9fix.txt\" && grep -q 'ScreenTextTests.*screenTextRowNamesScreenRecordingWhenDenied' \"${TMPDIR:-/tmp}/f9fix.txt\" && grep -q 'ScreenTextTests.*explanationComesBeforeTheSystemPrompt' \"${TMPDIR:-/tmp}/f9fix.txt\" && grep -q 'ScreenTextTests.*sendsTextNotImage' \"${TMPDIR:-/tmp}/f9fix.txt\"",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1-features.md, F9, 'TCC permissions added by this doc', 'The extended definition of done' check 8, and QF3. You may run swift build and swift test yourself.",
+      "goal": "Fix two findings from the independent review of F9 (paths under macos/HeronMac). (1) F9's Settings row (FeatureRows.swift ~10) sets no permission or settingsPane, so after the owner denies Screen Recording the row shows only a switch. The spec's check 8 requires the row to name the permission and the System Settings pane where it is granted when it is denied. Set permission 'Screen Recording' and settingsPane to the Screen Recording privacy pane URL, and show the denied state on the row; update the test at ScreenTextTests.swift ~233 that asserts nil. Keep the ask at first use (QF3: permissions are asked the first time a feature is used, never at first launch). Test: screenTextRowNamesScreenRecordingWhenDenied. (2) There is no CGPreflightScreenCaptureAccess() check before SCScreenshotManager.captureImage (SystemScreenText.swift ~90), so if the picker needs the permission macOS prompts before Heron explains why. Before capturing, preflight; when it returns false, show Heron's explanation sheet first and only then request access (CGRequestScreenCaptureAccess), and capture nothing until it is granted. Test with a fake: explanationComesBeforeTheSystemPrompt. Fix nothing else."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fix F9 review findings (app)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
     }
   },
   "F9a": {
