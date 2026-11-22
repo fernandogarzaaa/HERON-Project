@@ -2639,11 +2639,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F5: ft5, ft5b, fake binary, page",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "f4b709336df0e4922d480595e7ce1c641cf4b234",
+      "branch": "skein/F5c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F5c"
     }
   },
   "F5d": {
