@@ -928,6 +928,7 @@ mod tests {
         symlink(&home, &alias).unwrap();
 
         let held = open_gateway_lock(&home).unwrap();
+        held.try_lock().expect("the primary gateway must acquire its lock");
         let contender = open_gateway_lock(&alias).unwrap();
         assert!(
             matches!(contender.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
