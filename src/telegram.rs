@@ -302,9 +302,13 @@ impl Approver for TelegramApprover {
             return Approval::Deny(Some("Telegram pairing was revoked before approval.".into()));
         }
         let challenge = new_code().to_ascii_lowercase();
+        let prompt = approval_prompt(req, &challenge);
+        if too_long_for_phone(req, &prompt) {
+            self.bot.send(self.chat, &format!("Heron wanted to use {} but did not: what it would do is too long to show in full here, so it can only be approved at your Mac.", req.tool)).await;
+            return Approval::Deny(Some("this is too long to show on a phone, so it can only be approved at the user's Mac".into()));
+        }
         let (tx, rx) = oneshot::channel();
         *self.shared.pending.lock().unwrap() = Some((challenge.clone(), tx));
-        let prompt = approval_prompt(req, &challenge);
         if !self.bot.is_current_owner(self.chat) {
             self.shared.pending.lock().unwrap().take();
             return Approval::Deny(Some("Telegram pairing changed before prompt delivery.".into()));
@@ -328,8 +332,18 @@ impl Approver for TelegramApprover {
 /// The question a phone is asked. It offers yes or no, nothing else: a yes approves this one call
 /// ("always" and "for this conversation" are given at the computer), so a once-only tool is offered
 /// exactly what every other tool is.
+///
+/// A long detail is cut in the middle, except for a once-only tool: a shortcut's input or an email's
+/// recipients and body must be seen whole to be approved, so its detail is never cut. When the prompt
+/// would not fit in one message, `too_long_for_phone` says so and the ask is refused instead.
 pub fn approval_prompt(req: &ApprovalRequest, challenge: &str) -> String {
-    format!("Heron wants permission ({}):\n\n{}\n\nReply yes {challenge} or no {challenge}.", req.tool, crate::util::truncate_middle(&req.detail, 1200))
+    let detail = if crate::permissions::once_only(&req.tool) { req.detail.clone() } else { crate::util::truncate_middle(&req.detail, 1200) };
+    format!("Heron wants permission ({}):\n\n{detail}\n\nReply yes {challenge} or no {challenge}.", req.tool)
+}
+
+/// Whether a once-only tool's prompt cannot be shown whole in one Telegram message.
+fn too_long_for_phone(req: &ApprovalRequest, prompt: &str) -> bool {
+    crate::permissions::once_only(&req.tool) && prompt.encode_utf16().count() > MAX_MESSAGE
 }
 
 /// Wrong codes allowed before pairing locks and the code is replaced.
@@ -1109,6 +1123,83 @@ mod tests {
         for msg in [&revoked, &busy, &offline] {
             assert!(!msg.contains("REVOKED") && !msg.contains("BUSY") && !msg.contains("OFFLINE"), "{msg}");
         }
+    }
+
+    /// A once-only tool is approved on seeing all of what it will do. On the phone that means its
+    /// whole detail in one message, or no question at all: the ask is refused and answered at the
+    /// Mac. Every other tool keeps the cut-in-the-middle detail.
+    #[tokio::test]
+    async fn telegram_shows_or_refuses_a_once_only_tools_full_detail() {
+        use crate::permissions::Effect;
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(vec![]))).await.unwrap());
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        // A Telegram that cannot be reached: a question that is sent fails to deliver, so the two
+        // outcomes differ in their reason. A refusal never reaches the network.
+        let bot = Bot {
+            client: reqwest::Client::new(),
+            base: "http://127.0.0.1:1/botOFFLINE".into(),
+            app: app.clone(),
+            account_id: "once-only-bot".into(),
+            pairing_epoch: pairing_code(&app),
+            spool: ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap(),
+            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        let shared = Arc::<Shared>::default();
+        let approver = TelegramApprover { bot, chat: 42, shared: shared.clone() };
+        let req = |tool: &str, detail: String| ApprovalRequest {
+            tool: tool.into(),
+            summary: "x".into(),
+            risk: Effect::ExternalWrite,
+            detail,
+            tainted: false,
+            args: json!({}),
+            session_id: "s".into(),
+            always_rule: None,
+        };
+        let refused = |a: &Approval| matches!(a, Approval::Deny(Some(why)) if why.contains("too long") && why.contains("Mac"));
+        let asked = |a: &Approval| matches!(a, Approval::Deny(Some(why)) if why.contains("could not be delivered"));
+
+        // What the phone is shown. A once-only tool's detail is never cut, however long; another
+        // tool's is cut in the middle as before.
+        let long = format!("START {} END", "x".repeat(5000));
+        let shown = approval_prompt(&req("run_shortcut", long.clone()), "abc123");
+        assert!(shown.contains(&long) && !shown.contains("truncated"), "run_shortcut is shown whole");
+        assert!(approval_prompt(&req("draft_email", long.clone()), "abc123").contains(&long));
+        let cut = approval_prompt(&req("write_file", long.clone()), "abc123");
+        assert!(cut.contains("START") && cut.contains("END") && cut.contains("characters truncated") && !cut.contains(&long), "{cut}");
+
+        // A long input to a once-only tool is refused, with a reason that points at the Mac. No
+        // question is registered for an answer.
+        for tool in ["run_shortcut", "draft_email"] {
+            let a = approver.approve(&req(tool, long.clone())).await;
+            assert!(refused(&a), "{tool}: {a:?}");
+            assert!(shared.pending.lock().unwrap().is_none());
+        }
+
+        // A short one, longer than the old 1,200-character cut, is asked whole.
+        let short = format!("START {} END", "y".repeat(2000));
+        assert!(approval_prompt(&req("run_shortcut", short.clone()), "abc123").contains(&short));
+        let a = approver.approve(&req("run_shortcut", short)).await;
+        assert!(asked(&a), "{a:?}");
+
+        // The edge, counted in UTF-16 units as Telegram counts them: a prompt of exactly one
+        // message is asked, one unit more is refused, and an emoji is two units.
+        let overhead = approval_prompt(&req("run_shortcut", String::new()), "abc12345").encode_utf16().count();
+        let room = MAX_MESSAGE - overhead;
+        let a = approver.approve(&req("run_shortcut", "z".repeat(room))).await;
+        assert!(asked(&a), "{a:?}");
+        let a = approver.approve(&req("run_shortcut", "z".repeat(room + 1))).await;
+        assert!(refused(&a), "{a:?}");
+        let a = approver.approve(&req("run_shortcut", "😃".repeat(room / 2 + 1))).await;
+        assert!(refused(&a), "{a:?}");
+        let a = approver.approve(&req("run_shortcut", "😃".repeat(room / 2))).await;
+        assert!(asked(&a), "{a:?}");
+
+        // Another tool, however long, is still asked (cut), never refused for its length.
+        let a = approver.approve(&req("write_file", long)).await;
+        assert!(asked(&a), "{a:?}");
     }
 
     #[tokio::test]
