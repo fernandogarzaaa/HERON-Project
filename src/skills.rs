@@ -171,6 +171,22 @@ fn secure_open(root: &Path, folder: Option<&std::ffi::OsStr>, filename: &std::ff
     std::fs::File::open(path)
 }
 
+/// Collect at most MAX_SKILL_ENTRIES directory results. Iterator errors fail
+/// closed; skipping them could otherwise make a stream of failed reads unbounded.
+fn collect_bounded_entries(
+    entries: impl Iterator<Item = std::io::Result<std::fs::DirEntry>>,
+) -> Option<Vec<std::fs::DirEntry>> {
+    let mut bounded_entries = Vec::with_capacity(MAX_SKILL_ENTRIES);
+    for entry in entries.take(MAX_SKILL_ENTRIES + 1) {
+        let entry = entry.ok()?;
+        if bounded_entries.len() == MAX_SKILL_ENTRIES {
+            return None;
+        }
+        bounded_entries.push(entry);
+    }
+    Some(bounded_entries)
+}
+
 /// Read skills deterministically, imposing a limit on each file and the
 /// number of skills. Direct symlinks and nested SKILL.md symlinks are ignored.
 /// This deliberately does NOT install skills from URLs or trust their content.
@@ -181,15 +197,9 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return vec![];
     };
-    let mut bounded_entries = Vec::with_capacity(MAX_SKILL_ENTRIES);
-    for entry in entries.filter_map(|entry| entry.ok()) {
-        if bounded_entries.len() == MAX_SKILL_ENTRIES {
-            // More entries than the bounded scan can safely inspect. Fail closed
-            // instead of allocating memory proportional to an untrusted directory.
-            return vec![];
-        }
-        bounded_entries.push(entry);
-    }
+    let Some(mut bounded_entries) = collect_bounded_entries(entries) else {
+        return vec![];
+    };
     bounded_entries.sort_by_key(|entry| entry.file_name());
     let mut out = Vec::new();
     let mut names = std::collections::HashSet::new();
@@ -273,6 +283,16 @@ mod tests {
         }
         std::fs::write(dir.path().join("valid.md"), "# Valid skill").unwrap();
         assert!(load_all(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn directory_iteration_errors_fail_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("valid.md"), "# Valid").unwrap();
+        let entries = std::fs::read_dir(dir.path()).unwrap().chain(std::iter::once(Err(
+            std::io::Error::other("injected directory iteration failure"),
+        )));
+        assert!(collect_bounded_entries(entries).is_none());
     }
 
     #[test]
