@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -243,7 +244,9 @@ def features_table(features, config):
 
 
 def config_toml(workdir, provider, features=None, config=None):
-    lines = ["[agent]", "workspace = %s" % toml_string(workdir), "",
+    # notify_command replaces the core's own desktop notice, so a run's reminders and job results never
+    # pop up on the owner's screen.
+    lines = ["[agent]", "workspace = %s" % toml_string(workdir), 'notify_command = "true"', "",
              "[permissions]", 'mode = "ask"', "", "[llm]"]
     if provider == "demo":
         lines.append('base_url = "demo"')
@@ -492,6 +495,46 @@ def _read_line_with_timeout(stream, secs):
 
 # ----------------------------------------------------------------------------- one run
 
+def stop_browsers(profile, grace=5.0):
+    """Stop every process started with ``--user-data-dir=<profile>``: the browser a run's core opened outlives
+    the core. Returns the pids that were signalled."""
+    if os.name != "posix":
+        return []
+    flag = "--user-data-dir=" + profile
+    listing = subprocess.run(["ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True).stdout
+    pids = []
+    for line in listing.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if pid.isdigit() and int(pid) != os.getpid() and (" " + flag + " ") in (" " + command.strip() + " "):
+            pids.append(int(pid))
+    signalled = list(pids)
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        alive = []
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+                alive.append(pid)
+            except ProcessLookupError:
+                pass
+        deadline = time.monotonic() + grace
+        while alive and time.monotonic() < deadline:
+            alive = [pid for pid in alive if _running(pid)]
+            time.sleep(0.1)
+        if not alive:
+            break
+        pids = alive
+    return signalled
+
+
+def _running(pid):
+    """Whether ``pid`` still exists. It never reaps, so it can't take a child's exit status from its parent."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
 def execute_run(task, run_number, opts, binary, fixtures_root):
     """Do one run of one task. Returns the run record for ``summary.json``."""
     run_dir = os.path.join(opts.artifacts, task["id"], "run%d" % run_number)
@@ -547,6 +590,7 @@ def execute_run(task, run_number, opts, binary, fixtures_root):
     finally:
         if core is not None:
             core.stop()
+        stop_browsers(os.path.join(home, "browser"))
         if web is not None:
             web.stop()
 
