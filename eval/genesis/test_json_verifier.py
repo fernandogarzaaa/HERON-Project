@@ -17,7 +17,7 @@ from genesis import json_verifier as jv
 HERE = os.path.dirname(os.path.abspath(__file__))
 VERIFIER = os.path.join(HERE, "json_verifier.py")
 LEAF_KINDS = ("file_contains", "file_present", "file_absent", "reply_matches", "sql_at_least", "audit_has",
-              "no_request", "transcript_lacks")
+              "no_request", "transcript_lacks", "no_executed", "event_matches")
 
 
 def load_rows():
@@ -101,6 +101,8 @@ class DatasetCases(unittest.TestCase):
     def test_each_rule_comes_from_a_core_task(self):
         tasks = {t["id"]: t for t in load_tasks(build_cases.TASKS_PATH)}
         for row in ROWS:
+            if row["source"] == build_cases.FEATURE_RULES_SOURCE:
+                continue  # the feature-task rules have inline rules; eval/tests/test_feature_tasks.py covers them
             with self.subTest(row["id"]):
                 rule = json.loads(row["input"])["rule"]
                 pass_rule = tasks[row["source"]]["pass"]

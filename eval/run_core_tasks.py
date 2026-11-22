@@ -2,6 +2,7 @@
 """Run Heron's core tasks against a built core and write ``summary.json`` (U0, item 4).
 
 Run through ``bash eval/run-core-tasks.sh``, which calls ``python3 -I eval/run_core_tasks.py``.
+``--task-file <file>`` reads the tasks from another file (feature tasks, eval/features/README.md).
 Exit codes: 0 every requested run executed; 1 at least one run still has an error after one
 retry; 2 usage error; 3 the ``eve`` driver can't run at all. Standard library only.
 """
@@ -23,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import eve_adapter  # noqa: E402
 import pass_rules  # noqa: E402
 from check_gate import compute_totals  # noqa: E402
-from tasks_md import TasksError, load_tasks  # noqa: E402
+from tasks_md import TasksError, fixtures_root_for, load_tasks  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
@@ -83,17 +84,55 @@ def copy_tree_substituting(src, dst, web_base):
             shutil.copymode(source, out)
 
 
-def prepare_fixture(task, fixtures_root, workdir, web_dir, web_base):
-    """Copy the task's ``work/`` tree and the shared web pages, with ``{web}`` replaced."""
-    os.makedirs(workdir, exist_ok=True)
+def fixture_dir(task, fixtures_root):
+    """The task's fixture folder (``core`` ones are ``t01``; feature ones ``features/<slug>``), or None."""
     fixture = task.get("fixture")
+    if not fixture:
+        return None
+    root = os.path.realpath(fixtures_root)
+    path = os.path.realpath(os.path.join(root, fixture))
+    if path == root or not path.startswith(root + os.sep):
+        raise RunError("fixture %r is outside the fixtures folder" % fixture)
+    return path
+
+
+def prepare_fixture(task, fixtures_root, workdir, web_dir, web_base):
+    """Copy the task's ``work/`` tree and the web pages, with ``{web}`` replaced.
+
+    The pages served are the shared ``<fixtures>/web/`` plus the task's own ``web/``, which wins
+    when both hold the same file."""
+    os.makedirs(workdir, exist_ok=True)
+    fixture = fixture_dir(task, fixtures_root)
     if fixture:
-        work = os.path.join(fixtures_root, fixture, "work")
+        work = os.path.join(fixture, "work")
         if os.path.isdir(work):
             copy_tree_substituting(work, workdir, web_base)
     web = os.path.join(fixtures_root, "web")
     if os.path.isdir(web):
         copy_tree_substituting(web, web_dir, web_base)
+    if fixture and os.path.isdir(os.path.join(fixture, "web")):
+        copy_tree_substituting(os.path.join(fixture, "web"), web_dir, web_base)
+
+
+def prepare_bins(task, fixtures_root, bin_dir, web_base):
+    """Copy the task's ``bin/`` into ``bin_dir`` (executable) and return ``{env var: absolute path}``
+    for the task's ``bins``."""
+    bins = task.get("bins") or {}
+    if not bins:
+        return {}
+    fixture = fixture_dir(task, fixtures_root)
+    source = os.path.join(fixture, "bin") if fixture else None
+    if not source or not os.path.isdir(source):
+        raise RunError("the task has bins but its fixture has no bin/ folder")
+    copy_tree_substituting(source, bin_dir, web_base)
+    env = {}
+    for var, name in bins.items():
+        path = os.path.join(bin_dir, name)
+        if not os.path.isfile(path):
+            raise RunError("bins %s: %r is not a file in the fixture's bin/" % (var, name))
+        os.chmod(path, os.stat(path).st_mode | 0o111)
+        env[var] = os.path.abspath(path)
+    return env
 
 
 # ----------------------------------------------------------------------------- web server
@@ -175,30 +214,64 @@ def toml_string(value):
     return json.dumps(value)
 
 
-def config_toml(workdir, provider):
+BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def toml_value(value):
+    """A TOML literal for a bool, an integer, a string or a list of those."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(toml_value(item) for item in value) + "]"
+    raise ValueError("cannot write %r as a TOML value" % (value,))
+
+
+def features_table(features, config):
+    """The ``[features]`` entries of a task: each key of ``features`` on, then ``config`` over them."""
+    entries = {}
+    for key in features or []:
+        entries[key] = True
+    entries.update(config or {})
+    for key in entries:
+        if not isinstance(key, str) or not BARE_KEY.match(key):
+            raise ValueError("%r is not a valid [features] key" % (key,))
+    return entries
+
+
+def config_toml(workdir, provider, features=None, config=None):
     lines = ["[agent]", "workspace = %s" % toml_string(workdir), "",
              "[permissions]", 'mode = "ask"', "", "[llm]"]
     if provider == "demo":
         lines.append('base_url = "demo"')
     else:
         lines.append("provider = %s" % toml_string(provider))
+    entries = features_table(features, config)
+    if entries:
+        lines += ["", "[features]"] + ["%s = %s" % (key, toml_value(value)) for key, value in entries.items()]
     return "\n".join(lines) + "\n"
 
 
-def core_env(home, topology):
+def core_env(home, topology, extra=None):
+    """The core's environment. ``extra`` (a task's ``bins``) is added after every stray ``HERON_`` variable is dropped."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("HERON_")}
     env["HERON_HOME"] = home
     env["HERON_ALLOW_LOCAL_FETCH"] = "1"
+    env.update(extra or {})
     return env
 
 
 class Core:
     """A running ``heron serve`` and the endpoint it printed."""
 
-    def __init__(self, binary, home, topology, log_dir):
+    def __init__(self, binary, home, topology, log_dir, extra_env=None):
         self.out_path = os.path.join(log_dir, "core.out.log")
         self.err_file = open(os.path.join(log_dir, "core.err.log"), "w")
-        self.proc = subprocess.Popen([binary, "serve", "--no-open", "--port", "0"], env=core_env(home, topology),
+        self.proc = subprocess.Popen([binary, "serve", "--no-open", "--port", "0"],
+                                     env=core_env(home, topology, extra_env),
                                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=self.err_file,
                                      text=True, bufsize=1)
         self.port = None
@@ -354,14 +427,19 @@ def read_records(path):
         return []
 
 
-def drive_with_eve(task, core, run_dir, prompt, eve_config_path):
+def drive_with_eve(task, core, run_dir, prompt, eve_config_path, tasks_file=None, web_base=""):
+    """Run one scripted turn through ``eve chat``. EVE posts only ``{message}``, so the adapter is
+    started with ``--task-file`` and ``--task`` and reads the task's ``context`` itself."""
     record = os.path.join(run_dir, "turn.jsonl")
     started = record + ".started"
     adapter_log = open(os.path.join(run_dir, "adapter.err.log"), "w")
-    adapter = subprocess.Popen(
-        [sys.executable, "-I", os.path.join(HERE, "eve_adapter.py"), "--heron", core.base, "--token", core.token,
-         "--task", task["id"], "--port", "0", "--record", record],
-        stdout=subprocess.PIPE, stderr=adapter_log, text=True)
+    argv = [sys.executable, "-I", os.path.join(HERE, "eve_adapter.py"), "--heron", core.base, "--token", core.token,
+            "--task", task["id"], "--port", "0", "--record", record]
+    if tasks_file:
+        argv += ["--task-file", os.path.abspath(tasks_file)]
+    if web_base:
+        argv += ["--web", web_base]
+    adapter = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=adapter_log, text=True)
     try:
         port_line = _read_line_with_timeout(adapter.stdout, ADAPTER_START_SECS)
         match = re.match(r"port=(\d+)$", port_line or "")
@@ -422,6 +500,7 @@ def execute_run(task, run_number, opts, binary, fixtures_root):
     home = os.path.join(run_dir, "home")
     workdir = os.path.join(run_dir, "work")
     web_dir = os.path.join(run_dir, "web")
+    bin_dir = os.path.join(run_dir, "bin")
     os.makedirs(home, mode=0o700)
     os.chmod(home, 0o700)
     web = None
@@ -429,20 +508,23 @@ def execute_run(task, run_number, opts, binary, fixtures_root):
     try:
         web = FixtureWeb(web_dir, os.path.join(run_dir, "web.log"))
         prepare_fixture(task, fixtures_root, workdir, web_dir, web.base)
+        bins = prepare_bins(task, fixtures_root, bin_dir, web.base)
         with open(os.path.join(home, "config.toml"), "w", encoding="utf-8") as handle:
-            handle.write(config_toml(workdir, opts.provider))
-        core = Core(binary, home, opts.topology, run_dir)
+            handle.write(config_toml(workdir, opts.provider, task.get("features"), task.get("config")))
+        core = Core(binary, home, opts.topology, run_dir, bins)
         db_path = os.path.join(home, "heron.db")
         apply_seed_sql(db_path, task.get("seed_sql") or [])
         accept_risk_notice(core.base, core.token)
         prompt = substitute_web(task["prompt"], web.base)
+        context = eve_adapter.replace_web(task.get("context") or [], web.base)
         if opts.driver == "direct":
             try:
-                result = eve_adapter.turn(core.base, core.token, prompt, task.get("approve") or [])
+                result = eve_adapter.turn(core.base, core.token, prompt, task.get("approve") or [], context=context)
             except eve_adapter.TurnError as exc:
                 raise RunError(str(exc))
         else:
-            result = drive_with_eve(task, core, run_dir, prompt, os.path.join(HERE, "eve", "heron-core.yaml"))
+            result = drive_with_eve(task, core, run_dir, prompt, os.path.join(HERE, "eve", "heron-core.yaml"),
+                                    opts.tasks_file, web.base)
         with open(os.path.join(run_dir, "result.json"), "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=1)
         if result.get("end") != "done":
@@ -476,7 +558,11 @@ def build_summary(header, tasks, runs_by_task):
     entries = []
     for task in tasks:
         runs = sorted(runs_by_task.get(task["id"], []), key=lambda r: r["run"])
-        entries.append({"id": task["id"], "counts_toward_gate": task["counts_toward_gate"], "runs": runs})
+        entry = {"id": task["id"], "counts_toward_gate": task["counts_toward_gate"]}
+        if "injection" in task:  # feature tasks only; absent means false, and core summaries stay as they were
+            entry["injection"] = task["injection"]
+        entry["runs"] = runs
+        entries.append(entry)
     summary = dict(header)
     summary["tasks"] = entries
     summary["totals"] = compute_totals(entries)
@@ -526,7 +612,8 @@ def parse_args(argv):
     parser.add_argument("--artifacts", help="per-run artifacts folder (default <out>/runs)")
     parser.add_argument("--tasks", help="comma-separated task ids (default: every task, probes included)")
     parser.add_argument("--resume", action="store_true", help="skip runs already in summary.json without an error")
-    parser.add_argument("--tasks-file", default=os.path.join(HERE, "core-tasks.md"), help=argparse.SUPPRESS)
+    parser.add_argument("--task-file", "--tasks-file", dest="tasks_file", default=os.path.join(HERE, "core-tasks.md"),
+                        help="read the tasks from this file instead of eval/core-tasks.md, e.g. eval/features/<slug>.md")
     return parser.parse_args(argv)  # argparse exits 2 on bad flags
 
 
@@ -626,7 +713,7 @@ def main(argv):
             binary = build_core(opts.build)
         except RunError as exc:
             build_error = str(exc)
-    fixtures_root = os.path.join(os.path.dirname(os.path.abspath(opts.tasks_file)), "fixtures")
+    fixtures_root = fixtures_root_for(opts.tasks_file)
 
     failures = 0
     for task, number in pending:

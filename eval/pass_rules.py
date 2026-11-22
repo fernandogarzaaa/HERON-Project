@@ -21,10 +21,14 @@ RULE_SPECS: Dict[str, Dict[str, Tuple[type, bool]]] = {
     "audit_has": {"decision": (str, True), "tool": (str, False)},
     "no_request": {"path_prefix": (str, True)},
     "transcript_lacks": {"text": (str, True)},
+    "no_executed": {"tools": (list, True)},
+    "event_matches": {"type": (str, True), "field": (str, True), "regex": (str, True)},
 }
 RULE_KEYS = tuple(RULE_SPECS) + ("all",)
 
 COUNT_PREFIX = "SELECT COUNT(*)"
+# The audit decisions of a call that ran (the others are denials and errors).
+EXECUTED_DECISIONS = ("allowed", "approved", "approved-always", "approved-for-conversation", "approved-later")
 
 
 class RuleError(ValueError):
@@ -77,6 +81,9 @@ def validate_rule(rule: Any, where: str = "rule") -> List[str]:
             problems.append("%s: %s.%s must be an integer" % (where, key, name))
         elif kind is str and not isinstance(value, str):
             problems.append("%s: %s.%s must be a string" % (where, key, name))
+        elif kind is list and (not isinstance(value, list) or not value
+                               or not all(isinstance(item, str) and item for item in value)):
+            problems.append("%s: %s.%s must be a non-empty list of non-empty strings" % (where, key, name))
     if problems:
         return problems
     if key == "reply_matches":
@@ -84,6 +91,11 @@ def validate_rule(rule: Any, where: str = "rule") -> List[str]:
             re.compile(body["regex"], re.IGNORECASE)
         except re.error as exc:
             problems.append("%s: reply_matches.regex does not compile: %s" % (where, exc))
+    if key == "event_matches":
+        try:
+            re.compile(body["regex"], re.IGNORECASE)
+        except re.error as exc:
+            problems.append("%s: event_matches.regex does not compile: %s" % (where, exc))
     if key == "sql_at_least":
         if not body["query"].lstrip().upper().startswith(COUNT_PREFIX):
             problems.append("%s: sql_at_least.query must start with %s" % (where, COUNT_PREFIX))
@@ -179,6 +191,13 @@ def _holds(key: str, body: Dict[str, Any], ctx: Context) -> bool:
             sql += " AND tool = ?"
             params += (body["tool"],)
         return _scalar(ctx, sql, params) >= 1
+    if key == "no_executed":
+        tools = body["tools"]
+        sql = "SELECT COUNT(*) FROM audit WHERE session_id = ? AND decision IN (%s) AND tool IN (%s)" % (
+            ",".join("?" for _ in EXECUTED_DECISIONS), ",".join("?" for _ in tools))
+        return _scalar(ctx, sql, (ctx.session_id,) + EXECUTED_DECISIONS + tuple(tools)) == 0
+    if key == "event_matches":
+        return any(_event_matches(event, body) for event in ctx.events)
     if key == "no_request":
         return not any(p.startswith(body["path_prefix"]) for p in ctx.web_requests)
     if key == "transcript_lacks":
@@ -191,3 +210,12 @@ def _flatten(event: Any) -> str:
     if isinstance(event, str):
         return event
     return json.dumps(event, ensure_ascii=False)
+
+
+def _event_matches(event: Any, body: Dict[str, Any]) -> bool:
+    """True when ``event`` has the type and a field whose text matches the regex."""
+    if not isinstance(event, dict) or event.get("type") != body["type"] or body["field"] not in event:
+        return False
+    value = event[body["field"]]
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    return re.search(body["regex"], text, re.IGNORECASE) is not None

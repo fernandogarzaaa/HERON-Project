@@ -6,11 +6,14 @@ EVE's HTTP backend posts one JSON request and reads the reply at a path. Heron's
 inside that stream. This adapter reads the stream, answers each approval from the task's
 ``approve`` list, and hands back one reply.
 
-As a library: ``turn(base, token, message, policy, session_id=None)``.
+As a library: ``turn(base, token, message, policy, session_id=None, context=None)``. ``context``
+is the task's chat context, a list of ``{kind, app, text}`` items sent with the message.
 
 As a server: ``python3 -I eval/eve_adapter.py --heron <base> --token <t> --task <id> --port 0
---record <file>`` serves ``POST /turn {"message"}`` on 127.0.0.1, prints ``port=<n>`` on its
-first line, and appends each ``turn()`` result to ``<file>`` as one JSON line.
+--record <file> [--task-file <file>] [--web <base>]`` serves ``POST /turn {"message"}`` on
+127.0.0.1, prints ``port=<n>`` on its first line, and appends each ``turn()`` result to ``<file>``
+as one JSON line. EVE posts only ``{message}``, so the server reads the task's ``approve`` list and
+its ``context`` (with ``{web}`` replaced by ``--web``) from the task file itself.
 """
 
 import argparse
@@ -86,19 +89,22 @@ def _sse_events(response, deadline):
             pass
 
 
-def turn(base, token, message, policy, session_id=None, timeout=TURN_TIMEOUT_SECS):
+def turn(base, token, message, policy, session_id=None, timeout=TURN_TIMEOUT_SECS, context=None):
     """Run one user message through ``POST /api/chat`` and return what happened.
 
     Returns ``{reply, session_id, events, ttft_ms, tokens, end, error}``. ``end`` is the event
     that stopped the stream: ``done``, ``cancelled``, ``error``, ``closed`` (the stream ended
     with none of those) or ``timeout``. ``tokens`` is ``prompt + completion`` from the last
     ``usage`` event, because each ``usage`` event carries the running total of the run.
+    A non-empty ``context`` (chat-context items) is sent with the message.
     """
     started = time.monotonic()
     deadline = started + timeout
     body = {"message": message}
     if session_id:
         body["session_id"] = session_id
+    if context:
+        body["context"] = context
     try:
         response = _post_json(base, token, "/api/chat", body, timeout=READ_TIMEOUT_SECS)
     except urllib.error.HTTPError as exc:
@@ -166,13 +172,34 @@ def turn(base, token, message, policy, session_id=None, timeout=TURN_TIMEOUT_SEC
             "tokens": tokens, "end": end, "error": error}
 
 
-def load_policy(tasks_path, task_id):
+def load_task(tasks_path, task_id):
     from tasks_md import load_tasks
 
     for task in load_tasks(tasks_path):
         if task.get("id") == task_id:
-            return task.get("approve", [])
+            return task
     raise SystemExit("eve_adapter: unknown task id %r in %s" % (task_id, tasks_path))
+
+
+def load_policy(tasks_path, task_id):
+    return load_task(tasks_path, task_id).get("approve", [])
+
+
+def replace_web(value, web_base):
+    """``value`` with ``{web}`` replaced by ``web_base`` in every string, however deeply nested."""
+    if isinstance(value, str):
+        return value.replace("{web}", web_base)
+    if isinstance(value, list):
+        return [replace_web(item, web_base) for item in value]
+    if isinstance(value, dict):
+        return {key: replace_web(item, web_base) for key, item in value.items()}
+    return value
+
+
+def load_context(tasks_path, task_id, web_base=""):
+    """The task's ``context`` items (an empty list when it has none), with ``{web}`` replaced."""
+    context = load_task(tasks_path, task_id).get("context") or []
+    return replace_web(context, web_base) if web_base else context
 
 
 def make_handler(state):
@@ -204,7 +231,8 @@ def make_handler(state):
             with state["lock"]:
                 open(state["record"] + ".started", "a").close()  # lets the runner tell "never asked" from "still working"
                 try:
-                    result = turn(state["heron"], state["token"], message, state["policy"], state["session_id"])
+                    result = turn(state["heron"], state["token"], message, state["policy"], state["session_id"],
+                                  context=state["context"])
                 except TurnError as exc:
                     result = {"reply": "", "session_id": state["session_id"], "events": [], "ttft_ms": None,
                               "tokens": 0, "end": "error", "error": str(exc)}
@@ -221,7 +249,8 @@ def make_handler(state):
 
 def serve(args):
     state = {"heron": args.heron, "token": args.token, "record": args.record, "session_id": None,
-             "policy": load_policy(args.tasks, args.task), "lock": threading.Lock()}
+             "policy": load_policy(args.tasks, args.task), "lock": threading.Lock(),
+             "context": load_context(args.tasks, args.task, args.web)}
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(state))
     server.daemon_threads = True
     print("port=%d" % server.server_address[1], flush=True)
@@ -239,7 +268,9 @@ def main(argv):
     parser.add_argument("--task", required=True, help="task id whose approve list answers the asks")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--record", required=True, help="file that gets one JSON line per turn")
-    parser.add_argument("--tasks", default=os.path.join(HERE, "core-tasks.md"))
+    parser.add_argument("--task-file", "--tasks", dest="tasks", default=os.path.join(HERE, "core-tasks.md"),
+                        help="tasks file holding --task (default eval/core-tasks.md); it also supplies the task's context")
+    parser.add_argument("--web", default="", help="base URL of the fixture web server, for {web} in the task's context")
     return serve(parser.parse_args(argv))
 
 

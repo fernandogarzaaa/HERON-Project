@@ -160,7 +160,8 @@ class AllRule(RuleTestCase):
 class Grammar(unittest.TestCase):
     def test_every_documented_rule_key_is_known(self):
         self.assertEqual(set(pass_rules.RULE_KEYS), {"file_contains", "file_present", "file_absent", "reply_matches",
-                                                     "sql_at_least", "audit_has", "no_request", "transcript_lacks", "all"})
+                                                     "sql_at_least", "audit_has", "no_request", "transcript_lacks",
+                                                     "no_executed", "event_matches", "all"})
 
     def test_exactly_one_key(self):
         self.assertTrue(validate_rule({}))

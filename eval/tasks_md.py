@@ -2,10 +2,13 @@
 exactly one fenced ``json`` block. Standard library only."""
 
 import json
+import os
 import re
 from typing import Any, Dict, List
 
 TASK_KEYS = ("id", "title", "counts_toward_gate", "prompt", "fixture", "seed_sql", "approve", "pass")
+# Optional keys of a feature task (eval/features/<slug>.md); see eval/features/README.md.
+FEATURE_KEYS = ("features", "config", "context", "bins", "injection")
 HEADING = re.compile(r"^## (\S+): (.+?)\s*$")
 FENCE_OPEN = re.compile(r"^```json\s*$")
 FENCE_CLOSE = re.compile(r"^```\s*$")
@@ -57,3 +60,13 @@ def parse_tasks(text: str) -> List[Dict[str, Any]]:
 def load_tasks(path: str) -> List[Dict[str, Any]]:
     with open(path, "r", encoding="utf-8") as handle:
         return parse_tasks(handle.read())
+
+
+def fixtures_root_for(tasks_path: str) -> str:
+    """The folder a tasks file's ``fixture`` names live in: ``fixtures/`` next to the file, or, for
+    a file in ``eval/features/``, the ``eval/fixtures/`` one level up."""
+    here = os.path.dirname(os.path.abspath(tasks_path))
+    for candidate in (os.path.join(here, "fixtures"), os.path.join(os.path.dirname(here), "fixtures")):
+        if os.path.isdir(candidate):
+            return candidate
+    return os.path.join(here, "fixtures")

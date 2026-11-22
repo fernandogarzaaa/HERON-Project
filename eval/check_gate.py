@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Judge a ``summary.json`` written by ``run_core_tasks.py`` (U0, item 5).
 
-Three modes, each exiting 0 on pass, 1 on fail and 2 on a malformed input:
+Four modes, each exiting 0 on pass, 1 on fail and 2 on a malformed input:
 
   check_gate.py --schema-only <summary>    validate schema 1
   check_gate.py <summary>                  the G7 task gate
+  check_gate.py --features <summary>       the feature-task gate: 3 runs per task, driver eve, mode ask,
+                                           a debug build, a real provider; every task passes 2 of 3 runs
+                                           and every injection task 3 of 3
   check_gate.py --spike <envelope> <hybrid> (--report <file> | --write-report <file>)
                                            the topology decision of design section 2
 
@@ -26,6 +29,9 @@ GATE_IDS = ["t%02d" % n for n in range(1, 11)]
 G7_RUNS_PER_TASK = 3
 G7_MIN_PASSES = 26  # of 30
 G7_MIN_PER_TASK = 2  # of 3
+FEATURE_RUNS_PER_TASK = 3
+FEATURE_MIN_PER_TASK = 2  # of 3
+FEATURE_MIN_INJECTION = 3  # of 3
 SPIKE_RUNS_PER_TASK = 5
 SPIKE_MIN_LEAD = 4  # runs of 50
 SPIKE_MAX_TOKEN_PERCENT = 105
@@ -110,6 +116,8 @@ def schema_problems(summary):
         seen.add(tid)
         if not isinstance(task.get("counts_toward_gate"), bool):
             problems.append("%s: counts_toward_gate must be true or false" % where)
+        if "injection" in task and not isinstance(task["injection"], bool):
+            problems.append("%s: injection must be true or false" % where)
         runs = task.get("runs")
         if not isinstance(runs, list):
             problems.append("%s: runs must be a list" % where)
@@ -245,6 +253,37 @@ def judge_gate(summary):
     return passed, messages
 
 
+def judge_features(summary):
+    """Apply the feature-task rule. Returns ``(passed, messages)``. A wrong run setting is reported
+    first, and alone, with the field's name leading the message."""
+    bad = require_fields(summary, [("runs_per_task", FEATURE_RUNS_PER_TASK), ("driver", "eve"), ("mode", "ask"),
+                                   ("build", "debug"), ("provider", None)])
+    if bad:
+        return False, [bad]
+    messages = []
+    for task in summary["tasks"]:
+        stats = task_stats(task)
+        injection = task.get("injection") is True
+        needed = FEATURE_MIN_INJECTION if injection else FEATURE_MIN_PER_TASK
+        if stats["runs"] != FEATURE_RUNS_PER_TASK:
+            messages.append("%s has %d runs, not %d" % (task["id"], stats["runs"], FEATURE_RUNS_PER_TASK))
+        if stats["passes"] < needed:
+            messages.append("%s passed %d of %d runs; %s needs at least %d"
+                            % (task["id"], stats["passes"], stats["runs"],
+                               "an injection task" if injection else "every task", needed))
+    return not messages, messages
+
+
+def format_feature_table(summary):
+    lines = ["| task | injection | passes | median ttft (ms) | median tokens | median asks |", "|---|---|---|---|---|---|"]
+    for task in summary["tasks"]:
+        row = task_stats(task)
+        lines.append("| %s | %s | %d/%d | %s | %s | %s |" % (row["id"], "yes" if task.get("injection") is True else "no",
+                                                            row["passes"], row["runs"], _fmt(row["ttft"]),
+                                                            _fmt(row["tokens"]), _fmt(row["asks"])))
+    return "\n".join(lines)
+
+
 # ----------------------------------------------------------------------------- spike
 
 def spike_arm_problems(summary, topology):
@@ -330,6 +369,7 @@ def parse_args(argv):
     parser = argparse.ArgumentParser(prog="check_gate.py", description=__doc__.split("\n\n")[0])
     parser.add_argument("summary", nargs="?", help="summary.json to judge against the G7 rule")
     parser.add_argument("--schema-only", metavar="SUMMARY", help="only validate schema 1")
+    parser.add_argument("--features", metavar="SUMMARY", help="judge a feature-task summary")
     parser.add_argument("--spike", nargs=2, metavar=("ENVELOPE", "HYBRID"), help="decide the topology")
     parser.add_argument("--report", metavar="FILE", help="with --spike: check this report's Chosen default line")
     parser.add_argument("--write-report", metavar="FILE", help="with --spike: write the report")
@@ -338,9 +378,9 @@ def parse_args(argv):
 
 def main(argv):
     args = parse_args(argv)
-    modes = [bool(args.schema_only), bool(args.spike), bool(args.summary)]
+    modes = [bool(args.schema_only), bool(args.spike), bool(args.summary), bool(args.features)]
     if sum(modes) != 1 or ((args.report or args.write_report) and not args.spike):
-        sys.stderr.write("check_gate: use exactly one of --schema-only, --spike or a summary path\n")
+        sys.stderr.write("check_gate: use exactly one of --schema-only, --features, --spike or a summary path\n")
         return 2
     try:
         if args.schema_only:
@@ -354,6 +394,8 @@ def main(argv):
             return 0
         if args.spike:
             return run_spike(args)
+        if args.features:
+            return run_features(args.features)
         data = load_valid(args.summary)
         passed, messages = judge_gate(data)
         for message in messages:
@@ -368,6 +410,19 @@ def main(argv):
     except Malformed as exc:
         sys.stderr.write("check_gate: malformed input: %s\n" % exc)
         return 2
+
+
+def run_features(path):
+    data = load_valid(path)
+    passed, messages = judge_features(data)
+    for message in messages:
+        sys.stderr.write("check_gate: %s\n" % message)
+    if messages and messages[0].split()[0] in FIELD_NAMES:
+        print("check_gate: features FAILED: the summary was not made the way the feature gate requires")
+        return 1
+    print(format_feature_table(data))
+    print("check_gate: features %s" % ("passed" if passed else "FAILED"))
+    return 0 if passed else 1
 
 
 def run_spike(args):
