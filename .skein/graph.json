@@ -792,15 +792,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "d9923713886e4abcb11e344a5fe5cf33",
+      "base_branch": "skein/B6__integrate-base",
+      "claim_token": "16b0439e97c64facb8365c2b86acdde0",
+      "claimed_at": "2026-11-22T07:06:03.397668+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T07:06:03.397668+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "B1",
@@ -827,9 +827,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Base gate",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/B6__integrate-base",
       "branch": null,
