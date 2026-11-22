@@ -137,8 +137,15 @@ compile until that test names it.
 Any new way content enters a turn joins `ContentEntry`, as trusted or tainting, and gets a row here.
 
 Processes Heron starts outside the shell tool, the model CLIs, MCP server programs and
-`notify_command`: none yet. A feature that starts one adds a row here with the binary, its
+`notify_command` are listed below. A feature that starts one adds a line here with the binary, its
 argument shapes, and why it does not run under the OS sandbox.
+
+- /usr/bin/open (one mailto: URL): opens a compose window; never sends; asks once.
+  - Why: `open` only hands a URL to Launch Services, and a sandbox profile would block that call.
+    The one argument is a `mailto:` URL built with the `url` crate: at most 10 plain addresses, then
+    only `subject` and `body`, so `cc`, `bcc` and attachment parameters can't be added. The body is
+    capped at 2,000 characters. The child gets the base environment allowlist, and it is stopped
+    after 10 seconds. In Yolo mode on a clean conversation it opens without asking.
 
 ## Known weaknesses (not mitigated)
 
