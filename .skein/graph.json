@@ -4352,7 +4352,9 @@
     "depends_on": [
       "F4s",
       "F4t",
-      "F4a"
+      "F4a",
+      "F4-fix-1",
+      "F4-fix-2"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -4373,7 +4375,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Gate: undo_files",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": null,
       "branch": null,
