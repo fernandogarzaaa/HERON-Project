@@ -525,6 +525,21 @@ mod tests {
     use crate::store::Store;
     use std::sync::Arc;
 
+    #[test]
+    fn the_approval_card_shows_what_a_task_or_memory_change_would_write() {
+        use crate::tools::Tool as _;
+        let store = Store::in_memory().unwrap();
+        let ctx = ToolCtx { workspace: ".".into(), memory: Memory::new(store.clone(), None), store, session_id: "s".into(), cfg: Arc::new(Config::default()), tainted: Default::default(), seen_urls: Default::default() };
+        let tool = |name: &str| tools().into_iter().find(|t| t.name == name).unwrap();
+        let update = json!({"id": 4, "title": "Wire the deposit", "notes": "to account at bank.test", "due": "2026-12-01"});
+        let shown = tool("task_update").detail(&update, &ctx);
+        for part in ["Wire the deposit", "to account at bank.test", "2026-12-01"] {
+            assert!(shown.contains(part), "{part} missing from {shown}");
+        }
+        let add = tool("task_add").detail(&json!({"title": "Call Sam", "notes": "about the contract", "owner": "heron"}), &ctx);
+        assert!(add.contains("about the contract") && add.contains("heron"), "{add}");
+    }
+
     /// `recent_activity` reports what the observer already noticed and never runs the observer itself,
     /// which would write to the store.
     #[tokio::test]

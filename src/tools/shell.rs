@@ -417,6 +417,29 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn sandboxed_shell_cannot_reach_a_local_agent_socket() {
+        let mut cfg = Config::default();
+        cfg.permissions.mode = "auto".into();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let ws = tempfile::tempdir().unwrap();
+        // Where launchd puts the ssh agent's socket: a temporary folder the sandbox may write to.
+        let dir = tempfile::Builder::new().prefix("heron-agent-sock").tempdir_in("/private/tmp").unwrap();
+        let socket = dir.path().join("agent.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut conn, _)) = listener.accept() {
+                let _ = std::io::Write::write_all(&mut conn, b"AGENT-ANSWERED\n");
+            }
+        });
+        let ctx = test_ctx(&cfg, &dunce::canonicalize(ws.path()).unwrap(), "t");
+        let out = sh(&ctx, &format!("/usr/bin/nc -U -w 2 {} < /dev/null; echo done", q(&socket))).await;
+        assert!(out.contains("done"), "{out}");
+        assert!(!out.contains("AGENT-ANSWERED"), "a sandboxed command used a local agent socket: {out}");
+    }
+
+    #[tokio::test]
     async fn sandboxed_shell_cannot_read_ask_tier_paths() {
         let mut cfg = Config::default();
         cfg.permissions.mode = "auto".into();

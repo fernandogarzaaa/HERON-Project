@@ -590,3 +590,15 @@ pub fn tools() -> Vec<FnTool> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn local_pages_need_an_explicit_yes() {
+        // "0" means no: the same as leaving it unset, so other tests are unaffected.
+        std::env::set_var("HERON_ALLOW_LOCAL_FETCH", "0");
+        assert!(!super::local_allowed());
+        std::env::remove_var("HERON_ALLOW_LOCAL_FETCH");
+        assert!(!super::local_allowed());
+    }
+}

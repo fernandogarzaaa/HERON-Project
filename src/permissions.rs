@@ -1321,6 +1321,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn long_option_spellings_are_as_dangerous_as_short_ones() {
+        for c in ["rm --recursive --force ~", "rm --force --recursive /", "rm -r --force ~/*"] {
+            assert_eq!(classify_shell(c), Effect::Forbidden, "{c}");
+        }
+        for c in ["rm --recursive build", "rm --force notes.txt", "rm --dir --recursive out", "git clean --force -d", "git clean -d --force", "git clean -xdf", "git push origin main --force-with-lease"] {
+            assert_eq!(classify_shell(c), Effect::Privileged, "{c}");
+        }
+    }
+
+    #[test]
     fn shell_classification() {
         for c in ["format C:", "rd /s /q C:\\", "Remove-Item -Recurse -Force C:\\", "del /s /q c:\\ "] {
             assert_eq!(classify_shell(c), Effect::Forbidden, "{c}");
