@@ -6207,15 +6207,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "4583fa45938a46dc9414056949646930",
+      "base_branch": "skein/F9g__integrate__integrate-base",
+      "claim_token": "5fbbd2c09cfd45c7a1aeb801aa14a5ba",
+      "claimed_at": "2026-11-22T11:05:39.259853+00:00",
+      "holder": "skein-auto-merge",
+      "last_heartbeat": "2026-11-22T11:05:39.259853+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "skein-auto-merge"
     },
     "depends_on": [
       "F9a",
@@ -6239,11 +6239,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Integrate parents of F9g",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/F9g__integrate__integrate-base",
       "branch": null,
       "path": null
     }
