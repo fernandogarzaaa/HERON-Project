@@ -6756,15 +6756,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "5a84674bc8d043b3ab94548846c012c6",
+      "base_branch": "a7aeb03f0e6660a30ebef3783739d23c76ba9c53",
+      "claim_token": "00b611e4ff0249b4beb3fccd720f9864",
+      "claimed_at": "2026-11-22T12:37:50.739902+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T12:37:50.739902+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F8g"
@@ -6786,11 +6786,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Kill F8's surviving mutants",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "a7aeb03f0e6660a30ebef3783739d23c76ba9c53",
       "branch": null,
       "path": null
     }
