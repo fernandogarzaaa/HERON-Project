@@ -1,6 +1,15 @@
 {
   "B1": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "4b0489fa2f1b4480af9368d639852839",
+        "ended_at": "2026-11-22T06:09:21.944901+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T05:58:23.638796+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -12,19 +21,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "4b0489fa2f1b4480af9368d639852839",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "05a9f6b6808a40809b09d82ba43f1b99",
-      "claimed_at": "2026-11-22T05:58:23.638796+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T05:58:23.638796+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I -m unittest discover -s eval/tests -t eval && python3 -I eval/check_tasks.py eval/core-tasks.md",
+        "duration_ms": 31202,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B1_20261122T060850513616_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B1_20261122T060921717950_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: delete `.skein-b1-peek.py`, then run the skein check for B1.",
     "id": "B1",
     "integration_for": null,
     "intent": {
@@ -36,13 +57,101 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "4b0489fa2f1b4480af9368d639852839",
+      "base_commit": "e304b1982b3be97e5d3c4b482a2c93ad26ec5173",
+      "changed_files": [
+        "eval/README.md",
+        "eval/check_gate.py",
+        "eval/check_tasks.py",
+        "eval/eve_adapter.py",
+        "eval/genesis.yaml",
+        "eval/genesis/build_cases.py",
+        "eval/genesis/cases.jsonl",
+        "eval/genesis/pass-rules-json.yaml",
+        "eval/genesis/test_json_verifier.py",
+        "eval/pass_rules.py",
+        "eval/run-core-tasks.sh",
+        "eval/run_core_tasks.py",
+        "eval/tasks_md.py",
+        "eval/tests/test_pass_rules.py",
+        "eval/features/README.md",
+        "eval/tests/test_feature_tasks.py"
+      ],
+      "commit": "4811cbc906cec5b0151d44094fb391215441c89e",
+      "diff_stats": {
+        "eval/README.md": {
+          "added": 9,
+          "deleted": 3
+        },
+        "eval/check_gate.py": {
+          "added": 58,
+          "deleted": 3
+        },
+        "eval/check_tasks.py": {
+          "added": 82,
+          "deleted": 10
+        },
+        "eval/eve_adapter.py": {
+          "added": 40,
+          "deleted": 9
+        },
+        "eval/features/README.md": {
+          "added": 100,
+          "deleted": 0
+        },
+        "eval/genesis.yaml": {
+          "added": 7,
+          "deleted": 0
+        },
+        "eval/genesis/build_cases.py": {
+          "added": 33,
+          "deleted": 0
+        },
+        "eval/genesis/cases.jsonl": {
+          "added": 2,
+          "deleted": 0
+        },
+        "eval/genesis/pass-rules-json.yaml": {
+          "added": 4,
+          "deleted": 0
+        },
+        "eval/genesis/test_json_verifier.py": {
+          "added": 3,
+          "deleted": 1
+        },
+        "eval/pass_rules.py": {
+          "added": 28,
+          "deleted": 0
+        },
+        "eval/run-core-tasks.sh": {
+          "added": 3,
+          "deleted": 1
+        },
+        "eval/run_core_tasks.py": {
+          "added": 107,
+          "deleted": 20
+        },
+        "eval/tasks_md.py": {
+          "added": 13,
+          "deleted": 0
+        },
+        "eval/tests/test_feature_tasks.py": {
+          "added": 689,
+          "deleted": 0
+        },
+        "eval/tests/test_pass_rules.py": {
+          "added": 2,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Eval support for feature tasks",
-    "version": 3,
+    "version": 25,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "e304b1982b3be97e5d3c4b482a2c93ad26ec5173",
@@ -68,7 +177,7 @@
       "claim_token": "dbcb456dc06040a0a7426df85addd20d",
       "claimed_at": "2026-11-22T05:58:53.591442+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T05:58:53.591442+00:00",
+      "last_heartbeat": "2026-11-22T06:08:55.739569+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -91,9 +200,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Core switches, chat context, taint source, notification owner",
-    "version": 4,
+    "version": 24,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "48aa65c853c6a54666cfd23e0a648044f34ff67d",
