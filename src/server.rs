@@ -27,10 +27,45 @@ const INDEX_HTML: &str = include_str!("../assets/index.html");
 // A stalled HTTP client must not accumulate unbounded streaming events.
 const CHAT_EVENT_CAPACITY: usize = 128;
 // Credential replacement and removal must be one serialized transition. The
-// Config mutex protects individual vault/file operations, not the full
-// stop -> revoke -> replace/remove -> generation-fence sequence.
+// Tokio mutex covers handlers in this process; the home-scoped file lock below
+// also serializes separate `heron serve` processes sharing the same HERON_HOME.
+// Keep the lock file in place: unlinking a locked inode can let another process
+// lock a new inode while the first process still holds the old one.
 static TELEGRAM_CREDENTIAL_TRANSITION: tokio::sync::Mutex<()> =
     tokio::sync::Mutex::const_new(());
+
+fn open_telegram_credential_transition_lock(home: std::path::PathBuf) -> Result<std::fs::File> {
+    std::fs::create_dir_all(&home)?;
+    let home = std::fs::canonicalize(home)?;
+    let path = home.join("telegram-credential-transition.lock");
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    // File locks are released by the OS when this handle is dropped or the
+    // process exits. This is deliberately blocking and is only called via
+    // spawn_blocking from an async request handler.
+    file.lock()?;
+    Ok(file)
+}
+
+async fn acquire_telegram_credential_transition_lock(
+    home: std::path::PathBuf,
+) -> Result<std::fs::File> {
+    Ok(tokio::task::spawn_blocking(move || {
+        open_telegram_credential_transition_lock(home)
+    }).await??)
+}
+
 type Tx = mpsc::Sender<Value>;
 
 pub struct ServerState {
@@ -1038,6 +1073,9 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
     // so a concurrent DELETE cannot remove a token installed by this POST.
     let _transition = TELEGRAM_CREDENTIAL_TRANSITION.lock().await;
     let cfg = st.app.cfg();
+    cfg.ensure_home()?;
+    let _interprocess_transition =
+        acquire_telegram_credential_transition_lock(cfg.home.clone()).await?;
     let old_token = cfg.secret("telegram_token");
     let replacing = old_token.as_deref() != Some(token);
     // A wrong or revoked token would otherwise unpair the phone and leave a gateway that never connects.
@@ -1090,6 +1128,10 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
 
 async fn remove_telegram(State(st): S) -> ApiResult {
     let _transition = TELEGRAM_CREDENTIAL_TRANSITION.lock().await;
+    let cfg = st.app.cfg();
+    cfg.ensure_home()?;
+    let _interprocess_transition =
+        acquire_telegram_credential_transition_lock(cfg.home.clone()).await?;
     crate::telegram::stop(&st.app);
     if let Err(err) = crate::telegram::bump_generation(&st.app) {
         crate::telegram::spawn_if_configured(&st.app);
@@ -1101,7 +1143,6 @@ async fn remove_telegram(State(st): S) -> ApiResult {
         crate::telegram::spawn_if_configured(&st.app);
         return Err(err.into());
     }
-    let cfg = st.app.cfg();
     // Remove the legacy plaintext copy first. If the file is damaged or cannot
     // be rewritten, retain the native credential so the gateway can recover.
     if let Err(err) = cfg.clear_legacy_secret("telegram_token") {
@@ -1494,5 +1535,66 @@ mod stream_backpressure_tests {
         assert!(!second.is_finished(), "a second credential mutation overlapped the first");
         drop(first);
         second.await.unwrap();
+    }
+
+    #[test]
+    fn telegram_credential_transition_lock_child_process() {
+        let Ok(home) = std::env::var("HERON_TELEGRAM_LOCK_TEST_HOME") else {
+            return;
+        };
+        let home = std::path::PathBuf::from(home);
+        let _lock = open_telegram_credential_transition_lock(home.clone()).unwrap();
+        std::fs::write(home.join("child-ready"), b"ready").unwrap();
+        let release = home.join("child-release");
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !release.exists() {
+            assert!(std::time::Instant::now() < deadline, "parent did not release the child lock");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[tokio::test]
+    async fn telegram_credential_file_lock_serializes_separate_processes() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_path_buf();
+        let ready = home.join("child-ready");
+        let release = home.join("child-release");
+        let executable = std::env::current_exe().unwrap();
+        let mut child = std::process::Command::new(executable)
+            .args([
+                "--exact",
+                "server::tests::telegram_credential_transition_lock_child_process",
+                "--nocapture",
+            ])
+            .env("HERON_TELEGRAM_LOCK_TEST_HOME", &home)
+            .spawn()
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !ready.exists() {
+            if let Some(status) = child.try_wait().unwrap() {
+                panic!("lock child exited before acquiring the lock: {status}");
+            }
+            assert!(std::time::Instant::now() < deadline, "lock child did not acquire the lock");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let contender = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(home.join("telegram-credential-transition.lock"))
+            .unwrap();
+        assert!(matches!(
+            contender.try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ), "a second process must not acquire the home-scoped credential lock");
+
+        std::fs::write(release, b"release").unwrap();
+        let status = tokio::task::spawn_blocking(move || child.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(status.success(), "lock child failed: {status}");
+        assert!(contender.try_lock().is_ok(), "the OS must release the lock when the child exits");
     }
 }
