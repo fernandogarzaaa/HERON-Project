@@ -941,6 +941,74 @@ async fn api_run_survives_client_disconnect() {
     assert_eq!(api.get_json(&format!("/sessions/{sid}")).await["busy"], false);
 }
 
+/// `interrupted` and `busy` of `GET /api/sessions/{id}`.
+async fn interrupted_and_busy(api: &Api, sid: &str) -> (Value, Value) {
+    let session = api.get_json(&format!("/sessions/{sid}")).await;
+    (session["interrupted"].clone(), session["busy"].clone())
+}
+
+#[tokio::test]
+async fn api_session_reports_an_interrupted_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = scripted_app(dir.path(), vec![], |_| {}).await;
+    let store = app.store.clone();
+    let api = serve(app).await;
+    let sid = store.create_session("", "user").unwrap();
+    let (not_interrupted, not_busy) = (json!(false), json!(false));
+
+    // Nothing was said yet: there is nothing to pick up.
+    assert_eq!(interrupted_and_busy(&api, &sid).await, (not_interrupted.clone(), not_busy.clone()), "an empty conversation");
+
+    // The last stored message is the question, and no reply is running: the reply was cut short.
+    store.append_message(&sid, &Message::user("write it")).unwrap();
+    assert_eq!(interrupted_and_busy(&api, &sid).await, (json!(true), not_busy.clone()), "last message is a user message");
+
+    // The model asked for a tool and the run stopped before it answered.
+    let call = ScriptedLlm::tool_call("write_file", json!({"path": "a.txt", "content": "one"}));
+    let call_id = call.tool_calls[0].id.clone();
+    assert!(call.role == "assistant" && !call.tool_calls.is_empty(), "the stored message is an assistant message with tool calls");
+    store.append_message(&sid, &call).unwrap();
+    assert_eq!(interrupted_and_busy(&api, &sid).await, (json!(true), not_busy.clone()), "last message is an assistant message with tool calls");
+
+    // The tool ran and its result was saved, but the model never saw it.
+    store.append_message(&sid, &Message::tool(call_id, "wrote a.txt")).unwrap();
+    assert_eq!(interrupted_and_busy(&api, &sid).await, (json!(true), not_busy.clone()), "last message is a tool message");
+
+    // The reply was finished: a plain assistant message ends the turn.
+    store.append_message(&sid, &Message::assistant("Wrote it.")).unwrap();
+    assert_eq!(interrupted_and_busy(&api, &sid).await, (not_interrupted.clone(), not_busy.clone()), "last message is a plain assistant reply");
+
+    // A new question after it is a turn that has not been answered.
+    store.append_message(&sid, &Message::user("and again")).unwrap();
+    assert_eq!(interrupted_and_busy(&api, &sid).await, (json!(true), not_busy), "a new user message after a finished reply");
+}
+
+#[tokio::test]
+async fn api_session_is_not_interrupted_while_busy() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = scripted_app(dir.path(), vec![write_call("held.txt", "later"), Message::assistant("Done.")], |_| {}).await;
+    heron::risk_notice::accept_current(&app.store).unwrap();
+    let api = serve(app).await;
+
+    // The reply waits for an answer to its approval, so it is running.
+    let mut chat = api.chat(json!({"message": "write held.txt"})).await;
+    let sid = chat.next().await.unwrap()["id"].as_str().unwrap().to_string();
+    let approval = chat.until("approval").await.pop().unwrap();
+    let running = api.get_json(&format!("/sessions/{sid}")).await;
+    assert_eq!(running["busy"], true, "{running}");
+    // What is stored now would read as an interrupted reply if nothing were running.
+    let last = running["messages"].as_array().unwrap().last().unwrap().clone();
+    assert!(last["role"] == "user" || last["role"] == "tool" || last["tool_calls"].as_array().is_some_and(|c| !c.is_empty()), "the stored tail looks interrupted: {last}");
+    assert_eq!(running["interrupted"], false, "a reply that is running is not interrupted: {running}");
+
+    // Once the reply is finished it is neither busy nor interrupted.
+    api.approve(&approval["id"], "once").await;
+    chat.until("run_end").await;
+    let finished = api.get_json(&format!("/sessions/{sid}")).await;
+    assert_eq!((&finished["busy"], &finished["interrupted"]), (&json!(false), &json!(false)), "{finished}");
+    assert_eq!(finished["messages"].as_array().unwrap().last().unwrap()["content"], "Done.");
+}
+
 #[tokio::test]
 async fn api_approval_waits_on_the_bus_then_parks_on_timeout() {
     let dir = tempfile::tempdir().unwrap();
