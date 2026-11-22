@@ -249,6 +249,16 @@ pub(crate) fn validate_entry_capacity(dir: &Path, filename: &std::ffi::OsStr) ->
 /// number of skills. Direct symlinks and nested SKILL.md symlinks are ignored.
 /// This deliberately does NOT install skills from URLs or trust their content.
 pub fn load_all(dir: &Path) -> Vec<Skill> {
+    // The skills root itself must not be a symlink. Canonicalizing it first
+    // would redefine an outside target as the trusted root and admit every
+    // file beneath it. On Unix, secure_open also opens this original path
+    // with O_NOFOLLOW to close a replacement race after this metadata check.
+    let Ok(root_metadata) = std::fs::symlink_metadata(dir) else {
+        return vec![];
+    };
+    if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
+        return vec![];
+    }
     let Ok(root) = std::fs::canonicalize(dir) else {
         return vec![];
     };
@@ -302,7 +312,7 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
         } else {
             top_level_name.as_os_str()
         };
-        let handle = secure_open(&root, folder.as_deref(), filename);
+        let handle = secure_open(dir, folder.as_deref(), filename);
         let Ok(handle) = handle else { continue };
         let Ok(opened) = handle.metadata() else { continue };
         if !opened.is_file() || opened.len() > MAX_SKILL_BYTES {
@@ -443,6 +453,23 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert!(find(dir.path(), "ALPHA").is_some());
         assert!(find(dir.path(), "beta").is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_skills_root() {
+        use std::os::unix::fs::symlink;
+
+        let home = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("outside.md"), "# Outside skill").unwrap();
+        let skills = home.path().join("skills");
+        symlink(outside.path(), &skills).unwrap();
+
+        assert!(
+            load_all(&skills).is_empty(),
+            "a symlinked skills root must not redefine the trusted inventory boundary"
+        );
     }
 
     #[cfg(unix)]
