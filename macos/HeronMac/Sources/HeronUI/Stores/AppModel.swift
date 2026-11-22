@@ -125,8 +125,7 @@ public final class AppModel {
     // MARK: Start
 
     public func bootstrap() async {
-        // A task, not `async let`: the state request below awaits while this one is still running.
-        let loadedPersona = Task { await persona.load() }
+        async let loadedPersona: Void = persona.load()
         do {
             state = try await client.state()
             needsFirstRun = !(state?.onboarded ?? false)
@@ -134,7 +133,7 @@ public final class AppModel {
         } catch {
             needsFirstRun = false
         }
-        await loadedPersona.value
+        await loadedPersona
         hasBootstrapped = true
         if needsFirstRun { await firstRun.load() } else { await loadAll() }
         startEvents()
@@ -169,15 +168,6 @@ public final class AppModel {
 
     public func loadAll() async {
         await refreshState()
-        await loadStores()
-        await settings.refreshLocalCalendarIfConnected()
-        await settings.refreshLocalMailIfConnected()
-    }
-
-    /// The six `async let` children live only inside this function and are all gone when it returns, before any
-    /// further await in the caller: the Swift runtime on the macOS 26 CI image aborts ("freed pointer was not the
-    /// last allocation") when other awaits run while `async let` children are still alive in the same scope.
-    private func loadStores() async {
         async let a: Void = chat.loadSessions()
         async let b: Void = today.load()
         async let c: Void = inbox.load()
@@ -185,6 +175,8 @@ public final class AppModel {
         async let e: Void = tasks.load()
         async let f: Void = schedules.load()
         _ = await (a, b, c, d, e, f)
+        await settings.refreshLocalCalendarIfConnected()
+        await settings.refreshLocalMailIfConnected()
     }
 
     public func refreshState() async {
