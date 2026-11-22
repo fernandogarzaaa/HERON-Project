@@ -5744,11 +5744,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fix F9 review findings (app)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "506fbcd40983a0cf95c8663d1a34d1bcd9434db5",
-      "branch": null,
-      "path": null
+      "base_commit": "506fbcd40983a0cf95c8663d1a34d1bcd9434db5",
+      "branch": "skein/F9-fix-1",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F9-fix-1"
     }
   },
   "F9a": {
