@@ -2645,11 +2645,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fix: core notices lost when notifications are denied",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
-      "branch": null,
-      "path": null
+      "base_commit": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
+      "branch": "skein/F3-fix-2",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F3-fix-2"
     }
   },
   "F3a": {
