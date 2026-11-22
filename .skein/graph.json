@@ -4270,15 +4270,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "5180588b8f004bc497b8a1538c1faa9a",
+      "base_branch": "skein/F4-fix-3__integrate-base",
+      "claim_token": "25a067666b114566969fb1c7318ec3a6",
+      "claimed_at": "2026-11-22T14:04:13.001151+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T14:04:13.001151+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F4-fix-1",
@@ -4301,9 +4301,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fix the check of F4-fix-1: hard links, parent swap, reporting",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/F4-fix-3__integrate-base",
       "branch": null,
