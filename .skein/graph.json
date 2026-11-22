@@ -44,11 +44,12 @@
     "shipped": {},
     "status": "claimed",
     "title": ".github/workflows/selfheal.yml (item 26)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "504bc450b3e1c072ecb472b2e56dd3557ccfa9fb",
-      "branch": null,
-      "path": null
+      "base_commit": "504bc450b3e1c072ecb472b2e56dd3557ccfa9fb",
+      "branch": "skein/H12",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/worktrees/H12"
     }
   },
   "H3": {
