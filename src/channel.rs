@@ -132,12 +132,20 @@ pub struct ChannelStore {
     db: Arc<Mutex<Connection>>,
 }
 
-fn retry_while_busy<T>(budget: std::time::Duration, mut attempt: impl FnMut() -> Result<T>) -> Result<T> {
-    let deadline = std::time::Instant::now() + budget;
+/// Run `attempt` again after a short wait while it fails as busy, until `budget` has passed on `now`.
+/// The clock and the wait are given, so a test drives time itself; the real ones are
+/// `Instant::now` and `thread::sleep`.
+fn retry_while_busy<T>(
+    budget: std::time::Duration,
+    mut now: impl FnMut() -> std::time::Instant,
+    mut sleep: impl FnMut(std::time::Duration),
+    mut attempt: impl FnMut() -> Result<T>,
+) -> Result<T> {
+    let deadline = now() + budget;
     loop {
         match attempt() {
-            Err(err) if is_busy(&err) && std::time::Instant::now() < deadline => {
-                std::thread::sleep(std::time::Duration::from_millis(25));
+            Err(err) if is_busy(&err) && now() < deadline => {
+                sleep(std::time::Duration::from_millis(25));
             }
             other => return other,
         }
@@ -186,7 +194,7 @@ impl ChannelStore {
         // On Windows, setting up the schema can fail with "database is locked" at once, without
         // waiting on busy_timeout, while another Heron process is committing. Retry it the way
         // busy_timeout would.
-        retry_while_busy(std::time::Duration::from_secs(5), || Self::init(Connection::open(path)?))
+        retry_while_busy(std::time::Duration::from_secs(5), std::time::Instant::now, std::thread::sleep, || Self::init(Connection::open(path)?))
     }
 
     #[cfg(test)]
@@ -706,31 +714,43 @@ mod tests {
 
     #[test]
     fn busy_attempts_are_retried_within_the_budget_and_nothing_else_is() {
+        // Time is the test's: a sleep moves a fake clock by exactly what it asked for, so how loaded
+        // the machine is cannot change how many attempts fit in the budget.
+        let base = std::time::Instant::now();
+        let elapsed = std::cell::Cell::new(std::time::Duration::ZERO);
+        let now = || base + elapsed.get();
+        let sleep = |wait: std::time::Duration| elapsed.set(elapsed.get() + wait);
         let budget = std::time::Duration::from_millis(300);
+
         let mut calls = 0;
-        let result = retry_while_busy(budget, || {
+        let result = retry_while_busy(budget, now, sleep, || {
             calls += 1;
             if calls < 4 { Err(sqlite_error(rusqlite::ffi::SQLITE_BUSY)) } else { Ok(calls) }
         });
         assert_eq!(result.unwrap(), 4);
+        assert_eq!(elapsed.get(), std::time::Duration::from_millis(75), "it waited between attempts only");
 
+        elapsed.set(std::time::Duration::ZERO);
         let mut calls = 0;
-        let other = retry_while_busy(budget, || -> Result<()> {
+        let other = retry_while_busy(budget, now, sleep, || -> Result<()> {
             calls += 1;
             Err(sqlite_error(rusqlite::ffi::SQLITE_CONSTRAINT))
         });
         assert!(other.is_err());
         assert_eq!(calls, 1, "a non-busy error was retried");
+        assert_eq!(elapsed.get(), std::time::Duration::ZERO, "and was not waited for");
 
-        let start = std::time::Instant::now();
+        elapsed.set(std::time::Duration::ZERO);
         let mut calls = 0;
-        let stuck = retry_while_busy(budget, || -> Result<()> {
+        let stuck = retry_while_busy(budget, now, sleep, || -> Result<()> {
             calls += 1;
             Err(sqlite_error(rusqlite::ffi::SQLITE_BUSY))
         });
         assert!(stuck.is_err());
-        assert!(start.elapsed() >= budget && start.elapsed() < budget * 4, "{:?}", start.elapsed());
-        assert!(calls > 1);
+        // It gives up when the budget is spent, not before and not long after: attempts at 0, 25, ...
+        // 300 ms.
+        assert_eq!(elapsed.get(), budget);
+        assert_eq!(calls, 13);
     }
 
     #[test]

@@ -30,6 +30,27 @@ pub struct ToolCtx {
     pub seen_urls: SeenUrls,
 }
 
+impl ToolCtx {
+    /// What the user granted for reading, for this call: the standing `read:` rules, and this
+    /// conversation's grants while no outside content is present, as for a read.
+    ///
+    /// The standing rules are those in the settings and the saved "always" answers, kept only while
+    /// the live permission policy of the app that owns the store still holds them. `cfg` is a
+    /// snapshot from when the run started, so without that check a settings rule revoked while a
+    /// run is going would still apply to the run's next command. A grant made earlier in the same
+    /// turn that is not saved yet is not seen, so the command fails closed.
+    pub fn read_grants(&self) -> Vec<crate::sandbox::ReadGrant> {
+        let tainted = self.tainted.load(std::sync::atomic::Ordering::SeqCst);
+        let session = (!tainted).then_some(self.session_id.as_str());
+        let mut standing = crate::sandbox::standing_rules(&self.cfg, &self.store);
+        if let Some(policy) = self.store.live_policy() {
+            let live = policy.allow_rules();
+            standing.retain(|r| live.contains(r));
+        }
+        crate::sandbox::read_grants_from(standing, &self.store, session)
+    }
+}
+
 /// The web addresses that have appeared in a conversation: typed by the user, or returned by a tool.
 ///
 /// After outside content has been read, a hidden instruction can try to make the agent "fetch" an address
@@ -90,6 +111,11 @@ pub trait Tool: Send + Sync {
     fn untrusted_output(&self) -> bool {
         false
     }
+    /// The canonical path a file-reading call reads, for read tiers and folder grants. `None` for
+    /// every tool that does not read files.
+    fn read_target(&self, _args: &Value, _ctx: &ToolCtx) -> Option<PathBuf> {
+        None
+    }
     async fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<String>;
 }
 
@@ -102,6 +128,8 @@ pub struct FnTool {
     pub risk: fn(&Value, &ToolCtx) -> Effect,
     pub detail: Option<fn(&Value, &ToolCtx) -> String>,
     pub untrusted: bool,
+    /// For the file-reading tools: the canonical path the call reads.
+    pub target: Option<fn(&Value, &ToolCtx) -> PathBuf>,
     pub run: for<'a> fn(&'a Value, &'a ToolCtx) -> BoxFuture<'a, Result<String>>,
 }
 
@@ -130,6 +158,9 @@ impl Tool for FnTool {
     }
     fn untrusted_output(&self) -> bool {
         self.untrusted
+    }
+    fn read_target(&self, args: &Value, ctx: &ToolCtx) -> Option<PathBuf> {
+        self.target.map(|f| f(args, ctx))
     }
     async fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<String> {
         (self.run)(args, ctx).await

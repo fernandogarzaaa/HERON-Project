@@ -54,13 +54,22 @@ enum Cmd {
         /// Do not open the browser automatically
         #[arg(long)]
         no_open: bool,
+        /// For the Mac app: bind 127.0.0.1 on a free port, print one JSON line with the port and
+        /// token, and exit when stdin closes
+        #[arg(long)]
+        print_endpoint: bool,
     },
     /// Run only the scheduler (reminders and recurring jobs)
     Daemon,
     /// Create a starter config file
     Init,
     /// Check configuration and connectivity
-    Doctor,
+    Doctor {
+        /// After a rebuild that may have lost "never" rules, once you have checked them in Heron's
+        /// settings: let go of the damaged value kept for recovery (`deny_rules_damaged`)
+        #[arg(long)]
+        clear_damaged_nevers: bool,
+    },
     /// List model providers (HTTP and subscription CLIs) with install and login status
     Providers,
     /// Measure memory retrieval quality with the built-in test set
@@ -165,7 +174,7 @@ impl Approver for TerminalApprover {
             for line in req.detail.lines().take(30) {
                 eprintln!("  {line}");
             }
-            let can_always = !req.risk.high() && !req.tainted;
+            let can_always = req.can_always();
             loop {
                 eprint!("{}", if can_always { "Allow? [y]es / [a]lways / [n]o: " } else { "Allow? [y]es / [n]o: " });
                 let _ = std::io::stderr().flush();
@@ -225,8 +234,57 @@ fn terminal_sink() -> EventSink {
     })
 }
 
+/// Resolves when a read from stdin returns 0 bytes. A plain thread, because a blocking read on
+/// tokio's stdin can hold up the runtime's shutdown.
+async fn stdin_closed() {
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    std::thread::spawn(move || {
+        let mut stdin = std::io::stdin();
+        let mut buf = [0u8; 1024];
+        loop {
+            match stdin.read(&mut buf) {
+                Ok(0) => break,
+                Ok(_) => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+        let _ = tx.send(());
+    });
+    let _ = rx.await;
+}
+
+/// The status `heron`, `heron chat` and `heron run` exit with when the risk notice is not accepted
+/// and nobody is at a terminal to accept it.
+const RISK_NOTICE_EXIT: i32 = 3;
+
+/// Before the first turn: on a terminal, show the risk notice and ask; otherwise say where to accept
+/// it and exit with status 3.
+fn ensure_risk_notice(app: &App) -> Result<()> {
+    if !heron::risk_notice::blocks(&app.store) {
+        return Ok(());
+    }
+    if !std::io::stdin().is_terminal() {
+        eprintln!("Accept Heron's risk notice in the Mac app or by running `heron` in a terminal");
+        std::process::exit(RISK_NOTICE_EXIT);
+    }
+    println!("{}", heron::risk_notice::TEXT);
+    print!("Accept these risks? [y/N] ");
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    if matches!(line.trim().to_lowercase().as_str(), "y" | "yes") {
+        heron::risk_notice::accept_current(&app.store)?;
+        return Ok(());
+    }
+    eprintln!("Heron does not run until its risk notice is accepted.");
+    std::process::exit(RISK_NOTICE_EXIT);
+}
+
 async fn turn(app: &App, agent: &Agent, session: &mut Session, input: &str) -> Result<String> {
     let sink = terminal_sink();
+    // What another Heron on this home granted or revoked since the last turn applies to this one.
+    app.reload_rules();
     let result = tokio::select! {
         r = agent.run_turn(session, input, &sink) => r,
         _ = tokio::signal::ctrl_c() => {
@@ -418,12 +476,7 @@ async fn providers(cfg: &Config) -> Result<()> {
     println!();
     println!("  http            API key via an OpenAI-compatible endpoint (the default)");
     for spec in heron::cli_llm::providers() {
-        let st = heron::cli_llm::probe_status(
-            &spec,
-            heron::cli_llm::override_for_provider(&spec.id, &cfg.llm.provider, &cfg.llm.cli_command),
-            heron::cli_llm::override_for_provider(&spec.id, &cfg.llm.provider, &cfg.llm.cli_config_dir),
-        )
-        .await;
+        let st = heron::cli_llm::probe_status(cfg, &spec).await;
         let mark = if cfg.llm.provider == spec.id {
             "*"
         } else {
@@ -464,7 +517,7 @@ async fn providers(cfg: &Config) -> Result<()> {
             "                  {} — login: `{}`",
             spec.cost_note, spec.login_command
         );
-        if !st.installed || st.logged_in == Some(false) {
+        if shows_provider_hint(&st, probes_refused(cfg)) {
             println!("                  {}", st.hint);
         }
     }
@@ -473,36 +526,124 @@ async fn providers(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+/// Are probes refused here? The same check as `probe_status`: on macOS, no sandbox means no CLI.
+fn probes_refused(cfg: &Config) -> bool {
+    heron::sandbox::required() && heron::sandbox::active(cfg) == heron::sandbox::Kind::None
+}
+
+/// Does `heron providers` print the probe's hint under a provider? When it is missing, logged out, or
+/// refused because the sandbox is off (the hint then says so, as `heron doctor` does).
+fn shows_provider_hint(st: &heron::cli_llm::ProviderStatus, refused: bool) -> bool {
+    !st.installed || st.logged_in == Some(false) || refused
+}
+
+/// `heron restore <file>`. The permissions are left as they are (see
+/// `heron::app::restore_keeping_nevers`): every "never" the current database holds is kept, and no
+/// "always" revoked since the copy comes back. When they cannot be read, nothing is restored.
+fn restore(cfg: &Config, file: &std::path::Path) -> Result<()> {
+    cfg.ensure_home()?;
+    let previous = heron::app::restore_keeping_nevers(cfg, file)?;
+    println!("Restored Heron's data from {}", file.display());
+    if let Some(previous) = previous {
+        println!("What was there before is kept at {}", previous.display());
+    }
+    println!("If Heron was running during this, close and reopen it.");
+    Ok(())
+}
+
+/// The `never` line of `heron doctor`: whether it passed, and what it says. A rebuild of the saved
+/// "never" rules that could not use every source fails it, as it may have lost one.
+///
+/// While the damaged value of such a rebuild is kept (`deny_rules_damaged`), every later check fails
+/// too, saying that some "never" rules may have been lost and showing the kept value, until the user
+/// clears it with `heron doctor --clear-damaged-nevers`.
+fn never_check(cfg: &Config, store: &heron::store::Store) -> (bool, String) {
+    use heron::app::NeversCheck;
+    let check = match heron::app::repair_saved_nevers(cfg, store) {
+        Ok(check) => check,
+        Err(e) => return (false, format!("{e:#}")),
+    };
+    let kept = match heron::app::kept_damaged_nevers(store) {
+        Ok(kept) => kept,
+        Err(e) => return (false, format!("{e:#}")),
+    };
+    let complete = check.complete();
+    let (passed, line) = match check {
+        NeversCheck::Sound(n) => (true, format!("{n} \"never\" rule(s) saved in the database")),
+        NeversCheck::Repaired { rules, from } => {
+            let rules = if rules.is_empty() { "none".to_string() } else { rules.join(", ") };
+            if complete {
+                (true, format!("the saved \"never\" rules were damaged; rebuilt from {from}: {rules}"))
+            } else {
+                (false, format!("the saved \"never\" rules were damaged and could not all be rebuilt; rebuilt from {from}: {rules}"))
+            }
+        }
+    };
+    match kept {
+        Some(kept) => (false, format!("{line}. Some \"never\" rules may have been lost: a rebuild could not use every source. The damaged value is kept in the database as `deny_rules_damaged`: {kept:?}. Check the list in Heron's settings and set \"never\" again for anything missing, then run `heron doctor --clear-damaged-nevers`")),
+        None => (passed, line),
+    }
+}
+
+/// `heron doctor --clear-damaged-nevers`: let go of the damaged "never" rules kept after a rebuild
+/// that may have lost some, once the user has checked them.
+fn clear_damaged_nevers(cfg: &Config) -> Result<()> {
+    cfg.ensure_home()?;
+    let store = heron::store::Store::open(&cfg.db_path()).with_context(|| format!("opening {}", cfg.db_path().display()))?;
+    match heron::app::clear_kept_damaged_nevers(cfg, &store)? {
+        Some(kept) => println!("Cleared the damaged \"never\" rules that were kept for recovery: {kept}"),
+        None => println!("No damaged \"never\" rules were kept."),
+    }
+    Ok(())
+}
+
 async fn doctor(cfg: &Config) -> Result<()> {
     let st = style();
     let ok = |b: bool| if b { st.paint("32", "ok  ") } else { st.red("FAIL") };
+    // A database that cannot be read, or a problem with the "never" rules, fails the whole check
+    // (exit status 1), once every line is out.
+    let mut database_failed = false;
+    let mut never_failed = false;
     println!("Heron {}", env!("CARGO_PKG_VERSION"));
     println!("{} home        {}", ok(cfg.ensure_home().is_ok()), cfg.home.display());
     let config_path = cfg.home.join("config.toml");
     println!("{} config      {}", ok(true), if config_path.exists() { config_path.display().to_string() } else { "defaults (run `heron init` to create a config file)".into() });
+    // Kept for the model call below, so a CLI version the user accepted is honoured here too.
+    let mut doctor_store = None;
     match heron::store::Store::open(&cfg.db_path()) {
         Ok(store) => {
+            doctor_store = Some(store.clone());
             let format = store.schema_version().unwrap_or(-1);
             match store.integrity() {
                 Ok(problems) if problems.is_empty() => println!("{} database    {} (data format {format}, checked: sound)", ok(true), cfg.db_path().display()),
                 Ok(problems) => {
+                    database_failed = true;
                     println!("{} database    {} (data format {format})", ok(false), cfg.db_path().display());
                     for p in problems.iter().take(5) {
                         println!("       problem   {p}");
                     }
-                    println!("       copies    {} (restore one with `heron restore <file>`)", heron::store::backup_dir(&cfg.db_path()).display());
+                    println!("       copies    {}", heron::store::damaged_database_guidance(&cfg.db_path()));
                 }
-                Err(e) => println!("{} database    {} could not be checked: {e:#}", ok(false), cfg.db_path().display()),
+                Err(e) => {
+                    database_failed = true;
+                    println!("{} database    {} could not be checked: {e:#}", ok(false), cfg.db_path().display());
+                }
             }
+            let (passed, line) = never_check(cfg, &store);
+            println!("{} never       {line}", ok(passed));
+            never_failed = !passed;
         }
-        Err(e) => println!("{} database    {e:#}", ok(false)),
+        Err(e) => {
+            database_failed = true;
+            println!("{} database    {e:#}", ok(false));
+        }
     }
     println!("     endpoint    {}", cfg.llm.base_url);
     println!("     model       {}", cfg.llm.model);
     println!("     provider    {}", cfg.llm.provider);
     if heron::cli_llm::is_cli_provider(cfg.llm.provider.trim()) {
         let spec = heron::cli_llm::spec_for(cfg.llm.provider.trim()).unwrap();
-        let st = heron::cli_llm::probe_status(&spec, &cfg.llm.cli_command, &cfg.llm.cli_config_dir).await;
+        let st = heron::cli_llm::probe_status(cfg, &spec).await;
         let login = match st.logged_in {
             Some(true) => format!(
                 "logged in{}",
@@ -536,10 +677,16 @@ async fn doctor(cfg: &Config) -> Result<()> {
     let mut quick = cfg.clone();
     quick.llm.max_retries = 0;
     quick.llm.request_timeout_secs = 30;
-    let llm = heron::llm::build(&quick)?;
+    let llm = heron::llm::build_with_store(&quick, doctor_store.as_ref())?;
     match llm.chat(ChatRequest { messages: vec![Message::user("Reply with the single word: ok")], tools: vec![], model: None, max_tokens: Some(16) }, &|_| {}).await {
         Ok(r) => println!("{} model call  replied \"{}\"", ok(true), heron::util::preview(r.message.text(), 40)),
         Err(e) => println!("{} model call  {}", ok(false), heron::util::preview(&format!("{e:#}"), 300)),
+    }
+    if database_failed {
+        bail!("the database is damaged or cannot be read, so the \"never\" rules saved in it may not hold (see the database line above)");
+    }
+    if never_failed {
+        bail!("the \"never\" rules saved in the database need attention (see the never line above)");
     }
     Ok(())
 }
@@ -581,54 +728,46 @@ async fn main() {
     }
 }
 
-async fn real_main() -> Result<()> {
-    let cli = Cli::parse();
-    let mut cfg = Config::load()?;
-    if let Some(m) = &cli.mode {
-        Mode::parse(m)?;
-        cfg.permissions.mode = m.clone();
-    }
-    if let Some(m) = &cli.model {
-        cfg.llm.model = m.clone();
-    }
-    let command = cli.command.unwrap_or(Cmd::Chat { cont: false, session: None });
-
-    match &command {
-        Cmd::Init => {
-            let path = cfg.write_default()?;
-            println!("Config: {}\nSet your key with e.g. `export {}=...`, then run `heron`.", path.display(), cfg.llm.api_key_env);
-            return Ok(());
-        }
-        Cmd::Doctor => return doctor(&cfg).await,
-        Cmd::Backup { to } => {
-            cfg.ensure_home()?;
-            let store = heron::store::Store::open(&cfg.db_path()).with_context(|| format!("opening {}", cfg.db_path().display()))?;
-            let saved = store.backup(to.as_deref())?;
-            println!("Saved a copy of Heron's data to {}", saved.display());
-            println!("It holds everything in the database. Settings and saved keys are separate files and are not in it.");
-            println!("To go back to it later: heron restore \"{}\"", saved.display());
-            return Ok(());
-        }
-        Cmd::Restore { file } => {
-            cfg.ensure_home()?;
-            let previous = heron::store::Store::restore(&cfg.db_path(), file)?;
-            println!("Restored Heron's data from {}", file.display());
-            if let Some(previous) = previous {
-                println!("What was there before is kept at {}", previous.display());
-            }
-            println!("If Heron was running during this, close and reopen it.");
-            return Ok(());
-        }
-        Cmd::Providers => return providers(&cfg).await,
+/// Run a command that needs no running Heron (`init`, `doctor`, `backup`, `restore`, `providers`,
+/// `eval`). `None` for every other command.
+async fn run_standalone(cfg: &Config, command: &Cmd) -> Option<Result<()>> {
+    Some(match command {
+        Cmd::Init => cfg.write_default().map(|path| println!("Config: {}\nSet your key with e.g. `export {}=...`, then run `heron`.", path.display(), cfg.llm.api_key_env)),
+        Cmd::Doctor { clear_damaged_nevers: true } => clear_damaged_nevers(cfg),
+        Cmd::Doctor { clear_damaged_nevers: false } => doctor(cfg).await,
+        Cmd::Backup { to } => backup(cfg, to.as_deref()),
+        Cmd::Restore { file } => restore(cfg, file),
+        Cmd::Providers => providers(cfg).await,
         Cmd::Eval { neural } => {
             if *neural && !heron::embed::neural_built_in() {
-                bail!("this build does not include the neural memory model; build with `cargo build --features neural`");
+                Err(anyhow::anyhow!("this build does not include the neural memory model; build with `cargo build --features neural`"))
+            } else {
+                let dir = if *neural { Some(cfg.home.join("models")) } else { None };
+                heron::eval::run_memory_eval_with(dir).await.map(|report| println!("{}", report.summary()))
             }
-            let dir = if *neural { Some(cfg.home.join("models")) } else { None };
-            println!("{}", heron::eval::run_memory_eval_with(dir).await?.summary());
-            return Ok(());
         }
-        _ => {}
+        _ => return None,
+    })
+}
+
+/// `heron backup [--to <file>]`.
+fn backup(cfg: &Config, to: Option<&std::path::Path>) -> Result<()> {
+    cfg.ensure_home()?;
+    let store = heron::store::Store::open(&cfg.db_path()).with_context(|| format!("opening {}", cfg.db_path().display()))?;
+    let saved = store.backup(to)?;
+    println!("Saved a copy of Heron's data to {}", saved.display());
+    println!("It holds everything in the database. Settings and saved keys are separate files and are not in it.");
+    println!("To go back to it later: heron restore \"{}\"", saved.display());
+    Ok(())
+}
+
+async fn real_main() -> Result<()> {
+    let cli = Cli::parse();
+    let mut cfg = Config::load()?.with_cli_overrides(cli.mode.as_deref(), cli.model.as_deref())?;
+    let command = cli.command.unwrap_or(Cmd::Chat { cont: false, session: None });
+
+    if let Some(done) = run_standalone(&cfg, &command).await {
+        return done;
     }
 
     let uses_app_folder = matches!(command, Cmd::Serve { .. } | Cmd::Daemon | Cmd::McpServe);
@@ -641,6 +780,9 @@ async fn real_main() -> Result<()> {
         cfg.mcp.servers.clear(); // acting as a server: do not spawn our own MCP clients
     }
     let app = Arc::new(App::build(cfg, workspace).await?);
+    if matches!(command, Cmd::Chat { .. } | Cmd::Run { .. }) {
+        ensure_risk_notice(&app)?;
+    }
 
     match command {
         Cmd::Chat { cont, session } => {
@@ -673,8 +815,23 @@ async fn real_main() -> Result<()> {
             let agent = app.agent(Arc::new(TerminalApprover));
             turn(&app, &agent, &mut session, &text).await.map(|_| ())
         }
-        Cmd::Serve { port, no_open } => {
+        Cmd::Serve { port, no_open, print_endpoint } => {
             let cfg = app.cfg();
+            if print_endpoint {
+                // The Mac app's core: loopback whatever the config says, a free port, and one line
+                // on stdout for the app to read through the pipe. Nothing is written to disk.
+                let started = heron::server::start_endpoint(app.clone(), "127.0.0.1", 0).await?;
+                let mut out = std::io::stdout().lock();
+                writeln!(out, "{}", heron::server::endpoint_line(&started))?;
+                out.flush()?;
+                drop(out);
+                // The kernel closes stdin when the app exits for any reason, so no core is orphaned.
+                return tokio::select! {
+                    r = started.task => r?,
+                    _ = stdin_closed() => Ok(()),
+                    _ = tokio::signal::ctrl_c() => Ok(()),
+                };
+            }
             let (url, handle) = heron::server::start(app.clone(), &cfg.server.bind, port.unwrap_or(cfg.server.port)).await?;
             println!("Heron is running at:\n\n  {url}\n\nKeep this window open. Press Ctrl-C to quit.");
             if !no_open {
@@ -714,7 +871,7 @@ async fn real_main() -> Result<()> {
         }
         Cmd::Usage => {
             let r = heron::usage::report(&app.store, &app.cfg(), app.background_budget().0);
-            let n = |v: u64| { let s = v.to_string(); let mut out = String::new(); for (i, c) in s.chars().enumerate() { if i > 0 && (s.len() - i) % 3 == 0 { out.push(','); } out.push(c); } out };
+            let n = |v: u64| { let s = v.to_string(); let mut out = String::new(); for (i, c) in s.chars().enumerate() { if i > 0 && (s.len() - i).is_multiple_of(3) { out.push(','); } out.push(c); } out };
             let window = |name: &str, w: &heron::usage::Window| match w.left {
                 Some(left) => println!("{name:<12} {} used of {} ({} left)", n(w.used), n(w.limit), n(left)),
                 None => println!("{name:<12} {} used (no limit set)", n(w.used)),
@@ -749,16 +906,179 @@ async fn real_main() -> Result<()> {
         }
         Cmd::McpServe => {
             let agent = app.agent(Arc::new(DenyAll));
-            let ctx = agent.tool_ctx("mcp");
-            heron::mcp::serve(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app.tools, &ctx, &app.policy).await
+            // One session id per connection, so each program's calls are told apart in the log.
+            let ctx = agent.tool_ctx(&format!("mcp-{}", uuid::Uuid::new_v4().simple()));
+            // The rules are reloaded before each call, so a revoke or a "never" on another core holds.
+            heron::mcp::serve_app(tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout(), &app, &ctx).await
         }
-        Cmd::Init | Cmd::Doctor | Cmd::Providers | Cmd::Eval { .. } | Cmd::Backup { .. } | Cmd::Restore { .. } => unreachable!(),
+        Cmd::Init | Cmd::Doctor { .. } | Cmd::Providers | Cmd::Eval { .. } | Cmd::Backup { .. } | Cmd::Restore { .. } => unreachable!(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use heron::store::Store;
+
+    #[test]
+    fn heron_restore_leaves_permissions_as_they_are() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        // A copy made while `shell:git *` was an "always" answer, with no "never".
+        let copy = {
+            let old = Store::open(&dir.path().join("old.db")).unwrap();
+            old.create_session("old", "user").unwrap();
+            old.kv_set("allow_rules", r#"["shell:git *"]"#).unwrap();
+            old.backup(Some(&dir.path().join("old-copy.db"))).unwrap()
+        };
+        // Now: a "never" only heron.db holds, and no "always".
+        {
+            let live = Store::open(&cfg.db_path()).unwrap();
+            live.create_session("now", "user").unwrap();
+            live.kv_set("deny_rules", r#"["web_fetch:*"]"#).unwrap();
+        }
+
+        restore(&cfg, &copy).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert!(store.list_sessions(10).unwrap().iter().any(|s| s.title == "old"), "the copy's data came back");
+        assert_eq!(store.kv_get("deny_rules").as_deref(), Some(r#"["web_fetch:*"]"#));
+        assert_eq!(store.kv_get("allow_rules").as_deref(), Some("[]"));
+        drop(store);
+
+        // When the current database cannot be read, nothing is restored.
+        std::fs::write(cfg.db_path(), "not a database").unwrap();
+        assert!(format!("{:#}", restore(&cfg, &copy).unwrap_err()).contains("nothing was restored"));
+        assert_eq!(std::fs::read_to_string(cfg.db_path()).unwrap(), "not a database");
+    }
+
+    #[tokio::test]
+    async fn heron_doctor_fails_on_an_incomplete_never_rebuild() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.llm.base_url = "demo".into();
+        cfg.agent.browser = "off".into();
+        cfg.ensure_home().unwrap();
+        // Damaged, with no config.toml and no good copy to rebuild from.
+        Store::open(&cfg.db_path()).unwrap().kv_set("deny_rules", "{damaged").unwrap();
+        let (passed, line) = never_check(&cfg, &Store::open(&cfg.db_path()).unwrap());
+        assert!(!passed && line.contains("config.toml is missing") && line.contains("deny_rules_damaged"), "{line}");
+
+        Store::open(&cfg.db_path()).unwrap().kv_set("deny_rules", "{damaged again").unwrap();
+        let said = format!("{:#}", doctor(&cfg).await.expect_err("an incomplete rebuild fails `heron doctor`"));
+        assert!(said.contains("never"), "{said}");
+        // Kept after the first damaged value, not over it (35m).
+        assert_eq!(Store::open(&cfg.db_path()).unwrap().kv_get("deny_rules_damaged").as_deref(), Some("{damaged\n{damaged again"));
+        // Sound now, but some rules may have been lost: it still fails, and says so (35m; 35k passed
+        // here), until the user clears the kept value.
+        let said = format!("{:#}", doctor(&cfg).await.expect_err("a kept damaged value fails `heron doctor`"));
+        assert!(said.contains("never"), "{said}");
+        let (passed, line) = never_check(&cfg, &Store::open(&cfg.db_path()).unwrap());
+        assert!(!passed && line.contains("may have been lost") && line.contains("{damaged again") && line.contains("--clear-damaged-nevers"), "{line}");
+        // A later rebuild from every source does not hide it either.
+        let store = Store::open(&cfg.db_path()).unwrap();
+        let mut saved = Config { home: cfg.home.clone(), ..Default::default() };
+        saved.permissions.deny = vec!["shell:*sudo*".into()];
+        saved.save().unwrap();
+        store.kv_set("deny_rules", "{damaged once more").unwrap();
+        let (passed, line) = never_check(&cfg, &store);
+        assert!(!passed && line.contains("rebuilt from config.toml and the last good copy") && line.contains("may have been lost") && line.contains("{damaged again"), "{line}");
+        // Cleared with the command the line names, as typed.
+        let typed = Cli::try_parse_from(["heron", "doctor", "--clear-damaged-nevers"]).unwrap().command.unwrap();
+        assert!(matches!(typed, Cmd::Doctor { clear_damaged_nevers: true }));
+        run_standalone(&cfg, &typed).await.unwrap().unwrap();
+        doctor(&cfg).await.unwrap();
+        assert!(never_check(&cfg, &Store::open(&cfg.db_path()).unwrap()).0);
+        assert!(matches!(Cli::try_parse_from(["heron", "doctor"]).unwrap().command, Some(Cmd::Doctor { clear_damaged_nevers: false })));
+
+        // A damaged value that is empty text is kept, and shown, too.
+        std::fs::remove_file(cfg.home.join("config.toml")).unwrap();
+        store.kv_set("deny_rules", "").unwrap();
+        store.kv_set("deny_rules_last_good", "{gone").unwrap();
+        let (passed, line) = never_check(&cfg, &store);
+        assert!(!passed && line.contains("may have been lost") && line.contains(r#"`deny_rules_damaged`: """#), "{line}");
+        assert!(doctor(&cfg).await.is_err());
+    }
+
+    /// A doctor's home: demo model, no browser.
+    fn doctor_home(dir: &std::path::Path) -> Config {
+        let mut cfg = Config { home: dir.join("home"), ..Default::default() };
+        cfg.llm.base_url = "demo".into();
+        cfg.agent.browser = "off".into();
+        cfg.ensure_home().unwrap();
+        cfg
+    }
+
+    #[tokio::test]
+    async fn doctor_fails_on_an_unreadable_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = doctor_home(dir.path());
+        Store::open(&cfg.db_path()).unwrap().create_session("now", "user").unwrap();
+        doctor(&cfg).await.unwrap();
+
+        // Garbage where heron.db was: it fails, through the command as typed.
+        std::fs::write(cfg.db_path(), "this is not a database").unwrap();
+        let said = format!("{:#}", run_standalone(&cfg, &Cmd::Doctor { clear_damaged_nevers: false }).await.unwrap().expect_err("an unreadable database fails `heron doctor`"));
+        assert!(said.contains("database"), "{said}");
+    }
+
+    /// The "never" rules are damaged and cannot be rebuilt (config.toml cannot be parsed): the never
+    /// line fails, and so does `heron doctor`.
+    #[tokio::test]
+    async fn doctor_fails_when_the_nevers_cannot_be_rebuilt() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = doctor_home(dir.path());
+        Store::open(&cfg.db_path()).unwrap().kv_set("deny_rules", "{damaged").unwrap();
+        std::fs::write(cfg.home.join("config.toml"), "[permissions\n").unwrap();
+        let (passed, line) = never_check(&cfg, &Store::open(&cfg.db_path()).unwrap());
+        assert!(!passed && line.contains("config.toml"), "{line}");
+        let said = format!("{:#}", doctor(&cfg).await.expect_err("fails"));
+        assert!(said.contains("never"), "{said}");
+    }
+
+    /// The kept damaged value can't be read (here: a blob where text should be) while the saved rules
+    /// are sound: the never line must fail, not pass unnoticed, and so must `heron doctor`.
+    #[tokio::test]
+    async fn doctor_fails_when_the_damaged_record_cannot_be_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = doctor_home(dir.path());
+        Store::open(&cfg.db_path()).unwrap().kv_set("deny_rules", r#"["web_fetch:*"]"#).unwrap();
+        // Control: with nothing kept, the line passes and so does the command.
+        let (passed, line) = never_check(&cfg, &Store::open(&cfg.db_path()).unwrap());
+        assert!(passed, "{line}");
+        doctor(&cfg).await.unwrap();
+
+        rusqlite::Connection::open(cfg.db_path()).unwrap().execute("INSERT INTO kv(k, v) VALUES ('deny_rules_damaged', X'00ff')", []).unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert!(heron::app::kept_damaged_nevers(&store).is_err(), "the setup no longer makes the kept value unreadable");
+        let (passed, line) = never_check(&cfg, &store);
+        assert!(!passed && !line.is_empty(), "an unreadable damaged record passed the never check: {line}");
+        let said = format!("{:#}", doctor(&cfg).await.expect_err("an unreadable damaged record fails `heron doctor`"));
+        assert!(said.contains("never"), "{said}");
+    }
+
+    /// `heron restore` as typed goes through `restore_keeping_nevers`, not a bare copy.
+    #[tokio::test]
+    async fn the_restore_command_leaves_permissions_as_they_are() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = doctor_home(dir.path());
+        let copy = {
+            let old = Store::open(&dir.path().join("old.db")).unwrap();
+            old.create_session("old", "user").unwrap();
+            old.kv_set("allow_rules", r#"["shell:git *"]"#).unwrap();
+            old.backup(Some(&dir.path().join("old-copy.db"))).unwrap()
+        };
+        {
+            let live = Store::open(&cfg.db_path()).unwrap();
+            live.create_session("now", "user").unwrap();
+            live.kv_set("deny_rules", r#"["web_fetch:*"]"#).unwrap();
+        }
+        run_standalone(&cfg, &Cmd::Restore { file: copy }).await.unwrap().unwrap();
+        let store = Store::open(&cfg.db_path()).unwrap();
+        assert!(store.list_sessions(10).unwrap().iter().any(|s| s.title == "old"), "the copy's data came back");
+        assert_eq!(store.kv_get("deny_rules").as_deref(), Some(r#"["web_fetch:*"]"#));
+        assert_eq!(store.kv_get("allow_rules").as_deref(), Some("[]"));
+    }
 
     #[test]
     fn only_a_broken_pipe_exits_quietly() {
@@ -788,5 +1108,27 @@ mod tests {
             "failed printing to stdout: Input/output error (os error 5)"
         ));
         assert!(!is_broken_pipe_print("something else entirely"));
+    }
+
+    #[test]
+    fn providers_shows_the_hint_when_probes_are_refused() {
+        let st = |installed: bool, logged_in: Option<bool>| heron::cli_llm::ProviderStatus {
+            id: "codex-cli".into(),
+            display_name: "Codex".into(),
+            installed,
+            version: None,
+            logged_in,
+            plan: None,
+            hint: "the sandbox is off, so Heron won't run Codex".into(),
+        };
+        // Installed with no login probed: the refusal is the only reason to print the hint.
+        assert!(shows_provider_hint(&st(true, None), true));
+        assert!(!shows_provider_hint(&st(true, None), false));
+        assert!(!shows_provider_hint(&st(true, Some(true)), false));
+        assert!(shows_provider_hint(&st(false, None), false) && shows_provider_hint(&st(true, Some(false)), false));
+        // Refused exactly when probe_status refuses: on macOS with the sandbox off.
+        let mut off = Config::default();
+        off.agent.sandbox = "off".into();
+        assert_eq!(probes_refused(&off), cfg!(target_os = "macos"));
     }
 }

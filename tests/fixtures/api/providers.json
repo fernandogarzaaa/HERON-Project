@@ -1,0 +1,178 @@
+[
+  {
+    "display_name": "Claude Code (subscription)",
+    "experimental": false,
+    "id": "claude-cli",
+    "in_range": null,
+    "installed": true,
+    "logged_in": false,
+    "supported": null,
+    "version": "2.1.327",
+    "version_accepted": false
+  },
+  {
+    "display_name": "Codex (ChatGPT subscription)",
+    "experimental": false,
+    "id": "codex-cli",
+    "in_range": null,
+    "installed": true,
+    "logged_in": false,
+    "supported": null,
+    "version": "0.169.0",
+    "version_accepted": false
+  },
+  {
+    "display_name": "Cursor (subscription)",
+    "experimental": false,
+    "id": "cursor-cli",
+    "in_range": null,
+    "installed": false,
+    "logged_in": null,
+    "supported": null,
+    "version": null,
+    "version_accepted": false
+  },
+  {
+    "display_name": "Grok Build (subscription)",
+    "experimental": true,
+    "id": "grok-cli",
+    "in_range": null,
+    "installed": false,
+    "logged_in": null,
+    "supported": null,
+    "version": null,
+    "version_accepted": false
+  },
+  {
+    "display_name": "OpenCode (router)",
+    "experimental": false,
+    "id": "opencode-cli",
+    "in_range": null,
+    "installed": true,
+    "logged_in": null,
+    "supported": null,
+    "version": "2.1.4",
+    "version_accepted": false
+  },
+  {
+    "display_name": "Antigravity (Google account)",
+    "experimental": false,
+    "id": "antigravity-cli",
+    "in_range": null,
+    "installed": false,
+    "logged_in": null,
+    "supported": null,
+    "version": null,
+    "version_accepted": false
+  },
+  {
+    "display_name": "Cline (router, free models)",
+    "experimental": true,
+    "id": "cline-cli",
+    "in_range": null,
+    "installed": false,
+    "logged_in": null,
+    "supported": null,
+    "version": null,
+    "version_accepted": false
+  },
+  {
+    "display_name": "GitHub Copilot (subscription)",
+    "experimental": false,
+    "id": "copilot-cli",
+    "in_range": null,
+    "installed": false,
+    "logged_in": null,
+    "supported": null,
+    "version": null,
+    "version_accepted": false
+  },
+  {
+    "display_name": "Qwen Code (paid key or local)",
+    "experimental": false,
+    "id": "qwen-cli",
+    "in_range": null,
+    "installed": false,
+    "logged_in": null,
+    "supported": null,
+    "version": null,
+    "version_accepted": false
+  },
+  {
+    "display_name": "Gemini CLI (API key)",
+    "experimental": false,
+    "id": "gemini-cli",
+    "in_range": null,
+    "installed": true,
+    "logged_in": null,
+    "supported": null,
+    "version": "0.68.0",
+    "version_accepted": false
+  },
+  {
+    "display_name": "Pi (ACP agent)",
+    "experimental": true,
+    "id": "pi-cli",
+    "in_range": null,
+    "installed": false,
+    "logged_in": null,
+    "supported": null,
+    "version": null,
+    "version_accepted": false
+  },
+  {
+    "display_name": "fx (ACP agent)",
+    "experimental": true,
+    "id": "fx-cli",
+    "in_range": null,
+    "installed": false,
+    "logged_in": null,
+    "supported": null,
+    "version": null,
+    "version_accepted": false
+  },
+  {
+    "display_name": "Kiro (ACP agent)",
+    "experimental": true,
+    "id": "kiro-cli",
+    "in_range": null,
+    "installed": false,
+    "logged_in": null,
+    "supported": null,
+    "version": null,
+    "version_accepted": false
+  },
+  {
+    "display_name": "Muse Code (ACP agent)",
+    "experimental": true,
+    "id": "muse-cli",
+    "in_range": null,
+    "installed": true,
+    "logged_in": null,
+    "supported": null,
+    "version": "1.4.18",
+    "version_accepted": false
+  },
+  {
+    "display_name": "Goose (open source, local/BYOK)",
+    "experimental": true,
+    "id": "goose-cli",
+    "in_range": null,
+    "installed": false,
+    "logged_in": null,
+    "supported": null,
+    "version": null,
+    "version_accepted": false
+  },
+  {
+    "display_name": "Custom CLI",
+    "experimental": true,
+    "id": "custom-cli",
+    "in_range": null,
+    "installed": false,
+    "logged_in": null,
+    "supported": null,
+    "version": null,
+    "version_accepted": false
+  }
+]

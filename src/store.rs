@@ -11,14 +11,36 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 fn audit_hash(prev: &str, ts: i64, session: &str, tool: &str, args: &str, decision: &str, result: &str) -> String {
+    hash_fields(&[prev, &ts.to_string(), session, tool, args, decision, result])
+}
+
+/// Hash version 2: the same fields, then which model acted (`provider`) and the CLI's version.
+fn audit_hash_v2(prev: &str, ts: i64, row: &AuditRow) -> String {
+    hash_fields(&[prev, &ts.to_string(), row.session_id, row.tool, row.args, row.decision, row.result, row.provider, row.cli_version])
+}
+
+fn hash_fields(fields: &[&str]) -> String {
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
     // Length-prefix each field so that no two different entries can produce the same input.
-    for field in [prev, &ts.to_string(), session, tool, args, decision, result] {
+    for field in fields {
         h.update((field.len() as u64).to_le_bytes());
         h.update(field.as_bytes());
     }
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// One entry for the activity log, with the model that acted: `provider` is a CLI provider id,
+/// `http:<host>`, `demo`, `mcp` or empty, and `cli_version` is the CLI's version when known.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AuditRow<'a> {
+    pub session_id: &'a str,
+    pub tool: &'a str,
+    pub args: &'a str,
+    pub decision: &'a str,
+    pub result: &'a str,
+    pub provider: &'a str,
+    pub cli_version: &'a str,
 }
 
 #[derive(Clone)]
@@ -26,6 +48,8 @@ pub struct Store {
     conn: Arc<Mutex<Connection>>,
     /// Where the database file is; `None` for one that lives only in memory.
     path: Option<PathBuf>,
+    /// The live permission policy of the app that owns this store (see [`Store::live_policy`]).
+    live_policy: Arc<std::sync::RwLock<std::sync::Weak<crate::permissions::Policy>>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -149,6 +173,10 @@ pub struct AuditEntry {
     pub args: String,
     pub decision: String,
     pub result: String,
+    /// Which model acted (a CLI provider id, `http:<host>`, `demo`, `mcp`); empty for older entries
+    /// and for entries no model made.
+    pub provider: String,
+    pub cli_version: String,
 }
 
 /// The data format this build reads and writes, kept in the database file as `PRAGMA user_version`.
@@ -159,7 +187,7 @@ pub const SCHEMA_VERSION: i64 = STEPS.len() as i64;
 type Step = fn(&Connection) -> Result<()>;
 
 /// One entry per data format, in order. Step N takes a database from format N-1 to format N.
-const STEPS: &[Step] = &[to_v1, to_v2];
+const STEPS: &[Step] = &[to_v1, to_v2, to_v3];
 
 /// Format 1: what Heron 0.1.0 shipped.
 const SCHEMA_V1: &str = r#"
@@ -332,6 +360,52 @@ fn snapshot_to(conn: &Connection, to: &Path) -> Result<()> {
     made.with_context(|| format!("cannot save a copy of the database to {}", to.display()))
 }
 
+/// What to do about a damaged database at `db`, as every message about one says it: move it aside
+/// first (`heron restore` refuses over a database it cannot read, as it would lose the permission
+/// rules kept there), then restore a copy.
+pub fn damaged_database_guidance(db: &Path) -> String {
+    let name = db.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "heron.db".into());
+    format!(
+        "Close Heron, move {} aside (with {name}-wal and {name}-shm beside it, if they are there), then restore a copy from {} with `heron restore <file>`. The rules kept only in the damaged file (\"never\" and \"always\") are not brought back; check them in Heron's settings afterwards",
+        db.display(),
+        backup_dir(db).display()
+    )
+}
+
+/// The read-only connection [`Store::peek`] reads through. It waits for a busy database as
+/// [`Store::open`] does: a read that gave up at once would be taken for a database that cannot be
+/// read.
+fn peek_connection(path: &Path) -> Result<Connection> {
+    let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).with_context(|| format!("cannot open {}", path.display()))?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    Ok(conn)
+}
+
+/// Every trigger, view or other schema object (anything but a table or an index, whatever the case of
+/// its type) in a database that Heron's own schema does not have, as `"<type> <name>"`.
+/// A copy holding one could run its own SQL on every later write (a trigger on `kv` could reset the
+/// permission rules), so it is never restored.
+fn foreign_schema(conn: &Connection) -> Result<Vec<String>> {
+    static OWN: std::sync::OnceLock<Vec<(String, String, String)>> = std::sync::OnceLock::new();
+    let read = |conn: &Connection| -> Result<Vec<(String, String, String)>> {
+        // Anything that is not a table or an index, by any spelling of its type: SQLite loads a row typed
+        // `TRIGGER` or `VIEW` (set through `writable_schema`) as a working trigger or view.
+        let mut st = conn.prepare("SELECT type, name, coalesce(sql, '') FROM sqlite_master WHERE lower(type) NOT IN ('table', 'index')")?;
+        let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?;
+        // Compared without regard to spacing, which SQLite keeps as written.
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().map(|(t, n, sql)| (t, n, sql.split_whitespace().collect::<Vec<_>>().join(" "))).collect())
+    };
+    let own = match OWN.get() {
+        Some(own) => own,
+        None => {
+            let fresh = Store::in_memory()?;
+            let own = read(&fresh.db())?;
+            OWN.get_or_init(|| own)
+        }
+    };
+    Ok(read(conn)?.into_iter().filter(|item| !own.contains(item)).map(|(t, n, _)| format!("{t} {n}")).collect())
+}
+
 /// Move a database that SQLite cannot read out of the way, exactly as it is, together with its log
 /// files, into the `backups` folder. Nothing in it is changed, so whatever a repair tool could still
 /// recover remains recoverable. Returns where the main file went.
@@ -457,6 +531,22 @@ fn to_v2(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// To format 3: which model acted, recorded with each activity-log entry (and the hash version that
+/// covers it), and where each conversation came from (the user, the phone, a schedule, ...).
+fn to_v3(conn: &Connection) -> Result<()> {
+    for (table, column, ddl) in [
+        ("audit", "provider", "ALTER TABLE audit ADD COLUMN provider TEXT NOT NULL DEFAULT '';"),
+        ("audit", "cli_version", "ALTER TABLE audit ADD COLUMN cli_version TEXT NOT NULL DEFAULT '';"),
+        ("audit", "hash_version", "ALTER TABLE audit ADD COLUMN hash_version INTEGER;"),
+        ("sessions", "origin", "ALTER TABLE sessions ADD COLUMN origin TEXT NOT NULL DEFAULT 'user';"),
+    ] {
+        if !has_column(conn, table, column) {
+            conn.execute_batch(ddl)?;
+        }
+    }
+    Ok(())
+}
+
 fn row_to_memory(r: &rusqlite::Row) -> rusqlite::Result<MemoryItem> {
     Ok(MemoryItem {
         id: r.get(0)?,
@@ -503,7 +593,7 @@ impl Store {
             // SQLite saying the file itself is broken: say what can be done about it.
             let broken = e.chain().filter_map(|c| c.downcast_ref::<rusqlite::Error>()).any(|c| matches!(c.sqlite_error_code(), Some(rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase)));
             if broken {
-                e.context(format!("{} is damaged and cannot be read. Restore a copy from {} with `heron restore <file>`; the damaged file is kept when you do.", path.display(), backup_dir(path).display()))
+                e.context(format!("{} is damaged and cannot be read. {}.", path.display(), damaged_database_guidance(path)))
             } else {
                 e
             }
@@ -529,7 +619,7 @@ impl Store {
             if has_data(&conn)? {
                 let problems = damage(&conn).unwrap_or_else(|e| vec![e.to_string()]);
                 if !problems.is_empty() {
-                    bail!("{} is damaged and was not upgraded ({}). Restore a copy from {} with `heron restore`.", path.display(), problems.join("; "), backup_dir(path).display());
+                    bail!("{} is damaged and was not upgraded ({}). {}.", path.display(), problems.join("; "), damaged_database_guidance(path));
                 }
                 let copy = snapshot(&conn, path, &format!("before-upgrade-from-v{found}"))?;
                 // Another program may have finished the upgrade while the copy was being made. Then the
@@ -543,7 +633,7 @@ impl Store {
                 migrate(&mut conn, STEPS)?;
             }
         }
-        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: Some(path.to_path_buf()) })
+        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: Some(path.to_path_buf()), live_policy: Default::default() })
     }
 
     #[cfg(test)]
@@ -556,7 +646,7 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(PRAGMAS)?;
         migrate(&mut conn, STEPS)?;
-        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: None })
+        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: None, live_policy: Default::default() })
     }
 
     /// The data format of the open database.
@@ -605,6 +695,11 @@ impl Store {
         if !problems.is_empty() {
             bail!("{} is damaged and was not restored ({})", from.display(), problems.join("; "));
         }
+        // Checked before anything is copied: the upgrade below writes, and would set them off.
+        let foreign = foreign_schema(&source)?;
+        if !foreign.is_empty() {
+            bail!("{} was not restored: it holds SQL that Heron's own data does not ({}), which could change your permission rules behind your back. Restore a copy Heron made", from.display(), foreign.join(", "));
+        }
         if let Some(p) = path.parent() {
             std::fs::create_dir_all(p)?;
         }
@@ -640,6 +735,24 @@ impl Store {
         Ok(previous)
     }
 
+    /// The value of `k` in the kv table of the database at `path`, read without opening it as Heron
+    /// does (no upgrade, nothing written). `None` when there is no database or no such value. While
+    /// another program is writing, it waits as [`Store::open`] does before it gives up with an error.
+    pub fn peek_kv(path: &Path, k: &str) -> Result<Option<String>> {
+        Ok(Self::peek(path, |conn| conn.query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional())?.flatten())
+    }
+
+    /// Run `read` on the database at `path`, opened read-only without opening it as Heron does (no
+    /// upgrade, nothing written). `None` when there is no database. While another program is
+    /// writing, it waits as [`Store::open`] does before it gives up with an error.
+    pub fn peek<T>(path: &Path, read: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> Result<Option<T>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        let conn = peek_connection(path)?;
+        Ok(Some(read(&conn)?))
+    }
+
     /// Housekeeping for a long-running process: fold the write-ahead log back into the main file so it
     /// cannot grow without limit, and let SQLite refresh its query statistics.
     pub fn maintain(&self) -> Result<()> {
@@ -650,17 +763,36 @@ impl Store {
         Ok(())
     }
 
+    /// The live permission policy of the app that owns this store, while that app exists. A tool
+    /// call reads its standing `read:` rules from here rather than from its settings snapshot, so a
+    /// rule revoked during a run is gone for the run's next command.
+    pub fn live_policy(&self) -> Option<Arc<crate::permissions::Policy>> {
+        self.live_policy.read().unwrap_or_else(|e| e.into_inner()).upgrade()
+    }
+
+    /// Make `policy` the one [`Store::live_policy`] returns, for this store and its clones.
+    pub(crate) fn set_live_policy(&self, policy: &Arc<crate::permissions::Policy>) {
+        *self.live_policy.write().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(policy);
+    }
+
     fn db(&self) -> MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     // ---------- sessions ----------
 
-    pub fn create_session(&self, title: &str) -> Result<String> {
+    /// A new conversation. `origin` says where it came from: `user`, `telegram`, `schedule`,
+    /// `automation` or `proactive`.
+    pub fn create_session(&self, title: &str, origin: &str) -> Result<String> {
         let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
         let now = now_ts();
-        self.db().execute("INSERT INTO sessions(id, title, created_at, updated_at) VALUES (?,?,?,?)", params![id, title, now, now])?;
+        self.db().execute("INSERT INTO sessions(id, title, created_at, updated_at, origin) VALUES (?,?,?,?,?)", params![id, title, now, now, origin])?;
         Ok(id)
+    }
+
+    /// Where a conversation came from, or `None` for one that does not exist.
+    pub fn session_origin(&self, id: &str) -> Option<String> {
+        self.db().query_row("SELECT origin FROM sessions WHERE id=?", [id], |r| r.get(0)).optional().ok().flatten()
     }
 
     pub fn session_exists(&self, id: &str) -> bool {
@@ -843,19 +975,30 @@ impl Store {
     /// Vectors of current facts made by one embedder. Vectors from different embedders live in
     /// different spaces and must never be compared with each other.
     pub fn memory_embeddings(&self, embedder: &str) -> Result<Vec<(i64, Vec<u8>)>> {
+        self.memory_embeddings_where(embedder, None)
+    }
+
+    /// As `memory_embeddings`, keeping only confirmed (`Some(true)`) or only unconfirmed (`Some(false)`) facts.
+    pub fn memory_embeddings_where(&self, embedder: &str, confirmed: Option<bool>) -> Result<Vec<(i64, Vec<u8>)>> {
         let db = self.db();
-        let mut st = db.prepare("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL AND invalid_at IS NULL AND embedder=?")?;
-        let v = st.query_map([embedder], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        let mut st = db.prepare("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL AND invalid_at IS NULL AND embedder=?1 AND (?2 IS NULL OR confirmed=?2)")?;
+        let v = st.query_map(params![embedder, confirmed.map(|c| c as i64)], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
         Ok(v)
     }
 
     /// Full-text search over current facts; returns ids ordered best-first.
     pub fn fts_memories(&self, match_expr: &str, limit: usize) -> Result<Vec<i64>> {
+        self.fts_memories_where(match_expr, limit, None)
+    }
+
+    /// As `fts_memories`, keeping only confirmed (`Some(true)`) or only unconfirmed (`Some(false)`) facts,
+    /// chosen in the query so the other kind cannot use up the `limit`.
+    pub fn fts_memories_where(&self, match_expr: &str, limit: usize, confirmed: Option<bool>) -> Result<Vec<i64>> {
         let db = self.db();
         let mut st = db.prepare(
-            "SELECT f.rowid FROM memories_fts f JOIN memories m ON m.id=f.rowid WHERE memories_fts MATCH ? AND m.invalid_at IS NULL ORDER BY bm25(memories_fts) LIMIT ?",
+            "SELECT f.rowid FROM memories_fts f JOIN memories m ON m.id=f.rowid WHERE memories_fts MATCH ?1 AND m.invalid_at IS NULL AND (?3 IS NULL OR m.confirmed=?3) ORDER BY bm25(memories_fts) LIMIT ?2",
         )?;
-        let v = st.query_map(params![match_expr, limit as i64], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        let v = st.query_map(params![match_expr, limit as i64, confirmed.map(|c| c as i64)], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
         Ok(v)
     }
 
@@ -1161,29 +1304,43 @@ impl Store {
     /// Append to the activity log. The log is append-only (the database refuses changes and deletions)
     /// and every entry carries a hash of itself and the entry before it, so tampering can be detected.
     pub fn audit(&self, session_id: &str, tool: &str, args: &str, decision: &str, result: &str) {
+        self.audit_row(&AuditRow { session_id, tool, args, decision, result, provider: "", cli_version: "" });
+    }
+
+    /// Append one entry that also says which model acted. New entries use hash version 2, which
+    /// covers `provider` and `cli_version` too. The chain read and the append happen under one lock.
+    pub fn audit_row(&self, row: &AuditRow) {
         let db = self.db();
         let ts = now_ts();
         let prev: String = db.query_row("SELECT COALESCE(hash,'') FROM audit ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap_or_default();
-        let hash = audit_hash(&prev, ts, session_id, tool, args, decision, result);
+        let hash = audit_hash_v2(&prev, ts, row);
         let _ = db.execute(
-            "INSERT INTO audit(ts, session_id, tool, args, decision, result, hash) VALUES (?,?,?,?,?,?,?)",
-            params![ts, session_id, tool, args, decision, result, hash],
+            "INSERT INTO audit(ts, session_id, tool, args, decision, result, provider, cli_version, hash_version, hash) VALUES (?,?,?,?,?,?,?,?,2,?)",
+            params![ts, row.session_id, row.tool, row.args, row.decision, row.result, row.provider, row.cli_version, hash],
         );
     }
 
     /// Check the activity log's hash chain. Returns how many entries were checked and the id of the
-    /// first entry that does not match (None = intact). Entries written before chaining existed are skipped.
+    /// first entry that does not match (None = intact). Entries written before chaining existed are
+    /// skipped. Each entry is checked with the formula of its own hash version: entries from before
+    /// format 3 have none and use the first formula.
     pub fn verify_audit(&self) -> Result<(usize, Option<i64>)> {
         let db = self.db();
-        let mut st = db.prepare("SELECT id, ts, session_id, tool, args, decision, result, hash FROM audit ORDER BY id")?;
-        let rows = st.query_map([], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?, r.get::<_, String>(6)?, r.get::<_, Option<String>>(7)?))
+        let mut st = db.prepare("SELECT id, ts, session_id, tool, args, decision, result, provider, cli_version, hash_version, hash FROM audit ORDER BY id")?;
+        type Row = (i64, i64, String, String, String, String, String, String, String, Option<i64>, Option<String>);
+        let rows = st.query_map([], |r| -> rusqlite::Result<Row> {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?))
         })?;
         let (mut prev, mut checked) = (String::new(), 0usize);
         for row in rows {
-            let (id, ts, session, tool, args, decision, result, hash) = row?;
+            let (id, ts, session, tool, args, decision, result, provider, cli_version, version, hash) = row?;
             let Some(hash) = hash else { continue };
-            if hash != audit_hash(&prev, ts, &session, &tool, &args, &decision, &result) {
+            let expected = match version {
+                None => audit_hash(&prev, ts, &session, &tool, &args, &decision, &result),
+                Some(2) => audit_hash_v2(&prev, ts, &AuditRow { session_id: &session, tool: &tool, args: &args, decision: &decision, result: &result, provider: &provider, cli_version: &cli_version }),
+                Some(_) => return Ok((checked, Some(id))),
+            };
+            if hash != expected {
                 return Ok((checked, Some(id)));
             }
             prev = hash;
@@ -1194,9 +1351,11 @@ impl Store {
 
     pub fn audit_log(&self, limit: usize) -> Result<Vec<AuditEntry>> {
         let db = self.db();
-        let mut st = db.prepare("SELECT ts, session_id, tool, args, decision, result FROM audit ORDER BY id DESC LIMIT ?")?;
+        let mut st = db.prepare("SELECT ts, session_id, tool, args, decision, result, provider, cli_version FROM audit ORDER BY id DESC LIMIT ?")?;
         let v = st
-            .query_map([limit as i64], |r| Ok(AuditEntry { ts: r.get(0)?, session_id: r.get(1)?, tool: r.get(2)?, args: r.get(3)?, decision: r.get(4)?, result: r.get(5)? }))?
+            .query_map([limit as i64], |r| {
+                Ok(AuditEntry { ts: r.get(0)?, session_id: r.get(1)?, tool: r.get(2)?, args: r.get(3)?, decision: r.get(4)?, result: r.get(5)?, provider: r.get(6)?, cli_version: r.get(7)? })
+            })?
             .collect::<rusqlite::Result<_>>()?;
         Ok(v)
     }
@@ -1521,9 +1680,33 @@ impl Store {
         self.db().query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).ok()
     }
 
+    /// [`Store::kv_get`], where a database that cannot be read is an error, not "no value".
+    pub fn kv_read(&self, k: &str) -> Result<Option<String>> {
+        Ok(self.db().query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional()?)
+    }
+
     pub fn kv_set(&self, k: &str, v: &str) -> Result<()> {
         self.db().execute("INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", params![k, v])?;
         Ok(())
+    }
+
+    /// Remove `k`, so it reads as no value at all.
+    pub fn kv_delete(&self, k: &str) -> Result<()> {
+        self.db().execute("DELETE FROM kv WHERE k=?", [k])?;
+        Ok(())
+    }
+
+    /// Read a value and write what `change` makes of it, holding the database's write lock from the
+    /// read to the write, so another program on the same database cannot write in between. Returns
+    /// what was written.
+    pub fn kv_update(&self, k: &str, change: impl FnOnce(Option<String>) -> String) -> Result<String> {
+        let mut db = self.db();
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let old: Option<String> = tx.query_row("SELECT v FROM kv WHERE k=?", [k], |r| r.get(0)).optional()?;
+        let new = change(old);
+        tx.execute("INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", params![k, new])?;
+        tx.commit()?;
+        Ok(new)
     }
 }
 
@@ -1534,7 +1717,7 @@ mod tests {
     #[test]
     fn sessions_and_messages_roundtrip() {
         let s = Store::in_memory().unwrap();
-        let id = s.create_session("t").unwrap();
+        let id = s.create_session("t", "user").unwrap();
         s.append_message(&id, &Message::user("hi")).unwrap();
         s.append_message(&id, &Message::assistant("hello")).unwrap();
         assert_eq!(s.load_messages(&id).unwrap().len(), 2);
@@ -1574,6 +1757,73 @@ mod tests {
         assert_eq!(s.verify_audit().unwrap(), (2, Some(3)));
         s.db().execute_batch("UPDATE audit SET decision='denied-by-user' WHERE id=3; UPDATE audit SET result='edited' WHERE id=1;").unwrap();
         assert_eq!(s.verify_audit().unwrap(), (0, Some(1)));
+    }
+
+    #[test]
+    fn sessions_record_their_origin() {
+        let s = Store::in_memory().unwrap();
+        for origin in ["user", "telegram", "schedule", "automation", "proactive"] {
+            let id = s.create_session("t", origin).unwrap();
+            assert_eq!(s.session_origin(&id).as_deref(), Some(origin));
+        }
+        assert_eq!(s.session_origin("no-such-session"), None);
+        // A row written without an origin (as format 2 wrote them) counts as the user's.
+        s.db().execute("INSERT INTO sessions(id, title, created_at, updated_at) VALUES ('old1', 't', 1, 1)", []).unwrap();
+        assert_eq!(s.session_origin("old1").as_deref(), Some("user"));
+    }
+
+    #[test]
+    fn audit_v2_hash_covers_provider_and_version() {
+        let s = Store::in_memory().unwrap();
+        let row = AuditRow { session_id: "s1", tool: "shell", args: "ls", decision: "allowed", result: "ok", provider: "claude-cli", cli_version: "2.1.3" };
+        s.audit_row(&row);
+        s.audit("s1", "read_file", "a", "allowed", "ok");
+        assert_eq!(s.verify_audit().unwrap(), (2, None));
+        let (provider, version, hash_version): (String, String, Option<i64>) = s.db().query_row("SELECT provider, cli_version, hash_version FROM audit WHERE id=1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+        assert_eq!((provider.as_str(), version.as_str(), hash_version), ("claude-cli", "2.1.3", Some(2)));
+        let log = s.audit_log(10).unwrap();
+        assert_eq!((log[1].provider.as_str(), log[1].cli_version.as_str()), ("claude-cli", "2.1.3"), "the activity log shows which model acted");
+        assert_eq!((log[0].provider.as_str(), log[0].cli_version.as_str()), ("", ""));
+        // The hash covers the two new fields: changing either one is caught.
+        let v2 = audit_hash_v2("", 7, &row);
+        assert_ne!(v2, audit_hash_v2("", 7, &AuditRow { provider: "codex-cli", ..row }));
+        assert_ne!(v2, audit_hash_v2("", 7, &AuditRow { cli_version: "2.1.4", ..row }));
+        assert_ne!(v2, audit_hash("", 7, "s1", "shell", "ls", "allowed", "ok"), "version 2 is not the old formula");
+        s.db().execute_batch("DROP TRIGGER audit_no_update; UPDATE audit SET provider='codex-cli' WHERE id=1;").unwrap();
+        assert_eq!(s.verify_audit().unwrap(), (0, Some(1)));
+        s.db().execute_batch("UPDATE audit SET provider='claude-cli', cli_version='9.9.9' WHERE id=1;").unwrap();
+        assert_eq!(s.verify_audit().unwrap(), (0, Some(1)));
+        s.db().execute_batch("UPDATE audit SET cli_version='2.1.3' WHERE id=1;").unwrap();
+        assert_eq!(s.verify_audit().unwrap(), (2, None));
+        // A row cannot be passed off as the old formula to hide the new fields.
+        s.db().execute_batch("UPDATE audit SET hash_version=NULL WHERE id=1;").unwrap();
+        assert_eq!(s.verify_audit().unwrap(), (0, Some(1)));
+        // Nor as a hash version this build does not know.
+        s.db().execute_batch("UPDATE audit SET hash_version=3 WHERE id=1;").unwrap();
+        assert_eq!(s.verify_audit().unwrap(), (0, Some(1)));
+    }
+
+    #[test]
+    fn verify_audit_accepts_mixed_v1_and_v2_rows() {
+        let s = Store::in_memory().unwrap();
+        // Two entries as format 2 wrote them: the first formula, no hash version.
+        let first = audit_hash("", 100, "abc", "read_file", "notes.md", "allowed", "ok");
+        let second = audit_hash(&first, 101, "abc", "write_file", "notes.md", "approved", "ok");
+        for (ts, tool, decision, hash) in [(100, "read_file", "allowed", &first), (101, "write_file", "approved", &second)] {
+            s.db().execute("INSERT INTO audit(ts, session_id, tool, args, decision, result, hash) VALUES (?, 'abc', ?, 'notes.md', ?, 'ok', ?)", params![ts, tool, decision, hash]).unwrap();
+        }
+        // New entries chain on from them with version 2, then an old-style entry again.
+        s.audit_row(&AuditRow { session_id: "abc", tool: "shell", args: "ls", decision: "allowed", result: "ok", provider: "codex-cli", cli_version: "0.164.0" });
+        s.audit("abc", "list_dir", ".", "allowed", "ok");
+        let last: String = s.db().query_row("SELECT hash FROM audit ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap();
+        let old_style = audit_hash(&last, 200, "abc", "read_file", "b.md", "allowed", "ok");
+        s.db().execute("INSERT INTO audit(ts, session_id, tool, args, decision, result, hash) VALUES (200, 'abc', 'read_file', 'b.md', 'allowed', 'ok', ?)", [&old_style]).unwrap();
+        assert_eq!(s.verify_audit().unwrap(), (5, None));
+        let versions: Vec<Option<i64>> = s.db().prepare("SELECT hash_version FROM audit ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+        assert_eq!(versions, vec![None, None, Some(2), Some(2), None]);
+        // Tampering with an old row is still caught by the old formula.
+        s.db().execute_batch("DROP TRIGGER audit_no_update; UPDATE audit SET decision='denied' WHERE id=2;").unwrap();
+        assert_eq!(s.verify_audit().unwrap(), (1, Some(2)));
     }
 
     #[test]
@@ -1770,6 +2020,48 @@ mod upgrade_tests {
         assert!(s.job_runs(10).is_ok());
     }
 
+    #[test]
+    fn to_v3_adds_columns_and_keeps_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("heron.db");
+        // A database in data format 2, with a conversation and a chained activity log in it.
+        {
+            let mut conn = Connection::open(&db).unwrap();
+            migrate(&mut conn, &STEPS[..2]).unwrap();
+            assert_eq!(user_version(&conn).unwrap(), 2);
+            assert!(!has_column(&conn, "audit", "provider") && !has_column(&conn, "sessions", "origin"));
+            conn.execute_batch("INSERT INTO sessions(id, title, created_at, updated_at) VALUES ('abc123', 'Planning the trip', 100, 200);").unwrap();
+            let first = audit_hash("", 100, "abc123", "read_file", "notes.md", "allowed", "ok");
+            let second = audit_hash(&first, 101, "abc123", "write_file", "notes.md", "approved", "ok");
+            conn.execute("INSERT INTO audit(ts, session_id, tool, args, decision, result, hash) VALUES (100, 'abc123', 'read_file', 'notes.md', 'allowed', 'ok', ?)", [&first]).unwrap();
+            conn.execute("INSERT INTO audit(ts, session_id, tool, args, decision, result, hash) VALUES (101, 'abc123', 'write_file', 'notes.md', 'approved', 'ok', ?)", [&second]).unwrap();
+        }
+        let s = Store::open(&db).unwrap();
+        assert_eq!(s.schema_version().unwrap(), 3);
+        for (table, column) in [("audit", "provider"), ("audit", "cli_version"), ("audit", "hash_version"), ("sessions", "origin")] {
+            assert!(has_column(&s.db(), table, column), "{table}.{column}");
+        }
+        // The old rows are kept, read back with the defaults, and their chain still verifies.
+        assert_eq!(s.session_origin("abc123").as_deref(), Some("user"));
+        assert_eq!(s.list_sessions(10).unwrap()[0].title, "Planning the trip");
+        let log = s.audit_log(10).unwrap();
+        assert_eq!(log.len(), 2);
+        assert!(log.iter().all(|e| e.provider.is_empty() && e.cli_version.is_empty()));
+        assert_eq!(s.verify_audit().unwrap(), (2, None));
+        // New rows chain on from them.
+        s.audit_row(&AuditRow { session_id: "abc123", tool: "shell", args: "ls", decision: "allowed", result: "ok", provider: "claude-cli", cli_version: "2.1.0" });
+        assert_eq!(s.verify_audit().unwrap(), (3, None));
+        // The upgrade kept a copy of the format-2 database first.
+        let kept = copies(&db, "heron-before-upgrade-from-v2-");
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        let old = Connection::open(&kept[0]).unwrap();
+        assert_eq!(user_version(&old).unwrap(), 2);
+        assert!(!has_column(&old, "audit", "provider"));
+        // Running the step again on an upgraded database changes nothing.
+        to_v3(&s.db()).unwrap();
+        assert_eq!(s.verify_audit().unwrap(), (3, None));
+    }
+
     /// If this fails you changed the schema. Do not edit an existing step: add a new one to `STEPS`
     /// (which raises `SCHEMA_VERSION`), then update the two values below together.
     #[test]
@@ -1778,7 +2070,7 @@ mod upgrade_tests {
         let s = Store::in_memory().unwrap();
         let text = shape(&s.db()).join("\n");
         let fingerprint: String = Sha256::digest(text.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
-        assert_eq!((SCHEMA_VERSION, fingerprint.as_str()), (2, "fde4f56b77ab5de5"), "the schema is now:\n{text}");
+        assert_eq!((SCHEMA_VERSION, fingerprint.as_str()), (3, "878cc8a2270e5e69"), "the schema is now:\n{text}");
     }
 
     #[test]

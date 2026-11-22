@@ -1,0 +1,28 @@
+# Audit spec for the grader behind the core-task gate (U0, item 8).
+#
+# Run from the repository root:
+#   genesis audit-evaluator eval/genesis.yaml --suite code-py      # must exit 0 (TRUSTED)
+#
+# The grader is `eval/genesis_verifier.py`. genesis's `code-py` suite probes a code verifier: it
+# hands over a task (a prompt, visible tests, hidden tests) and a completion, and expects a verdict.
+# The verifier runs the completion in a child under a time limit, writes what it observed into an
+# evidence folder, and gives the final verdict to `pass_rules.evaluate`, the function that judges
+# every core-task run (file_contains and file_absent rules inside an `all`).
+#
+# What this audit does and does not cover. It shows that the verification harness around
+# `pass_rules.evaluate` can't be passed by stdout spoofing, early exits, hard-coded answers or a
+# missing timeout. It does not probe the rule grammar itself: the known-good and known-bad cases
+# for each rule kind are in `eval/tests/test_pass_rules.py`, and the cases in
+# `eval/tests/grader_cases.jsonl` are the verifier's own known-good and known-bad examples.
+name: heron-core-pass-rules
+dataset:
+  path: eval/tests/grader_cases.jsonl
+subject:
+  command: "cat {task_file}"
+evaluator:
+  type: command
+  command: "python3 -I eval/genesis_verifier.py {task_file} {completion_file} {output_file}"
+metrics:
+  - task_success
+thresholds:
+  task_success: ">=0.90"
