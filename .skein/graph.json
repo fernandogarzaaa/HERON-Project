@@ -473,7 +473,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "packaging/macos/build-app.sh (item 22)",
-    "version": 16,
+    "version": 17,
     "worktree": {
       "base_branch": "feat/harness2-1a",
       "base_commit": "d3b15bc83dbba37a5ee269eb8cbd62e902fb8bd2",
