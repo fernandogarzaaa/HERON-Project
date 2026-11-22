@@ -136,6 +136,10 @@ compile until that test names it.
 
 Any new way content enters a turn joins `ContentEntry`, as trusted or tainting, and gets a row here.
 
+Feature entries:
+
+- ChatContext (Services selection, App Intent text, window text): outside content; taints the session.
+
 Processes Heron starts outside the shell tool, the model CLIs, MCP server programs and
 `notify_command`: none yet. A feature that starts one adds a row here with the binary, its
 argument shapes, and why it does not run under the OS sandbox.
