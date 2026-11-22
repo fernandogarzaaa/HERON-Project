@@ -175,7 +175,7 @@ class Browsers(TempCase):
         other = self.spawn("--user-data-dir=" + profile + "2")
         prefix_only = self.spawn("--user-data-dir=" + profile + "/sub")
         self.wait_listed("--user-data-dir=" + profile + " ")
-        stopped = rct.stop_browsers(profile)
+        stopped = rct.stop_browsers(profile, grace=0.5)
         self.assertEqual(stopped, [mine.pid])
         mine.wait(5)
         self.assertIsNotNone(mine.poll(), "the run's browser was stopped")
@@ -184,6 +184,39 @@ class Browsers(TempCase):
 
     def test_stop_browsers_with_nothing_running_does_nothing(self):
         self.assertEqual(rct.stop_browsers(os.path.join(self.tmp, "no", "browser")), [])
+
+    def test_a_browser_that_ignores_sigterm_is_killed_after_the_grace(self):
+        profile = os.path.join(self.tmp, "home", "browser")
+        proc = subprocess.Popen([sys.executable, "-c",
+                                 "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('ready', flush=True); time.sleep(60)",
+                                 "--user-data-dir=" + profile], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: (proc.poll() is None and proc.kill(), proc.wait()))
+        self.assertEqual(proc.stdout.readline().strip(), "ready")
+        start = rct.time.monotonic()
+        self.assertEqual(rct.stop_browsers(profile, grace=0.5), [proc.pid])
+        elapsed = rct.time.monotonic() - start
+        proc.wait(5)
+        self.assertEqual(proc.returncode, -9, "SIGTERM was ignored, so SIGKILL ended it")
+        self.assertGreaterEqual(elapsed, 0.45, "SIGKILL waits for the grace period")
+        self.assertLess(elapsed, 3)
+
+    def test_a_browser_that_is_not_the_harness_child_is_stopped(self):
+        # The real browser is the core's child, not the harness's, once the core has stopped.
+        profile = os.path.join(self.tmp, "home", "browser")
+        pidfile = os.path.join(self.tmp, "pid")
+        script = "import os, sys, time; open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(60)"
+        subprocess.run(["sh", "-c", '"$0" -c "$1" "$2" "$3" >/dev/null 2>&1 &', sys.executable, script, pidfile,
+                        "--user-data-dir=" + profile], check=True)
+        deadline = rct.time.monotonic() + 5
+        while not (os.path.exists(pidfile) and open(pidfile).read()) and rct.time.monotonic() < deadline:
+            rct.time.sleep(0.05)
+        pid = int(open(pidfile).read())
+        self.addCleanup(lambda: rct._running(pid) and os.kill(pid, 9))
+        self.wait_listed("--user-data-dir=" + profile)
+        start = rct.time.monotonic()
+        self.assertEqual(rct.stop_browsers(profile), [pid])
+        self.assertFalse(rct._running(pid), "the orphaned browser is gone")
+        self.assertLess(rct.time.monotonic() - start, 3, "it ended on SIGTERM, well inside the grace")
 
 
 class CoreEnv(TempCase):

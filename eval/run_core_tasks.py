@@ -527,17 +527,12 @@ def stop_browsers(profile, grace=5.0):
 
 
 def _running(pid):
+    """Whether ``pid`` still exists. It never reaps, so it can't take a child's exit status from its parent."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except PermissionError:
-        return True
-    try:
-        waited, _ = os.waitpid(pid, os.WNOHANG)
-        return waited == 0
-    except ChildProcessError:
-        return True
+    return True
 
 
 def execute_run(task, run_number, opts, binary, fixtures_root):
