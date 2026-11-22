@@ -347,6 +347,9 @@ pub fn git_config_files(cfg: &Config, home: &Path, workdir: &Path) -> Vec<PathBu
     out
 }
 
+const LOCAL_SOCKETS: &str = "(deny network-outbound (remote unix-socket))\n\
+(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")) (remote unix-socket (path-literal \"/private/var/run/syslog\")))\n";
+
 /// The Seatbelt profile for one command or CLI. Seatbelt applies the last rule that matches, so the
 /// order is the design: deny reads under the user roots, allow metadata everywhere, allow the readable
 /// set, deny writes except the writable set, then deny Refused paths and secrets again (writes too,
@@ -391,6 +394,9 @@ pub fn seatbelt_profile(cfg: &Config, home: &Path, workdir: &Path, profile: &Pro
             p.push_str(&secrets());
             let names: Vec<String> = KEYCHAIN_SERVICES.iter().map(|n| format!(" (global-name \"{n}\")")).collect();
             p.push_str(&format!("(deny mach-lookup{})\n", names.concat()));
+            // Local agent sockets (ssh-agent, gpg-agent, Docker, password managers) act with the
+            // owner's keys without any key file being read. Only name lookup and the system log stay.
+            p.push_str(LOCAL_SOCKETS);
             p.push_str(&launch);
         }
         Profile::Cli { spec, binary_dir, extra_read } => {

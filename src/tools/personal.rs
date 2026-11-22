@@ -20,6 +20,17 @@ fn state(_: &Value, _: &ToolCtx) -> Effect {
     Effect::LocalStateWrite
 }
 
+/// Every field a task change would write, for the approval card.
+fn task_detail(what: &str, a: &Value) -> String {
+    let mut out = what.to_string();
+    for key in ["title", "notes", "status", "priority", "due", "owner"] {
+        if let Some(v) = a.get(key).filter(|v| !v.is_null()) {
+            out.push_str(&format!("\n{key}: {}", v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())));
+        }
+    }
+    out
+}
+
 fn field(key: &'static str) -> impl Fn(&Value) -> String {
     move |a| a.get(key).map(|v| v.as_str().map(|s| s.to_string()).unwrap_or_else(|| v.to_string())).unwrap_or_default()
 }
@@ -370,7 +381,13 @@ pub fn tools() -> Vec<FnTool> {
             parameters: schema(json!({"id": {"type": "integer"}}), &["id"]),
             summary: |a| format!("#{}", field("id")(a)),
             risk: state,
-            detail: None,
+            detail: Some(|a, c| {
+                let id = a.get("id").and_then(|v| v.as_i64()).unwrap_or_default();
+                match c.store.get_memory(id).ok().flatten() {
+                    Some(m) => format!("Forget memory #{id}: {}", m.content),
+                    None => format!("Forget memory #{id} (not found)"),
+                }
+            }),
             untrusted: false,
             target: None,
             run: |a, c| Box::pin(forget(a, c)),
@@ -381,7 +398,7 @@ pub fn tools() -> Vec<FnTool> {
             parameters: schema(json!({"title": {"type": "string"}, "notes": {"type": "string"}, "priority": {"type": "integer", "description": "1 high, 2 normal, 3 low"}, "due": {"type": "string", "description": "YYYY-MM-DD or YYYY-MM-DD HH:MM"}, "owner": {"type": "string", "enum": ["user", "heron"], "description": "heron = something you have taken on and will follow up yourself; user (default) = the user's own to-do"}}), &["title"]),
             summary: |a| field("title")(a),
             risk: state,
-            detail: None,
+            detail: Some(|a, _| task_detail("Add task", a)),
             untrusted: false,
             target: None,
             run: |a, c| Box::pin(task_add(a, c)),
@@ -403,7 +420,7 @@ pub fn tools() -> Vec<FnTool> {
             parameters: schema(json!({"id": {"type": "integer"}, "status": {"type": "string", "enum": ["open", "in_progress", "done", "deleted"]}, "title": {"type": "string"}, "notes": {"type": "string"}, "priority": {"type": "integer"}, "due": {"type": "string"}}), &["id"]),
             summary: |a| format!("#{} {}", field("id")(a), field("status")(a)),
             risk: state,
-            detail: None,
+            detail: Some(|a, _| task_detail(&format!("Update task #{}", field("id")(a)), a)),
             untrusted: false,
             target: None,
             run: |a, c| Box::pin(task_update(a, c)),

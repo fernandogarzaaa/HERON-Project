@@ -326,7 +326,7 @@ where
 // ---------------- pages ----------------
 
 fn local_allowed() -> bool {
-    std::env::var("HERON_ALLOW_LOCAL_FETCH").is_ok()
+    crate::permissions::local_web_fetch_allowed()
 }
 
 async fn goto(b: &mut Live, url: &url::Url) -> Result<()> {

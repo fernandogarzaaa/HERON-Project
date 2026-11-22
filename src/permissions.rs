@@ -674,7 +674,7 @@ fn danger_patterns() -> &'static Vec<Regex> {
             r"\b(curl|wget|fetch)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da|k)?sh\b",
             r"\bchmod\b[^|;&]*(-R|777)",
             r"\bchown\b[^|;&]*-R",
-            r"\bgit\b[^|;&]*\b(push\b[^|;&]*(--force|-f\b)|reset\s+--hard|clean\s+-[a-z]*f|branch\s+-D)",
+            r"\bgit\b[^|;&]*\b(push\b[^|;&]*(--force|-f\b)|reset\s+--hard|clean\b[^|;&]*\s-[a-z]*f|branch\s+-D)",
             r"\b(kill|pkill|killall)\b",
             r"\b(crontab|systemctl|launchctl|service)\b",
             r"\b(shred|truncate)\b",
@@ -769,12 +769,27 @@ fn names_sensitive_path(cmd: &str) -> bool {
 }
 
 /// Classify a shell command. Conservative: anything not provably read-only is at least `Exec`.
+/// `cmd` with the long spellings of the destructive flags written short (`--recursive` as `-r`), so
+/// the patterns below see `rm --recursive --force` as they see `rm -rf`. Used only for matching.
+fn short_flags(cmd: &str) -> String {
+    cmd.split_whitespace()
+        .map(|w| match w {
+            "--recursive" => "-r",
+            "--force" => "-f",
+            "--dir" => "-d",
+            other => other,
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 pub fn classify_shell(cmd: &str) -> Effect {
     let c = cmd.trim();
-    if forbidden_patterns().iter().any(|r| r.is_match(c)) {
+    let short = short_flags(c);
+    if forbidden_patterns().iter().any(|r| r.is_match(c) || r.is_match(&short)) {
         return Effect::Forbidden;
     }
-    if danger_patterns().iter().any(|r| r.is_match(c)) {
+    if danger_patterns().iter().any(|r| r.is_match(c) || r.is_match(&short)) {
         return Effect::Privileged;
     }
     // Pattern matching cannot be trusted on very long or heavily chained commands: fail closed.
