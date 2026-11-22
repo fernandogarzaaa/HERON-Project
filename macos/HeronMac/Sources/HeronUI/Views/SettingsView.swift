@@ -38,7 +38,7 @@ struct SettingsTabContent: View {
                 case .appearance: AppearanceTab(model: model)
                 case .model: ModelTab(model: model)
                 case .permissions: PermissionsTab(model: model)
-                case .features: FeaturesSettingsView(store: model.features)
+                case .features: FeaturesSettingsView(store: model.features, shortcuts: model.shortcuts)
                 case .connections: ConnectionsTab(model: model)
                 case .usage: UsageTab(model: model)
                 }
