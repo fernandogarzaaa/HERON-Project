@@ -4864,22 +4864,31 @@
     }
   },
   "F6g__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "9f85acf34c3e4a11bb7d24d38cb438eb",
+        "ended_at": "2026-11-22T10:43:03.581338+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:43:02.994338+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "9f85acf34c3e4a11bb7d24d38cb438eb",
-      "base_branch": "skein/F6g__integrate__integrate-base",
-      "claim_token": "54793843b4c04f379df9a8e7b63968ea",
-      "claimed_at": "2026-11-22T10:43:02.994338+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-22T10:43:02.994338+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F6s",
@@ -4887,8 +4896,14 @@
       "F6a",
       "F6-fix-1"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 7eac1c15b6500ec52a4a875d8b4a5c88862acea8 fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd 1e47ea1441ee2ca73fe39cede48558749e81f2fa",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['9582dd3e819d67992625647b36f42203298ffb57', '7eac1c15b6500ec52a4a875d8b4a5c88862acea8', 'fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd', '1e47ea1441ee2ca73fe39cede48558749e81f2fa'] into skein/F6g__integrate-base.",
     "id": "F6g__integrate",
     "integration_for": "F6g",
     "intent": {
@@ -4900,16 +4915,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "9582dd3e819d67992625647b36f42203298ffb57",
+      "changed_files": [],
+      "commit": "374995789f0c7dea269a89098802ca17b5df6471",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of F6g",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/F6g__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "9582dd3e819d67992625647b36f42203298ffb57",
+      "branch": "skein/F6g__integrate-base",
       "path": null
     }
   },
