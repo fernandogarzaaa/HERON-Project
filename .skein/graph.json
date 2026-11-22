@@ -3047,7 +3047,7 @@
       "claim_token": "161ce386a4bd44f7b2da37ff35b42617",
       "claimed_at": "2026-11-22T10:38:14.133449+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:40:44.940906+00:00",
+      "last_heartbeat": "2026-11-22T10:41:45.060037+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3074,7 +3074,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fix F3 review findings (core)",
-    "version": 8,
+    "version": 10,
     "worktree": {
       "base_branch": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
       "base_commit": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
@@ -4510,7 +4510,16 @@
     }
   },
   "F6-fix-1": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "cf41dbc74f8f430fac258ec03ac16893",
+        "ended_at": "2026-11-22T10:41:51.831831+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:39:18.522085+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -4522,21 +4531,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "cf41dbc74f8f430fac258ec03ac16893",
-      "base_branch": "fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd",
-      "claim_token": "9ba62654266e4064961143bbb65f4759",
-      "claimed_at": "2026-11-22T10:39:18.522085+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:40:49.420655+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F6a"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac > \"${TMPDIR:-/tmp}/f6fix.txt\" && grep -q 'BriefTests.*switchOffLeavesTheOwnersSameNamedSchedule' \"${TMPDIR:-/tmp}/f6fix.txt\" && grep -q 'BriefTests.*firstLaunchDoesNotAdoptTheOwnersSchedule' \"${TMPDIR:-/tmp}/f6fix.txt\" && grep -q 'BriefTests.*changingTheTimeRecreatesTheSchedule' \"${TMPDIR:-/tmp}/f6fix.txt\" && swift test list --package-path macos/HeronMac | grep -q 'BriefTests.*scheduleHasNoModelStep'",
+        "duration_ms": 26340,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F6-fix-1_20261122T104125396973_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F6-fix-1_20261122T104151738508_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run the completion check outside the sandbox and paste the first compile error or failing test if there is one.",
     "id": "F6-fix-1",
     "integration_for": null,
     "intent": {
@@ -4548,13 +4569,41 @@
     "max_retries": 3,
     "rejected_count": 1,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "cf41dbc74f8f430fac258ec03ac16893",
+      "base_commit": "fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd",
+      "changed_files": [
+        "macos/HeronMac/Sources/HeronUI/Features/Brief/BriefController.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeaturesSettings.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift",
+        "macos/HeronMac/Tests/HeronUITests/Features/BriefTests.swift"
+      ],
+      "commit": "1e47ea1441ee2ca73fe39cede48558749e81f2fa",
+      "diff_stats": {
+        "macos/HeronMac/Sources/HeronUI/Features/Brief/BriefController.swift": {
+          "added": 57,
+          "deleted": 11
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeaturesSettings.swift": {
+          "added": 32,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift": {
+          "added": 2,
+          "deleted": 1
+        },
+        "macos/HeronMac/Tests/HeronUITests/Features/BriefTests.swift": {
+          "added": 121,
+          "deleted": 3
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Fix F6 review findings (app)",
-    "version": 7,
+    "version": 10,
     "worktree": {
       "base_branch": "fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd",
       "base_commit": "fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd",
