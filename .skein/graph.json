@@ -1145,6 +1145,59 @@
       "path": null
     }
   },
+  "B6r2": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "scripts/gates/base/**"
+    ],
+    "change_policy": "strict",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "B6",
+      "B2-fix-2"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "B6r2",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash scripts/verify-feature.sh base",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates (the spec says no feature adds a dependency). Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app (src/ui/**, src/bin/desktop/**) beyond what the spec names. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. If the spec is wrong or impossible, stop and say exactly why instead of diverging. You are a check-only unit: make no file changes.",
+      "context": "Spec: docs/designs/heron-v1-features.md, Base unit B6.",
+      "goal": "Base gate unit, re-run after both B2 review fixes. Write nothing. The supervisor runs bash scripts/verify-feature.sh base as your check."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Base gate re-run with the B2 review fixes",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {
