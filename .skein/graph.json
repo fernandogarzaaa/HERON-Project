@@ -4651,7 +4651,16 @@
     }
   },
   "F5g": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "1696c8324bf7472ca97a2ef4de291622",
+        "ended_at": "2026-11-22T11:27:15.291569+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T11:04:41.231540+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -4663,15 +4672,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "1696c8324bf7472ca97a2ef4de291622",
-      "base_branch": "skein/F5g__integrate-base",
-      "claim_token": "d6eba2ac22574a3aa970b93716ba54ed",
-      "claimed_at": "2026-11-22T11:04:41.231540+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:25:46.879144+00:00",
-      "node_version": 5,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F5s",
@@ -4681,8 +4690,20 @@
       "F5d",
       "F5-fix-1"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash scripts/verify-feature.sh shortcuts",
+        "duration_ms": 1340146,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5g_20261122T110455075251_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5g_20261122T112715232390_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run `bash scripts/verify-feature.sh shortcuts`. If it fails in another unit's scope, add a fix node.",
     "id": "F5g",
     "integration_for": null,
     "intent": {
@@ -4694,13 +4715,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "1696c8324bf7472ca97a2ef4de291622",
+      "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
+      "changed_files": [],
+      "commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Gate: shortcuts",
-    "version": 49,
+    "version": 52,
     "worktree": {
       "base_branch": "skein/F5g__integrate-base",
       "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
@@ -6197,7 +6224,7 @@
       "goal": "Gate unit. Write nothing. The supervisor runs bash scripts/verify-feature.sh <slug> as your check, which includes this feature's EVE tasks on claude-cli. You may run read-only commands to confirm the feature looks complete, then stop."
     },
     "max_retries": 0,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -6205,7 +6232,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Gate: email_drafts",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "skein/F8g__integrate-base",
       "branch": null,
