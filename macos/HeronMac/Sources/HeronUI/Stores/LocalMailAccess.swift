@@ -70,8 +70,11 @@ public struct SystemMailAccess: LocalMailAccess {
     }
 
     public func messages() async throws -> [LocalMailMessage] {
+        // A unit test must never reach the real Mail: Apple Events from a test host with no usage description
+        // is killed by macOS. Tests inject a fake behind `LocalMailAccess` instead.
+        if NSClassFromString("XCTestCase") != nil { throw MailAccessError.failed("Mail is not available in tests.") }
         // A detached task: the script blocks until Mail answers, and Mail may first have to launch.
-        try await Task.detached(priority: .utility) {
+        return try await Task.detached(priority: .utility) {
             let raw = try Self.run(Self.script(daysBack: LocalMailPolicy.daysBack, limit: LocalMailPolicy.maxMessages, bodyCharacters: LocalMailPolicy.maxBodyCharacters))
             return LocalMailPolicy.prepare(try Self.parse(raw))
         }.value

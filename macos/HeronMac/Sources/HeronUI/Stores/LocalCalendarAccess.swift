@@ -46,7 +46,7 @@ public struct SystemCalendarAccess: LocalCalendarAccess {
     }
 
     public func events() async throws -> [LocalCalendarEvent] {
-        try await Task.detached(priority: .utility) {
+        await Task.detached(priority: .utility) {
             let store = EKEventStore()
             let calendar = Calendar.current
             let now = Date()

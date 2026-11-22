@@ -932,12 +932,19 @@ mod tests {
         assert_eq!(n, 1);
         let item = &app.store.knowledge_of("mail_local", false, 5).unwrap()[0];
         assert!(item.body.contains("Account: Gmail, iCloud"), "{}", item.body);
+        // A copy with no account name adds nothing, and an account already named is not named twice.
+        sync_mail_local(&app, vec![local_mail("<e@x>", "Same", now, "Gmail"), local_mail("<e@x>", "Same", now, ""), local_mail("<e@x>", "Same", now, "Gmail")]).unwrap();
+        let item = &app.store.knowledge_of("mail_local", false, 5).unwrap()[0];
+        assert!(item.body.contains("Account: Gmail\n"), "{}", item.body);
         // Over the cap, the newest stay.
         let many: Vec<LocalMail> = (0..LOCAL_MAIL_KEEP + 50).map(|i| local_mail(&format!("<m{i}@x>"), &format!("Mail {i}"), now - i as i64, "Gmail")).collect();
         assert_eq!(sync_mail_local(&app, many).unwrap(), LOCAL_MAIL_KEEP);
         assert_eq!(app.store.knowledge_count("mail_local"), LOCAL_MAIL_KEEP as i64);
         let titles: Vec<String> = app.store.knowledge_of("mail_local", false, 1000).unwrap().into_iter().map(|i| i.title).collect();
         assert!(titles.contains(&"Mail 0".to_string()) && !titles.contains(&format!("Mail {}", LOCAL_MAIL_KEEP)), "the oldest were dropped");
+        // Exactly the limit is still a sync (the newest are kept); one more is a flood.
+        let at_limit: Vec<LocalMail> = (0..LOCAL_MAIL_LIMIT).map(|i| local_mail(&format!("<l{i}@x>"), "l", now - i as i64, "Gmail")).collect();
+        assert_eq!(sync_mail_local(&app, at_limit).unwrap(), LOCAL_MAIL_KEEP);
         // A flood is refused and changes nothing.
         let flood: Vec<LocalMail> = (0..=LOCAL_MAIL_LIMIT).map(|i| local_mail(&format!("<f{i}@x>"), "f", now, "Gmail")).collect();
         assert!(sync_mail_local(&app, flood).is_err());
