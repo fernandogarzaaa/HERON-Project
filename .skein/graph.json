@@ -12,15 +12,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "07f0c609d7754fa3a1b80b62c299ad28",
+      "base_branch": "504bc450b3e1c072ecb472b2e56dd3557ccfa9fb",
+      "claim_token": "3395575bf0cc429ab94f59b2f845fb65",
+      "claimed_at": "2026-11-22T16:29:09.770000+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T16:29:09.770000+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "H4"
@@ -42,11 +42,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": ".github/workflows/selfheal.yml (item 26)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "504bc450b3e1c072ecb472b2e56dd3557ccfa9fb",
       "branch": null,
       "path": null
     }
