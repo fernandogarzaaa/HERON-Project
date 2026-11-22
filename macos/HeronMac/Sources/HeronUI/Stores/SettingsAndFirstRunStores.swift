@@ -104,7 +104,7 @@ public final class SettingsStore {
     /// How often the sign-in is checked, and how long Heron waits (the core's sign-in expires after ten minutes).
     public var pollInterval: Duration = .seconds(2)
     public var signInTimeout: Duration = .seconds(600)
-    @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
+    @ObservationIgnored private let sleep: (@Sendable (Duration) async throws -> Void)?
     @ObservationIgnored private var signInTask: Task<Void, Never>?
     public private(set) var usage: UsageReport?
     public private(set) var loadState: LoadState = .idle
@@ -112,7 +112,7 @@ public final class SettingsStore {
 
     public init(client: any CoreClientProtocol, localCalendar: any LocalCalendarAccess = SystemCalendarAccess(),
                 localMail: any LocalMailAccess = SystemMailAccess(),
-                sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+                sleep: (@Sendable (Duration) async throws -> Void)? = nil) {
         self.client = client
         self.localCalendar = localCalendar
         self.localMail = localMail
@@ -218,7 +218,7 @@ public final class SettingsStore {
         guard open(url) else { sourceErrors[id] = SourceCopy.browserWouldNotOpen; return }
         var waited = Duration.zero
         while !Task.isCancelled {
-            do { try await sleep(pollInterval) } catch { return }
+            do { if let sleep { try await sleep(pollInterval) } else { try await Task.sleep(for: pollInterval) } } catch { return }
             waited += pollInterval
             if let accounts = try? await client.oauthAccounts() {
                 oauthAccounts = accounts
