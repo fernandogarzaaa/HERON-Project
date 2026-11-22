@@ -3281,7 +3281,7 @@
       "goal": "Fix one high finding from the check of F3-fix-1. start_core (src/server.rs ~230-236) calls runs.close_unfinished() whether or not this process holds background.lock, and every Heron process opens the same database. So a second core started on the same home (heron serve in a terminal while the Mac app's core runs a chat, or the app's core starting while heron daemon is mid-run) marks the other process's live runs cancelled. Gate the call exactly the way recover_interrupted_* is gated (only when this process owns the background lock), and call it on the heron daemon path too when the daemon owns the lock. Test: unfinished_runs_are_not_closed_by_a_second_core (two App values on one home; the one without the lock leaves a running record running; the owner closes it). Fix nothing else."
     },
     "max_retries": 3,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -3289,7 +3289,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fix: close unfinished runs only in the lock owner",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/F3-fix-3__integrate-base",
       "branch": null,
@@ -5443,19 +5443,19 @@
     "intent": {
       "completion": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q 'VoiceTests.*speechStopsOnKey'",
       "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
-      "context": "Spec: docs/designs/heron-v1-features.md, section 'F7' under 'The features' (with its check table) and 'Detailed Implementation Plan', F7 items 35. You may run swift build and swift test yourself. The visual spec is docs/designs/heron-mac-visual.md with its tokens; follow its tokens and layouts. Base unit B4 created Features/Settings/FeatureRow.swift, FeatureRows.swift and NotificationPoster.swift: append your feature's row to FeatureRows.all and post notices only through NotificationPoster. F1's panel is already in your tree.",
+      "context": "Spec: docs/designs/heron-v1-features.md, section 'F7' under 'The features' (with its check table) and 'Detailed Implementation Plan', F7 items 35. You may run swift build and swift test yourself. The visual spec is docs/designs/heron-mac-visual.md with its tokens; follow its tokens and layouts. Base unit B4 created Features/Settings/FeatureRow.swift, FeatureRows.swift and NotificationPoster.swift: append your feature's row to FeatureRows.all and post notices only through NotificationPoster. F1's panel is already in your tree. SUPERVISOR NOTE after 4 attempts: every run failed only in VoiceTests test_conversationOnScreenIsSpokenAndAnotherRunIsNot at VoiceTests.swift ~184, XCTUnwrap(model.chat.currentSessionID) is nil after await model.chat.send(\"Good morning\"). Cause: the PreviewCoreClient refuses to chat until the risk notice is accepted, so ChatStore.send catches the error and never sets currentSessionID. Every other chat test accepts it first: see makeClient in Tests/HeronUITests/ScreenStoreTests.swift (PreviewCoreClient(endpoint:now:) then try await client.acceptRiskNotice(version: 3)). Do the same in this test before sending; do not weaken its assertions. The supervisor runs swift test outside your sandbox; everything else in your attempt passed.",
       "goal": "Build item 35: the dictation button in the composer and the F1 panel (startDictation:, falling back to the shortcut hint), spoken replies with AVSpeechSynthesizer one sentence at a time for the conversation on screen only, stopping on any key or click, F7's row, and VoiceTests including speaksOneSentenceAtATime, speechStopsOnKey, backgroundRunsAreNotSpoken and dictationButtonFallsBackToShortcutHint."
     },
-    "max_retries": 3,
+    "max_retries": 5,
     "rejected_count": 3,
     "removed": false,
     "result": null,
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "failed",
+    "status": "unclaimed",
     "title": "F7: dictation button, spoken replies",
-    "version": 40,
+    "version": 41,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
