@@ -130,7 +130,9 @@ public struct SystemMailAccess: LocalMailAccess {
     /// takes 30 s and its bulk property reads fail (its references live in "[Gmail]/All Mail"), while the same filter and
     /// bulk reads on each sub-mailbox work (13 s for 442 messages). Reading a message's `content` costs about 2 s, so
     /// bodies are fetched only for the newest `bodyMessages`, inside a `bodySeconds` budget; everything else is indexed
-    /// from its headers. The cap on the number of messages is applied by `LocalMailPolicy.prepare` (newest first).
+    /// from its headers. Bulk reads only work against the live specifier (`message id of (messages of mb whose …)`), not
+    /// against a stored list of references (-1728), and `lists` is an AppleScript class name, so it can't be a variable.
+    /// The cap on the number of messages is applied by `LocalMailPolicy.prepare` (newest first).
     static func script(daysBack: Int, bodyCharacters: Int, bodyMessages: Int, bodySeconds: Int) -> String {
         """
         on clean(t)
@@ -149,12 +151,12 @@ public struct SystemMailAccess: LocalMailAccess {
             set nowDate to current date
             set cutoff to nowDate - \(daysBack) * days
             set mbs to mailboxes of inbox
-            set lists to {}
+            set foundLists to {}
             set heads to {}
             set ages to {}
             set skipped to 0
             repeat with m from 1 to count of mbs
-              set end of lists to {}
+              set end of foundLists to {}
               try
                 set mb to item m of mbs
                 set acctName to ""
@@ -163,11 +165,11 @@ public struct SystemMailAccess: LocalMailAccess {
                 end try
                 set recent to (messages of mb whose date received > cutoff)
                 if (count of recent) > 0 then
-                  set theIds to message id of recent
-                  set theSubjects to subject of recent
-                  set theSenders to sender of recent
-                  set theDates to date received of recent
-                  set item m of lists to recent
+                  set theIds to message id of (messages of mb whose date received > cutoff)
+                  set theSubjects to subject of (messages of mb whose date received > cutoff)
+                  set theSenders to sender of (messages of mb whose date received > cutoff)
+                  set theDates to date received of (messages of mb whose date received > cutoff)
+                  set item m of foundLists to recent
                   repeat with j from 1 to count of theIds
                     set age to (nowDate - (item j of theDates)) as integer
                     set end of ages to age
@@ -206,7 +208,7 @@ public struct SystemMailAccess: LocalMailAccess {
               set item best of picked to true
               try
                 set h to item best of heads
-                set msg to item (item 7 of h) of (item (item 6 of h) of lists)
+                set msg to item (item 7 of h) of (item (item 6 of h) of foundLists)
                 set bodyText to content of msg
                 if (count of bodyText) > \(bodyCharacters) then set bodyText to text 1 thru \(bodyCharacters) of bodyText
                 set item 8 of h to bodyText

@@ -104,9 +104,15 @@ final class LocalMailAccessTests: XCTestCase {
         // Measured on a real Mail: the unified inbox's filter takes 30 s and its bulk reads fail; per sub-mailbox both work.
         XCTAssertFalse(script.contains("messages of inbox whose"), "the unified inbox's whose-filter is slow and its references can't be bulk read")
         XCTAssertTrue(script.contains("repeat with m from 1 to count of mbs") && script.contains("messages of mb whose date received > cutoff"))
-        for bulk in ["message id of recent", "subject of recent", "sender of recent", "date received of recent"] {
-            XCTAssertTrue(script.contains(bulk), "\(bulk) is read in bulk, once per sub-mailbox")
+        // Bulk reads work only against the live specifier; against a stored list of references they fail with -1728.
+        for property in ["message id", "subject", "sender", "date received"] {
+            XCTAssertTrue(script.contains("\(property) of (messages of mb whose date received > cutoff)"), "\(property) is bulk read from the live specifier")
+            XCTAssertFalse(script.contains("\(property) of recent"), "\(property) of a stored list fails")
         }
+        XCTAssertTrue(script.contains("set recent to (messages of mb whose date received > cutoff)"), "the stored list is kept for the per-message body reads")
+        // `lists` is the plural of the AppleScript class `list`: using it as a variable fails with -10006.
+        XCTAssertNil(script.range(of: #"\blists\b"#, options: .regularExpression), "no variable named lists")
+        XCTAssertTrue(script.contains("foundLists"))
         XCTAssertTrue(script.contains("name of account of mb"), "the account name is read once per sub-mailbox")
         // A failed sub-mailbox is skipped and counted, and all-failed is the unreadable marker.
         XCTAssertTrue(script.contains("on error") && script.contains("skipped") && script.contains("unreadable:"))
