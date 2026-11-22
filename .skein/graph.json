@@ -5942,11 +5942,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Gate: voice",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "b5c93af5d962861ebef24bbfb63ae3ea765d515e",
-      "branch": null,
-      "path": null
+      "base_commit": "b5c93af5d962861ebef24bbfb63ae3ea765d515e",
+      "branch": "skein/F7g",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F7g"
     }
   },
   "F8-fix-1": {
