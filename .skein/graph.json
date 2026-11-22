@@ -12961,6 +12961,61 @@
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/beautiful-elion-295951/.skein/worktrees/verify"
     }
   },
+  "verify-1a-subset": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "scripts/gates/harness2-1a-subset"
+    ],
+    "change_policy": "strict",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "H3",
+      "H4",
+      "H12",
+      "H5"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "verify-1a-subset",
+    "integration_for": null,
+    "intent": {
+      "completion": "python3 -I -m unittest discover -s eval/tests -t eval && python3 -I eval/selfheal/run_replay.py --check-patches && bash -n scripts/verify-selfheal.sh && bash -n packaging/macos/build-app.sh && actionlint .github/workflows/selfheal.yml && genesis audit-evaluator eval/selfheal/genesis.yaml --suite json && genesis audit-evaluator eval/genesis/pass-rules-json.yaml --suite json && testteeth run --lang python --base main --fail-under 70 -q eval/selfheal",
+      "constraints": "Non-goals from the design: nothing installs, reinstalls or rolls back Heron (that is Phase 2); no edits to fenced security code; no new runtime dependencies. Python under eval/ is 3.12 standard library only, run as python3 -I, and tests use unittest like the rest of eval/tests. Do not edit docs/designs/heron-harness2.md. You cannot run git: skein commits your worktree when the check passes, so never ask for a commit. Write only inside your blast radius. Comments only for a non-obvious why; no phase-narrating comments. When the design and these instructions differ, these instructions win and the supervisor records the difference in the design.",
+      "context": "Spec: docs/designs/heron-harness2.md section 'Verification Plan' and the verify-1a row of 'Work units', limited to the four units built now (H3, H4, H12, H5); the rest of graph 1a waits for Pre-1 and Pre-5.",
+      "goal": "Make no changes. This node's completion check is the gate for H3, H4, H12 and H5 together."
+    },
+    "max_retries": 0,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Verify the 1a subset: eval suite, patches, gate script, workflow lint, genesis, testteeth",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "verify__integrate": {
     "attempts": [
       {
