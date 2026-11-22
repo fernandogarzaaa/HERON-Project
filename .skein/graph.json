@@ -2335,7 +2335,16 @@
     }
   },
   "F3a": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "c90446d75e1842ec90aad959f7793453",
+        "ended_at": "2026-11-22T10:05:59.059421+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:50:32.939784+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -2347,21 +2356,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "c90446d75e1842ec90aad959f7793453",
-      "base_branch": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
-      "claim_token": "2beedbc9d19f4ed2969873c30c49a682",
-      "claimed_at": "2026-11-22T09:50:32.939784+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:52:33.581456+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F3t"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q 'RunsTests.*notificationHasNoApproveAction'",
+        "duration_ms": 27839,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F3a_20261122T100531081218_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F3a_20261122T100558926321_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: - **Approval notices:** the body is \"Open Heron to answer. Nothing happens until you do.\" It deliberately omits the approval's summary, so no content reaches the lock screen.",
     "id": "F3a",
     "integration_for": null,
     "intent": {
@@ -2373,13 +2394,121 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "c90446d75e1842ec90aad959f7793453",
+      "base_commit": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
+      "changed_files": [
+        "macos/HeronMac/Sources/Heron/HeronApp.swift",
+        "macos/HeronMac/Sources/HeronCore/CoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/CoreEvent.swift",
+        "macos/HeronMac/Sources/HeronCore/ManagedCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/Wire.swift",
+        "macos/HeronMac/Sources/HeronUI/Avatar/AvatarStateMachine.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/NotificationPoster.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/ChatAndApprovalsStores.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/MenuBarViews.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/RootView.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/ModelDecodingTests.swift",
+        "macos/HeronMac/Sources/HeronCore/RunsClient.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Runs/RunNotifier.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Runs/RunsStore.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Runs/RunsView.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/RunsClientTests.swift",
+        "macos/HeronMac/Tests/HeronUITests/Features/RunsTests.swift"
+      ],
+      "commit": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
+      "diff_stats": {
+        "macos/HeronMac/Sources/Heron/HeronApp.swift": {
+          "added": 43,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronCore/CoreClient.swift": {
+          "added": 11,
+          "deleted": 5
+        },
+        "macos/HeronMac/Sources/HeronCore/CoreEvent.swift": {
+          "added": 3,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/ManagedCoreClient.swift": {
+          "added": 6,
+          "deleted": 3
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift": {
+          "added": 4,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronCore/RunsClient.swift": {
+          "added": 139,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/Wire.swift": {
+          "added": 1,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Avatar/AvatarStateMachine.swift": {
+          "added": 1,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Runs/RunNotifier.swift": {
+          "added": 101,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Runs/RunsStore.swift": {
+          "added": 141,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Runs/RunsView.swift": {
+          "added": 69,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift": {
+          "added": 6,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/NotificationPoster.swift": {
+          "added": 16,
+          "deleted": 3
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift": {
+          "added": 111,
+          "deleted": 7
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/ChatAndApprovalsStores.swift": {
+          "added": 1,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/MenuBarViews.swift": {
+          "added": 19,
+          "deleted": 5
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/RootView.swift": {
+          "added": 13,
+          "deleted": 3
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/ModelDecodingTests.swift": {
+          "added": 1,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/RunsClientTests.swift": {
+          "added": 112,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronUITests/Features/RunsTests.swift": {
+          "added": 403,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "F3: Runs screen, badge, notifications",
-    "version": 7,
+    "version": 34,
     "worktree": {
       "base_branch": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
       "base_commit": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
@@ -3216,7 +3345,7 @@
       "claim_token": "4729963a6b124f52affe1bc0ca83e299",
       "claimed_at": "2026-11-22T09:47:41.942322+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:52:43.025005+00:00",
+      "last_heartbeat": "2026-11-22T10:05:45.008531+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -3241,7 +3370,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F5: run_shortcut, shortcuts routes, key",
-    "version": 13,
+    "version": 39,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "a5c863430fd6d88e8fe59e19063303332f903064",
