@@ -3256,15 +3256,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "a545b5226bd04b808bd2e4fa2582f082",
+      "base_branch": "skein/F3-fix-3__integrate-base",
+      "claim_token": "a3f841117db542f293a88281d849203a",
+      "claimed_at": "2026-11-22T11:09:06.989486+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T11:09:06.989486+00:00",
+      "node_version": 3,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "F3-fix-1",
@@ -3287,9 +3287,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fix: close unfinished runs only in the lock owner",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/F3-fix-3__integrate-base",
       "branch": null,
