@@ -4821,15 +4821,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "ba766eda82d2496b92925de6848f6f2e",
+      "base_branch": "skein/F6g__integrate-base",
+      "claim_token": "093523737ea14ceab2ad7e9426652a17",
+      "claimed_at": "2026-11-22T10:43:03.704919+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T10:43:03.704919+00:00",
+      "node_version": 5,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "F6s",
@@ -4854,9 +4854,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Gate: morning_brief",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "skein/F6g__integrate-base",
       "branch": null,
