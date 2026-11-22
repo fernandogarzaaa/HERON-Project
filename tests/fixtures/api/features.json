@@ -1,3 +1,9 @@
 {
-  "features": []
+  "features": [
+    {
+      "key": "ask_reasons",
+      "on": true,
+      "title": "Explain approvals"
+    }
+  ]
 }
