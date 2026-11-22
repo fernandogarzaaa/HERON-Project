@@ -1541,15 +1541,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "993806788ad4466294718efb5272be69",
+      "base_branch": "feat/v1-features-base",
+      "claim_token": "b453721011684b1a96fed10c96b71b26",
+      "claimed_at": "2026-11-22T10:15:24.461562+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T10:15:24.461562+00:00",
+      "node_version": 52,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [
@@ -1581,9 +1581,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 52,
+    "version": 53,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
