@@ -2084,7 +2084,7 @@
       "claim_token": "f3897ff3c9fa44d5885099709cf0cd0e",
       "claimed_at": "2026-11-22T10:35:37.481851+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T10:36:38.060839+00:00",
+      "last_heartbeat": "2026-11-22T10:38:08.265356+00:00",
       "node_version": 6,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -2116,7 +2116,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: quick_entry",
-    "version": 10,
+    "version": 13,
     "worktree": {
       "base_branch": "skein/F1g__integrate-base",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
@@ -2694,7 +2694,7 @@
       "claim_token": "ed422649849143a8851f455b7a1e1aed",
       "claimed_at": "2026-11-22T10:37:00.644186+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:37:00.644186+00:00",
+      "last_heartbeat": "2026-11-22T10:38:01.516559+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -2719,9 +2719,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Kill F2's surviving mutants",
-    "version": 3,
+    "version": 5,
     "worktree": {
       "base_branch": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
       "base_commit": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
@@ -5267,7 +5267,16 @@
     }
   },
   "F8s": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "72b0bdf9ff2643218933a1604208acce",
+        "ended_at": "2026-11-22T10:38:13.865916+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-22T10:19:23.146591+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -5279,19 +5288,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "72b0bdf9ff2643218933a1604208acce",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "26de304cf52c45d283e714032fca4e60",
-      "claimed_at": "2026-11-22T10:19:23.146591+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:36:56.539494+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- draft_email_builds_an_escaped_mailto draft_email_sets_only_subject_and_body draft_email_rejects_addresses_with_query_characters draft_email_never_sends draft_email_body_is_capped draft_email_is_external_write draft_email_offers_once_only decision_table_draft_email",
+        "duration_ms": 17035,
+        "exit_code": 101,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8s_20261122T103756779713_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8s_20261122T103813816318_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "F8s",
     "integration_for": null,
     "intent": {
@@ -5304,12 +5325,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-22T10:39:18.407315+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "unclaimed",
     "title": "F8: draft_email, key",
-    "version": 38,
+    "version": 41,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "b13942e9f6196e1009af8e865292d2efa5bf1466",
