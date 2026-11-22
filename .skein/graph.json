@@ -2677,7 +2677,16 @@
     }
   },
   "F2mut": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "057c1ec3ae194a3b9513ae9360261863",
+        "ended_at": "2026-11-22T10:38:27.765195+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:37:00.644186+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -2689,21 +2698,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "057c1ec3ae194a3b9513ae9360261863",
-      "base_branch": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
-      "claim_token": "ed422649849143a8851f455b7a1e1aed",
-      "claimed_at": "2026-11-22T10:37:00.644186+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:38:01.516559+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F2g"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_session_reports_an_interrupted_reply api_session_is_not_interrupted_while_busy",
+        "duration_ms": 3169,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2mut_20261122T103824320101_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2mut_20261122T103827489845_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F2mut",
     "integration_for": null,
     "intent": {
@@ -2715,13 +2736,26 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "057c1ec3ae194a3b9513ae9360261863",
+      "base_commit": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
+      "changed_files": [
+        "tests/integration.rs"
+      ],
+      "commit": "137d455ca0d34905cf115d955a95518da53dc1fb",
+      "diff_stats": {
+        "tests/integration.rs": {
+          "added": 68,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Kill F2's surviving mutants",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
       "base_commit": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
