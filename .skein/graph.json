@@ -13222,15 +13222,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "364a9fc49429431eaa8ecf7e51cd137f",
+      "base_branch": "skein/verify-1a-subset__integrate-base",
+      "claim_token": "e8f12e32db084866bb7ccd2e94d8076b",
+      "claimed_at": "2026-11-22T16:29:43.489035+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T16:29:43.489035+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "H3",
@@ -13255,9 +13255,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Verify the 1a subset: eval suite, patches, gate script, workflow lint, genesis, testteeth",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/verify-1a-subset__integrate-base",
       "branch": null,
