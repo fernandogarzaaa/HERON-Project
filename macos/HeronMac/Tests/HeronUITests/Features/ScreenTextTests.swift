@@ -65,6 +65,45 @@ private final class FakeRecognizer: TextRecognizing, @unchecked Sendable {
     }
 }
 
+private final class FakeAccess: ScreenRecordingAccessing, @unchecked Sendable {
+    let trace: Trace
+    private let lock = NSLock()
+    private var _granted: Bool
+    private var _grantsOnRequest: Bool
+    var granted: Bool {
+        get { lock.withLock { _granted } }
+        set { lock.withLock { _granted = newValue } }
+    }
+    var grantsOnRequest: Bool {
+        get { lock.withLock { _grantsOnRequest } }
+        set { lock.withLock { _grantsOnRequest = newValue } }
+    }
+    init(trace: Trace, granted: Bool = true, grantsOnRequest: Bool = true) {
+        self.trace = trace
+        self._granted = granted
+        self._grantsOnRequest = grantsOnRequest
+    }
+
+    func isGranted() -> Bool { granted }
+
+    func requestAccess() -> Bool {
+        trace.add("request")
+        if grantsOnRequest { granted = true }
+        return granted
+    }
+}
+
+private final class StubFeaturesClient: FeaturesClientProtocol, @unchecked Sendable {
+    func features() async throws -> [CoreFeature] { [] }
+    func setFeature(key: String, on: Bool) async throws -> Bool { on }
+}
+
+private struct NoPoster: NotificationPoster {
+    func requestAuthorization() async -> Bool { false }
+    func isAuthorized() async -> Bool { false }
+    func post(title: String, body: String, identifier: String) async throws {}
+}
+
 private final class Sends: @unchecked Sendable {
     private let lock = NSLock()
     private var _contexts: [[ChatContext]] = []
@@ -91,17 +130,19 @@ final class ScreenTextTests: XCTestCase {
         var picker: FakePicker
         var capturer: FakeCapturer
         var recognizer: FakeRecognizer
+        var access: FakeAccess
         var model: ScreenTextModel
     }
 
-    private func rig(text: String? = nil, defaults: UserDefaults? = nil) -> Rig {
+    private func rig(text: String? = nil, defaults: UserDefaults? = nil, granted: Bool = true) -> Rig {
         let trace = Trace()
         let picker = FakePicker(trace: trace)
         let capturer = FakeCapturer(trace: trace)
         let recognizer = FakeRecognizer(trace: trace, text: text ?? sampleText)
-        let model = ScreenTextModel(picker: picker, capturer: capturer, recognizer: recognizer,
+        let access = FakeAccess(trace: trace, granted: granted)
+        let model = ScreenTextModel(picker: picker, capturer: capturer, recognizer: recognizer, access: access,
                                     defaults: defaults ?? self.defaults())
-        return Rig(trace: trace, picker: picker, capturer: capturer, recognizer: recognizer, model: model)
+        return Rig(trace: trace, picker: picker, capturer: capturer, recognizer: recognizer, access: access, model: model)
     }
 
     // MARK: The picker
@@ -208,6 +249,50 @@ final class ScreenTextTests: XCTestCase {
         XCTAssertEqual(r.model.status, .idle)
     }
 
+    func test_explanationComesBeforeTheSystemPrompt() async {
+        let r = rig(granted: false)
+        var reported: [Bool] = []
+        r.model.onScreenRecordingAccess = { reported.append($0) }
+
+        // Pressing the button without permission shows Heron's explanation. macOS is not asked, and nothing is picked or captured.
+        let first = await r.model.lookAtWindow()
+        XCTAssertNil(first)
+        XCTAssertEqual(r.model.status, .needsScreenRecording)
+        XCTAssertEqual(r.trace.events, [], "no system prompt, picker or capture before the explanation is accepted")
+        XCTAssertEqual(reported, [])
+
+        // Only the explanation's button asks macOS, and it still captures nothing.
+        r.model.allowScreenRecording()
+        XCTAssertEqual(r.trace.events, ["request"])
+        XCTAssertEqual(r.model.status, .idle)
+        XCTAssertEqual(reported, [true])
+
+        // Now granted, the next press picks and captures.
+        let second = await r.model.lookAtWindow()
+        XCTAssertEqual(second, ScreenTextResult(app: "Preview", text: sampleText))
+        XCTAssertEqual(r.trace.events, ["request", "pick", "capture", "recognize"])
+    }
+
+    func test_aRefusedRequestKeepsCapturingOffAndReportsTheDenial() async {
+        let r = rig(granted: false)
+        r.access.grantsOnRequest = false
+        var reported: [Bool] = []
+        r.model.onScreenRecordingAccess = { reported.append($0) }
+        _ = await r.model.lookAtWindow()
+        r.model.allowScreenRecording()
+        XCTAssertEqual(reported, [false])
+        let again = await r.model.lookAtWindow()
+        XCTAssertNil(again)
+        XCTAssertEqual(r.model.status, .needsScreenRecording)
+        XCTAssertEqual(r.trace.events, ["request"])
+    }
+
+    func test_allowingWithoutAnExplanationDoesNotAskMacOS() {
+        let r = rig(granted: false)
+        r.model.allowScreenRecording()
+        XCTAssertEqual(r.trace.events, [])
+    }
+
     func test_aPickerFailureIsReportedNotSwallowed() async {
         let r = rig()
         r.picker.failure = ScreenTextError.failed("The picker closed unexpectedly.")
@@ -229,6 +314,36 @@ final class ScreenTextTests: XCTestCase {
         let row = FeatureRows.all.first { $0.key == "screen_text" }
         XCTAssertEqual(row?.title, "Look at a window")
         XCTAssertEqual(row?.kind, .app(defaultsKey: ScreenTextSettings.defaultsKey))
-        XCTAssertNil(row?.permission, "Screen Recording is explained on first use, not asked for by the row")
+    }
+
+    func test_screenTextRowNamesScreenRecordingWhenDenied() async throws {
+        let row = try XCTUnwrap(FeatureRows.all.first { $0.key == "screen_text" })
+        XCTAssertEqual(row.permission, "Screen Recording")
+        XCTAssertEqual(row.settingsPane?.absoluteString,
+                       "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+
+        // Switching the row on asks macOS for nothing: the ask stays at first use (QF3).
+        let store = FeaturesSettingsStore(client: StubFeaturesClient(), rows: [row], defaults: defaults(),
+                                          poster: NoPoster(), permissionRequests: [:])
+        XCTAssertEqual(store.items.first?.denied, false)
+        let switchedOn = await store.set(row, on: true)
+        XCTAssertTrue(switchedOn)
+        XCTAssertEqual(store.items.first?.denied, false)
+
+        // After the panel learns macOS refused, the row shows the denied state with the permission and its pane.
+        let r = rig(granted: false)
+        r.access.grantsOnRequest = false
+        r.model.onScreenRecordingAccess = { store.setPermissionDenied(!$0, for: row.key) }
+        _ = await r.model.lookAtWindow()
+        r.model.allowScreenRecording()
+        let item = try XCTUnwrap(store.items.first)
+        XCTAssertTrue(item.denied)
+        XCTAssertEqual(item.row.permission, "Screen Recording")
+        XCTAssertNotNil(item.row.settingsPane)
+
+        // Once it is allowed, the denied state clears.
+        r.access.granted = true
+        _ = await r.model.lookAtWindow()
+        XCTAssertEqual(store.items.first?.denied, false)
     }
 }

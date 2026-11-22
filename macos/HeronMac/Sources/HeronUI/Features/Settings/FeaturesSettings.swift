@@ -118,6 +118,11 @@ public final class FeaturesSettingsStore {
         }
     }
 
+    /// A feature learned, outside the switch, that macOS refused (or now allows) the permission its row names.
+    public func setPermissionDenied(_ denied: Bool, for key: String) {
+        if denied { deniedKeys.insert(key) } else { deniedKeys.remove(key) }
+    }
+
     private func permissionGranted(for row: FeatureRow) async -> Bool {
         guard let permission = row.permission else { return true }
         if permission == FeatureRow.notificationsPermission { return await poster.requestAuthorization() }

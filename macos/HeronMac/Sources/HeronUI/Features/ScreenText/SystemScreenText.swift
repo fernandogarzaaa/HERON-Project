@@ -75,6 +75,13 @@ public final class SystemWindowPicker: NSObject, WindowPicking, SCContentSharing
     }
 }
 
+/// The real permission check and request.
+public struct SystemScreenRecordingAccess: ScreenRecordingAccessing {
+    public init() {}
+    public func isGranted() -> Bool { CGPreflightScreenCaptureAccess() }
+    public func requestAccess() -> Bool { CGRequestScreenCaptureAccess() }
+}
+
 /// One ScreenCaptureKit screenshot of the picked window.
 public struct ScreenCaptureWindowCapturer: WindowCapturing {
     public init() {}

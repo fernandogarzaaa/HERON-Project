@@ -8,6 +8,8 @@ import HeronCore
 /// as a default: it reads `true` until the owner turns it off.
 public enum ScreenTextSettings {
     public static let defaultsKey = "heron.screenText.enabled"
+    /// The macOS permission F9's Settings row names.
+    public static let permission = "Screen Recording"
 
     public static func registerDefaults(_ defaults: UserDefaults = .standard) {
         defaults.register(defaults: [defaultsKey: true])
@@ -55,6 +57,12 @@ public protocol WindowCapturing: Sendable {
     func capture(_ window: PickedWindow) async throws -> CapturedImage
 }
 
+/// The Screen Recording permission. `isGranted` never prompts; `requestAccess` is what makes macOS prompt.
+public protocol ScreenRecordingAccessing: Sendable {
+    func isGranted() -> Bool
+    func requestAccess() -> Bool
+}
+
 /// Reads the text in an image on the Mac.
 public protocol TextRecognizing: Sendable {
     func recognizeText(in image: CapturedImage) async throws -> String
@@ -90,15 +98,21 @@ public final class ScreenTextModel {
     @ObservationIgnored private let picker: any WindowPicking
     @ObservationIgnored private let capturer: any WindowCapturing
     @ObservationIgnored private let recognizer: any TextRecognizing
+    @ObservationIgnored private let access: any ScreenRecordingAccessing
     @ObservationIgnored private let defaults: UserDefaults
+    /// Told whether Screen Recording is allowed once that is known: `false` after a refusal, `true` after a capture
+    /// worked or a request was granted. Settings uses it to show the denied state on F9's row.
+    @ObservationIgnored public var onScreenRecordingAccess: (@MainActor (Bool) -> Void)?
 
     public init(picker: any WindowPicking = SystemWindowPicker(),
                 capturer: any WindowCapturing = ScreenCaptureWindowCapturer(),
                 recognizer: any TextRecognizing = VisionTextRecognizer(),
+                access: any ScreenRecordingAccessing = SystemScreenRecordingAccess(),
                 defaults: UserDefaults = .standard) {
         self.picker = picker
         self.capturer = capturer
         self.recognizer = recognizer
+        self.access = access
         self.defaults = defaults
     }
 
@@ -109,6 +123,12 @@ public final class ScreenTextModel {
     /// the owner cancelled, or nothing could be read (`status` says which).
     public func lookAtWindow() async -> ScreenTextResult? {
         guard isEnabled, !isBusy else { return nil }
+        // Without Screen Recording nothing is picked or captured, and macOS is not asked yet: Heron explains first, and
+        // `allowScreenRecording()` (the explanation's button) is what makes macOS prompt.
+        guard access.isGranted() else {
+            status = .needsScreenRecording
+            return nil
+        }
         status = .picking
         do {
             guard let window = try await picker.pickWindow() else {
@@ -118,9 +138,11 @@ public final class ScreenTextModel {
             status = .reading
             let text = try await readText(of: window)
             status = .idle
+            onScreenRecordingAccess?(true)
             return ScreenTextResult(app: window.appName, text: text)
         } catch ScreenTextError.permissionNeeded {
             status = .needsScreenRecording
+            onScreenRecordingAccess?(false)
             return nil
         } catch ScreenTextError.noText {
             status = .failed("Heron found no text in that window.")
@@ -146,6 +168,15 @@ public final class ScreenTextModel {
 
     /// Mirrors the core's per-item limit on chat context text.
     public static let maxCharacters = 20_000
+
+    /// The explanation's "Allow Screen Recording" button: the only place macOS is asked. Nothing is captured here; the
+    /// owner presses "Look at a window" again.
+    public func allowScreenRecording() {
+        guard status == .needsScreenRecording else { return }
+        let granted = access.requestAccess()
+        onScreenRecordingAccess?(granted)
+        status = .idle
+    }
 
     /// Clears a shown explanation or error (the owner dismissed it).
     public func dismissNotice() {

@@ -35,8 +35,7 @@ struct ScreenTextNotice: View {
                     .font(HeronFont.callout).foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: Spacing.s2) {
                     Button("Allow Screen Recording") {
-                        _ = CGRequestScreenCaptureAccess()
-                        screenText.dismissNotice()
+                        screenText.allowScreenRecording()
                     }
                     .buttonStyle(HButtonStyle(.primary))
                     Button("Open System Settings") { NSWorkspace.shared.open(ScreenRecordingPane.url) }
