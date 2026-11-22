@@ -5810,11 +5810,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fix F8 review findings (core)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "e5f945b3848d210e679a0004633317f75e53359e",
-      "branch": null,
-      "path": null
+      "base_commit": "e5f945b3848d210e679a0004633317f75e53359e",
+      "branch": "skein/F8-fix-1",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F8-fix-1"
     }
   },
   "F8a": {
