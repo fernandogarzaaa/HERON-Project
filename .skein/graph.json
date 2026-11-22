@@ -1104,11 +1104,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Base gate re-run with B2-fix-1",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/B6r__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "18584e51f09d0064a925956ca99bc1d2b342bba5",
+      "branch": "skein/B6r",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/B6r"
     }
   },
   "B6r__integrate": {
