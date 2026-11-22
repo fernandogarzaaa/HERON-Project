@@ -3653,6 +3653,58 @@
       "path": null
     }
   },
+  "F3g__integrate": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F3s",
+      "F3t",
+      "F3a",
+      "F3-fix-1",
+      "F3-fix-2",
+      "F3-fix-3"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F3g__integrate",
+    "integration_for": "F3g",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['F3s', 'F3t', 'F3a', 'F3-fix-1', 'F3-fix-2', 'F3-fix-3'] into one base branch for F3g."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Integrate parents of F3g",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F3s": {
     "attempts": [
       {
