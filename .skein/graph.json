@@ -49,6 +49,58 @@
       "path": null
     }
   },
+  "H4": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "scripts/**"
+    ],
+    "change_policy": "strict",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "H3"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "H4",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash -n scripts/verify-selfheal.sh && python3 -I -m unittest discover -s eval/tests -t eval -p 'test_verify_selfheal.py' -v 2>&1 | tee /dev/stderr | grep -qE '^Ran [1-9]' && python3 -I -m unittest discover -s eval/tests -t eval -p 'test_verify_selfheal.py'",
+      "constraints": "Non-goals from the design: nothing installs, reinstalls or rolls back Heron (that is Phase 2); no edits to fenced security code; no new runtime dependencies. Python under eval/ is 3.12 standard library only, run as python3 -I, and tests use unittest like the rest of eval/tests. Do not edit docs/designs/heron-harness2.md. You cannot run git: skein commits your worktree when the check passes, so never ask for a commit. Write only inside your blast radius. Comments only for a non-obvious why; no phase-narrating comments. When the design and these instructions differ, these instructions win and the supervisor records the difference in the design.",
+      "context": "Spec: docs/designs/heron-harness2.md section 'Graph 1a, unit H4: gate script' (item 21), the R2 outcomes table in section '4. The self-heal gate', and 'gate-report.json' in section '11. Contracts'. It runs in GitHub CI on macOS: bash 3.2 compatible, set -euo pipefail, no GNU-only flags. CARGO, SWIFT and TESTTEETH name the commands (defaults cargo, swift, testteeth). Copy the style of eval/require-tests.sh.",
+      "goal": "Write scripts/verify-selfheal.sh exactly as item 21 and the R2 table describe, so that eval/tests/test_verify_selfheal.py (written by H3; read its docstring for the stub protocol) passes. Do not edit anything under eval/. If a test contradicts the design, follow the test and say which test and why in your final message."
+    },
+    "max_retries": 2,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "scripts/verify-selfheal.sh (item 21)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {
