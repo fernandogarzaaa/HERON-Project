@@ -902,7 +902,16 @@
     }
   },
   "B6": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "d9923713886e4abcb11e344a5fe5cf33",
+        "ended_at": "2026-11-22T07:40:56.828061+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T07:06:03.397668+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -914,15 +923,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "d9923713886e4abcb11e344a5fe5cf33",
-      "base_branch": "skein/B6__integrate-base",
-      "claim_token": "16b0439e97c64facb8365c2b86acdde0",
-      "claimed_at": "2026-11-22T07:06:03.397668+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T07:40:09.780687+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "B1",
@@ -932,8 +941,20 @@
       "B4",
       "B5"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash scripts/verify-feature.sh base",
+        "duration_ms": 2075526,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B6_20261122T070621228660_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B6_20261122T074056763769_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: the supervisor runs `bash scripts/verify-feature.sh base`.",
     "id": "B6",
     "integration_for": null,
     "intent": {
@@ -945,13 +966,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "d9923713886e4abcb11e344a5fe5cf33",
+      "base_commit": "80bd04a8346e3faa317c940e5ec839248d443435",
+      "changed_files": [],
+      "commit": "80bd04a8346e3faa317c940e5ec839248d443435",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Base gate",
-    "version": 72,
+    "version": 74,
     "worktree": {
       "base_branch": "skein/B6__integrate-base",
       "base_commit": "80bd04a8346e3faa317c940e5ec839248d443435",
