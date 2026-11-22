@@ -345,11 +345,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Kill surviving mutants in eval/selfheal (testteeth gate)",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/H3q__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "2361da0b93f517c8d382d34c3c6c38eb1703bc3e",
+      "branch": "skein/H3q",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/worktrees/H3q"
     }
   },
   "H3q__integrate": {
