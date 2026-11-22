@@ -80,7 +80,10 @@ public final class AppModel {
         self.now = now
         // "Quick entry" is on until the owner turns it off (QF3); the Features list reads it just below.
         QuickEntrySettings.registerDefaults()
-        quickEntry = QuickEntryController(model: QuickEntryModel(client: client, now: now), preferences: preferences,
+        // "Look at a window" is on too (QF3); it only ever runs from its button.
+        ScreenTextSettings.registerDefaults()
+        let screenText = ScreenTextModel()
+        quickEntry = QuickEntryController(model: QuickEntryModel(client: client, now: now, screenText: screenText), preferences: preferences,
                                           openMain: { _ in })  // wired to the main window at the end of init
         avatar = AvatarModel()
         chat = ChatStore(client: client)
@@ -104,6 +107,9 @@ public final class AppModel {
             featuresBackend = FeaturesClient(endpoint: { [client] in client.endpoint })
         }
         features = FeaturesSettingsStore(client: featuresBackend)
+        screenText.onScreenRecordingAccess = { [weak self] granted in
+            self?.features.setPermissionDenied(!granted, for: "screen_text")
+        }
         chat.onOtherApproval = { [weak self] event in self?.addToFeed(event) }
         quickEntry.openMain = { [weak self] id in self?.showMain(conversation: id) }
     }

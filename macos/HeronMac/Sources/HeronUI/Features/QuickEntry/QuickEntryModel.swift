@@ -34,16 +34,19 @@ public final class QuickEntryModel {
     public enum Source: Equatable, Sendable {
         /// Services: the name of the app that had the selection.
         case selection(app: String)
+        /// F9: text read from a window the owner picked with "Look at a window".
+        case screenText(app: String)
 
         var kind: ChatContext.Kind {
             switch self {
             case .selection: .selection
+            case .screenText: .screenText
             }
         }
 
         var appName: String {
             switch self {
-            case .selection(let app): app
+            case .selection(let app), .screenText(let app): app
             }
         }
     }
@@ -82,18 +85,25 @@ public final class QuickEntryModel {
     @ObservationIgnored private var lastUsed: Date?
     @ObservationIgnored private var heldEvents: [CoreEvent] = []
 
-    public init(client: any CoreClientProtocol, now: @escaping () -> Date = Date.init) {
+    /// F9's "Look at a window". Only its button in the panel runs it.
+    public let screenText: ScreenTextModel
+
+    public init(client: any CoreClientProtocol, now: @escaping () -> Date = Date.init,
+                screenText: ScreenTextModel? = nil) {
         self.send = { sessionID, message, context in
             try await client.sendMessage(sessionID: sessionID, message: message, title: nil, context: context)
         }
         self.now = now
+        self.screenText = screenText ?? ScreenTextModel()
     }
 
     /// For tests and previews: the one call the model makes.
     public init(send: @escaping @Sendable (String?, String, [ChatContext]) async throws -> ChatStart,
-                now: @escaping () -> Date = Date.init) {
+                now: @escaping () -> Date = Date.init,
+                screenText: ScreenTextModel? = nil) {
         self.send = send
         self.now = now
+        self.screenText = screenText ?? ScreenTextModel()
     }
 
     // MARK: Opening
@@ -117,6 +127,13 @@ public final class QuickEntryModel {
     }
 
     public func removeChip() { chip = nil }
+
+    /// The "Look at a window" button: picks one window, reads its text on the Mac and attaches the text as the chip.
+    /// Like any attach, it sends nothing; the owner's Return does.
+    public func lookAtWindow() async {
+        guard let result = await screenText.lookAtWindow() else { return }
+        attach(text: result.text, from: .screenText(app: result.app))
+    }
 
     // MARK: Sending (only the owner's Return reaches this)
 
