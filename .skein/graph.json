@@ -4303,11 +4303,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fix the check of F4-fix-1: hard links, parent swap, reporting",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/F4-fix-3__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "060bd92660be1401009057da9a987622b5ebdba6",
+      "branch": "skein/F4-fix-3",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F4-fix-3"
     }
   },
   "F4-fix-3__integrate": {
