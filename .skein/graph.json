@@ -3661,15 +3661,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "17f206f1c01b4805b1eb563a35dc8edc",
+      "base_branch": "skein/F3g__integrate__integrate-base",
+      "claim_token": "1b2828f13f43417b8a8fc4015ceae838",
+      "claimed_at": "2026-11-22T11:16:58.496276+00:00",
+      "holder": "skein-auto-merge",
+      "last_heartbeat": "2026-11-22T11:16:58.496276+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "skein-auto-merge"
     },
     "depends_on": [
       "F3s",
@@ -3696,11 +3696,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Integrate parents of F3g",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/F3g__integrate__integrate-base",
       "branch": null,
       "path": null
     }
