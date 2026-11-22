@@ -741,6 +741,123 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertEqual(calendar.prompts, 0)
     }
 
+    // MARK: The Mac's Mail (Apple Events)
+
+    private func mailStore(_ client: PreviewCoreClient, mail: FakeMail) async -> SettingsStore {
+        let store = SettingsStore(client: client, localCalendar: FakeCalendar(), localMail: mail, sleep: { _ in await Task.yield() })
+        await store.load()
+        return store
+    }
+
+    private func sampleMail(_ id: String, account: String = "iCloud", date: Int = Int(Date().timeIntervalSince1970)) -> LocalMailMessage {
+        LocalMailMessage(id: id, from: "Dana <dana@example.com>", subject: "Invoice", date: date, account: account, body: "Please pay.")
+    }
+
+    func testMacMailSendsTheMessagesToTheCoreAndMarksTheRowConnected() async throws {
+        let client = try await makeClient()
+        let mail = FakeMail(result: .success([sampleMail("<a@x>"), sampleMail("<b@x>", account: "Outlook")]))
+        let store = await mailStore(client, mail: mail)
+        let ok = await store.connectLocalMail()
+        XCTAssertTrue(ok)
+        XCTAssertEqual(client.sourceRequests.last, .localMail(messages: try mail.result.get()))
+        let row = try XCTUnwrap(store.settings?.connections.first { $0.id == "mail_local" })
+        XCTAssertEqual([row.connected, row.detail == "2 messages indexed"], [true, true])
+        XCTAssertNil(store.localMailProblem)
+        XCTAssertFalse(store.isBusy(source: "mail_local"))
+    }
+
+    func testMacMailPermissionDeniedShowsHowToTurnItOnAndOffersTheAutomationPane() async throws {
+        let client = try await makeClient()
+        let store = await mailStore(client, mail: FakeMail(result: .failure(.notAuthorized)))
+        let ok = await store.connectLocalMail()
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.localMailProblem, .automationDenied)
+        let message = try XCTUnwrap(store.sourceErrors["mail_local"])
+        XCTAssertTrue(message.contains("System Settings") && message.contains("Automation") && message.contains("Mail"), message)
+        XCTAssertTrue(client.sourceRequests.isEmpty, "nothing was sent")
+        XCTAssertTrue(SourceCopy.privacyAutomationURL.hasSuffix("Privacy_Automation"))
+        XCTAssertFalse(store.isBusy(source: "mail_local"))
+        // Asking again after turning it on works, and clears the problem.
+        let fixed = FakeMail(result: .success([sampleMail("<a@x>")]))
+        let again = await mailStore(client, mail: fixed)
+        let retried = await again.connectLocalMail()
+        XCTAssertTrue(retried)
+        XCTAssertNil(again.localMailProblem)
+    }
+
+    func testMacMailWithNoAccountsSaysHowToAddOneAndOffersInternetAccounts() async throws {
+        let client = try await makeClient()
+        let store = await mailStore(client, mail: FakeMail(result: .failure(.noAccounts)))
+        let ok = await store.connectLocalMail()
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.localMailProblem, .noAccounts)
+        XCTAssertTrue(try XCTUnwrap(store.sourceErrors["mail_local"]).contains("Internet Accounts"))
+        XCTAssertTrue(client.sourceRequests.isEmpty)
+        XCTAssertTrue(SourceCopy.internetAccountsURL.contains("Internet-Accounts"))
+    }
+
+    func testMacMailThatCannotBeOpenedOrFailsIsExplainedWithoutASettingsButton() async throws {
+        let client = try await makeClient()
+        let notRunning = await mailStore(client, mail: FakeMail(result: .failure(.notRunning)))
+        _ = await notRunning.connectLocalMail()
+        XCTAssertEqual(notRunning.sourceErrors["mail_local"], SourceCopy.mailWouldNotOpen)
+        XCTAssertNil(notRunning.localMailProblem)
+        let broken = await mailStore(client, mail: FakeMail(result: .failure(.failed("Mail answered with error 7."))))
+        _ = await broken.connectLocalMail()
+        XCTAssertEqual(broken.sourceErrors["mail_local"], "Mail answered with error 7.")
+    }
+
+    func testMacMailTakesItsTimeOffTheMainThreadAndShowsBusyUntilMailAnswers() async throws {
+        let client = try await makeClient()
+        // Apple Events opens Mail first, so the answer can be slow: the store stays responsive and busy meanwhile.
+        let mail = FakeMail(result: .success([sampleMail("<a@x>")]), delay: .milliseconds(150))
+        let store = await mailStore(client, mail: mail)
+        let reading = Task { await store.connectLocalMail() }
+        for _ in 0..<500 where !store.isBusy(source: "mail_local") { await Task.yield() }
+        XCTAssertTrue(store.isBusy(source: "mail_local"), "the row shows the wait")
+        let second = await store.connectLocalMail()
+        XCTAssertFalse(second, "a second click while Mail is answering does nothing")
+        let ok = await reading.value
+        XCTAssertTrue(ok)
+        XCTAssertEqual(mail.calls, 1)
+        XCTAssertFalse(store.isBusy(source: "mail_local"))
+    }
+
+    func testAConnectedMacMailIsReadAgainQuietlyOnlyWhileMailIsOpen() async throws {
+        let client = try await makeClient()
+        let mail = FakeMail(result: .success([sampleMail("<a@x>")]))
+        let store = await mailStore(client, mail: mail)
+        await store.refreshLocalMailIfConnected()
+        XCTAssertTrue(client.sourceRequests.isEmpty, "not connected, so nothing is read")
+        _ = await store.connectLocalMail()
+        mail.result = .success([sampleMail("<a@x>"), sampleMail("<c@x>")])
+        mail.running = false
+        let reads = mail.calls
+        await store.refreshLocalMailIfConnected()
+        XCTAssertEqual(mail.calls, reads, "a closed Mail is left closed: Apple Events would open it")
+        mail.running = true
+        await store.refreshLocalMailIfConnected()
+        XCTAssertEqual(client.sourceRequests.last, .localMail(messages: try mail.result.get()), "the new message went along")
+        // Permission taken away: the refresh does nothing visible.
+        mail.result = .failure(.notAuthorized)
+        let sent = client.sourceRequests.count
+        await store.refreshLocalMailIfConnected()
+        XCTAssertEqual(client.sourceRequests.count, sent)
+        XCTAssertNil(store.sourceErrors["mail_local"])
+    }
+
+    func testDisconnectingMacMailAsksFirstThenForgetsItsMessages() async throws {
+        let client = try await makeClient()
+        let store = await mailStore(client, mail: FakeMail(result: .success([sampleMail("<a@x>")])))
+        _ = await store.connectLocalMail()
+        store.askToDisconnect("mail_local")
+        XCTAssertEqual(store.pendingDisconnect?.id, "mail_local")
+        XCTAssertTrue(SourceCopy.forgetSentence(try XCTUnwrap(store.pendingDisconnect)).contains("forget the messages"))
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "mail_local" }?.connected, true, "nothing changes before the confirm")
+        await store.confirmDisconnect()
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "mail_local" }?.connected, false)
+    }
+
     // MARK: Run setup again
 
     func testRunSetupAgainShowsSetupWithoutUnsettingOnboardedAndKeepsAcceptedRisks() async throws {
@@ -1157,6 +1274,25 @@ final class ScreenStoreTests: XCTestCase {
     }
 }
 
+
+/// A stand-in for the Mac's Mail app, so no test reaches Apple Events or the Automation prompt.
+final class FakeMail: LocalMailAccess, @unchecked Sendable {
+    var result: Result<[LocalMailMessage], MailAccessError>
+    var running = true
+    let delay: Duration?
+    private let lock = NSLock()
+    private var count = 0
+    var calls: Int { lock.withLock { count } }
+
+    init(result: Result<[LocalMailMessage], MailAccessError>, delay: Duration? = nil) { self.result = result; self.delay = delay }
+
+    func isMailRunning() -> Bool { running }
+    func messages() async throws -> [LocalMailMessage] {
+        lock.withLock { count += 1 }
+        if let delay { try await Task.sleep(for: delay) }
+        return try result.get()
+    }
+}
 
 /// A stand-in for the Mac's Calendar app, so no test reaches EventKit or the permission prompt.
 final class FakeCalendar: LocalCalendarAccess, @unchecked Sendable {

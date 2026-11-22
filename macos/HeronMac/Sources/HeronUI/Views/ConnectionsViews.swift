@@ -22,6 +22,14 @@ enum SourceCopy {
     static let calendarAccessDenied = "Heron can't read your calendars yet. Open System Settings › Privacy & Security › Calendars, turn Heron on, then try again."
     static let privacyCalendarsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
 
+    static let localMailSentence = "Reads the last 14 days of inbox mail from every account in the Mail app on this Mac, read-only. To add Outlook or another Gmail, add it in System Settings › Internet Accounts, then connect here. macOS asks first, and Mail opens if it isn't."
+    static let mailAccessDenied = "Heron can't read Mail yet. Open System Settings › Privacy & Security › Automation, turn on Mail under Heron, then try again."
+    static let mailHasNoAccounts = "The Mail app has no accounts yet. Add one in System Settings › Internet Accounts, then try again."
+    static let mailWouldNotOpen = "Heron couldn't open Mail. Open the Mail app once, then try again."
+    static let readingMail = "Reading Mail… (it can take a moment)"
+    static let privacyAutomationURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+    static let internetAccountsURL = "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension"
+
     static func signInButton(_ provider: OAuthProviderID) -> String { "Sign in with \(provider.displayName)" }
     static func signInNotSetUp(_ provider: OAuthProviderID) -> String { "\(provider.displayName) sign-in isn't set up in this build yet." }
     static func firstSyncFailed(_ reason: String) -> String { "Signed in, but the first read failed: \(reason) Heron will try again later." }
@@ -31,6 +39,7 @@ enum SourceCopy {
         switch source.id {
         case "documents": "Heron will stop reading your folders and forget the notes and facts it learned from them."
         case "calendar": "Heron will stop reading your calendar and forget the events and facts it learned from it."
+        case "mail_local": "Heron will stop reading the Mail app on this Mac and forget the messages and facts it learned from it. Mail itself is not touched."
         case "calendar_local": "Heron will stop reading the Calendar app on this Mac and forget the events and facts it learned from it."
         case "email": "Heron will delete its saved app password and forget the messages and facts it learned from it."
         case "computer": "Heron will forget what it learned by scanning this Mac."
@@ -67,6 +76,8 @@ struct ConnectionsPanel: View {
                     }
                     RowDivider()
                     LocalCalendarRow(store: store)
+                    RowDivider()
+                    LocalMailRow(store: store)
                 }
             }
             SourceRows(store: store, ids: ["email", "documents", "computer"], onSheet: { sheet = $0 })
@@ -200,6 +211,57 @@ struct LocalCalendarRow: View {
                 if store.localCalendarDenied {
                     Button("Open System Settings") {
                         if let url = URL(string: SourceCopy.privacyCalendarsURL) { NSWorkspace.shared.open(url) }
+                    }.buttonStyle(HButtonStyle(.link))
+                }
+            }
+        }
+        .padding(.horizontal, Spacing.s4).padding(.vertical, 10)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// "Use your Mac's Mail": one click, then the macOS Automation prompt. Mirrors the Mac Calendar row.
+struct LocalMailRow: View {
+    let store: SettingsStore
+    @Environment(\.heronTheme) private var theme
+
+    private var row: ConnectionInfo? { store.settings?.connections.first { $0.id == "mail_local" } }
+    private var connected: Bool { row?.connected == true }
+    private var busy: Bool { store.isBusy(source: "mail_local") }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.s1) {
+            HStack(spacing: Spacing.s3) {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: Spacing.s2) {
+                        Text("Mac Mail").foregroundStyle(theme.ink)
+                        if connected { HTag("Connected", tone: .ok) }
+                    }
+                    if connected, let detail = row?.detail {
+                        Text(detail).font(HeronFont.callout).foregroundStyle(theme.ink2)
+                    }
+                }
+                Spacer(minLength: Spacing.s3)
+                if busy {
+                    ProgressView().controlSize(.small)
+                    Text(SourceCopy.readingMail).font(HeronFont.callout).foregroundStyle(theme.ink2)
+                } else if connected {
+                    Button("Refresh") { Task { await store.connectLocalMail() } }.buttonStyle(HButtonStyle(.secondary))
+                    Button("Disconnect") { store.askToDisconnect("mail_local") }
+                        .buttonStyle(HButtonStyle(.secondary)).accessibilityLabel("Disconnect Mac Mail")
+                } else {
+                    Button("Use your Mac's Mail") { Task { await store.connectLocalMail() } }
+                        .buttonStyle(HButtonStyle(.secondary))
+                }
+            }
+            Text(SourceCopy.localMailSentence).font(HeronFont.callout).foregroundStyle(theme.ink3).fixedSize(horizontal: false, vertical: true)
+            if let message = store.sourceErrors["mail_local"] {
+                Text(message).font(HeronFont.callout).foregroundStyle(theme.danger).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Couldn't connect the Mac Mail. \(message)")
+                if let problem = store.localMailProblem {
+                    Button(problem == .automationDenied ? "Open Automation settings" : "Open Internet Accounts") {
+                        let target = problem == .automationDenied ? SourceCopy.privacyAutomationURL : SourceCopy.internetAccountsURL
+                        if let url = URL(string: target) { NSWorkspace.shared.open(url) }
                     }.buttonStyle(HButtonStyle(.link))
                 }
             }

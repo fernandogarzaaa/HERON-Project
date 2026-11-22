@@ -400,6 +400,8 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
                 detail = "20 items indexed"
             case .localCalendar(let events):
                 detail = "\(events.count) events indexed"
+            case .localMail(let messages):
+                detail = "\(messages.count) messages indexed"
             }
             guard let i = d.connections.firstIndex(where: { $0.id == source.sourceID }) else { throw CoreError.notFound }
             d.connections[i].connected = true

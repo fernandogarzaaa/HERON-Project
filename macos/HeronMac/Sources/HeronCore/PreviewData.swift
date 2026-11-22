@@ -235,6 +235,7 @@ struct PreviewData {
             ConnectionInfo(id: "documents", name: "Documents", connected: false, detail: "Not connected"),
             ConnectionInfo(id: "computer", name: "This Mac", connected: false, detail: "Not connected"),
             ConnectionInfo(id: "calendar_local", name: "Mac Calendar", connected: false, detail: "Not connected"),
+            ConnectionInfo(id: "mail_local", name: "Mac Mail", connected: false, detail: "Not connected"),
         ]
         d.usage = UsageReport(days: [
             UsageDay(day: "2026-11-18", model: "Claude Code", promptTokens: 18_400, completionTokens: 3_100),

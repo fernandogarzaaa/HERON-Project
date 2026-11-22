@@ -123,6 +123,12 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(rows.last?.connected, true)
     }
 
+    func testTheMacMailSourceIsARowWhenTheCoreServesIt() throws {
+        let rows = CoreWire.connections(Data(#"{"mail_local":{"connected":true,"indexed":42,"learned":0}}"#.utf8))
+        XCTAssertEqual(rows.map(\.id), ["mail_local"])
+        XCTAssertEqual([rows[0].name, rows[0].detail], ["Mac Mail", "42 messages indexed"])
+    }
+
     func testMailAndCalendarRowsReadTheirOwnStateNotTheSignedInAccounts() throws {
         // Google is signed in (the combined flags are true) but no password mailbox and no calendar link exist.
         let json = #"{"email":{"connected":true,"address":null,"indexed":40,"imap_connected":false,"imap_host":null,"imap_indexed":0},"calendar":{"connected":true,"hosts":[],"indexed":9,"ics_connected":false,"ics_indexed":0}}"#

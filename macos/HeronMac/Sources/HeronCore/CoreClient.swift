@@ -326,6 +326,10 @@ public final class CoreClient: CoreClientProtocol, Sendable {
                 if let end = e.end { o["end"] = end }
                 return o
             }
+        case .localMail(let messages):
+            body["messages"] = messages.map { m -> [String: Any] in
+                ["id": m.id, "from": m.from, "subject": m.subject, "date": m.date, "account": m.account, "body": m.body]
+            }
         }
         try await send("POST", "/sources/\(segment(source.sourceID))", body: body)
     }

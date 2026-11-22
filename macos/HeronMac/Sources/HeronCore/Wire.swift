@@ -358,6 +358,7 @@ public enum CoreWire {
             row("documents", "Documents") { "\(($0["folders"] as? [String])?.count ?? 0) folders, \($0["indexed"] as? Int ?? 0) files indexed" },
             row("computer", "This Mac"),
             row("calendar_local", "Mac Calendar") { "\($0["indexed"] as? Int ?? 0) events indexed" },
+            row("mail_local", "Mac Mail") { "\($0["indexed"] as? Int ?? 0) messages indexed" },
         ].compactMap { $0 }
     }
 

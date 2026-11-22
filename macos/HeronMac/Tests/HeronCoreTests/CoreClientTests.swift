@@ -144,6 +144,19 @@ final class CoreClientTests: XCTestCase {
         XCTAssertEqual(try body(seen)["rule"] as? String, "web_fetch:*example.com*")
     }
 
+    func testMacMailMessagesGoToTheMailLocalRoute() async throws {
+        let client = makeClient { _ in .init(200, json: #"{"indexed":1}"#) }
+        try await client.connectSource(.localMail(messages: [LocalMailMessage(id: "<a@x>", from: "Dana", subject: "Hi", date: 1_795_100_000, account: "iCloud", body: "Text")]))
+        let seen = try XCTUnwrap(StubProtocol.seen.last)
+        XCTAssertEqual([seen.method, seen.path], ["POST", "/api/sources/mail_local"])
+        let sent = try XCTUnwrap(try body(seen)["messages"] as? [[String: Any]])
+        XCTAssertEqual(sent.count, 1)
+        XCTAssertEqual([sent[0]["id"] as? String, sent[0]["account"] as? String, sent[0]["body"] as? String], ["<a@x>", "iCloud", "Text"])
+        XCTAssertEqual(sent[0]["date"] as? Int, 1_795_100_000)
+        XCTAssertEqual(SourceConnection.localMail(messages: []).sourceID, "mail_local")
+        XCTAssertFalse("\(SourceConnection.localMail(messages: [LocalMailMessage(id: "i", date: 1, body: "secret text")]))".contains("secret text"), "the text is not printed")
+    }
+
     func testICloudMailIsTheEmailSourceWithIcloudsServerFilledIn() async throws {
         let client = makeClient { _ in .init(200, json: #"{"indexed":3}"#) }
         try await client.connectSource(.iCloudMail(address: "sam@icloud.com", password: "abcd-efgh-ijkl-mnop"))

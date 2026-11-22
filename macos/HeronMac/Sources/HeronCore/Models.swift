@@ -562,6 +562,8 @@ public enum SourceConnection: Sendable, Equatable, CustomStringConvertible {
     case computer
     /// Events the app read from the Mac's Calendar app (EventKit); each sync replaces the last.
     case localCalendar(events: [LocalCalendarEvent])
+    /// Inbox messages the app read from the Mac's Mail app (Apple Events); each sync replaces the last.
+    case localMail(messages: [LocalMailMessage])
 
     /// iCloud Mail is the `email` IMAP source with iCloud's server filled in: imap.mail.me.com, port 993, TLS,
     /// and the full address as the username. The app-specific password goes to the core once, as any IMAP password does.
@@ -579,6 +581,7 @@ public enum SourceConnection: Sendable, Equatable, CustomStringConvertible {
         case .email: "email"
         case .computer: "computer"
         case .localCalendar: "calendar_local"
+        case .localMail: "mail_local"
         }
     }
 
@@ -587,6 +590,7 @@ public enum SourceConnection: Sendable, Equatable, CustomStringConvertible {
         switch self {
         case .email(let host, let username, _, _, _): "email(\(username)@\(host), password hidden)"
         case .localCalendar(let events): "calendar_local(\(events.count) events)"
+        case .localMail(let messages): "mail_local(\(messages.count) messages)"
         default: sourceID
         }
     }
@@ -604,6 +608,24 @@ public struct LocalCalendarEvent: Sendable, Equatable {
 
     public init(uid: String, title: String, start: Int, end: Int? = nil, allDay: Bool = false, location: String = "") {
         self.uid = uid; self.title = title; self.start = start; self.end = end; self.allDay = allDay; self.location = location
+    }
+}
+
+/// One inbox message read from the Mac's Mail app, as `POST /api/sources/mail_local` takes it.
+public struct LocalMailMessage: Sendable, Equatable {
+    /// The Message-ID header: stable, and the same message in two accounts is one.
+    public var id: String
+    public var from: String
+    public var subject: String
+    /// Unix seconds.
+    public var date: Int
+    /// The Mail account it arrived in.
+    public var account: String
+    /// Plain text, truncated.
+    public var body: String
+
+    public init(id: String, from: String = "", subject: String = "", date: Int, account: String = "", body: String = "") {
+        self.id = id; self.from = from; self.subject = subject; self.date = date; self.account = account; self.body = body
     }
 }
 

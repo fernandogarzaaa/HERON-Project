@@ -4,5 +4,7 @@
 <dict>
   <!-- Read the Calendar app's events (EventKit). The hardened runtime blocks the permission prompt without it. -->
   <key>com.apple.security.personal-information.calendars</key><true/>
+  <!-- Ask the Mail app for recent messages over Apple Events (the Automation permission prompt). -->
+  <key>com.apple.security.automation.apple-events</key><true/>
 </dict>
 </plist>

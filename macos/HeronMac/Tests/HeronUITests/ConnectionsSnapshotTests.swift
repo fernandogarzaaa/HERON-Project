@@ -17,7 +17,7 @@ final class ConnectionsSnapshotTests: XCTestCase {
 
     func testConnectionsTabListsEverySourceWithItsActionLight() async throws {
         let (model, _) = await model()
-        XCTAssertEqual(model.settings.settings?.connections.map(\.id), ["email", "calendar", "documents", "computer", "calendar_local"])
+        XCTAssertEqual(model.settings.settings?.connections.map(\.id), ["email", "calendar", "documents", "computer", "calendar_local", "mail_local"])
         try assertScrollingSnapshot(SettingsTabContent(model: model, tab: .connections), name: "connections-tab-light", size: WindowMinimum.settingsPage, dark: false)
     }
 
@@ -53,6 +53,24 @@ final class ConnectionsSnapshotTests: XCTestCase {
         store.cancelSignIn()
         await waiting.value
         _ = model
+    }
+
+    func testConnectionsTabWhenMailPermissionWasDeniedLight() async throws {
+        let client = PreviewCoreClient()
+        let store = SettingsStore(client: client, localCalendar: FakeCalendar(), localMail: FakeMail(result: .failure(.notAuthorized)), sleep: { _ in await Task.yield() })
+        await store.load()
+        _ = await store.connectLocalMail()
+        XCTAssertEqual(store.localMailProblem, .automationDenied)
+        try assertSnapshot(ConnectionsPanel(store: store).padding(Spacing.s6), name: "connections-mail-denied-light", size: CGSize(width: 720, height: 0), dark: false)
+    }
+
+    func testConnectionsTabWithMacMailConnectedLight() async throws {
+        let client = PreviewCoreClient()
+        let mail = FakeMail(result: .success([LocalMailMessage(id: "<a@x>", subject: "Hi", date: Int(Date().timeIntervalSince1970), account: "iCloud")]))
+        let store = SettingsStore(client: client, localCalendar: FakeCalendar(), localMail: mail, sleep: { _ in await Task.yield() })
+        await store.load()
+        _ = await store.connectLocalMail()
+        try assertSnapshot(ConnectionsPanel(store: store).padding(Spacing.s6), name: "connections-mail-connected-light", size: CGSize(width: 720, height: 0), dark: false)
     }
 
     func testDisconnectConfirmLight() throws {

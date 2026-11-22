@@ -176,6 +176,7 @@ public final class AppModel {
         async let f: Void = schedules.load()
         _ = await (a, b, c, d, e, f)
         await settings.refreshLocalCalendarIfConnected()
+        await settings.refreshLocalMailIfConnected()
     }
 
     public func refreshState() async {

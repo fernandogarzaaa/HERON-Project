@@ -1500,6 +1500,7 @@ async fn get_sources(State(st): S) -> ApiResult {
         "email": {"connected": cfg.sources.email.is_some() || google || microsoft, "address": cfg.sources.email.as_ref().map(|e| e.username.clone()), "indexed": store.knowledge_count("email") + oauth_email_count, "learned": learned("email"),
             // The password-based mailbox (iCloud, or any IMAP server) on its own, independent of the Google/Microsoft accounts.
             "imap_connected": cfg.sources.email.is_some(), "imap_host": cfg.sources.email.as_ref().map(|e| e.host.clone()), "imap_indexed": store.knowledge_count("email")},
+        "mail_local": {"connected": store.kv_get("mail_local").is_some(), "indexed": store.knowledge_count("mail_local"), "learned": learned("mail_local")},
         "oauth": {"google": google, "microsoft": microsoft},
     })))
 }
@@ -1568,6 +1569,12 @@ async fn connect_source(State(st): S, Path(name): Path<String>, Json(b): Json<Va
                 .map_err(|_| bad("The calendar events were not in the expected format."))?;
             json!({"indexed": crate::sources::sync_calendar_local(app, events)?})
         }
+        // Messages the Mac app read from the Mail app over Apple Events. Outside content, like every email source.
+        "mail_local" => {
+            let mail: Vec<crate::sources::LocalMail> = serde_json::from_value(b.get("messages").cloned().unwrap_or(Value::Null))
+                .map_err(|_| bad("The messages were not in the expected format."))?;
+            json!({"indexed": crate::sources::sync_mail_local(app, mail)?})
+        }
         _ => return Err(ApiError(StatusCode::NOT_FOUND, "Unknown source.".into())),
     };
     Ok(Json(result))
@@ -1605,8 +1612,8 @@ async fn disconnect_source(State(st): S, Path(name): Path<String>) -> ApiResult 
         "documents" => c.sources.folders.clear(),
         _ => {}
     }))?;
-    if name == "calendar_local" {
-        st.app.store.kv_delete("calendar_local")?;
+    if name == "calendar_local" || name == "mail_local" {
+        st.app.store.kv_delete(&name)?;
     }
     let items = st.app.store.clear_knowledge(&name)?;
     let memories = st.app.store.delete_memories_by_source(&name)?;
@@ -1696,6 +1703,31 @@ mod tests {
         let served = router(app.clone(), "test-token".into());
         tokio::spawn(async move { axum::serve(Pipes(incoming), served).await });
         Harness { dir, app, connect }
+    }
+
+    #[tokio::test]
+    async fn mac_mail_connects_shows_and_disconnects_without_touching_other_mailboxes() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        assert_eq!(h.json("GET", "/sources", Value::Null).await["mail_local"]["connected"], false);
+        let now = crate::util::now_ts();
+        h.app.store.upsert_knowledge("google_email", "g1", "Invoice from Acme", "Please pay", now).unwrap();
+        let sent = json!({"messages": [
+            {"id": "<a@x>", "from": "Dana <d@example.com>", "subject": "Invoice", "date": now, "account": "iCloud", "body": "Please pay"},
+            {"id": "<a@x>", "from": "Dana <d@example.com>", "subject": "Invoice", "date": now, "account": "Outlook", "body": "Please pay"}]});
+        assert_eq!(h.json("POST", "/sources/mail_local", sent).await["indexed"], 1, "one message in two accounts is one");
+        let after = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!((after["mail_local"]["connected"].clone(), after["mail_local"]["indexed"].clone()), (json!(true), json!(1)));
+        assert_eq!(after["email"]["imap_connected"], false, "it is not the IMAP mailbox");
+        // Untrusted: facts learned from it start unconfirmed, same as google_email.
+        assert!(crate::memory::OUTSIDE_SOURCES.contains(&"mail_local") && crate::memory::OUTSIDE_SOURCES.contains(&"google_email"));
+        assert_eq!(h.send("POST", "/sources/mail_local", json!({"messages": "nope"})).await.status, 400);
+        assert_eq!(h.send("POST", "/sources/mail_local", json!({})).await.status, 400, "no messages key is not a sync");
+        let gone = h.json("DELETE", "/sources/mail_local", Value::Null).await;
+        assert_eq!(gone["removed_items"], 1);
+        let end = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(end["mail_local"]["connected"], false);
+        assert_eq!(h.app.store.knowledge_count("mail_local"), 0);
+        assert_eq!(h.app.store.knowledge_count("google_email"), 1);
     }
 
     #[tokio::test]

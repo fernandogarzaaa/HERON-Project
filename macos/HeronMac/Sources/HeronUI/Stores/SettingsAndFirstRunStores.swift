@@ -98,6 +98,9 @@ public final class SettingsStore {
     /// True after "Use your Mac's Calendar" was refused: the row then offers System Settings.
     public private(set) var localCalendarDenied = false
     public let localCalendar: any LocalCalendarAccess
+    /// Why "Use your Mac's Mail" last failed, so the row offers the right System Settings pane.
+    public private(set) var localMailProblem: LocalMailProblem?
+    public let localMail: any LocalMailAccess
     /// How often the sign-in is checked, and how long Heron waits (the core's sign-in expires after ten minutes).
     public var pollInterval: Duration = .seconds(2)
     public var signInTimeout: Duration = .seconds(600)
@@ -108,9 +111,11 @@ public final class SettingsStore {
     public private(set) var error: String?
 
     public init(client: any CoreClientProtocol, localCalendar: any LocalCalendarAccess = SystemCalendarAccess(),
+                localMail: any LocalMailAccess = SystemMailAccess(),
                 sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
         self.client = client
         self.localCalendar = localCalendar
+        self.localMail = localMail
         self.sleep = sleep
     }
 
@@ -272,6 +277,49 @@ public final class SettingsStore {
               localCalendar.authorization() == .granted,
               let events = try? await localCalendar.events() else { return }
         try? await client.connectSource(.localCalendar(events: events))
+        await reloadConnections()
+    }
+
+    // MARK: The Mac's Mail app
+
+    /// "Use your Mac's Mail": asks Mail for the recent inbox messages (macOS asks for Automation permission the first
+    /// time, and Mail is opened if it isn't) and sends them to the core. The wait happens off the main thread.
+    @discardableResult
+    public func connectLocalMail() async -> Bool {
+        let id = "mail_local"
+        guard !busySources.contains(id) else { return false }
+        busySources.insert(id)
+        sourceErrors[id] = nil
+        localMailProblem = nil
+        defer { busySources.remove(id) }
+        do {
+            let messages = try await localMail.messages()
+            try await client.connectSource(.localMail(messages: messages))
+        } catch let problem as MailAccessError {
+            switch problem {
+            case .notAuthorized: localMailProblem = .automationDenied; sourceErrors[id] = SourceCopy.mailAccessDenied
+            case .noAccounts: localMailProblem = .noAccounts; sourceErrors[id] = SourceCopy.mailHasNoAccounts
+            case .notRunning: sourceErrors[id] = SourceCopy.mailWouldNotOpen
+            case .failed(let message): sourceErrors[id] = message
+            }
+            return false
+        } catch {
+            sourceErrors[id] = describe(error)
+            return false
+        }
+        await reloadConnections()
+        return true
+    }
+
+    /// Mail changes, so a connected Mac Mail is read again when the app starts, on the Mac Calendar's cadence. Silent:
+    /// it only reads a Mail that is already open (Apple Events would open it), never prompts, and a failure leaves
+    /// what the core already holds.
+    public func refreshLocalMailIfConnected() async {
+        if settings == nil { await reloadConnections() }
+        guard settings?.connections.first(where: { $0.id == "mail_local" })?.connected == true,
+              !busySources.contains("mail_local"), localMail.isMailRunning(),
+              let messages = try? await localMail.messages() else { return }
+        try? await client.connectSource(.localMail(messages: messages))
         await reloadConnections()
     }
 

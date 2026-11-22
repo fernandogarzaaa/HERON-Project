@@ -13,7 +13,7 @@ use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone};
 use serde::Deserialize;
 use std::path::Path;
 
-pub const SOURCES: &[&str] = &["email", "calendar", "documents", "computer", "about", "google_email", "google_calendar", "microsoft_email", "microsoft_calendar", "calendar_local"];
+pub const SOURCES: &[&str] = &["email", "calendar", "documents", "computer", "about", "google_email", "google_calendar", "microsoft_email", "microsoft_calendar", "calendar_local", "mail_local"];
 const DAY: i64 = 86_400;
 
 // ---------------- calendar (ICS) ----------------
@@ -232,6 +232,63 @@ pub fn sync_calendar_local(app: &App, events: Vec<LocalEvent>) -> Result<usize> 
     Ok(kept)
 }
 
+/// One message the Mac app read from the Mail app and sends to `POST /api/sources/mail_local`.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LocalMail {
+    /// The Message-ID header: the stable id, the same message in two accounts being one.
+    pub id: String,
+    #[serde(default)]
+    pub from: String,
+    #[serde(default)]
+    pub subject: String,
+    /// Unix seconds.
+    pub date: i64,
+    #[serde(default)]
+    pub account: String,
+    #[serde(default)]
+    pub body: String,
+}
+
+/// The most messages one sync keeps (the newest); the app sends about this many from the last 14 days.
+pub const LOCAL_MAIL_KEEP: usize = 300;
+/// More than this in one request is a flood, not a sync.
+pub const LOCAL_MAIL_LIMIT: usize = 1000;
+const LOCAL_MAIL_BODY_CHARS: usize = 4000;
+
+/// Replace the messages from the Mac's Mail app. Email is untrusted input: like every email source it lands in
+/// knowledge (read with `search_knowledge`, which taints the conversation and so holds back unapproved actions),
+/// and anything learned from it is saved unconfirmed (`OUTSIDE_SOURCES`). Messages with no id are skipped, one
+/// message in several accounts is kept once with every account named, and only the newest `LOCAL_MAIL_KEEP` stay.
+pub fn sync_mail_local(app: &App, mail: Vec<LocalMail>) -> Result<usize> {
+    if mail.len() > LOCAL_MAIL_LIMIT {
+        bail!("That is more than {LOCAL_MAIL_LIMIT} messages. Send fewer days of mail.");
+    }
+    let clip = |s: &str, n: usize| s.chars().take(n).collect::<String>();
+    let mut unique: Vec<(String, LocalMail)> = vec![];
+    for m in mail.into_iter().filter(|m| !m.id.trim().is_empty()) {
+        let id = clip(m.id.trim(), 200);
+        match unique.iter_mut().find(|(seen, _)| *seen == id) {
+            Some((_, first)) => {
+                if !m.account.is_empty() && !first.account.split(", ").any(|a| a == m.account) {
+                    first.account = if first.account.is_empty() { m.account } else { format!("{}, {}", first.account, m.account) };
+                }
+            }
+            None => unique.push((id, m)),
+        }
+    }
+    unique.sort_by_key(|(_, m)| std::cmp::Reverse(m.date));
+    unique.truncate(LOCAL_MAIL_KEEP);
+    app.store.clear_knowledge("mail_local")?;
+    for (id, m) in &unique {
+        let subject = clip(m.subject.trim(), 200);
+        let body = format!("From: {}\nAccount: {}\nDate: {}\n\n{}", clip(m.from.trim(), 200), clip(m.account.trim(), 200),
+            crate::util::fmt_ts(m.date), clip(m.body.trim(), LOCAL_MAIL_BODY_CHARS));
+        app.store.upsert_knowledge("mail_local", id, if subject.is_empty() { "(no subject)" } else { &subject }, &body, m.date)?;
+    }
+    app.store.kv_set("mail_local", "1")?;
+    Ok(unique.len())
+}
+
 /// Private calendar links are as sensitive as passwords, so the app stores them with the secrets.
 /// Links written by hand into config.toml are honoured too.
 pub fn calendar_links(cfg: &crate::config::Config) -> Vec<String> {
@@ -443,7 +500,7 @@ pub async fn save_about(app: &App, about: &About) -> Result<Vec<String>> {
 
 fn source_label(source: &str) -> &'static str {
     match source {
-        "email" | "google_email" | "microsoft_email" => "recent emails from the user's inbox",
+        "email" | "google_email" | "microsoft_email" | "mail_local" => "recent emails from the user's inbox",
         "calendar" | "google_calendar" | "microsoft_calendar" | "calendar_local" => "events from the user's calendar",
         "documents" => "the user's notes and documents",
         "about" => "text the user wrote about themselves",
@@ -458,7 +515,7 @@ pub async fn learn(app: &App, source: &str) -> Result<Vec<String>> {
     // Learn separately from each provider so memories retain accurate source
     // provenance and are deleted when that account is disconnected.
     let members: &[&str] = match source {
-        "email" => &["email", "google_email", "microsoft_email"],
+        "email" => &["email", "google_email", "microsoft_email", "mail_local"],
         "calendar" => &["calendar", "google_calendar", "microsoft_calendar", "calendar_local"],
         _ => &[],
     };
@@ -606,7 +663,7 @@ pub fn search(store: &Store, query: &str, source: Option<&str>, limit: usize) ->
     }
     let expr = tokens.iter().map(|t| format!("\"{}\"", t.replace('"', ""))).collect::<Vec<_>>().join(" OR ");
     let aliases: &[&str] = match source {
-        Some("email") => &["email", "google_email", "microsoft_email"],
+        Some("email") => &["email", "google_email", "microsoft_email", "mail_local"],
         Some("calendar") => &["calendar", "google_calendar", "microsoft_calendar", "calendar_local"],
         _ => &[],
     };
@@ -625,7 +682,7 @@ pub fn search(store: &Store, query: &str, source: Option<&str>, limit: usize) ->
 /// One line for the prompt describing what is connected.
 pub fn connected_summary(store: &Store) -> String {
     let counts = [
-        (store.knowledge_count("email") + store.knowledge_count("google_email") + store.knowledge_count("microsoft_email"), "emails"),
+        (store.knowledge_count("email") + store.knowledge_count("google_email") + store.knowledge_count("microsoft_email") + store.knowledge_count("mail_local"), "emails"),
         (store.knowledge_count("calendar") + store.knowledge_count("google_calendar") + store.knowledge_count("microsoft_calendar") + store.knowledge_count("calendar_local"), "calendar events"),
         (store.knowledge_count("documents"), "documents"),
     ];
@@ -788,7 +845,7 @@ mod tests {
     #[tokio::test]
     async fn learning_from_email_reports_items_as_waiting() {
         let fact = "The landlord Mr Weber wants the rent paid by the first of each month";
-        for (source, learn_source) in [("email", "email"), ("calendar", "calendar"), ("calendar_local", "calendar"), ("documents", "documents")] {
+        for (source, learn_source) in [("email", "email"), ("calendar", "calendar"), ("calendar_local", "calendar"), ("mail_local", "email"), ("documents", "documents")] {
             let dir = tempfile::tempdir().unwrap();
             let reply = format!("[{{\"content\":\"{fact}\",\"kind\":\"person\",\"importance\":0.8}}]");
             let (app, _) = app_with(ScriptedLlm::new(vec![Message::assistant(&reply)]), dir.path()).await;
@@ -834,6 +891,69 @@ mod tests {
         let flood: Vec<LocalEvent> = (0..=LOCAL_EVENT_LIMIT).map(|i| local_event(&i.to_string(), "e", now_ts())).collect();
         assert!(sync_calendar_local(&app, flood).is_err());
         assert_eq!(app.store.knowledge_count("calendar_local"), 1, "a refused sync changes nothing");
+    }
+
+    fn local_mail(id: &str, subject: &str, date: i64, account: &str) -> LocalMail {
+        LocalMail { id: id.into(), from: "Dana <dana@example.com>".into(), subject: subject.into(), date, account: account.into(), body: "Please pay the invoice.".into() }
+    }
+
+    #[tokio::test]
+    async fn mac_mail_replaces_each_sync_and_is_searched_with_the_other_mailboxes() {
+        let dir = tempfile::tempdir().unwrap();
+        let (app, _) = app_with(ScriptedLlm::new(vec![]), dir.path()).await;
+        let now = now_ts();
+        app.store.upsert_knowledge("google_email", "g1", "Invoice from Acme", "Please pay the Acme invoice", now).unwrap();
+        let n = sync_mail_local(&app, vec![local_mail("<a@x>", "Invoice March", now - 60, "iCloud"), local_mail("", "No id", now, "iCloud"), local_mail("<b@x>", "", now - 120, "Outlook")]).unwrap();
+        assert_eq!(n, 2, "a message with no id is skipped");
+        let items = app.store.knowledge_of("mail_local", false, 10).unwrap();
+        assert!(items.iter().any(|i| i.title == "(no subject)"));
+        let found = search(&app.store, "invoice", Some("email"), 10).unwrap();
+        assert!(found.contains("[mail_local] Invoice March") && found.contains("[google_email] Invoice from Acme"), "{found}");
+        assert!(found.contains("Account: iCloud"), "{found}");
+        assert_eq!(connected_summary(&app.store), "3 emails");
+        // The next sync replaces: a message gone from Mail disappears.
+        sync_mail_local(&app, vec![local_mail("<b@x>", "Lunch", now - 120, "Outlook")]).unwrap();
+        assert_eq!(app.store.knowledge_count("mail_local"), 1);
+        assert!(search(&app.store, "March", Some("email"), 3).unwrap().starts_with("nothing found"));
+        assert_eq!(app.store.knowledge_count("google_email"), 1, "the other mailbox is untouched");
+        // Zero messages is a valid sync (Mail has nothing in the window, or no accounts): it empties the snapshot.
+        assert_eq!(sync_mail_local(&app, vec![]).unwrap(), 0);
+        assert_eq!(app.store.knowledge_count("mail_local"), 0);
+        assert!(app.store.kv_get("mail_local").is_some(), "still connected");
+    }
+
+    #[tokio::test]
+    async fn mac_mail_keeps_one_copy_of_a_message_in_several_accounts_and_the_newest_when_capped() {
+        let dir = tempfile::tempdir().unwrap();
+        let (app, _) = app_with(ScriptedLlm::new(vec![]), dir.path()).await;
+        let now = now_ts();
+        // The same Message-ID in two accounts (a forward to oneself, a shared mailbox) is one message naming both.
+        let n = sync_mail_local(&app, vec![local_mail("<dup@x>", "Same", now, "Gmail"), local_mail("<dup@x>", "Same", now, "iCloud"), local_mail("<dup@x>", "Same", now, "Gmail")]).unwrap();
+        assert_eq!(n, 1);
+        let item = &app.store.knowledge_of("mail_local", false, 5).unwrap()[0];
+        assert!(item.body.contains("Account: Gmail, iCloud"), "{}", item.body);
+        // Over the cap, the newest stay.
+        let many: Vec<LocalMail> = (0..LOCAL_MAIL_KEEP + 50).map(|i| local_mail(&format!("<m{i}@x>"), &format!("Mail {i}"), now - i as i64, "Gmail")).collect();
+        assert_eq!(sync_mail_local(&app, many).unwrap(), LOCAL_MAIL_KEEP);
+        assert_eq!(app.store.knowledge_count("mail_local"), LOCAL_MAIL_KEEP as i64);
+        let titles: Vec<String> = app.store.knowledge_of("mail_local", false, 1000).unwrap().into_iter().map(|i| i.title).collect();
+        assert!(titles.contains(&"Mail 0".to_string()) && !titles.contains(&format!("Mail {}", LOCAL_MAIL_KEEP)), "the oldest were dropped");
+        // A flood is refused and changes nothing.
+        let flood: Vec<LocalMail> = (0..=LOCAL_MAIL_LIMIT).map(|i| local_mail(&format!("<f{i}@x>"), "f", now, "Gmail")).collect();
+        assert!(sync_mail_local(&app, flood).is_err());
+        assert_eq!(app.store.knowledge_count("mail_local"), LOCAL_MAIL_KEEP as i64, "a refused sync changes nothing");
+    }
+
+    #[tokio::test]
+    async fn mac_mail_clips_long_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let (app, _) = app_with(ScriptedLlm::new(vec![]), dir.path()).await;
+        let mut m = local_mail("<l@x>", &"s".repeat(5000), now_ts(), "Gmail");
+        m.body = "b".repeat(50_000);
+        sync_mail_local(&app, vec![m]).unwrap();
+        let item = &app.store.knowledge_of("mail_local", false, 5).unwrap()[0];
+        assert_eq!(item.title.chars().count(), 200);
+        assert!(item.body.chars().count() < 4300, "{}", item.body.chars().count());
     }
 
     #[tokio::test]
