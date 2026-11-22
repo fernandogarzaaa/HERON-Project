@@ -49,6 +49,7 @@ public final class AppModel {
     public let settings: SettingsStore
     public let persona: PersonaStore
     public let firstRun: FirstRunStore
+    public let features: FeaturesSettingsStore
 
     public var selection: Destination = .today
     public var settingsTab: SettingsTab = .general
@@ -68,7 +69,8 @@ public final class AppModel {
     @ObservationIgnored private let now: () -> Date
 
     public init(client: any CoreClientProtocol, preferences: DisplayPreferences? = nil,
-                userFirstName: String? = nil, now: @escaping () -> Date = Date.init) {
+                userFirstName: String? = nil, now: @escaping () -> Date = Date.init,
+                features featuresClient: (any FeaturesClientProtocol)? = nil) {
         self.client = client
         self.preferences = preferences ?? DisplayPreferences()
         self.now = now
@@ -84,6 +86,16 @@ public final class AppModel {
         settings = SettingsStore(client: client)
         persona = PersonaStore(client: client)
         firstRun = FirstRunStore(client: client)
+        // The preview client has no core behind it, so its features come from memory; a live client's follow its endpoint.
+        let featuresBackend: any FeaturesClientProtocol
+        if let featuresClient {
+            featuresBackend = featuresClient
+        } else if client is PreviewCoreClient {
+            featuresBackend = PreviewFeaturesClient()
+        } else {
+            featuresBackend = FeaturesClient(endpoint: { [client] in client.endpoint })
+        }
+        features = FeaturesSettingsStore(client: featuresBackend)
         chat.onOtherApproval = { [weak self] event in self?.addToFeed(event) }
     }
 
