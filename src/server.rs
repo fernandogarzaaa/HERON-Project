@@ -3911,6 +3911,58 @@ mod tests {
         assert_eq!(h.send("POST", &approve, json!({"action": "approve"})).await.status, 400, "and only once");
     }
 
+    /// An approved action that takes a while, as a build or a test run does.
+    struct Slow;
+
+    #[async_trait]
+    impl crate::tools::Tool for Slow {
+        fn name(&self) -> &str {
+            "slow_step"
+        }
+        fn description(&self) -> &str {
+            "test: takes half a second"
+        }
+        fn parameters(&self) -> Value {
+            crate::tools::schema(json!({}), &[])
+        }
+        fn summary(&self, _args: &Value) -> String {
+            "slow step".into()
+        }
+        fn risk(&self, _args: &Value, _ctx: &crate::tools::ToolCtx) -> crate::permissions::Effect {
+            crate::permissions::Effect::WorkspaceWrite
+        }
+        async fn call(&self, _args: &Value, _ctx: &crate::tools::ToolCtx) -> Result<String> {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            Ok("slow step finished".into())
+        }
+    }
+
+    #[tokio::test]
+    async fn an_approved_action_finishes_after_the_client_gives_up_waiting() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let mut app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), scripted(vec![])).await.unwrap();
+        let mut tools = crate::tools::ToolRegistry::builtin();
+        tools.register(Arc::new(Slow));
+        app.tools = Arc::new(tools);
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        let h = serve_app(dir, Arc::new(app));
+        let sid = h.app.store.create_session("build", "user").unwrap();
+        let id = h.app.store.park_approval(&sid, "slow_step", "{}", "slow step", "slow step", crate::permissions::Effect::WorkspaceWrite.label(), false, "build").unwrap();
+        // The app's request gives up (its timeout, a closed window) while the action is still going.
+        assert!(tokio::time::timeout(Duration::from_millis(100), h.send("POST", &format!("/approvals/{id}"), json!({"action": "approve"}))).await.is_err());
+        let mut status = String::new();
+        for _ in 0..40 {
+            status = h.app.store.get_approval(id).unwrap().status;
+            if status != "running" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(status, "approved", "the action ran to the end and recorded its outcome");
+    }
+
     #[tokio::test]
     async fn print_endpoint_line_has_port_token_and_owner() {
         let dir = tempfile::tempdir().unwrap();
