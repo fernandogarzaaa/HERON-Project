@@ -2022,11 +2022,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F2: why text, session taint, Telegram sentence",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "60f8a3020282ed59e863bc50a0796511e74daddb",
+      "branch": "skein/F2s",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F2s"
     }
   },
   "F2t": {
