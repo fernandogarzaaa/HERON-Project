@@ -30,6 +30,12 @@ pub const FEATURE: &str = "email_drafts";
 pub const MAX_RECIPIENTS: usize = 10;
 /// The body is capped at this many characters, because mail apps cut long `mailto:` URLs.
 pub const MAX_BODY_CHARS: usize = 2_000;
+/// An address is at most this many characters (the SMTP path limit).
+pub const MAX_ADDRESS_LEN: usize = 254;
+/// At most this many characters before the `@`.
+pub const MAX_LOCAL_LEN: usize = 64;
+/// The subject is capped at this many characters.
+pub const MAX_SUBJECT_CHARS: usize = 200;
 /// What a model gets for an address that isn't a plain one.
 pub const NOT_PLAIN: &str = "That isn't a plain email address.";
 /// The only program the tool runs. It hands the URL to Launch Services.
@@ -46,9 +52,20 @@ struct Draft {
     body: String,
 }
 
+/// A plain address: the pattern, at most [`MAX_ADDRESS_LEN`] characters, at most [`MAX_LOCAL_LEN`]
+/// before the `@`. The pattern is ASCII only, so a byte count is a character count.
 fn plain_address(s: &str) -> bool {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$").unwrap()).is_match(s)
+    s.len() <= MAX_ADDRESS_LEN
+        && s.find('@').is_some_and(|at| at <= MAX_LOCAL_LEN)
+        && RE.get_or_init(|| regex::Regex::new(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$").unwrap()).is_match(s)
+}
+
+/// Characters that lay text out right to left or isolate it (the Arabic letter mark, the left-to-right
+/// and right-to-left marks, the embeddings and overrides, the isolates). They can reorder what the
+/// approval text shows, and `char::is_control` doesn't cover them.
+fn is_bidi_format(c: char) -> bool {
+    matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
 }
 
 /// The checked draft, or the reason the call is refused.
@@ -68,6 +85,12 @@ fn parse(args: &Value) -> Result<Draft, String> {
     }
     let text = |key: &str| args.get(key).and_then(Value::as_str).map(str::to_string).ok_or_else(|| format!("missing required string argument '{key}'"));
     let (subject, body) = (text("subject")?, text("body")?);
+    if subject.chars().any(|c| c.is_control() || is_bidi_format(c)) {
+        return Err("The subject can't contain line breaks, control characters or text-direction characters. Write it as one plain line and try again.".into());
+    }
+    if subject.chars().count() > MAX_SUBJECT_CHARS {
+        return Err(format!("The subject is longer than {MAX_SUBJECT_CHARS} characters. Shorten it and try again."));
+    }
     if body.chars().count() > MAX_BODY_CHARS {
         return Err(format!("The body is longer than {MAX_BODY_CHARS} characters, which mail apps cut off. Shorten it and try again."));
     }
@@ -157,7 +180,7 @@ impl Tool for DraftEmail {
         schema(
             json!({
                 "to": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_RECIPIENTS, "description": "Plain email addresses, such as name@example.com."},
-                "subject": {"type": "string"},
+                "subject": {"type": "string", "maxLength": MAX_SUBJECT_CHARS, "description": "One plain line, at most 200 characters."},
                 "body": {"type": "string", "maxLength": MAX_BODY_CHARS, "description": "Plain text, at most 2,000 characters."}
             }),
             &["to", "subject", "body"],
@@ -412,6 +435,82 @@ mod tests {
         let err = fake.tool().call(&args(&["ann@example.com&cc=evil@attacker.example"], "s", "b"), &test_ctx(false)).await.unwrap_err().to_string();
         assert_eq!(err, NOT_PLAIN);
         assert!(fake.runs().is_empty());
+    }
+
+    #[tokio::test]
+    async fn draft_email_rejects_overlong_addresses() {
+        let tool = DraftEmail::with_bin("/nonexistent/open");
+        let ctx = test_ctx(false);
+        let domain = |n: usize| format!("{}.com", "d".repeat(n - 4));
+        // Exactly at both limits: 64 before the @ and 254 in all.
+        let at_cap = format!("{}@{}", "a".repeat(MAX_LOCAL_LEN), domain(MAX_ADDRESS_LEN - MAX_LOCAL_LEN - 1));
+        assert_eq!(at_cap.len(), MAX_ADDRESS_LEN);
+        assert_eq!(tool.refusal(&args(&[&at_cap], "s", "b"), &ctx), None);
+        // One over the total, one over the local part.
+        let long_total = format!("{}@{}", "a".repeat(MAX_LOCAL_LEN), domain(MAX_ADDRESS_LEN - MAX_LOCAL_LEN));
+        let long_local = format!("{}@example.com", "a".repeat(MAX_LOCAL_LEN + 1));
+        // The case from the review: one huge address, then a recipient the approval would cut off.
+        let huge = format!("{}@example.com", "a".repeat(5_000));
+        for bad in [&long_total, &long_local, &huge] {
+            assert_eq!(parse(&args(&["ok@example.com", bad], "s", "b")), Err(NOT_PLAIN.to_string()), "{} characters", bad.len());
+            assert_eq!(parse(&args(&[bad, "evil@attacker.example"], "s", "b")), Err(NOT_PLAIN.to_string()), "{} characters", bad.len());
+            assert_eq!(tool.refusal(&args(&[bad], "s", "b"), &ctx).as_deref(), Some(NOT_PLAIN));
+            assert_eq!(tool.detail(&args(&[bad], "s", "b"), &ctx), format!("Refused: {NOT_PLAIN}"));
+        }
+        // Checked again when the call runs: open never runs.
+        let fake = FakeOpen::new();
+        let err = fake.tool().call(&args(&[&huge, "boss@corp.example"], "s", "b"), &ctx).await.unwrap_err().to_string();
+        assert_eq!(err, NOT_PLAIN);
+        assert!(fake.runs().is_empty());
+    }
+
+    #[tokio::test]
+    async fn draft_email_rejects_control_characters_in_the_subject() {
+        let tool = DraftEmail::with_bin("/nonexistent/open");
+        let ctx = test_ctx(false);
+        // The case from the review, plus every kind of control and text-direction character.
+        for bad in [
+            "Hi\nTo: boss@corp.example",
+            "Hi\r\nTo: boss@corp.example",
+            "Hi\rTo: boss@corp.example",
+            "tab\there",
+            "nul\0here",
+            "escape\u{1b}[2Jhere",
+            "delete\u{7f}here",
+            "next line\u{85}here",
+            "right-to-left override \u{202e}gpj.exe",
+            "embedding \u{202a}x\u{202c}",
+            "isolate \u{2066}x\u{2069}",
+            "mark \u{200f}x",
+            "mark \u{200e}x",
+            "letter mark \u{061c}x",
+        ] {
+            let call = args(&["ann@example.com"], bad, "b");
+            let reason = parse(&call).unwrap_err();
+            assert!(reason.contains("subject"), "{bad:?}: {reason}");
+            assert_eq!(tool.refusal(&call, &ctx), Some(reason.clone()), "{bad:?}");
+            assert_eq!(tool.detail(&call, &ctx), format!("Refused: {reason}"), "{bad:?}");
+        }
+        // Ordinary text passes, accents, emoji and other scripts included.
+        for ok in ["Lunch & plans? 100% sure", "Café ☕ 会議 Привет", ""] {
+            assert_eq!(tool.refusal(&args(&["ann@example.com"], ok, "b"), &ctx), None, "{ok:?}");
+        }
+        // The body may still hold line breaks.
+        assert_eq!(tool.refusal(&args(&["ann@example.com"], "s", "one\ntwo\r\nthree"), &ctx), None);
+        // At 200 characters (not bytes) it passes; one more is refused.
+        let at_cap = "é".repeat(MAX_SUBJECT_CHARS);
+        assert_eq!(parse(&args(&["ann@example.com"], &at_cap, "b")).map(|d| d.subject), Ok(at_cap.clone()));
+        let err = parse(&args(&["ann@example.com"], &format!("{at_cap}x"), "b")).unwrap_err();
+        assert!(err.contains("200") && err.contains("Shorten"), "{err}");
+        // The model is told the cap.
+        assert_eq!(tool.parameters()["properties"]["subject"]["maxLength"], MAX_SUBJECT_CHARS);
+        // Checked again when the call runs: open never runs.
+        let fake = FakeOpen::new();
+        let call = args(&["ann@example.com"], "Hi\nTo: boss@corp.example", "b");
+        assert_eq!(fake.tool().call(&call, &ctx).await.unwrap_err().to_string(), parse(&call).unwrap_err());
+        assert!(fake.runs().is_empty());
+        // The approval text never shows a second `To:` line for it.
+        assert!(!tool.detail(&call, &ctx).contains("boss@corp.example"));
     }
 
     #[tokio::test]
