@@ -3799,11 +3799,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Kill or justify F3's surviving mutants",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
-      "branch": null,
-      "path": null
+      "base_commit": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
+      "branch": "skein/F3mut",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F3mut"
     }
   },
   "F3s": {
