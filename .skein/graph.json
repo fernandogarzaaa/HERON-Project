@@ -5317,7 +5317,7 @@
       "goal": "Build item 35: the dictation button in the composer and the F1 panel (startDictation:, falling back to the shortcut hint), spoken replies with AVSpeechSynthesizer one sentence at a time for the conversation on screen only, stopping on any key or click, F7's row, and VoiceTests including speaksOneSentenceAtATime, speechStopsOnKey, backgroundRunsAreNotSpoken and dictationButtonFallsBackToShortcutHint."
     },
     "max_retries": 3,
-    "rejected_count": 2,
+    "rejected_count": 3,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -5325,7 +5325,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "F7: dictation button, spoken replies",
-    "version": 33,
+    "version": 34,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
@@ -6193,6 +6193,55 @@
     "status": "unclaimed",
     "title": "Gate: screen_text",
     "version": 4,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
+  "F9g__integrate": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F9a",
+      "F9c",
+      "F9-fix-1"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F9g__integrate",
+    "integration_for": "F9g",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['F9a', 'F9c', 'F9-fix-1'] into one base branch for F9g."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Integrate parents of F9g",
+    "version": 1,
     "worktree": {
       "base_branch": null,
       "branch": null,
