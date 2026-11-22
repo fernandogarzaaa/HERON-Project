@@ -418,15 +418,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "7890edfcf81b42b1a28479fc98d97e21",
+      "base_branch": "feat/harness2-1a",
+      "claim_token": "f317a36381ed4c54a999dc9375474f8b",
+      "claimed_at": "2026-11-22T16:33:49.778907+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T16:33:49.778907+00:00",
+      "node_version": 15,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [],
     "evidence": [
@@ -471,9 +471,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "packaging/macos/build-app.sh (item 22)",
-    "version": 15,
+    "version": 16,
     "worktree": {
       "base_branch": "feat/harness2-1a",
       "base_commit": "d3b15bc83dbba37a5ee269eb8cbd62e902fb8bd2",
