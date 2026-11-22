@@ -2,6 +2,7 @@
 pub mod agent;
 pub mod ambient;
 pub mod app;
+pub mod approval_text;
 pub mod browser;
 pub mod channel;
 mod child;

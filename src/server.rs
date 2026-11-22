@@ -463,7 +463,9 @@ async fn get_session(State(st): S, Path(id): Path<String>) -> ApiResult {
     let messages = st.app.store.load_messages(&id)?;
     // Every step is saved as it happens, so a reply cut short (a crash, a closed window) can be picked up again.
     let interrupted = !busy && messages.last().map(|m| m.role == "tool" || m.role == "user" || !m.tool_calls.is_empty()).unwrap_or(false);
-    Ok(Json(json!({"id": id, "title": st.app.store.session_title(&id), "messages": messages, "busy": busy, "interrupted": interrupted})))
+    // What restricted the conversation, if anything; `source` is null for a taint from before sources were recorded.
+    let taint = json!({"tainted": crate::taint::is_tainted(&st.app.store, &id), "source": crate::taint::source(&st.app.store, &id)});
+    Ok(Json(json!({"id": id, "title": st.app.store.session_title(&id), "messages": messages, "busy": busy, "interrupted": interrupted, "taint": taint})))
 }
 
 async fn delete_session(State(st): S, Path(id): Path<String>) -> ApiResult {
@@ -482,14 +484,25 @@ struct WebApprover {
     run_id: String,
 }
 
+/// The `approval` event for `req`. It carries `why` while `ask_reasons` is on, and leaves it out
+/// when the owner has turned that off.
+fn approval_event(app: &App, id: &str, req: &ApprovalRequest) -> Value {
+    let mut event = json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
+        "always_rule": req.always_rule, "can_always": req.can_always(), "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted});
+    if app.cfg().feature_on(crate::features::ASK_REASONS) {
+        let source = if req.tainted { crate::approval_text::TaintSource::load(&app.store, &req.session_id) } else { None };
+        event["why"] = json!(crate::approval_text::why(&req.tool, req.risk.label(), app.policy.mode(), req.tainted, source.as_ref()));
+    }
+    event
+}
+
 #[async_trait]
 impl Approver for WebApprover {
     async fn approve(&self, req: &ApprovalRequest) -> Approval {
         let app = &self.state.app;
         let id = uuid::Uuid::new_v4().simple().to_string();
         let (tx, mut rx) = oneshot::channel();
-        let event = json!({"type": "approval", "id": id, "tool": req.tool, "summary": req.summary, "risk": req.risk.label(), "detail": req.detail,
-            "always_rule": req.always_rule, "can_always": req.can_always(), "can_session": crate::agent::may_grant_for_conversation(&req.tool, req.risk, req.tainted), "tainted": req.tainted});
+        let event = approval_event(app, &id, req);
         self.state.approvals.lock().unwrap().insert(id.clone(), PendingApproval { session_id: self.session_id.clone(), run_id: self.run_id.clone(), event: event.clone(), tx });
         // The approval waits on the bus, not on one connection: any client can answer it.
         app.events.publish(&self.session_id, &self.run_id, event);
@@ -1862,9 +1875,12 @@ mod tests {
     #[tokio::test]
     async fn features_routes_list_and_set_keys() {
         let h = harness(scripted(vec![]), true, |_| {}).await;
-        assert_eq!(h.json("GET", "/features", Value::Null).await, json!({"features": [{"key": "test_key", "title": "Test feature", "on": false}]}));
+        assert_eq!(
+            h.json("GET", "/features", Value::Null).await,
+            json!({"features": [{"key": "ask_reasons", "title": "Explain approvals", "on": true}, {"key": "test_key", "title": "Test feature", "on": false}]})
+        );
         assert_eq!(h.json("POST", "/features/test_key", json!({"on": true})).await, json!({"key": "test_key", "on": true}));
-        assert_eq!(h.json("GET", "/features", Value::Null).await["features"][0]["on"], true);
+        assert_eq!(h.json("GET", "/features", Value::Null).await["features"][1]["on"], true);
         assert!(h.app.cfg().feature_on("test_key"), "the running core sees it at once");
         assert!(Config::read_saved(&h.app.cfg().home).unwrap().feature_on("test_key"), "saved to config.toml");
         assert_eq!(h.json("POST", "/features/test_key", json!({"on": false})).await, json!({"key": "test_key", "on": false}));
@@ -2062,6 +2078,62 @@ mod tests {
         assert_eq!(events[0]["type"], "session");
         assert_eq!(find(&events, "done")["text"], "Hello.");
         assert_eq!(h.app.store.list_sessions(10).unwrap().len(), 1);
+    }
+
+    /// F2: the bus says a conversation was tainted once, the first time, however often outside
+    /// content arrives after; the session says what tainted it.
+    #[tokio::test]
+    async fn tainted_event_published_once() {
+        let h = harness(scripted(vec![Message::assistant("One."), Message::assistant("Two."), Message::assistant("Three.")]), true, |_| {}).await;
+        let first = h.chat(json!({"message": "look", "context": [context_item("selection", "Preview", "a page of a PDF")]})).await.all().await;
+        let sid = first[0]["id"].as_str().unwrap().to_string();
+        assert_eq!(first.iter().filter(|e| e["type"] == "tainted").count(), 1, "{:?}", types(&first));
+        let session = h.json("GET", &format!("/sessions/{sid}"), Value::Null).await;
+        assert_eq!(session["taint"]["tainted"], true, "{session}");
+        let source = &session["taint"]["source"];
+        assert_eq!((source["kind"].as_str(), source["name"].as_str(), source["detail"].as_str()), (Some("chat_context"), Some("selection"), Some("Preview")), "{session}");
+        // More outside content in the same conversation, from another app: no second event, and the
+        // first source stays.
+        let second = h.chat(json!({"session_id": sid, "message": "and this", "context": [context_item("screen_text", "Mail", "an email")]})).await.all().await;
+        assert!(second.iter().all(|e| e["type"] != "tainted"), "{:?}", types(&second));
+        assert_eq!(h.json("GET", &format!("/sessions/{sid}"), Value::Null).await["taint"]["source"], *source);
+        // The whole bus, replayed, holds the one event.
+        let mut replay = h.send("GET", "/events?since=0", Value::Null).await.events();
+        let mut all = replay.until("run_end").await;
+        all.extend(replay.until("run_end").await);
+        assert_eq!(all.iter().filter(|e| e["type"] == "run_end" && e["session_id"] == sid.as_str()).count(), 2, "both turns replayed: {:?}", types(&all));
+        assert_eq!(all.iter().filter(|e| e["type"] == "tainted" && e["session_id"] == sid.as_str()).count(), 1, "{:?}", types(&all));
+        // A clean conversation says so, with no source.
+        let clean = h.chat(json!({"message": "hi"})).await.all().await;
+        let clean_id = clean[0]["id"].as_str().unwrap();
+        assert!(clean.iter().all(|e| e["type"] != "tainted"));
+        assert_eq!(h.json("GET", &format!("/sessions/{clean_id}"), Value::Null).await["taint"], json!({"tainted": false, "source": null}));
+    }
+
+    /// F2: the approval event carries `why` while `ask_reasons` is on, and leaves it out when off.
+    #[tokio::test]
+    async fn ask_reasons_off_leaves_out_why() {
+        for on in [true, false] {
+            let h = harness(scripted(vec![write("a.txt", "a"), Message::assistant("Done.")]), true, |cfg| {
+                cfg.features.flags.insert("ask_reasons".into(), on);
+            })
+            .await;
+            assert_eq!(h.json("GET", "/features", Value::Null).await["features"][0], json!({"key": "ask_reasons", "title": "Explain approvals", "on": on}));
+            // Outside content is in the conversation, so the write asks.
+            let mut chat = h.chat(json!({"message": "write a", "context": [context_item("selection", "Preview", "a page of a PDF")]})).await;
+            let approval = chat.until("approval").await.pop().unwrap();
+            assert_eq!(approval["tool"], "write_file");
+            assert_eq!(approval["tainted"], true, "the field it already carried stays");
+            if on {
+                let mode = h.app.policy.mode().name();
+                assert_eq!(approval["why"], format!("Heron asks before this in {mode} mode. Heron has read text from Preview in this conversation, so changes and sends ask first."), "{approval}");
+            } else {
+                assert!(approval.get("why").is_none(), "{approval}");
+            }
+            assert_eq!(h.json("POST", "/approve", json!({"id": approval["id"], "decision": "deny"}))
+                .await["ok"], true);
+            chat.all().await;
+        }
     }
 
     #[tokio::test]
