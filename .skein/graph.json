@@ -3953,11 +3953,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fix F5 review findings (core)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "271ce07d639562a10b67169cb722d64080194bdf",
-      "branch": null,
-      "path": null
+      "base_commit": "271ce07d639562a10b67169cb722d64080194bdf",
+      "branch": "skein/F5-fix-1",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F5-fix-1"
     }
   },
   "F5a": {
