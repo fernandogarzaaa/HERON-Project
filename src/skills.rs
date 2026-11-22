@@ -501,7 +501,7 @@ mod tests {
             "updates should follow the filesystem's own case-sensitivity rules"
         );
         if lowercase_resolves {
-            assert_eq!(result.unwrap(), true);
+            assert!(result.unwrap());
         } else {
             assert!(result.unwrap_err().to_string().contains("skills directory is full"));
         }
