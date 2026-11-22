@@ -651,6 +651,45 @@ mod tests {
         assert!(Policy::check_tool_setting(NAME, "allow").is_err());
     }
 
+    /// The summary is what the owner reads on the approval: it names every recipient and the
+    /// subject, and a call that was refused isn't described as a send.
+    #[test]
+    fn draft_email_summary_names_recipients_and_subject() {
+        let tool = DraftEmail::from_env();
+        let ctx = test_ctx(false);
+        let to = ["ann@example.com", "bo.b+news@mail.example.org", "cy@example.net"];
+        let call = args(&to, "Quarterly plans: lunch?", "A body that is not part of the summary.");
+        let summary = tool.summary(&call);
+        for addr in to {
+            assert!(summary.contains(addr), "the summary names {addr}: {summary:?}");
+        }
+        assert!(summary.contains("Quarterly plans: lunch?"), "the summary names the subject: {summary:?}");
+        // Recipients come in the order given, so the owner reads them as the model wrote them.
+        let at = |needle: &str| summary.find(needle).unwrap();
+        assert!(at(to[0]) < at(to[1]) && at(to[1]) < at(to[2]), "{summary:?}");
+        assert!(!summary.trim().is_empty());
+
+        // A different draft gives a different summary: it isn't a fixed string.
+        let other = tool.summary(&args(&["dee@example.org"], "Other subject", "b"));
+        assert!(other.contains("dee@example.org") && other.contains("Other subject"), "{other:?}");
+        assert!(!other.contains("ann@example.com") && !other.contains("Quarterly"), "{other:?}");
+        assert_ne!(summary, other);
+
+        // A call refused for a bad address is refused, and its summary never claims a send or an
+        // opened draft, whatever the model put in the subject.
+        let bad = args(&["ann@example.com", "evil@example.com?bcc=x@attacker.example"], "Plans", "b");
+        assert!(tool.refusal(&bad, &ctx).is_some(), "the bad address is refused");
+        assert!(tool.detail(&bad, &ctx).starts_with("Refused:"));
+        let refused = tool.summary(&bad).to_lowercase();
+        for claim in ["sent", "sending", "send ", "opened", "draft created"] {
+            assert!(!refused.contains(claim), "a refused call isn't summarised as a send ({claim:?}): {refused:?}");
+        }
+        // The same holds for a clean call: the tool never sends, so its summary doesn't say so.
+        for claim in ["sent", "sending", "send ", "opened"] {
+            assert!(!summary.to_lowercase().contains(claim), "{claim:?} in {summary:?}");
+        }
+    }
+
     #[test]
     fn decision_table_draft_email() {
         let tool = DraftEmail::from_env();
