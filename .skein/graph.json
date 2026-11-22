@@ -2302,9 +2302,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Gate: ask_reasons",
-    "version": 3,
+    "version": 4,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/F2g__integrate-base",
       "branch": null,
       "path": null
     }
