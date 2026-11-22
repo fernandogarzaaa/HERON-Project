@@ -207,6 +207,32 @@ final class CoreClientTests: XCTestCase {
         XCTAssertEqual(try body(try XCTUnwrap(StubProtocol.seen.first))["session_id"] as? String, "abc")
     }
 
+    /// The sidebar's menu: rename, pin and archive go to `POST /api/sessions/{id}` with only what changed.
+    func testSessionUpdatesSendOnlyWhatChanged() async throws {
+        let client = makeClient { _ in .init(200, json: "{}") }
+        try await client.updateSession(id: "a b", title: "Taxes", pinned: nil, archived: nil)
+        try await client.updateSession(id: "s1", title: nil, pinned: true, archived: false)
+        let seen = StubProtocol.seen
+        XCTAssertEqual(seen.map(\.method), ["POST", "POST"])
+        XCTAssertEqual(seen[0].path, "/api/sessions/a b", "the id travels as one path segment")
+        XCTAssertEqual(try body(seen[0]) as NSDictionary, ["title": "Taxes"])
+        XCTAssertEqual(try body(seen[1]) as NSDictionary, ["pinned": true, "archived": false])
+    }
+
+    func testArchivedSessionsAskForTheArchivedListAndDecodeTheMarks() async throws {
+        let list = #"[{"id":"s1","title":"Old","created_at":1,"updated_at":1795003200,"messages":3,"pinned":true,"archived":true}]"#
+        let client = makeClient { _ in .init(200, json: list) }
+        let archived = try await client.archivedSessions()
+        XCTAssertEqual(StubProtocol.seen.first?.path, "/api/sessions")
+        XCTAssertEqual(StubProtocol.seen.first?.query, "archived=true")
+        XCTAssertEqual(archived.map(\.pinned), [true])
+        XCTAssertEqual(archived.map(\.archived), [true])
+        // A core older than the menu sends neither mark.
+        let older = try CoreWire.sessions(Data(#"[{"id":"s1","title":"Old","updated_at":1,"messages":3}]"#.utf8))
+        XCTAssertEqual(older.map(\.pinned), [false])
+        XCTAssertEqual(older.map(\.archived), [false])
+    }
+
     func testQueriesAndPaths() async throws {
         let client = makeClient { _ in .init(200, json: "[]") }
         _ = try await client.memories(query: "tea & milk")

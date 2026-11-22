@@ -118,6 +118,18 @@ public final class CoreClient: CoreClientProtocol, Sendable {
     public func session(id: String) async throws -> SessionDetail { try CoreWire.session(try await send("GET", "/sessions/\(segment(id))")) }
     public func deleteSession(id: String) async throws { try await send("DELETE", "/sessions/\(segment(id))") }
 
+    public func archivedSessions() async throws -> [SessionSummary] {
+        try CoreWire.sessions(try await send("GET", "/sessions", query: [URLQueryItem(name: "archived", value: "true")]))
+    }
+
+    public func updateSession(id: String, title: String?, pinned: Bool?, archived: Bool?) async throws {
+        var body: [String: Any] = [:]
+        if let title { body["title"] = title }
+        if let pinned { body["pinned"] = pinned }
+        if let archived { body["archived"] = archived }
+        try await send("POST", "/sessions/\(segment(id))", body: body)
+    }
+
     /// `POST /api/chat` answers with the run's events as SSE. This reads only up to its `session` event and then
     /// drops the response: the run goes on without it (heron-v1.md §3), and its events reach the app once, on `events(since:)`.
     /// The core has no title field on `/api/chat`: `title` is accepted for the protocol and not sent (DESIGN-CHOICES.md).

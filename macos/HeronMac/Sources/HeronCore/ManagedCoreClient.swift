@@ -114,6 +114,10 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
     public func sessions() async throws -> [SessionSummary] { try await current().sessions() }
     public func session(id: String) async throws -> SessionDetail { try await current().session(id: id) }
     public func deleteSession(id: String) async throws { try await current().deleteSession(id: id) }
+    public func archivedSessions() async throws -> [SessionSummary] { try await current().archivedSessions() }
+    public func updateSession(id: String, title: String?, pinned: Bool?, archived: Bool?) async throws {
+        try await current().updateSession(id: id, title: title, pinned: pinned, archived: archived)
+    }
     public func sendMessage(sessionID: String?, message: String, title: String?) async throws -> ChatStart {
         try await currentStartingIfStopped().sendMessage(sessionID: sessionID, message: message, title: title)
     }

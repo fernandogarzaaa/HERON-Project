@@ -12,6 +12,9 @@ public protocol CoreClientProtocol: Sendable {
     func sessions() async throws -> [SessionSummary]                         // GET /api/sessions
     func session(id: String) async throws -> SessionDetail                   // GET /api/sessions/{id}
     func deleteSession(id: String) async throws                              // DELETE /api/sessions/{id}
+    func archivedSessions() async throws -> [SessionSummary]                 // GET /api/sessions?archived=true
+    /// Rename, pin or archive one conversation; nil leaves that part as it is.
+    func updateSession(id: String, title: String?, pinned: Bool?, archived: Bool?) async throws // POST /api/sessions/{id}
 
     /// `POST /api/chat`. Returns once the run has started (its `session` event arrived); the run's events
     /// then arrive on `events(since:)`. Throws `CoreError.sessionBusy` (409) or `.riskNoticeNotAccepted` (428).

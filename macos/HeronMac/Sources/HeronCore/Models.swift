@@ -79,12 +79,18 @@ public struct SessionSummary: Sendable, Equatable, Identifiable {
     public var title: String
     public var updatedAt: Date
     public var messages: Int
+    /// Listed first in the sidebar.
+    public var pinned: Bool
+    /// Listed only under "Archived".
+    public var archived: Bool
 
-    public init(id: String, title: String, updatedAt: Date, messages: Int) {
+    public init(id: String, title: String, updatedAt: Date, messages: Int, pinned: Bool = false, archived: Bool = false) {
         self.id = id
         self.title = title
         self.updatedAt = updatedAt
         self.messages = messages
+        self.pinned = pinned
+        self.archived = archived
     }
 }
 

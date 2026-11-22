@@ -22,6 +22,8 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     private var beforeSendReturns: (@Sendable (String) async -> Void)?
     private var sendFailure: CoreError?
     private var cancelFailure: CoreError?
+    private var pinned: Set<String> = []
+    private var archived: Set<String> = []
 
     /// - Parameters:
     ///   - pace: the pause between scripted events. Zero in tests, a little in the running app.
@@ -110,8 +112,35 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
         }
     }
 
-    public func sessions() async throws -> [SessionSummary] {
-        with { d in d.sessions.values.sorted { $0.summary.updatedAt > $1.summary.updatedAt }.map(\.summary) }
+    /// As the core lists them: no empty sessions, pinned first, then the most recent.
+    public func sessions() async throws -> [SessionSummary] { listed(archived: false) }
+
+    public func archivedSessions() async throws -> [SessionSummary] { listed(archived: true) }
+
+    private func listed(archived wanted: Bool) -> [SessionSummary] {
+        lock.withLock {
+            data.sessions.values
+                .filter { $0.summary.messages > 0 && archived.contains($0.summary.id) == wanted }
+                .sorted { $0.summary.updatedAt > $1.summary.updatedAt }
+                .map { s in
+                    var summary = s.summary
+                    summary.pinned = pinned.contains(summary.id)
+                    summary.archived = wanted
+                    return summary
+                }
+                .enumerated().sorted { ($0.element.pinned ? 0 : 1, $0.offset) < ($1.element.pinned ? 0 : 1, $1.offset) }.map(\.element)
+        }
+    }
+
+    public func updateSession(id: String, title: String?, pinned pin: Bool?, archived archive: Bool?) async throws {
+        let name = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let name, name.isEmpty || name.count > 120 { throw CoreError.failed(name.isEmpty ? "A conversation needs a name." : "Keep the name to 120 characters.") }
+        try lock.withLock {
+            guard data.sessions[id] != nil else { throw CoreError.notFound }
+            if let name { data.sessions[id]?.summary.title = name; data.sessions[id]?.detail.title = name }
+            if let pin { if pin { pinned.insert(id) } else { pinned.remove(id) } }
+            if let archive { if archive { archived.insert(id) } else { archived.remove(id) } }
+        }
     }
 
     public func session(id: String) async throws -> SessionDetail {
@@ -126,7 +155,11 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
 
     public func deleteSession(id: String) async throws {
         if lock.withLock({ activeRuns.contains(id) }) { throw CoreError.failed("Stop the running reply before deleting this conversation.") }
-        with { _ = $0.sessions.removeValue(forKey: id) }
+        lock.withLock {
+            data.sessions.removeValue(forKey: id)
+            pinned.remove(id)
+            archived.remove(id)
+        }
     }
 
     public func sendMessage(sessionID: String?, message: String, title: String?) async throws -> ChatStart {

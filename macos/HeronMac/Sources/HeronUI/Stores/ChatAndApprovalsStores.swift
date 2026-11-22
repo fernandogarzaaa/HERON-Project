@@ -110,6 +110,11 @@ public final class ChatStore {
     @ObservationIgnored private let now: () -> Date
 
     public private(set) var sessions: [SessionSummary] = []
+    /// Shown under "Archived" in the sidebar once opened.
+    public private(set) var archivedSessions: [SessionSummary] = []
+    public private(set) var showsArchived = false
+    /// The last sidebar action that failed (rename, pin, archive, delete), shown under the list.
+    public private(set) var sessionActionError: String?
     public private(set) var currentSessionID: String?
     public private(set) var messages: [ChatMessage] = []
     public var composer = ""
@@ -163,6 +168,53 @@ public final class ChatStore {
 
     public func loadSessions() async {
         do { sessions = try await client.sessions() } catch { loadState = .failed(describe(error)) }
+    }
+
+    // MARK: Sidebar actions
+
+    public func toggleArchived() async {
+        showsArchived.toggle()
+        if showsArchived { await loadArchived() }
+    }
+
+    public func loadArchived() async {
+        do { archivedSessions = try await client.archivedSessions() } catch { sessionActionError = describe(error) }
+    }
+
+    /// Returns false, with the reason in `sessionActionError`, when the name was refused.
+    @discardableResult
+    public func rename(_ id: String, to title: String) async -> Bool {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { sessionActionError = "A conversation needs a name."; return false }
+        return await updateSession { try await $0.updateSession(id: id, title: name, pinned: nil, archived: nil) }
+    }
+
+    public func setPinned(_ id: String, _ pinned: Bool) async {
+        await updateSession { try await $0.updateSession(id: id, title: nil, pinned: pinned, archived: nil) }
+    }
+
+    public func setArchived(_ id: String, _ archived: Bool) async {
+        await updateSession { try await $0.updateSession(id: id, title: nil, pinned: nil, archived: archived) }
+    }
+
+    /// Deletes the conversation for good (the sidebar asks first). The open conversation gives way to a new one.
+    public func delete(_ id: String) async {
+        await updateSession { try await $0.deleteSession(id: id) }
+        if id == currentSessionID, !sessions.contains(where: { $0.id == id }), sessionActionError == nil { startNewConversation() }
+    }
+
+    @discardableResult
+    private func updateSession(_ change: (any CoreClientProtocol) async throws -> Void) async -> Bool {
+        do {
+            try await change(client)
+            sessionActionError = nil
+        } catch {
+            sessionActionError = describe(error)
+            return false
+        }
+        await loadSessions()
+        if showsArchived { await loadArchived() }
+        return true
     }
 
     public func open(id: String) async {
