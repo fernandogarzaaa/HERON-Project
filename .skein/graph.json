@@ -3289,11 +3289,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fix: close unfinished runs only in the lock owner",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "skein/F3-fix-3__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "1b35866289a3f7720b407a01c7842aa2211c3492",
+      "branch": "skein/F3-fix-3",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F3-fix-3"
     }
   },
   "F3-fix-3__integrate": {
