@@ -4757,7 +4757,8 @@
     "depends_on": [
       "F6s",
       "F6c",
-      "F6a"
+      "F6a",
+      "F6-fix-1"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -4778,7 +4779,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Gate: morning_brief",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": null,
       "branch": null,
