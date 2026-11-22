@@ -1273,7 +1273,7 @@ async fn set_shortcuts_allowed(State(st): S, Json(b): Json<ShortcutsAllowedBody>
     let listed = if b.names.is_empty() { vec![] } else { crate::tools::shortcuts::list(&crate::tools::shortcuts::bin(), &crate::child::own_var).await?.unwrap_or_default() };
     let mut names: Vec<String> = Vec::new();
     for name in b.names {
-        if !listed.contains(&name) {
+        if !crate::tools::shortcuts::name_is_safe(&name) || !listed.contains(&name) {
             return Ok(coded(StatusCode::BAD_REQUEST, "unknown_shortcut", &format!("There is no shortcut called \"{name}\" in Shortcuts.")));
         }
         if !names.contains(&name) {
@@ -1928,6 +1928,23 @@ mod tests {
         assert_eq!((status, v["error"].as_str()), (404, Some("unknown_feature")), "{v}");
         assert!(v["message"].as_str().is_some_and(|m| m.contains("no_such_feature")), "{v}");
         assert!(!h.app.cfg().features.flags.contains_key("no_such_feature"), "nothing was saved");
+    }
+
+    /// A name that starts with `-` is refused with `unknown_shortcut` even when `shortcuts list` gives it.
+    #[tokio::test]
+    async fn allowed_names_cannot_start_with_a_dash() {
+        let bins = tempfile::tempdir().unwrap();
+        let bin = crate::tools::shortcuts::fake_bin(bins.path(), "[ \"$1\" = list ] || exit 2\nprintf 'Get Notes\\n--help\\n-Dash\\n'");
+        let _fake = crate::tools::shortcuts::test_bin::fake(bin).await;
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        for bad in ["--help", "-Dash"] {
+            let reply = h.send("POST", "/shortcuts/allowed", json!({"names": ["Get Notes", bad]})).await;
+            let status = reply.status;
+            let v = reply.json().await;
+            assert_eq!((status, v["error"].as_str()), (400, Some("unknown_shortcut")), "{bad:?}: {v}");
+            assert!(h.app.cfg().features.shortcuts_allowed.is_empty(), "{bad:?}: nothing was saved");
+        }
+        assert_eq!(h.json("POST", "/shortcuts/allowed", json!({"names": ["Get Notes"]})).await, json!({"allowed": ["Get Notes"]}));
     }
 
     /// F5: `POST /api/shortcuts/allowed` saves only names `shortcuts list` gives, through

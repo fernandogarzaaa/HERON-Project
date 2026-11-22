@@ -76,9 +76,16 @@ pub fn run_timeout(tool_timeout_secs: u64) -> Duration {
     Duration::from_secs(RUN_TIMEOUT_MAX_SECS.min(tool_timeout_secs.saturating_sub(5)).max(RUN_TIMEOUT_MIN_SECS))
 }
 
-/// Whether the owner ticked `name` in Settings › Features › Shortcuts. The name must match exactly.
+/// Whether `name` could be handed to `shortcuts run` as the shortcut's name: a name that starts with
+/// `-` would be read as an option, so it is never one.
+pub fn name_is_safe(name: &str) -> bool {
+    !name.starts_with('-')
+}
+
+/// Whether the owner ticked `name` in Settings › Features › Shortcuts. The name must match exactly,
+/// and must not start with `-` (see [`name_is_safe`]), even if a saved config lists it.
 pub fn allowed(cfg: &Config, name: &str) -> bool {
-    cfg.features.shortcuts_allowed.iter().any(|n| n == name)
+    name_is_safe(name) && cfg.features.shortcuts_allowed.iter().any(|n| n == name)
 }
 
 /// The owner's shortcuts, from `shortcuts list`, one name per line, in its order. `None` when the
@@ -378,6 +385,36 @@ mod tests {
 
     fn lines(path: &Path) -> Vec<String> {
         std::fs::read_to_string(path).unwrap().lines().map(str::to_string).collect()
+    }
+
+    /// A name that starts with `-` would reach `shortcuts` as an option. Even a hand-edited config that
+    /// lists one is refused, like an unlisted name, before the decision function and before anything runs.
+    #[tokio::test]
+    async fn shortcut_name_starting_with_a_dash_is_refused() {
+        let (bins, rec) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let _fake = test_bin::fake(recording_bin(bins.path(), rec.path())).await;
+        let dashed = ["-h", "--help", "-", "--input-path", "-Dash"];
+        let mut cfg = Config::default();
+        cfg.features.shortcuts_allowed = dashed.iter().map(|n| n.to_string()).chain(["Get Notes".to_string(), "A-B".to_string()]).collect();
+        let mut ctx = crate::permissions::test_ctx(false);
+        ctx.cfg = std::sync::Arc::new(cfg.clone());
+
+        for name in dashed {
+            assert!(!allowed(&cfg, name), "{name}");
+            let args = json!({"name": name, "input": "x"});
+            assert_eq!(RunShortcut.refusal(&args, &ctx).as_deref(), Some(NOT_ALLOWED), "{name}");
+            assert_eq!(RunShortcut.call(&args, &ctx).await.unwrap_err().to_string(), NOT_ALLOWED, "{name}");
+        }
+        assert!(!rec.path().join("argv").exists(), "nothing ran");
+
+        // The control: ticked names, a dash inside one included, are still run.
+        for name in ["Get Notes", "A-B"] {
+            assert!(allowed(&cfg, name), "{name}");
+            let args = json!({"name": name});
+            assert_eq!(RunShortcut.refusal(&args, &ctx), None, "{name}");
+            assert_eq!(RunShortcut.call(&args, &ctx).await.unwrap(), "done", "{name}");
+        }
+        assert_eq!(lines(&rec.path().join("argv")).iter().filter(|a| *a == "run").count(), 2);
     }
 
     #[tokio::test]
