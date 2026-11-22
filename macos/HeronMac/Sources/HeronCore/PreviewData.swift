@@ -12,6 +12,8 @@ struct PreviewSession {
     mutating func append(role: String, content: String, now: Date) {
         detail.messages.append(SessionMessage(id: detail.messages.count, role: role, content: content, toolCalls: []))
         summary.messages = detail.messages.count
+        // A finished reply is no longer cut off.
+        if role == "assistant" { detail.interrupted = false }
         summary.updatedAt = now
     }
 }

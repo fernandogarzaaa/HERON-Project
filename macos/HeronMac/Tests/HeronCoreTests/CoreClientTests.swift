@@ -314,8 +314,45 @@ final class ManagedCoreClientTests: XCTestCase {
         _ = try await collect(stream, until: { isStopped($0.last) })
         try await Task.sleep(for: .milliseconds(200))
         do { _ = try await managed.sessions(); XCTFail("expected a failure") } catch {
-            guard case CoreError.failed(let message) = error else { return XCTFail("\(error)") }
-            XCTAssertTrue(message.contains("exited with status 0"), message)
+            guard case CoreError.coreStopped(let details) = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(details.contains("exited with status 0"), details)
         }
+    }
+
+    /// Sending a message is the user asking Heron to work, so a stopped core is started again for it, and the
+    /// message goes to the new core instead of failing with the old core's details.
+    func testSendingWhileTheCoreIsStoppedStartsItAgain() async throws {
+        let core = try FakeCore(.exitFirst(2))
+        let process = CoreProcess(launch: .init(executable: core.script), now: StepClock(step: 0).now)
+        defer { process.stop(grace: 0.5) }
+        let stream = process.statuses()
+        let managed = ManagedCoreClient(process: process, makeClient: { CoreClient(endpoint: $0, session: StubProtocol.session()) })
+        StubProtocol.reset { _ in .init(200, json: "data: {\"seq\":1,\"session_id\":\"s1\",\"run_id\":\"r1\",\"type\":\"session\",\"id\":\"s1\"}\n\n", contentType: "text/event-stream") }
+        process.start()
+        _ = try await collect(stream, until: { isStopped($0.last) })
+        try await Task.sleep(for: .milliseconds(200))
+        let start = try await managed.sendMessage(sessionID: "s1", message: "hello", title: nil)
+        XCTAssertEqual(start.sessionID, "s1")
+        XCTAssertEqual(StubProtocol.seen.last?.token, "token3", "the message went to the restarted core")
+        if case .running = process.status {} else { XCTFail("the core runs again: \(process.status)") }
+    }
+
+    /// A core that can't start at all: the one retry for the message fails, and says the core isn't running.
+    func testSendingFailsPlainlyWhenTheCoreCannotStartAgain() async throws {
+        let missing = FileManager.default.temporaryDirectory.appendingPathComponent("heron-no-such-core-\(UUID().uuidString)")
+        let process = CoreProcess(launch: .init(executable: missing), now: StepClock(step: 0).now)
+        defer { process.stop(grace: 0.2) }
+        let stream = process.statuses()
+        let managed = ManagedCoreClient(process: process, makeClient: { CoreClient(endpoint: $0, session: StubProtocol.session()) })
+        process.start()
+        _ = try await collect(stream, until: { isStopped($0.last) })
+        try await Task.sleep(for: .milliseconds(200))
+        let after = process.statuses()
+        do { _ = try await managed.sendMessage(sessionID: nil, message: "hello", title: nil); XCTFail("expected a failure") } catch {
+            guard case CoreError.coreStopped(let details) = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(details.contains("couldn't start"), details)
+        }
+        let seen = try await collect(after, until: { isStopped($0.last) && $0.count > 1 })
+        XCTAssertTrue(seen.contains(.starting), "the message started the core once more: \(seen)")
     }
 }
