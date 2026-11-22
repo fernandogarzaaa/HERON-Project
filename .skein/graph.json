@@ -4412,22 +4412,31 @@
     }
   },
   "F5g__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "458f2c5a46b0415ca5e12dc0ec7ef9b3",
+        "ended_at": "2026-11-22T11:04:41.098852+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-22T11:04:40.185116+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "458f2c5a46b0415ca5e12dc0ec7ef9b3",
-      "base_branch": "skein/F5g__integrate__integrate-base",
-      "claim_token": "3237ef06378949ff8829a0bc1e59798d",
-      "claimed_at": "2026-11-22T11:04:40.185116+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-22T11:04:40.185116+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F5s",
@@ -4437,8 +4446,14 @@
       "F5d",
       "F5-fix-1"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 441b55f486289e28f550be7dfdb6f63eeca4f352 567b3f9f2c32d5abc26325876189d2ea6715143f 271ce07d639562a10b67169cb722d64080194bdf f5e951891119f4c9eea73be70129f7c6f8010d03 65ff096ca16825c452ce26e792bb1bf3b34ce326",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['beacef1f170f56de6ed0fe74a91556415730d37b', '441b55f486289e28f550be7dfdb6f63eeca4f352', '567b3f9f2c32d5abc26325876189d2ea6715143f', '271ce07d639562a10b67169cb722d64080194bdf', 'f5e951891119f4c9eea73be70129f7c6f8010d03', '65ff096ca16825c452ce26e792bb1bf3b34ce326'] into skein/F5g__integrate-base.",
     "id": "F5g__integrate",
     "integration_for": "F5g",
     "intent": {
@@ -4450,16 +4465,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "beacef1f170f56de6ed0fe74a91556415730d37b",
+      "changed_files": [],
+      "commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of F5g",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/F5g__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "beacef1f170f56de6ed0fe74a91556415730d37b",
+      "branch": "skein/F5g__integrate-base",
       "path": null
     }
   },
