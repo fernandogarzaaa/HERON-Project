@@ -3458,11 +3458,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F8: Email drafts row",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "cbc32169e16fa3fb67935fe443f4766546e13beb",
+      "branch": "skein/F8a",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F8a"
     }
   },
   "F8c": {
