@@ -3047,7 +3047,7 @@
       "claim_token": "161ce386a4bd44f7b2da37ff35b42617",
       "claimed_at": "2026-11-22T10:38:14.133449+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:42:45.209223+00:00",
+      "last_heartbeat": "2026-11-22T10:48:15.890379+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3074,7 +3074,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fix F3 review findings (core)",
-    "version": 12,
+    "version": 23,
     "worktree": {
       "base_branch": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
       "base_commit": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
@@ -4826,7 +4826,7 @@
       "claim_token": "093523737ea14ceab2ad7e9426652a17",
       "claimed_at": "2026-11-22T10:43:03.704919+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T10:43:03.704919+00:00",
+      "last_heartbeat": "2026-11-22T10:48:04.822173+00:00",
       "node_version": 5,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -4854,9 +4854,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Gate: morning_brief",
-    "version": 7,
+    "version": 17,
     "worktree": {
       "base_branch": "skein/F6g__integrate-base",
       "base_commit": "374995789f0c7dea269a89098802ca17b5df6471",
@@ -5040,7 +5040,16 @@
     }
   },
   "F7a": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "45b02630b809476fada04583a088d271",
+        "ended_at": "2026-11-22T10:48:32.805352+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-22T10:41:52.012970+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -5052,21 +5061,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "45b02630b809476fada04583a088d271",
-      "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
-      "claim_token": "b02a02963d7b45f78ca1d9a5d3eb301e",
-      "claimed_at": "2026-11-22T10:41:52.012970+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:42:52.584468+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F1g"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q 'VoiceTests.*speechStopsOnKey'",
+        "duration_ms": 33056,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F7a_20261122T104759709613_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F7a_20261122T104832767877_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "F7a",
     "integration_for": null,
     "intent": {
@@ -5079,12 +5100,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-22T10:49:41.637104+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "unclaimed",
     "title": "F7: dictation button, spoken replies",
-    "version": 5,
+    "version": 17,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
