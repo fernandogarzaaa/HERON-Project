@@ -3296,6 +3296,54 @@
       "path": null
     }
   },
+  "F3-fix-3__integrate": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F3-fix-1",
+      "F3-fix-2"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F3-fix-3__integrate",
+    "integration_for": "F3-fix-3",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['F3-fix-1', 'F3-fix-2'] into one base branch for F3-fix-3."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Integrate parents of F3-fix-3",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F3a": {
     "attempts": [
       {
@@ -6246,7 +6294,7 @@
       "goal": "Gate unit. Write nothing. The supervisor runs bash scripts/verify-feature.sh <slug> as your check, which includes this feature's EVE tasks on claude-cli. You may run read-only commands to confirm the feature looks complete, then stop."
     },
     "max_retries": 0,
-    "rejected_count": 1,
+    "rejected_count": 2,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -6254,7 +6302,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Gate: screen_text",
-    "version": 6,
+    "version": 7,
     "worktree": {
       "base_branch": "skein/F9g__integrate-base",
       "branch": null,
