@@ -287,6 +287,11 @@ async fn http_api_chat_approval_and_settings() {
     let row = restored.as_array().unwrap().iter().find(|m| m["content"].as_str().unwrap().contains("northwind")).expect("restored row");
     assert_eq!((row["source"].as_str(), row["confirmed"].as_bool()), (Some("email"), Some(false)), "{row}");
     assert_eq!(post("/api/memories", json!({"content": "Some odd source name", "source": "Not A Source!"})).await.unwrap().status(), 400);
+    // A model-saved row that was still waiting for the owner comes back waiting too.
+    assert!(post("/api/memories", json!({"content": "The quarterly report lives at contoso dot test", "source": "agent", "confirmed": false})).await.unwrap().status().is_success());
+    let waiting: Value = get("/api/memories?q=contoso%20quarterly", &token).await.unwrap().json().await.unwrap();
+    let row = waiting.as_array().unwrap().iter().find(|m| m["content"].as_str().unwrap().contains("contoso")).expect("restored row");
+    assert_eq!(row["confirmed"].as_bool(), Some(false), "{row}");
     assert!(post("/api/tasks", json!({"title": "Tune the cello"})).await.unwrap().status().is_success());
     assert!(post("/api/schedules", json!({"prompt": "Practice reminder", "when": "daily 18:00"})).await.unwrap().status().is_success());
     let bad_when = post("/api/schedules", json!({"prompt": "x", "when": "sometime"})).await.unwrap();

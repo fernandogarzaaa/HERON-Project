@@ -212,10 +212,10 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
         }
     }
 
-    public func addMemory(content: String, kind: String, source: String) async throws -> Int {
+    public func addMemory(content: String, kind: String, source: String, confirmed: Bool) async throws -> Int {
         with { d in
             let id = (d.memories.map(\.id).max() ?? 0) + 1
-            let trusted = ["user", "onboarding", "about", "agent", "auto"].contains(source)
+            let trusted = confirmed && ["user", "onboarding", "about", "agent", "auto"].contains(source)
             d.memories.append(Memory(id: id, kind: kind, content: content, source: source, confirmed: trusted, uses: 0, createdAt: now))
             return id
         }

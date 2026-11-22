@@ -876,9 +876,13 @@ async fn add_memory(State(st): S, Json(b): Json<Value>) -> ApiResult {
     let kind = b.get("kind").and_then(|c| c.as_str()).unwrap_or("fact");
     // The app sends a forgotten or edited row back with its own source, so an outside fact keeps
     // its standing. Any source but `user` can only lower trust: `user` is what this route gives.
-    let source = b.get("source").and_then(|s| s.as_str()).unwrap_or("user");
+    let mut source = b.get("source").and_then(|s| s.as_str()).unwrap_or("user");
     if source.len() > 32 || !source.bytes().all(|c| c.is_ascii_lowercase() || c == b'_') {
         return Err(bad("Unknown memory source."));
+    }
+    // A row that was waiting for the owner's confirmation comes back waiting, whatever its source.
+    if b.get("confirmed").and_then(|c| c.as_bool()) == Some(false) && crate::memory::starts_confirmed(source) {
+        source = "outside";
     }
     let out = st.app.memory.save(content, kind, "", 0.7, source).await?;
     Ok(Json(json!({"id": out.id()})))

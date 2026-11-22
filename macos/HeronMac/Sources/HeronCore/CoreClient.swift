@@ -219,8 +219,8 @@ public final class CoreClient: CoreClientProtocol, Sendable {
         return try CoreWire.memories(try await send("GET", "/memories", query: q.isEmpty ? [] : [URLQueryItem(name: "q", value: q)]))
     }
 
-    public func addMemory(content: String, kind: String, source: String) async throws -> Int {
-        try identifier(try await send("POST", "/memories", body: ["content": content, "kind": kind, "source": source]))
+    public func addMemory(content: String, kind: String, source: String, confirmed: Bool) async throws -> Int {
+        try identifier(try await send("POST", "/memories", body: ["content": content, "kind": kind, "source": source, "confirmed": confirmed]))
     }
 
     public func confirmMemory(id: Int) async throws { try await send("POST", "/memories/\(id)/confirm", body: [:]) }

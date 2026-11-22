@@ -170,6 +170,9 @@ impl Tool for McpTool {
     fn untrusted_output(&self) -> bool {
         true
     }
+    fn untrusted_errors(&self) -> bool {
+        true
+    }
     async fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<String> {
         self.client.call_tool(&self.tool_name, args, ctx.cfg.agent.tool_timeout_secs).await
     }
