@@ -3772,7 +3772,7 @@
       "claim_token": "e3df20df716f4587b6d0bfa8489b53ea",
       "claimed_at": "2026-11-22T12:13:10.853447+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T12:13:41.549767+00:00",
+      "last_heartbeat": "2026-11-22T12:19:14.875142+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -3799,7 +3799,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Kill or justify F3's surviving mutants",
-    "version": 4,
+    "version": 15,
     "worktree": {
       "base_branch": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
       "base_commit": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
@@ -4228,7 +4228,16 @@
     }
   },
   "F4t": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "d49cda5a9fe746548d22fb9f9c0e60ca",
+        "ended_at": "2026-11-22T12:19:23.126913+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T12:13:40.859147+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -4240,21 +4249,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "d49cda5a9fe746548d22fb9f9c0e60ca",
-      "base_branch": "b57635286d7fcdccca2967f5977f1a1639078dbf",
-      "claim_token": "74d6931ab986405d84416dd66488c1f4",
-      "claimed_at": "2026-11-22T12:13:40.859147+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T12:13:40.859147+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F4s"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_undo_files_restores_a_runs_files api_undo_files_ignores_a_reused_checkpoint_id api_undo_files_lists_what_it_cannot_undo",
+        "duration_ms": 14350,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F4t_20261122T121907093092_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F4t_20261122T121921445519_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F4t",
     "integration_for": null,
     "intent": {
@@ -4266,13 +4287,31 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "d49cda5a9fe746548d22fb9f9c0e60ca",
+      "base_commit": "b57635286d7fcdccca2967f5977f1a1639078dbf",
+      "changed_files": [
+        "tests/integration.rs",
+        "tests/fixtures/api/undo-files.json"
+      ],
+      "commit": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
+      "diff_stats": {
+        "tests/fixtures/api/undo-files.json": {
+          "added": 32,
+          "deleted": 0
+        },
+        "tests/integration.rs": {
+          "added": 192,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "F4: integration tests, undo-files fixture",
-    "version": 3,
+    "version": 15,
     "worktree": {
       "base_branch": "b57635286d7fcdccca2967f5977f1a1639078dbf",
       "base_commit": "b57635286d7fcdccca2967f5977f1a1639078dbf",
@@ -7134,7 +7173,7 @@
       "claim_token": "dc2b3627dd024f04ab135894f0c3b6f9",
       "claimed_at": "2026-11-22T12:10:41.357285+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T12:13:12.388572+00:00",
+      "last_heartbeat": "2026-11-22T12:19:16.444621+00:00",
       "node_version": 7,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -7163,7 +7202,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: screen_text",
-    "version": 14,
+    "version": 26,
     "worktree": {
       "base_branch": "skein/F9g__integrate-base",
       "base_commit": "a7999060f5b42e756de22f56de47d7e440e1b840",
