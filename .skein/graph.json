@@ -4147,7 +4147,7 @@
       "claim_token": "c8b697c1bc724f43a19caf0d057ea3ea",
       "claimed_at": "2026-11-22T11:48:35.842964+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:49:36.445551+00:00",
+      "last_heartbeat": "2026-11-22T11:54:07.016012+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4174,7 +4174,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F4: recorded-checkpoint undo, route",
-    "version": 5,
+    "version": 14,
     "worktree": {
       "base_branch": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
       "base_commit": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
@@ -5951,7 +5951,16 @@
     }
   },
   "F7g": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "d2c171ebf68b40e4b7d00ce43ee57621",
+        "ended_at": "2026-11-22T11:54:13.227192+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T11:49:12.888969+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -5963,21 +5972,33 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "d2c171ebf68b40e4b7d00ce43ee57621",
-      "base_branch": "b5c93af5d962861ebef24bbfb63ae3ea765d515e",
-      "claim_token": "a00824be1137413b80d88c586e5a4394",
-      "claimed_at": "2026-11-22T11:49:12.888969+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T11:49:43.407155+00:00",
-      "node_version": 3,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F7a"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash scripts/verify-feature.sh voice",
+        "duration_ms": 271962,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F7g_20261122T114941144310_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F7g_20261122T115413109635_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run `bash scripts/verify-feature.sh voice` unsandboxed. If it fails in a step outside this gate's scope, add a fix node.",
     "id": "F7g",
     "integration_for": null,
     "intent": {
@@ -5989,13 +6010,19 @@
     "max_retries": 0,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "d2c171ebf68b40e4b7d00ce43ee57621",
+      "base_commit": "b5c93af5d962861ebef24bbfb63ae3ea765d515e",
+      "changed_files": [],
+      "commit": "b5c93af5d962861ebef24bbfb63ae3ea765d515e",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Gate: voice",
-    "version": 6,
+    "version": 15,
     "worktree": {
       "base_branch": "b5c93af5d962861ebef24bbfb63ae3ea765d515e",
       "base_commit": "b5c93af5d962861ebef24bbfb63ae3ea765d515e",
