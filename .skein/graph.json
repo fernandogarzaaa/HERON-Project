@@ -5281,15 +5281,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "d905ee18490941cd83779452595dde9d",
+      "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
+      "claim_token": "40bb54105728496a96f834fd588befab",
+      "claimed_at": "2026-11-22T11:05:38.682429+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T11:05:38.682429+00:00",
+      "node_version": 32,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "F1g"
@@ -5320,12 +5320,12 @@
     "rejected_count": 2,
     "removed": false,
     "result": null,
-    "retry_at": "2026-11-22T11:05:38.593140+00:00",
+    "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F7: dictation button, spoken replies",
-    "version": 32,
+    "version": 33,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
