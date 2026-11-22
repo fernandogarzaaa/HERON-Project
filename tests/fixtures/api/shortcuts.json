@@ -1,0 +1,11 @@
+{
+  "available": true,
+  "shortcuts": [
+    "Get Notes",
+    "Add Reminder",
+    "Send Message"
+  ],
+  "allowed": [
+    "Get Notes"
+  ]
+}
