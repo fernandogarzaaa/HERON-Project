@@ -784,7 +784,7 @@ fn short_flags(cmd: &str) -> String {
                 "-Rr".to_string()
             } else if long(name, "force") {
                 "-f".to_string()
-            } else if long(name, "dir") || name == "--dir" {
+            } else if long(name, "dir") {
                 "-d".to_string()
             } else {
                 w
