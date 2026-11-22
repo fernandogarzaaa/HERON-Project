@@ -2309,6 +2309,56 @@
       "path": null
     }
   },
+  "F2g__integrate": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F2s",
+      "F2t",
+      "F2c",
+      "F2a"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F2g__integrate",
+    "integration_for": "F2g",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['F2s', 'F2t', 'F2c', 'F2a'] into one base branch for F2g."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Integrate parents of F2g",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F2s": {
     "attempts": [
       {
@@ -2618,7 +2668,7 @@
       "claim_token": "5f3a4720e7cf4c2fad52e583541f8cf3",
       "claimed_at": "2026-11-22T10:18:46.345508+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:19:16.898529+00:00",
+      "last_heartbeat": "2026-11-22T10:20:16.994271+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -2645,7 +2695,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fix: core notices lost when notifications are denied",
-    "version": 4,
+    "version": 6,
     "worktree": {
       "base_branch": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
       "base_commit": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
@@ -4627,7 +4677,7 @@
       "claim_token": "26de304cf52c45d283e714032fca4e60",
       "claimed_at": "2026-11-22T10:19:23.146591+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:19:23.146591+00:00",
+      "last_heartbeat": "2026-11-22T10:19:53.615128+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -4650,9 +4700,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F8: draft_email, key",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "b13942e9f6196e1009af8e865292d2efa5bf1466",
