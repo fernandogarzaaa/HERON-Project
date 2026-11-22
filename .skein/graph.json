@@ -1496,7 +1496,16 @@
     }
   },
   "F1a": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "d9f7f88e69474f58a03d31ef70155896",
+        "ended_at": "2026-11-22T09:41:00.601914+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-22T09:26:45.215217+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -1508,19 +1517,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "d9f7f88e69474f58a03d31ef70155896",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "4bafa9a67ed846819d1820dc75c7913d",
-      "claimed_at": "2026-11-22T09:26:45.215217+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T09:26:45.215217+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q 'QuickEntryTests.*selectionBecomesContext' && { { bash packaging/macos/build-app.sh --unsigned && test -d dist/Heron.app/Contents/Resources/Metadata.appintents && swift test list --package-path macos/HeronMac | grep -q 'QuickEntryTests.*intentTextIsContext'; } || grep -qx 'Status: deferred to v1.1' macos/HeronMac/APP-INTENTS-CHECK.md; }",
+        "duration_ms": 26570,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1a_20261122T094034001187_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1a_20261122T094100575669_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "F1a",
     "integration_for": null,
     "intent": {
@@ -1533,12 +1554,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-22T09:41:57.549611+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 3,
+    "version": 32,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -1547,7 +1568,16 @@
     }
   },
   "F1c": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "aeb4566c5f184d6295d8373e61351b93",
+        "ended_at": "2026-11-22T09:27:40.081709+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:27:05.230434+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1559,19 +1589,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "aeb4566c5f184d6295d8373e61351b93",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "dc7ac1f1c80e4963a2642a97c62976b4",
-      "claimed_at": "2026-11-22T09:27:05.230434+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:27:05.230434+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I eval/check_tasks.py --features eval/features/quick_entry.md",
+        "duration_ms": 234,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1c_20261122T092739684473_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1c_20261122T092739919765_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I only added this one file and touched nothing else.",
     "id": "F1c",
     "integration_for": null,
     "intent": {
@@ -1583,21 +1625,44 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "aeb4566c5f184d6295d8373e61351b93",
+      "base_commit": "1ad1f3b6f8a58952fb4cec45efc9f760fac9f3ca",
+      "changed_files": [
+        "eval/features/quick_entry.md"
+      ],
+      "commit": "a4e4cd673d35f4b4e224e3649b06c19fdd84558c",
+      "diff_stats": {
+        "eval/features/quick_entry.md": {
+          "added": 32,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "F1: feature task ft1",
-    "version": 2,
+    "version": 5,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "1ad1f3b6f8a58952fb4cec45efc9f760fac9f3ca",
+      "branch": "skein/F1c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F1c"
     }
   },
   "F1d": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "6009d18b3c6d409f89e2e5fe5198ad26",
+        "ended_at": "2026-11-22T09:29:03.477027+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:27:25.270063+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1620,8 +1685,20 @@
       "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "test -s docs/features/quick_entry.md && grep -qxF -- '- ChatContext (Services selection, App Intent text, window text): outside content; taints the session.' docs/engineering/SECURITY_THREAT_MODEL.md",
+        "duration_ms": 238,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1d_20261122T092903145648_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1d_20261122T092903384582_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: F1g runs after F1a, F1c and F1p finish.",
     "id": "F1d",
     "integration_for": null,
     "intent": {
@@ -1633,17 +1710,41 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "6009d18b3c6d409f89e2e5fe5198ad26",
+      "base_commit": "bd770b9c1018a4cad0baa4ed0aebe15e56c4ab43",
+      "changed_files": [
+        "docs/engineering/SECURITY_THREAT_MODEL.md",
+        "docs/features/README.md",
+        "docs/features/quick_entry.md"
+      ],
+      "commit": "2940415acadfeac08c0b156d671b488b26b9ac49",
+      "diff_stats": {
+        "docs/engineering/SECURITY_THREAT_MODEL.md": {
+          "added": 4,
+          "deleted": 0
+        },
+        "docs/features/README.md": {
+          "added": 2,
+          "deleted": 0
+        },
+        "docs/features/quick_entry.md": {
+          "added": 65,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "done",
     "title": "F1: guide, threat-model line, index line",
-    "version": 1,
+    "version": 7,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "feat/v1-features-base",
+      "base_commit": "bd770b9c1018a4cad0baa4ed0aebe15e56c4ab43",
+      "branch": "skein/F1d",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F1d"
     }
   },
   "F1g": {
@@ -1714,15 +1815,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "38c04391923a44c8a9399f87c4cbac00",
+      "base_branch": "feat/v1-features-base",
+      "claim_token": "138a1f397f294fb49bb78add6812e9b0",
+      "claimed_at": "2026-11-22T09:41:00.810137+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T09:41:00.810137+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [],
     "evidence": [],
@@ -1742,11 +1843,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F1: NSServices entry",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/v1-features-base",
       "branch": null,
       "path": null
     }
@@ -1804,7 +1905,16 @@
     }
   },
   "F2c": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "ff68583b622549b78b27b4e59ed0dafc",
+        "ended_at": "2026-11-22T09:28:07.769558+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:27:40.244033+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1827,8 +1937,20 @@
       "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I eval/check_tasks.py --features eval/features/ask_reasons.md",
+        "duration_ms": 234,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2c_20261122T092807386138_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2c_20261122T092807621190_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I made no edits to `core-tasks.md`, and `check_tasks.py` still accepts it.",
     "id": "F2c",
     "integration_for": null,
     "intent": {
@@ -1840,17 +1962,31 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "ff68583b622549b78b27b4e59ed0dafc",
+      "base_commit": "84f283e9123a06fe7bd955fb827aa07df075c331",
+      "changed_files": [
+        "eval/features/ask_reasons.md"
+      ],
+      "commit": "719e2195304baffbd65707dabc143706a820e9dd",
+      "diff_stats": {
+        "eval/features/ask_reasons.md": {
+          "added": 28,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "done",
     "title": "F2: feature task ft2",
-    "version": 1,
+    "version": 4,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "feat/v1-features-base",
+      "base_commit": "84f283e9123a06fe7bd955fb827aa07df075c331",
+      "branch": "skein/F2c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F2c"
     }
   },
   "F2g": {
@@ -1909,7 +2045,16 @@
     }
   },
   "F2s": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "bb4717225e934f4ca3caf818a86938f1",
+        "ended_at": "2026-11-22T09:38:27.039349+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:28:07.903394+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1932,8 +2077,20 @@
       "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- why_matches_the_old_warning_when_untainted why_is_never_empty why_names_the_taint_source why_covers_outside_reads tainted_event_published_once telegram_refusal_names_the_taint_source ask_reasons_off_leaves_out_why",
+        "duration_ms": 36030,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2s_20261122T093750915519_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2s_20261122T093826947116_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F2s",
     "integration_for": null,
     "intent": {
@@ -1945,21 +2102,64 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "bb4717225e934f4ca3caf818a86938f1",
+      "base_commit": "60f8a3020282ed59e863bc50a0796511e74daddb",
+      "changed_files": [
+        "src/features.rs",
+        "src/lib.rs",
+        "src/server.rs",
+        "src/telegram.rs",
+        "src/approval_text.rs"
+      ],
+      "commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
+      "diff_stats": {
+        "src/approval_text.rs": {
+          "added": 203,
+          "deleted": 0
+        },
+        "src/features.rs": {
+          "added": 5,
+          "deleted": 0
+        },
+        "src/lib.rs": {
+          "added": 1,
+          "deleted": 0
+        },
+        "src/server.rs": {
+          "added": 77,
+          "deleted": 5
+        },
+        "src/telegram.rs": {
+          "added": 92,
+          "deleted": 2
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "done",
     "title": "F2: why text, session taint, Telegram sentence",
-    "version": 1,
+    "version": 24,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "feat/v1-features-base",
+      "base_commit": "60f8a3020282ed59e863bc50a0796511e74daddb",
+      "branch": "skein/F2s",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F2s"
     }
   },
   "F2t": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "8074cf5bdd7d4a96bd99327e8e7a3237",
+        "ended_at": "2026-11-22T09:40:03.622130+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-22T09:38:27.201142+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -1984,8 +2184,20 @@
     "depends_on": [
       "F2s"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_approval_carries_why api_fixtures_match_the_live_core api_features_lists_and_sets_keys && grep -q ask_reasons tests/fixtures/api/features.json",
+        "duration_ms": 2476,
+        "exit_code": 101,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2t_20261122T094001109002_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2t_20261122T094003585631_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "F2t",
     "integration_for": null,
     "intent": {
@@ -1998,16 +2210,17 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-22T09:41:07.828441+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "unclaimed",
     "title": "F2: re-recorded fixtures, api_approval_carries_why",
-    "version": 1,
+    "version": 7,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
+      "base_commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
+      "branch": "skein/F2t",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F2t"
     }
   },
   "F3a": {
@@ -2129,15 +2342,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "a675b544a4534914a43594b3ba00df3b",
+      "base_branch": "feat/v1-features-base",
+      "claim_token": "e0734d26ff51435f89d5f935502e35ff",
+      "claimed_at": "2026-11-22T09:38:37.697102+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T09:40:38.253714+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [],
     "evidence": [],
@@ -2157,13 +2370,14 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "in_progress",
     "title": "F3: run records, GET /api/runs",
-    "version": 1,
+    "version": 7,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "feat/v1-features-base",
+      "base_commit": "d7bb8d754450035c634044c8385bcee14a7df211",
+      "branch": "skein/F3s",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F3s"
     }
   },
   "F3t": {
@@ -2481,8 +2695,33 @@
     }
   },
   "F5c": {
-    "attempts": [],
-    "attempts_used": 0,
+    "attempts": [
+      {
+        "attempt_id": "7df3b2a852b2461eae1c52e979e44418",
+        "ended_at": "2026-11-22T09:30:02.002949+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-3",
+        "outcome": "failed",
+        "started_at": "2026-11-22T09:29:03.666876+00:00"
+      },
+      {
+        "attempt_id": "1b81ccbd05c344d4b375b17bad837bc8",
+        "ended_at": "2026-11-22T09:33:04.565461+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-3",
+        "outcome": "failed",
+        "started_at": "2026-11-22T09:32:26.007451+00:00"
+      },
+      {
+        "attempt_id": "4f283d02c8c44ada85ae6d4d1bd7c825",
+        "ended_at": "2026-11-22T09:37:29.160841+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-3",
+        "outcome": "failed",
+        "started_at": "2026-11-22T09:36:48.494313+00:00"
+      }
+    ],
+    "attempts_used": 2,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -2504,8 +2743,20 @@
       "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I eval/check_tasks.py --features eval/features/shortcuts.md && test -x eval/fixtures/features/shortcuts/bin/shortcuts",
+        "duration_ms": 233,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5c_20261122T093728902555_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5c_20261122T093729136529_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "F5c",
     "integration_for": null,
     "intent": {
@@ -2518,20 +2769,30 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-22T09:41:41.094570+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "unclaimed",
     "title": "F5: ft5, ft5b, fake binary, page",
-    "version": 1,
+    "version": 13,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "feat/v1-features-base",
+      "base_commit": "f4b709336df0e4922d480595e7ce1c641cf4b234",
+      "branch": "skein/F5c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F5c"
     }
   },
   "F5d": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "51b65aa7365545c2ba7353279fe711c6",
+        "ended_at": "2026-11-22T09:32:25.706821+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:30:02.153822+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -2554,8 +2815,20 @@
       "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "test -s docs/features/shortcuts.md && grep -qxF -- '- /usr/bin/shortcuts (list; run <ticked name>): runs outside the sandbox; every run asks once.' docs/engineering/SECURITY_THREAT_MODEL.md",
+        "duration_ms": 246,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5d_20261122T093225155783_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5d_20261122T093225403546_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run `skein:status` to see F5d go to done.",
     "id": "F5d",
     "integration_for": null,
     "intent": {
@@ -2567,17 +2840,41 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "51b65aa7365545c2ba7353279fe711c6",
+      "base_commit": "169bbf5c0e0bc4ff51cb09472dcbf98f3898525e",
+      "changed_files": [
+        "docs/engineering/SECURITY_THREAT_MODEL.md",
+        "docs/features/README.md",
+        "docs/features/shortcuts.md"
+      ],
+      "commit": "f5e951891119f4c9eea73be70129f7c6f8010d03",
+      "diff_stats": {
+        "docs/engineering/SECURITY_THREAT_MODEL.md": {
+          "added": 7,
+          "deleted": 1
+        },
+        "docs/features/README.md": {
+          "added": 2,
+          "deleted": 0
+        },
+        "docs/features/shortcuts.md": {
+          "added": 70,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "done",
     "title": "F5: guide, threat-model line, index line",
-    "version": 1,
+    "version": 8,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "feat/v1-features-base",
+      "base_commit": "169bbf5c0e0bc4ff51cb09472dcbf98f3898525e",
+      "branch": "skein/F5d",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F5d"
     }
   },
   "F5g": {
@@ -2791,7 +3088,16 @@
     }
   },
   "F6c": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "e83e4395f7e741369bb9d2f704c589ef",
+        "ended_at": "2026-11-22T09:34:06.311772+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:33:04.780305+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -2814,8 +3120,20 @@
       "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I eval/check_tasks.py --features eval/features/morning_brief.md",
+        "duration_ms": 243,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F6c_20261122T093405888173_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F6c_20261122T093406135456_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I didn't run the Axiom proxy health check from CLAUDE.md. The sandbox blocked that command, and this task doesn't use the proxy.",
     "id": "F6c",
     "integration_for": null,
     "intent": {
@@ -2827,17 +3145,31 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "e83e4395f7e741369bb9d2f704c589ef",
+      "base_commit": "c4ffcbf74185dc1dfa032921c6f7e46193ba152c",
+      "changed_files": [
+        "eval/features/morning_brief.md"
+      ],
+      "commit": "7eac1c15b6500ec52a4a875d8b4a5c88862acea8",
+      "diff_stats": {
+        "eval/features/morning_brief.md": {
+          "added": 31,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "done",
     "title": "F6: feature task ft6",
-    "version": 1,
+    "version": 6,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "feat/v1-features-base",
+      "base_commit": "c4ffcbf74185dc1dfa032921c6f7e46193ba152c",
+      "branch": "skein/F6c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F6c"
     }
   },
   "F6g": {
@@ -3099,8 +3431,33 @@
     }
   },
   "F8c": {
-    "attempts": [],
-    "attempts_used": 0,
+    "attempts": [
+      {
+        "attempt_id": "e302eb993fea4adda601df4665d070d9",
+        "ended_at": "2026-11-22T09:34:57.767815+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-3",
+        "outcome": "failed",
+        "started_at": "2026-11-22T09:34:06.527226+00:00"
+      },
+      {
+        "attempt_id": "53b560ed6c654b24902099f56363941d",
+        "ended_at": "2026-11-22T09:37:56.532947+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-3",
+        "outcome": "failed",
+        "started_at": "2026-11-22T09:37:29.310667+00:00"
+      },
+      {
+        "attempt_id": "98efa461427942aba4c2724b29c3ac6c",
+        "ended_at": "2026-11-22T09:40:41.469517+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-22T09:40:03.861142+00:00"
+      }
+    ],
+    "attempts_used": 2,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -3122,8 +3479,20 @@
       "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I eval/check_tasks.py --features eval/features/email_drafts.md && test -x eval/fixtures/features/email_drafts/bin/open",
+        "duration_ms": 239,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8c_20261122T094041148483_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8c_20261122T094041388194_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "F8c",
     "integration_for": null,
     "intent": {
@@ -3136,20 +3505,30 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-22T09:43:52.595053+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
     "status": "unclaimed",
     "title": "F8: ft8, fake binary, page",
-    "version": 1,
+    "version": 12,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "feat/v1-features-base",
+      "base_commit": "804c6770f74b2f6aadc773879e7f8fada12cf31e",
+      "branch": "skein/F8c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F8c"
     }
   },
   "F8d": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "00a3b7b1735d48edbebbd130ed8e67f9",
+        "ended_at": "2026-11-22T09:36:48.295313+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:34:57.919876+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -3172,8 +3551,20 @@
       "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "test -s docs/features/email_drafts.md && grep -qxF -- '- /usr/bin/open (one mailto: URL): opens a compose window; never sends; asks once.' docs/engineering/SECURITY_THREAT_MODEL.md",
+        "duration_ms": 247,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8d_20261122T093647865701_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8d_20261122T093648113445_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run `skein:ship` once F8s, F8c and F8a finish, so the F8 gate (F8g) can run.",
     "id": "F8d",
     "integration_for": null,
     "intent": {
@@ -3185,17 +3576,41 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "00a3b7b1735d48edbebbd130ed8e67f9",
+      "base_commit": "57b5066bb8b68e66b32b943cf622c12a05dcc5b2",
+      "changed_files": [
+        "docs/engineering/SECURITY_THREAT_MODEL.md",
+        "docs/features/README.md",
+        "docs/features/email_drafts.md"
+      ],
+      "commit": "4ebea50cd95ef41cd54c263e4cb6699d926e9701",
+      "diff_stats": {
+        "docs/engineering/SECURITY_THREAT_MODEL.md": {
+          "added": 8,
+          "deleted": 1
+        },
+        "docs/features/README.md": {
+          "added": 2,
+          "deleted": 0
+        },
+        "docs/features/email_drafts.md": {
+          "added": 49,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "done",
     "title": "F8: guide, threat-model line, index line",
-    "version": 1,
+    "version": 7,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "feat/v1-features-base",
+      "base_commit": "57b5066bb8b68e66b32b943cf622c12a05dcc5b2",
+      "branch": "skein/F8d",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F8d"
     }
   },
   "F8g": {
@@ -3356,7 +3771,16 @@
     }
   },
   "F9c": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "d86d94f5714c436c87919788e9885222",
+        "ended_at": "2026-11-22T09:38:37.525880+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:37:56.777277+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -3379,8 +3803,20 @@
       "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I eval/check_tasks.py --features eval/features/screen_text.md",
+        "duration_ms": 231,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F9c_20261122T093837135447_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F9c_20261122T093837367611_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I changed nothing outside `eval/`.",
     "id": "F9c",
     "integration_for": null,
     "intent": {
@@ -3392,17 +3828,36 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "d86d94f5714c436c87919788e9885222",
+      "base_commit": "7f9dfeaa2a539b6c7a7ab0472da6353c34aa303c",
+      "changed_files": [
+        "eval/features/screen_text.md",
+        "eval/fixtures/features/screen_text/web/fix.sh"
+      ],
+      "commit": "cd4ca4e9f1e1cad8fc85ee7362ef56d666f6b917",
+      "diff_stats": {
+        "eval/features/screen_text.md": {
+          "added": 31,
+          "deleted": 0
+        },
+        "eval/fixtures/features/screen_text/web/fix.sh": {
+          "added": 3,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "done",
     "title": "F9: feature task ft9",
-    "version": 1,
+    "version": 5,
     "worktree": {
-      "base_branch": null,
-      "branch": null,
-      "path": null
+      "base_branch": "feat/v1-features-base",
+      "base_commit": "7f9dfeaa2a539b6c7a7ab0472da6353c34aa303c",
+      "branch": "skein/F9c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F9c"
     }
   },
   "F9g": {

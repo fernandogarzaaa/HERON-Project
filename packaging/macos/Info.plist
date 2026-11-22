@@ -15,5 +15,16 @@
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
+  <key>NSServices</key>
+  <array>
+    <dict>
+      <key>NSMenuItem</key>
+      <dict><key>default</key><string>Ask Heron</string></dict>
+      <key>NSMessage</key><string>askHeron</string>
+      <key>NSPortName</key><string>Heron</string>
+      <key>NSSendTypes</key>
+      <array><string>public.utf8-plain-text</string></array>
+    </dict>
+  </array>
 </dict>
 </plist>
