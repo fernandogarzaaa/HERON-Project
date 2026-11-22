@@ -1100,7 +1100,13 @@ fn decode_json_string(bytes: &[u8], text: &str, start: usize) -> Option<(String,
                         }
                         k += 4;
                     }
-                    other => out.push(other as char),
+                    other if other.is_ascii() => out.push(other as char),
+                    // An unknown escape before a letter outside ASCII: keep the whole letter.
+                    _ => {
+                        let ch = text[k + 1..].chars().next()?;
+                        out.push(ch);
+                        k += ch.len_utf8() - 1;
+                    }
                 }
                 k += 2;
             }

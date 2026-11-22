@@ -1865,8 +1865,8 @@ impl App {
         let reply = self.llm.chat(req, &|_| {}).await?;
         self.spend_background(&reply.usage);
         let text = reply.message.text();
-        let (Some(a), Some(b)) = (text.find('['), text.rfind(']')) else { return Ok(vec![]) };
-        let items: Vec<serde_json::Value> = serde_json::from_str(&text[a..=b]).unwrap_or_default();
+        let Some(span) = crate::util::json_array_span(text) else { return Ok(vec![]) };
+        let items: Vec<serde_json::Value> = serde_json::from_str(span).unwrap_or_default();
         let mut insights = vec![];
         for it in items.iter().take(2) {
             let Some(content) = it["content"].as_str().filter(|c| c.len() > 12) else { continue };
@@ -1996,8 +1996,8 @@ impl App {
         };
         self.spend_background(&reply.usage);
         let text = reply.message.text();
-        let (Some(a), Some(b)) = (text.find('['), text.rfind(']')) else { return Ok(vec![]) };
-        let items: Vec<serde_json::Value> = serde_json::from_str(&text[a..=b]).unwrap_or_default();
+        let Some(span) = crate::util::json_array_span(text) else { return Ok(vec![]) };
+        let items: Vec<serde_json::Value> = serde_json::from_str(span).unwrap_or_default();
         let mut ids = vec![];
         for it in items.iter().take(2) {
             let (Some(title), Some(task)) = (it["title"].as_str().filter(|t| t.len() > 3), it["prompt"].as_str().filter(|p| p.len() > 10)) else { continue };

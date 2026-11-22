@@ -411,7 +411,7 @@ pub fn json_string_field(json: &str, key: &str) -> Option<String> {
                         b'"' => out.push('"'),
                         b'/' => out.push('/'),
                         b'u' if i + 5 < bytes.len() => {
-                            let hex = &json[i + 2..i + 6];
+                            let hex = json.get(i + 2..i + 6).unwrap_or("");
                             if let Ok(n) = u32::from_str_radix(hex, 16) {
                                 if let Some(c) = char::from_u32(n) {
                                     out.push(c);
@@ -419,7 +419,12 @@ pub fn json_string_field(json: &str, key: &str) -> Option<String> {
                             }
                             i += 4;
                         }
-                        other => out.push(other as char),
+                        other if other.is_ascii() => out.push(other as char),
+                        _ => {
+                            let ch = json[i + 1..].chars().next()?;
+                            out.push(ch);
+                            i += ch.len_utf8() - 1;
+                        }
                     }
                     i += 2;
                 }
@@ -917,7 +922,7 @@ mod tests {
     #[test]
     fn a_json_string_with_an_odd_escape_before_non_ascii_is_read() {
         assert_eq!(json_string_field(r#"{"command": "echo \é done"}"#, "command").as_deref(), Some("echo é done"));
-        assert_eq!(json_string_field(r#"{"command": "a\u00é9"}"#, "command").is_some(), true);
+        assert!(json_string_field(r#"{"command": "a\u00é9"}"#, "command").is_some());
     }
 
     #[test]

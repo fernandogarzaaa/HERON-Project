@@ -99,7 +99,7 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 fn host_only(value: &str) -> &str {
     let v = value.trim();
     if v.starts_with('[') {
-        return v.split(']').next().map(|h| &v[..h.len() + 1]).unwrap_or(v);
+        return v.find(']').map(|i| &v[..=i]).unwrap_or(v);
     }
     v.rsplit_once(':').map(|(h, _)| h).unwrap_or(v)
 }
@@ -593,7 +593,20 @@ fn sse(item: &Item) -> SseEvent {
 
 /// One chat run, as its own task. Whoever ends the run publishes its last events: this task when the
 /// turn ends, or `cancel` when it stops the run first.
-async fn run_chat(st: Arc<ServerState>, mut session: Session, message: String, run_id: String) {
+async fn run_chat(st: Arc<ServerState>, session: Session, message: String, run_id: String) {
+    use futures_util::FutureExt;
+    let sid = session.id.clone();
+    // A panic in the turn must still free the conversation and end its stream, or every new
+    // message to it is refused as busy until Heron restarts.
+    let finished = std::panic::AssertUnwindSafe(run_chat_turn(st.clone(), session, message, run_id.clone())).catch_unwind().await;
+    if finished.is_err() && st.finish(&sid, &run_id) {
+        let err = anyhow::anyhow!("Heron hit an internal error while replying. Try again, or start a new conversation.");
+        st.app.publish_outcome(&sid, &run_id, Err(&err));
+        st.app.publish_run_end(&sid, &run_id);
+    }
+}
+
+async fn run_chat_turn(st: Arc<ServerState>, mut session: Session, message: String, run_id: String) {
     let sid = session.id.clone();
     // Rules another Heron on this home revoked or added since this one last looked apply from here.
     st.app.reload_rules();
@@ -1222,12 +1235,12 @@ async fn get_today(State(st): S) -> ApiResult {
     let store = &st.app.store;
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let tasks = store.list_tasks(Some("open"))?;
-    let due: Vec<&crate::store::Task> = tasks.iter().filter(|t| t.due.as_deref().map(|d| d[..d.len().min(10)] <= *today).unwrap_or(false)).collect();
+    let due: Vec<&crate::store::Task> = tasks.iter().filter(|t| t.due.as_deref().map(|d| d.get(..10).unwrap_or(d) <= today.as_str()).unwrap_or(false)).collect();
     let now = crate::util::now_ts();
     let new_mail = store.knowledge_between("email", now - 86_400, now + 3600, 200)?.len();
     Ok(Json(json!({
         "events": crate::sources::upcoming(store, 24, 6),
-        "due_tasks": due.iter().take(6).map(|t| json!({"id": t.id, "title": t.title, "due": t.due, "overdue": t.due.as_deref().map(|d| d[..d.len().min(10)] < *today).unwrap_or(false)})).collect::<Vec<_>>(),
+        "due_tasks": due.iter().take(6).map(|t| json!({"id": t.id, "title": t.title, "due": t.due, "overdue": t.due.as_deref().map(|d| d.get(..10).unwrap_or(d) < today.as_str()).unwrap_or(false)})).collect::<Vec<_>>(),
         "open_tasks": tasks.iter().filter(|t| t.owner != "heron").count(),
         "heron_tasks": tasks.iter().filter(|t| t.owner == "heron").count(),
         "waiting": store.pending_approvals()?.len(),

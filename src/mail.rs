@@ -159,7 +159,7 @@ fn header_value(headers: &str, name: &str) -> String {
             }
             break;
         }
-        if line.len() > name.len() && line[..name.len()].eq_ignore_ascii_case(name) && line.as_bytes()[name.len()] == b':' {
+        if line.get(..name.len()).is_some_and(|h| h.eq_ignore_ascii_case(name)) && line.as_bytes().get(name.len()) == Some(&b':') {
             value = Some(line[name.len() + 1..].trim().to_string());
         }
     }

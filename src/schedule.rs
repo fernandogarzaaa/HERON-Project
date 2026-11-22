@@ -139,11 +139,11 @@ fn parse_duration(s: &str) -> Option<Duration> {
         return None;
     }
     match s[split..].trim() {
-        "s" | "sec" | "secs" | "second" | "seconds" => Some(Duration::seconds(n)),
-        "m" | "min" | "mins" | "minute" | "minutes" => Some(Duration::minutes(n)),
-        "h" | "hr" | "hrs" | "hour" | "hours" => Some(Duration::hours(n)),
-        "d" | "day" | "days" => Some(Duration::days(n)),
-        "w" | "week" | "weeks" => Some(Duration::weeks(n)),
+        "s" | "sec" | "secs" | "second" | "seconds" => Duration::try_seconds(n),
+        "m" | "min" | "mins" | "minute" | "minutes" => Duration::try_minutes(n),
+        "h" | "hr" | "hrs" | "hour" | "hours" => Duration::try_hours(n),
+        "d" | "day" | "days" => Duration::try_days(n),
+        "w" | "week" | "weeks" => Duration::try_weeks(n),
         _ => None,
     }
 }
@@ -177,7 +177,8 @@ fn local_ts(dt: NaiveDateTime) -> Result<i64> {
 /// empty text = any email, otherwise the sender or subject must contain it).
 pub fn parse_trigger(expr: &str) -> Option<String> {
     let e = expr.trim();
-    let lower = e.to_lowercase();
+    // ASCII lowercasing keeps every byte offset, so `lower`'s offsets index `e` too.
+    let lower = e.to_ascii_lowercase();
     let rest = lower.strip_prefix("when ").or_else(|| lower.strip_prefix("whenever "))?;
     let rest = rest.trim();
     if rest.contains("email") || rest.contains("mail arrives") {
@@ -186,7 +187,7 @@ pub fn parse_trigger(expr: &str) -> Option<String> {
     }
     // "when notes/*.md changes", "when a file changes in notes", "when anything in drafts changes"
     let original_rest = &e[e.len() - rest.len()..];
-    let lower_rest = original_rest.to_lowercase();
+    let lower_rest = original_rest.to_ascii_lowercase();
     let target = if let Some(i) = lower_rest.find(" in ") {
         original_rest[i + 4..].trim().trim_end_matches(" changes").trim_end_matches(" change").to_string()
     } else {
@@ -236,7 +237,8 @@ pub fn parse_when(expr: &str, now: DateTime<Local>) -> Result<When> {
 
     if let Some(rest) = lower.strip_prefix("in ") {
         let d = parse_duration(rest).ok_or_else(|| anyhow!("could not parse duration '{rest}' (try 'in 10m', 'in 2 hours')"))?;
-        return Ok(When { cron: String::new(), next_run: (now + d).timestamp() });
+        let at = now.checked_add_signed(d).ok_or_else(|| anyhow!("'{rest}' is too far in the future"))?;
+        return Ok(When { cron: String::new(), next_run: at.timestamp() });
     }
     // "weekdays at 9am", "every weekday 9:00", "weekends 10:00", "every monday at 8", "fridays 17:30"
     if let Some((days, time)) = days_phrase(lower.strip_prefix("every ").unwrap_or(&lower).trim()) {
