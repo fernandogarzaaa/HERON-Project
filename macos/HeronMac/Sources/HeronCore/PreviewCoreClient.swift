@@ -3,7 +3,7 @@ import Foundation
 /// A `CoreClientProtocol` backed by in-memory sample data. It drives the app shell in U4a, and stays for
 /// previews and tests after U4b adds the live client. Replies are scripted: ask for a "draft" or a "file"
 /// and a tool call waits for approval; say "fail" and the run ends with an `error`.
-public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
+public final class PreviewCoreClient: CoreClientProtocol, NotifyingEventsClient, @unchecked Sendable {
     public let endpoint: CoreEndpoint
 
     private let lock = NSLock()
@@ -153,6 +153,9 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
             }
         }
     }
+
+    /// The preview core posts no notices of its own, so `notify` changes nothing.
+    public func events(since: Int?, notify: Bool) -> AsyncStream<CoreEvent> { events(since: since) }
 
     // MARK: Approvals
 
