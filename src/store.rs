@@ -1715,6 +1715,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_activity_log_chain_holds_when_two_herons_write_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("heron.db");
+        let writers: Vec<_> = (0..2)
+            .map(|w| {
+                let store = Store::open(&path).unwrap();
+                std::thread::spawn(move || {
+                    for i in 0..150 {
+                        store.audit("s", "shell", &format!("{w}-{i}"), "allowed", "ok");
+                    }
+                })
+            })
+            .collect();
+        for w in writers {
+            w.join().unwrap();
+        }
+        let (checked, first_bad) = Store::open(&path).unwrap().verify_audit().unwrap();
+        assert_eq!((checked, first_bad), (300, None), "two processes writing at once must not look like tampering");
+    }
+
+    #[test]
     fn sessions_and_messages_roundtrip() {
         let s = Store::in_memory().unwrap();
         let id = s.create_session("t", "user").unwrap();
