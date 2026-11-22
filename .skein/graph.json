@@ -6470,11 +6470,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Gate: email_drafts",
-    "version": 7,
+    "version": 8,
     "worktree": {
       "base_branch": "skein/F8g__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "a7aeb03f0e6660a30ebef3783739d23c76ba9c53",
+      "branch": "skein/F8g",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F8g"
     }
   },
   "F8g__integrate": {
