@@ -2278,19 +2278,19 @@
     "intent": {
       "completion": "cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_approval_carries_why api_fixtures_match_the_live_core api_features_lists_and_sets_keys && grep -q ask_reasons tests/fixtures/api/features.json",
       "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
-      "context": "Spec: docs/designs/heron-v1-features.md, section 'F2' under 'The features' (with its check table) and 'Detailed Implementation Plan', F2 items 18. Inside your sandbox about 27 unrelated cargo tests fail (port binding, nested Seatbelt) and bash eval/require-tests.sh may be refused: run your own tests by name (cargo test --locked --lib <name>; list with -- --list); the supervisor runs the full check outside the sandbox.",
+      "context": "Spec: docs/designs/heron-v1-features.md, section 'F2' under 'The features' (with its check table) and 'Detailed Implementation Plan', F2 items 18. Inside your sandbox about 27 unrelated cargo tests fail (port binding, nested Seatbelt) and bash eval/require-tests.sh may be refused: run your own tests by name (cargo test --locked --lib <name>; list with -- --list); the supervisor runs the full check outside the sandbox. SUPERVISOR NOTE after 3 attempts: the check ran outside the sandbox and failed only in api_approval_carries_why: its third chat (after POST /api/features/ask_reasons) reached the real provider (openrouter 401), because App::update_config rebuilds the model client from config (save_config(..., rebuild_llm=true)) and swaps out the ScriptedLlm. Fix the test only: after that POST, swap a ScriptedLlm holding the remaining script back in with app.llm.swap(...), as src/app.rs tests do. Check whether api_features_lists_and_sets_keys has the same exposure (it chats? if not, leave it). Everything else in your earlier attempt passed: 23 of 24 integration tests, including api_fixtures_match_the_live_core.",
       "goal": "Build item 18: re-record tests/fixtures/api/session.json and events-approval.jsonl by deleting them and running api_fixtures_match_the_live_core, and add api_approval_carries_why. Also strengthen B2t's api_features_lists_and_sets_keys: assert the key list is not empty, switch ask_reasons off and on over HTTP and check both the next GET and config.toml, then re-record tests/fixtures/api/features.json."
     },
-    "max_retries": 3,
+    "max_retries": 4,
     "rejected_count": 0,
     "removed": false,
     "result": null,
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "failed",
+    "status": "unclaimed",
     "title": "F2: re-recorded fixtures, api_approval_carries_why",
-    "version": 19,
+    "version": 20,
     "worktree": {
       "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
       "base_commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
@@ -2316,7 +2316,7 @@
       "claim_token": "2beedbc9d19f4ed2969873c30c49a682",
       "claimed_at": "2026-11-22T09:50:32.939784+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:50:32.939784+00:00",
+      "last_heartbeat": "2026-11-22T09:51:03.400045+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -2341,9 +2341,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F3: Runs screen, badge, notifications",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
       "base_commit": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
@@ -3180,7 +3180,7 @@
       "claim_token": "4729963a6b124f52affe1bc0ca83e299",
       "claimed_at": "2026-11-22T09:47:41.942322+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:50:12.697042+00:00",
+      "last_heartbeat": "2026-11-22T09:51:12.827714+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -3205,7 +3205,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F5: run_shortcut, shortcuts routes, key",
-    "version": 8,
+    "version": 10,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "a5c863430fd6d88e8fe59e19063303332f903064",
