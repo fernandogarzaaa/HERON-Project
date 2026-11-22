@@ -411,11 +411,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Integration tests and the features fixture",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
-      "branch": null,
-      "path": null
+      "base_commit": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
+      "branch": "skein/B2t",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/B2t"
     }
   },
   "B3": {
