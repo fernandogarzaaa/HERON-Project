@@ -218,7 +218,7 @@
       "goal": "Build base unit B2 as items 4-8 say: src/features.rs (FeatureKey, KEYS with only a cfg(test) test_key), Config.features (FeaturesConfig with flattened flags and shortcuts_allowed) and Config::feature_on; tool definitions gain feature: Option<&'static str> and ToolRegistry::names_for(cfg), read by the agent's tool list, its unknown-tool check, save_automation and Workflow::validate; enum ContentEntry with its test; chat context on Agent::run_turn (context: &[ChatContext]) wrapped with wrap_untrusted, app name sanitised, title from the typed message, learn gets the typed message only; src/taint.rs taint::mark with Store::kv_insert_if_absent replacing every tainted: write; permissions::once_only checked in the four places; src/child.rs with the three helpers moved out of cli_llm.rs with no behaviour change; App::notify replacing the free notify() with the notify=1 stream count; server routes GET /api/features, POST /api/features/{key}, ChatBody.context and ?notify=1 on GET /api/events. Write every inline test item 8 names."
     },
     "max_retries": 3,
-    "rejected_count": 1,
+    "rejected_count": 3,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -226,7 +226,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Core switches, chat context, taint source, notification owner",
-    "version": 111,
+    "version": 114,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "48aa65c853c6a54666cfd23e0a648044f34ff67d",
