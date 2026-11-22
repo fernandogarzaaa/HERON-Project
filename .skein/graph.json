@@ -1929,7 +1929,7 @@
       "claim_token": "be2f5a2d06c442c59a90753bcc9a595a",
       "claimed_at": "2026-11-22T10:07:15.802815+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:09:46.521842+00:00",
+      "last_heartbeat": "2026-11-22T10:11:46.821034+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -1956,7 +1956,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F2: taint chip, why on the sheet",
-    "version": 8,
+    "version": 12,
     "worktree": {
       "base_branch": "4b4660347f30da79dd80c1558592a62bd120f123",
       "base_commit": "4b4660347f30da79dd80c1558592a62bd120f123",
@@ -2341,6 +2341,58 @@
       "base_commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
       "branch": "skein/F2t",
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F2t"
+    }
+  },
+  "F3-fix-1": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F3a"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F3-fix-1",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib --bins -- unfinished_runs_are_closed_on_restart delegated_file_edits_reach_the_run_record parked_write_during_a_run_is_not_claimed_by_it undo_during_a_failed_edit_attaches_nothing a_cancelled_new_chat_keeps_its_title",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging. No database schema change.",
+      "context": "Spec: docs/designs/heron-v1-features.md, F3 (Run records, What the record lists) and F4 (which restores files from these records, so a wrong record restores the wrong file). The agent.rs gating is a Q7 path; change no verdict. Inside your sandbox about 27 unrelated cargo tests fail (port binding, nested Seatbelt); run your tests by name and let the supervisor run the full check.",
+      "goal": "Fix four findings from the independent review of F3 (file:line in today's tree). (1) HIGH: RunLog::open (src/runs.rs ~71-77) loads saved records but never closes unfinished ones, so after a core restart a run that was running or waiting stays that way forever (badge stuck, listed In progress). In the process that owns the bus only (heron serve / the app's core; never mcp-serve or a CLI opening the same store), mark every record with ended == null as cancelled with ended = now and save it. Test: unfinished_runs_are_closed_on_restart. (2) A delegate sub-agent's write_file/edit_file checkpoints and audit rows never reach the run record: child_sink (src/agent.rs ~909-915) drops ToolEnd. Carry the child's audit_id and checkpoint values into the parent run's record. Test: delegated_file_edits_reach_the_run_record. (3) Checkpoint attribution diffs the session's newest checkpoint before and after the call (agent.rs ~865, 886), which run_parked (server.rs ~1199, app.rs ~1859) or POST /api/undo (server.rs ~867) can change during the call, so a run can claim another call's checkpoint or an older one. Have the file tools report the checkpoint id they saved for this call (for example a per-call slot on ToolCtx) and attach exactly that; attach nothing when none was saved. Tests: parked_write_during_a_run_is_not_claimed_by_it and undo_during_a_failed_edit_attaches_nothing. (4) A new chat's record keeps an empty title while running and forever if it errors or is cancelled (runs.rs ~93-95; /api/chat creates the session with an empty title before run_turn titles it). Fill an empty title from the session's title on any later event, or title the session before the session event is published. Test: a_cancelled_new_chat_keeps_its_title. Fix nothing else."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fix F3 review findings (core)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
     }
   },
   "F3a": {
@@ -3747,7 +3799,7 @@
       "claim_token": "8582d178af574f2c8b0876d30dee8ee3",
       "claimed_at": "2026-11-22T10:08:58.043975+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:09:28.523323+00:00",
+      "last_heartbeat": "2026-11-22T10:11:58.820510+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3772,7 +3824,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F6: today_counts, count_day, workflow field",
-    "version": 4,
+    "version": 9,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "db2f7fa50e3c27e84d56be46d0530631c9b18a71",
