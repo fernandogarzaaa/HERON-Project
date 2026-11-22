@@ -3767,15 +3767,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "58e15d7f7c664ec4a3ad0a3940e99d0b",
+      "base_branch": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
+      "claim_token": "e3df20df716f4587b6d0bfa8489b53ea",
+      "claimed_at": "2026-11-22T12:13:10.853447+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T12:13:10.853447+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F3g"
@@ -3797,11 +3797,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Kill or justify F3's surviving mutants",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
       "branch": null,
       "path": null
     }
