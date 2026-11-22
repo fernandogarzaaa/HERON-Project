@@ -4204,15 +4204,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "eb3457e93341481ab4206a9605cbf52e",
+      "base_branch": "9582dd3e819d67992625647b36f42203298ffb57",
+      "claim_token": "4ab0bf0f655144c38b39b3479241ae3b",
+      "claimed_at": "2026-11-22T10:25:10.162758+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T10:25:10.162758+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F6s"
@@ -4234,11 +4234,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F6: brief switch",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "9582dd3e819d67992625647b36f42203298ffb57",
       "branch": null,
       "path": null
     }
