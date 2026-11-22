@@ -13413,9 +13413,17 @@
         "holder": "agent-1",
         "outcome": "interrupted",
         "started_at": "2026-11-22T16:34:16.403440+00:00"
+      },
+      {
+        "attempt_id": "0a0650429ba744c89d86505e9f78aeae",
+        "ended_at": "2026-11-22T17:07:19.386759+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-22T16:57:02.751065+00:00"
       }
     ],
-    "attempts_used": 0,
+    "attempts_used": 1,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -13426,15 +13434,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "0a0650429ba744c89d86505e9f78aeae",
-      "base_branch": "skein/verify-1a-subset__integrate-base",
-      "claim_token": "53c1074bfb33435bb3c45a73b22215ca",
-      "claimed_at": "2026-11-22T16:57:02.751065+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T16:57:02.751065+00:00",
-      "node_version": 22,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "H3",
@@ -13445,15 +13453,15 @@
     ],
     "evidence": [
       {
-        "command": "python3 -I -m unittest discover -s eval/tests -t eval && python3 -I eval/selfheal/run_replay.py --check-patches && bash -n scripts/verify-selfheal.sh && bash -n packaging/macos/build-app.sh && actionlint .github/workflows/selfheal.yml && genesis audit-evaluator eval/selfheal/genesis.yaml --suite json && genesis audit-evaluator eval/genesis/pass-rules-json.yaml --suite json && testteeth run --lang python --base main --fail-under 70 -q eval/selfheal",
-        "duration_ms": 51876,
-        "exit_code": 3,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/evidence/verify-1a-subset_20261122T163127980732_0.log"
+        "command": "python3 -I -m unittest discover -s eval/tests -t eval && python3 -I eval/selfheal/run_replay.py --check-patches && bash -n scripts/verify-selfheal.sh && bash -n packaging/macos/build-app.sh && actionlint .github/workflows/selfheal.yml && genesis audit-evaluator eval/selfheal/genesis.yaml --suite json && genesis audit-evaluator eval/genesis/pass-rules-json.yaml --suite json && testteeth run --lang python --base origin/main --pytest-args 'eval/tests/test_selfheal_replay.py eval/tests/test_verify_selfheal.py' --fail-under 70 -q eval/selfheal",
+        "duration_ms": 437847,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/evidence/verify-1a-subset_20261122T170001496636_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/evidence/verify-1a-subset_20261122T163219860960_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/evidence/verify-1a-subset_20261122T170719347992_adapter.log"
       }
     ],
     "handoff_note": "completion command failed (adapter exit=0); see evidence",
@@ -13472,9 +13480,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "failed",
     "title": "Verify the 1a subset: eval suite, patches, gate script, workflow lint, genesis, testteeth",
-    "version": 24,
+    "version": 45,
     "worktree": {
       "base_branch": "skein/verify-1a-subset__integrate-base",
       "base_commit": "92140cb233fd261c1bc00b0c64645a2b7fc87830",
