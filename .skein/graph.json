@@ -501,15 +501,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "6eaa81e05b1a49ae965d5dd0d70430ab",
+      "base_branch": "f8f67f9b99a9c69a5e928423769c3f993166c897",
+      "claim_token": "1136004f8fa641c69372b5c8ed00b8ca",
+      "claimed_at": "2026-11-22T07:45:17.304006+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T07:45:17.304006+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "B2-fix-1"
@@ -531,11 +531,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fix: REPL reads feature keys changed by another process",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "f8f67f9b99a9c69a5e928423769c3f993166c897",
       "branch": null,
       "path": null
     }
