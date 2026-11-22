@@ -933,6 +933,12 @@ Low findings from the build's independent reviews that were left as they are. Me
 *   **F5: the output file is read whole before the 20,000-character cap (low).** A ticked shortcut that writes a very large file loads it into memory first.
 *   **F5: the process group is signalled after a normal exit (low, inferred).** The kill-on-drop guard sends `SIGKILL` to the group even when the shortcut exited cleanly; harmless unless the group id was reused.
 *   **F5: the shortcuts integration test sets process environment variables while other tests run (low).** It can make the suite flaky on macOS. The unit tests pass the fake binary without the environment.
+*   **F6: one `POST /api/schedules` can create an unattended `shell` step (low).** The route accepts `may: "commands"` together with `workflow`, while `save_automation` always stores an empty grant. The route needs the API token, which already allows a POST followed by a grant change.
+*   **F6: the schedule's workflow is saved in a second write (low, inferred).** The job is created, then its steps are attached. If the second write fails, or a trigger fires between the two, a plain prompt job runs the agent once.
+*   **F6: clicking the brief's notice doesn't open Today (low, inferred).** On a branch without F3, the notice comes from the core's `osascript`. Once F3 merges, notices reach the app, which must route an automation notice's click to Today.
+*   **F6: `ft6` matches "2 events" anywhere (low).** It also matches "12 events". The regex is F6's EVE row word for word.
+*   **F6: Google all-day events can be counted on the previous day west of UTC (low, from before F6).** `oauth.rs` stores them at UTC midnight.
+*   **F6: the switch can show the wrong state (low).** It stays on after the owner deletes the schedule elsewhere.
 *   **F3: a core notice body can reach the lock screen (low).** A `notification` event's body holds up to 180 characters of a schedule's result. The app posts it as is, so the lock screen shows it when macOS allows previews. The core's own desktop notice showed the same text before F3, so nothing new leaks; only the app's own "needs your OK" and "finished" notices are limited to the tool name and the owner's title.
 *   **F3: run records are written under the event bus's lock (low).** `RunLog` writes kv inside `publish`, as the design asks, so a long store operation elsewhere briefly stalls every publisher. Nothing awaits under the lock.
 
