@@ -1513,7 +1513,7 @@
       "claim_token": "4bafa9a67ed846819d1820dc75c7913d",
       "claimed_at": "2026-11-22T09:26:45.215217+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T09:34:46.579319+00:00",
+      "last_heartbeat": "2026-11-22T09:36:46.869344+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1538,7 +1538,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 19,
+    "version": 23,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -2041,7 +2041,7 @@
       "claim_token": "4f24bda6e109434cb4029f3ac436505d",
       "claimed_at": "2026-11-22T09:28:07.903394+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:34:39.115178+00:00",
+      "last_heartbeat": "2026-11-22T09:36:39.421840+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -2066,7 +2066,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F2: why text, session taint, Telegram sentence",
-    "version": 16,
+    "version": 20,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "60f8a3020282ed59e863bc50a0796511e74daddb",
@@ -3397,7 +3397,16 @@
     }
   },
   "F8d": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "00a3b7b1735d48edbebbd130ed8e67f9",
+        "ended_at": "2026-11-22T09:36:48.295313+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:34:57.919876+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -3409,19 +3418,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "00a3b7b1735d48edbebbd130ed8e67f9",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "314adf7728e44c488c0b227eed90a123",
-      "claimed_at": "2026-11-22T09:34:57.919876+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:34:57.919876+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "test -s docs/features/email_drafts.md && grep -qxF -- '- /usr/bin/open (one mailto: URL): opens a compose window; never sends; asks once.' docs/engineering/SECURITY_THREAT_MODEL.md",
+        "duration_ms": 247,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8d_20261122T093647865701_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8d_20261122T093648113445_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run `skein:ship` once F8s, F8c and F8a finish, so the F8 gate (F8g) can run.",
     "id": "F8d",
     "integration_for": null,
     "intent": {
@@ -3433,13 +3454,36 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "00a3b7b1735d48edbebbd130ed8e67f9",
+      "base_commit": "57b5066bb8b68e66b32b943cf622c12a05dcc5b2",
+      "changed_files": [
+        "docs/engineering/SECURITY_THREAT_MODEL.md",
+        "docs/features/README.md",
+        "docs/features/email_drafts.md"
+      ],
+      "commit": "4ebea50cd95ef41cd54c263e4cb6699d926e9701",
+      "diff_stats": {
+        "docs/engineering/SECURITY_THREAT_MODEL.md": {
+          "added": 8,
+          "deleted": 1
+        },
+        "docs/features/README.md": {
+          "added": 2,
+          "deleted": 0
+        },
+        "docs/features/email_drafts.md": {
+          "added": 49,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "F8: guide, threat-model line, index line",
-    "version": 3,
+    "version": 7,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "57b5066bb8b68e66b32b943cf622c12a05dcc5b2",
