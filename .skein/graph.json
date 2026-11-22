@@ -365,10 +365,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/harness2-1a": {
+        "base_commit": "8087860abc6c3c4b34603a867248b2f8eac56f34",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "94eb0ad2f0ae784eb00730b22c0e2a0d6ff4f793",
+        "result_commit": "504bc450b3e1c072ecb472b2e56dd3557ccfa9fb",
+        "shipped_at": "2026-11-22T16:33:24.035431+00:00",
+        "target_branch": "feat/harness2-1a"
+      }
+    },
     "status": "done",
     "title": "scripts/verify-selfheal.sh (item 21)",
-    "version": 8,
+    "version": 9,
     "worktree": {
       "base_branch": "8087860abc6c3c4b34603a867248b2f8eac56f34",
       "base_commit": "8087860abc6c3c4b34603a867248b2f8eac56f34",
