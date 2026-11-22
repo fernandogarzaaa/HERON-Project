@@ -294,6 +294,18 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(try kind(#"{"seq":5,"type":"cancelled"}"#), .cancelled)
     }
 
+    func test_notificationEventCarriesTitleAndBody() throws {
+        let json = #"{"seq":12,"session_id":"","run_id":"","type":"notification","title":"Morning brief","body":"Three meetings today."}"#
+        let e = try XCTUnwrap(CoreWire.envelope(Data(json.utf8)).event)
+        XCTAssertEqual(e.seq, 12)
+        XCTAssertEqual(e.kind, .notification(title: "Morning brief", body: "Three meetings today."))
+    }
+
+    func test_notificationEventWithoutABodyHasAnEmptyBody() throws {
+        let kind = try XCTUnwrap(CoreWire.envelope(Data(#"{"seq":3,"type":"notification","title":"Done"}"#.utf8)).event).kind
+        XCTAssertEqual(kind, .notification(title: "Done", body: ""))
+    }
+
     func testResyncEnvelopeHasNoSequence() throws {
         let envelope = try CoreWire.envelope(Data(#"{"type":"resync","oldest":6}"#.utf8))
         XCTAssertTrue(envelope.isResync)
