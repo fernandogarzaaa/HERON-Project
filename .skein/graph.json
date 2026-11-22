@@ -3638,7 +3638,7 @@
       "goal": "Gate unit. Write nothing. The supervisor runs bash scripts/verify-feature.sh <slug> as your check, which includes this feature's EVE tasks on claude-cli. You may run read-only commands to confirm the feature looks complete, then stop."
     },
     "max_retries": 0,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -3646,7 +3646,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Gate: runs",
-    "version": 6,
+    "version": 7,
     "worktree": {
       "base_branch": "skein/F3g__integrate-base",
       "branch": null,
@@ -4249,6 +4249,58 @@
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F5-fix-1"
     }
   },
+  "F5-fix-2": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F5g"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F5-fix-2",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib --bins -- telegram_shows_or_refuses_a_once_only_tools_full_detail terminal_shows_the_full_input_of_a_once_only_tool",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1-features.md, F5 'Once only' and F8. telegram.rs is a Q7 path: the refusal of tainted and high asks must stay exactly as it is. Inside your sandbox about 27 unrelated cargo tests fail; run your test by name.",
+      "goal": "Fix one medium finding from the F8 review that also applies to F5. Telegram's approval_prompt (src/telegram.rs ~332) cuts req.detail to 1,200 characters (first 800, last 400). ExternalWrite isn't a high effect, so on an untainted conversation run_shortcut (and, once F8 merges, draft_email) asks yes/no on the phone with part of its input or recipients hidden, though the spec says the approval shows the shortcut's name and input (and F8's shows recipients, subject and the full body). For a once-only tool (permissions::once_only), never truncate: when the full detail fits in one Telegram message, show all of it; when it doesn't, refuse the ask on the phone with a message saying it's too long to show there and to answer it on the Mac (deny it, recorded like Telegram's other refusals). Other tools keep today's behaviour. Test: telegram_shows_or_refuses_a_once_only_tools_full_detail (a long run_shortcut input is refused, a short one is shown whole, a long input for another tool is still cut as today)."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fix: Telegram shows a once-only tool's full detail or refuses",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F5a": {
     "attempts": [
       {
@@ -4616,7 +4668,7 @@
       "claim_token": "d6eba2ac22574a3aa970b93716ba54ed",
       "claimed_at": "2026-11-22T11:04:41.231540+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:16:44.242756+00:00",
+      "last_heartbeat": "2026-11-22T11:18:14.602209+00:00",
       "node_version": 5,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4648,7 +4700,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: shortcuts",
-    "version": 31,
+    "version": 34,
     "worktree": {
       "base_branch": "skein/F5g__integrate-base",
       "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
