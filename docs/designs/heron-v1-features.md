@@ -951,6 +951,11 @@ Low findings from the build's independent reviews that were left as they are. Me
 *   **F8: Settings reports "allow" for a hand-edited `draft_email:*` rule (low, fail-safe).** The rule is ignored and the call still asks once.
 *   **F8: the tests don't pin a few address shapes (low).** A leading or trailing space, a trailing newline and non-ASCII look-alikes are refused today by the ASCII-only, anchored regex, but no test names them.
 *   **F5 and F8: the terminal and Telegram show a once-only tool's full detail, fixed on F5's branch (merge order).** F5-fix-1 (terminal) and F5-fix-2 (Telegram) key on `permissions::once_only`, which covers `draft_email` too, so F8's pull request must merge after F5's.
+*   **F4: an undo can race a new run's write to the same file (low, inferred, from before F4).** `write_with_checkpoint` reads the earlier contents, saves the checkpoint, then renames, without checking what it replaced; an undo landing between those steps leaves the new checkpoint recording the wrong earlier contents.
+*   **F4: the newer-checkpoint check also filters on `ts` (low).** If the clock steps back, a newer row with a smaller `ts` is missed; the file-hash check still catches every change except a later write of identical contents.
+*   **F4: a file edit whose checkpoint never reached the run record is in neither list (low).** It is neither restored nor listed under "Can't be undone here".
+*   **F4: calls that failed are listed under "Also changed" (low).** A `remember` that errored shows as "Saved a memory".
+*   **F4: a failed audit write isn't reported (low).** Files are restored, but no `undo_run` row records it.
 *   **F3: a core notice body can reach the lock screen (low).** A `notification` event's body holds up to 180 characters of a schedule's result. The app posts it as is, so the lock screen shows it when macOS allows previews. The core's own desktop notice showed the same text before F3, so nothing new leaks; only the app's own "needs your OK" and "finished" notices are limited to the tool name and the owner's title.
 *   **F3: run records are written under the event bus's lock (low).** `RunLog` writes kv inside `publish`, as the design asks, so a long store operation elsewhere briefly stalls every publisher. Nothing awaits under the lock.
 
