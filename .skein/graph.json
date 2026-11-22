@@ -2173,11 +2173,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F2: re-recorded fixtures, api_approval_carries_why",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
-      "branch": null,
-      "path": null
+      "base_commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
+      "branch": "skein/F2t",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F2t"
     }
   },
   "F3a": {
@@ -3736,7 +3737,7 @@
       "claim_token": "8fea05f620cc4d9781a9087a200baec0",
       "claimed_at": "2026-11-22T09:37:56.777277+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:37:56.777277+00:00",
+      "last_heartbeat": "2026-11-22T09:38:27.330355+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -3759,9 +3760,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F9: feature task ft9",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "7f9dfeaa2a539b6c7a7ab0472da6353c34aa303c",
