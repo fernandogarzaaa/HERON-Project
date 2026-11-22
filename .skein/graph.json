@@ -3297,29 +3297,44 @@
     }
   },
   "F3-fix-3__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "ce43eef5232c4beeb80e4c61fb03f44c",
+        "ended_at": "2026-11-22T11:07:54.091956+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-22T11:07:53.597247+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "ce43eef5232c4beeb80e4c61fb03f44c",
-      "base_branch": "skein/F3-fix-3__integrate__integrate-base",
-      "claim_token": "3028c4aac1f4499f9bd3b89a43df1586",
-      "claimed_at": "2026-11-22T11:07:53.597247+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-22T11:07:53.597247+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F3-fix-1",
       "F3-fix-2"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 263343758a926720d5752b18a8c0baba9412d7cc",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['e482ba5257f63a33b92fe985a160aa58776e9bc7', '263343758a926720d5752b18a8c0baba9412d7cc'] into skein/F3-fix-3__integrate-base.",
     "id": "F3-fix-3__integrate",
     "integration_for": "F3-fix-3",
     "intent": {
@@ -3331,16 +3346,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "e482ba5257f63a33b92fe985a160aa58776e9bc7",
+      "changed_files": [],
+      "commit": "1b35866289a3f7720b407a01c7842aa2211c3492",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of F3-fix-3",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/F3-fix-3__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "e482ba5257f63a33b92fe985a160aa58776e9bc7",
+      "branch": "skein/F3-fix-3__integrate-base",
       "path": null
     }
   },
