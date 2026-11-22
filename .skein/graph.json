@@ -275,15 +275,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "94e9fe02dd25485da83e0bf65f4eac9a",
+      "base_branch": "4811cbc906cec5b0151d44094fb391215441c89e",
+      "claim_token": "f6c39a9ae668440dbe35918412e55011",
+      "claimed_at": "2026-11-22T06:09:22.334964+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T06:09:22.334964+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "B1"
@@ -305,11 +305,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Feature gate script",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "4811cbc906cec5b0151d44094fb391215441c89e",
       "branch": null,
       "path": null
     }
