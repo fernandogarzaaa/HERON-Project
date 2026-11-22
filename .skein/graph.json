@@ -1294,6 +1294,57 @@
       "path": null
     }
   },
+  "Bmut": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**",
+      "docs/designs/reviews/heron-v1-features/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "Bmut",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && test -s docs/designs/reviews/heron-v1-features/base-mutants.md",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates (the spec says no feature adds a dependency). Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app (src/ui/**, src/bin/desktop/**) beyond what the spec names. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. If the spec is wrong or impossible, stop and say exactly why instead of diverging. Do not change any verdict in the decision table, the taint rule or the read tiers. No database schema change. Tests only, plus the justification file; no change to non-test code.",
+      "context": "Spec: docs/designs/heron-v1-features.md, Verification Plan ('Surviving mutants are killed in that graph, or justified in its pull request'). The mutation report is in docs/designs/reviews/heron-v1-features/ only after you write it; the survivor list above is complete. Inside your sandbox about 27 unrelated cargo tests fail; run your tests by name.",
+      "goal": "The base gate's mutation run (testteeth via cargo-mutants, against commit 39dbdf5) left 15 survivors; line numbers are in today's tree: src/agent.rs taint_detail L402 `t.starts_with(\"browser_\")` -> true; src/agent.rs Agent::assess L774 `let tool = self.tools.get_f...` -> None; src/app.rs App::post_desktop_notice L1302 -> (); src/app.rs App::take_features L1549 `+=` -> `-=` and `*=`; src/app.rs post_desktop_notice L2405 (cfg macos) -> (); src/browser.rs tools L535 -> vec![]; src/child.rs own_var L13 `std::env::var(key).ok()` -> None; src/main.rs terminal_ask L194 remove branch `\"n\" | \"no\" | \"\"`, L195 `other.len() > 3` -> false and `>` -> `==`; src/main.rs turn L289 -> Ok(String::new()); src/main.rs repl L330 -> Ok(()); src/tools/web.rs web_search L158 -> Ok(String::new()) and Ok(\"xyzzy\".into()). For each one, either write a test that kills it (assert observable behaviour from the spec, not the implementation), or justify it as equivalent or untestable in docs/designs/reviews/heron-v1-features/base-mutants.md, one bullet per survivor naming the mutant and the concrete reason (for example: the mutated line only runs on a real macOS desktop session). Kill, rather than justify, every survivor in a security path: Agent::assess (a tool whose feature is off must be refused by assess), taint_detail (the host is the detail for browser_* tools), own_var (the child environment), terminal_ask (n, no and empty mean deny; the length rule for other answers), and web_search. Change no behaviour."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Kill or justify the base gate's surviving mutants",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {
