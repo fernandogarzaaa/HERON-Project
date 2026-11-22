@@ -193,7 +193,7 @@ pub(crate) fn lock_skill_writes(home: &Path) -> anyhow::Result<crate::config::Co
     std::fs::create_dir_all(home)?;
     let path = home.join("skills.lock");
     let mut options = std::fs::OpenOptions::new();
-    options.create(true).truncate(false).write(true);
+    options.create(true).truncate(false).read(true).write(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
