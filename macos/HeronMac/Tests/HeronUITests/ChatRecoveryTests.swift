@@ -125,7 +125,7 @@ final class ChatRecoveryTests: XCTestCase {
         XCTAssertNil(model.chat.liveApproval)
         let cut = try XCTUnwrap(model.chat.messages.last)
         XCTAssertEqual(cut.role, .assistant)
-        XCTAssertEqual(cut.error?.title, "This reply was cut off")
+        XCTAssertEqual(cut.error?.title, "This reply didn't finish")
         XCTAssertEqual(cut.error?.actions, [.tryAgain])
 
         let next = client.events(since: nil)
@@ -150,7 +150,7 @@ final class ChatRecoveryTests: XCTestCase {
         await relaunched.open(id: id)
         XCTAssertFalse(relaunched.isRunning)
         XCTAssertEqual(relaunched.messages.map(\.role), [.user, .assistant])
-        XCTAssertEqual(relaunched.messages.last?.error?.title, "This reply was cut off")
+        XCTAssertEqual(relaunched.messages.last?.error?.title, "This reply didn't finish")
     }
 
     func testAFinishedConversationOpensWithoutACutOffNote() async throws {
@@ -231,5 +231,24 @@ final class ChatRecoveryTests: XCTestCase {
         XCTAssertEqual(chat.composerError?.actions, [.stopReply])
         client.failCancels(with: nil)
         await chat.stop()
+    }
+
+    /// A reply the user stopped reopens as unfinished too (the core marks it `interrupted`), and the card
+    /// doesn't blame a core restart.
+    func testAStoppedReplyReopensAsUnfinishedWithoutBlamingTheCore() async throws {
+        let client = try await makeClient()
+        let chat = ChatStore(client: client, now: { self.now })
+        let stream = client.events(since: nil)
+        await chat.send("Draft a reply to Maria")
+        _ = await feed(stream, to: chat, through: isApproval)
+        await chat.stop()
+        for await event in stream { chat.handle(event); if case .runEnd = event.kind { break } }
+        XCTAssertNil(chat.messages.last?.error, "the live reply just ends when stopped")
+        let id = try XCTUnwrap(chat.currentSessionID)
+        let reopened = ChatStore(client: client, now: { self.now })
+        await reopened.open(id: id)
+        let card = try XCTUnwrap(reopened.messages.last?.error)
+        XCTAssertEqual(card.title, "This reply didn't finish")
+        XCTAssertTrue(card.text.contains("It was stopped"), card.text)
     }
 }

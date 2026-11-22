@@ -160,7 +160,11 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
         // Release a run that waits for an approval, then end it.
         let ids = lock.withLock { Array(waiters.keys) }
         for id in ids where lock.withLock({ waiters[id]?.sid == sessionID }) { resolveWaiter(id, .deny, event: "cancelled") }
-        _ = lock.withLock { activeRuns.remove(sessionID) }
+        // As on the core: the stopped reply is kept unfinished, so the conversation reopens as `interrupted`.
+        lock.withLock {
+            activeRuns.remove(sessionID)
+            data.sessions[sessionID]?.detail.interrupted = true
+        }
         publish(sessionID, nil, .cancelled)
         publish(sessionID, nil, .runEnd)
         return true

@@ -51,9 +51,10 @@ public struct ChatErrorCard: Equatable, Sendable {
     public var text: String
     public var actions: [ChatErrorAction]
 
-    /// Under a reply the core never finished: it stopped or restarted while the reply was running.
-    public static let cutOff = ChatErrorCard(title: "This reply was cut off",
-                                             text: "Heron's core stopped before this reply finished. Send your message again to carry on.",
+    /// Under a reply the core never finished (`interrupted`): it was stopped, ended in an error, or the core
+    /// restarted while it ran. The core can't tell which, so neither does the card.
+    public static let cutOff = ChatErrorCard(title: "This reply didn't finish",
+                                             text: "It was stopped, or Heron's core restarted before it was done. Send your message again to carry on.",
                                              actions: [.tryAgain])
 
     /// The core is down and starting it again for this message failed. The details stay on the
@@ -176,7 +177,7 @@ public final class ChatStore {
                                                               status: $0.ok == false ? .failed : .done, durationMs: $0.durationMs, untrusted: $0.untrusted) },
                             finished: true, error: nil)
             }
-            // The core kept the reply's steps but no run is finishing it (a restart, a quit mid-reply): say so,
+            // The core kept the reply's steps but no run is finishing it (stopped, a restart, a quit mid-reply): say so,
             // so the conversation doesn't look done or stuck.
             if detail.interrupted && !detail.busy {
                 if let last = loaded.indices.last, loaded[last].role == .assistant {
