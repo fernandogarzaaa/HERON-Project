@@ -29,6 +29,7 @@ final class ModelDecodingTests: XCTestCase {
             "session.json": { _ = try CoreWire.session($0) },
             "approvals.json": { _ = try CoreWire.parkedApprovals($0) },
             "audit.json": { _ = try CoreWire.audit($0) },
+            "features.json": { _ = try FeaturesWire.features($0) },
             "grants.json": { _ = try CoreWire.grants($0) },
             "nevers.json": { _ = try CoreWire.nevers($0) },
             "persona.json": { _ = try CoreWire.persona($0) },

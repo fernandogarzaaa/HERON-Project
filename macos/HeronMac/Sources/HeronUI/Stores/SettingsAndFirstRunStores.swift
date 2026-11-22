@@ -52,7 +52,7 @@ public final class PersonaStore {
 // MARK: Settings
 
 public enum SettingsTab: String, CaseIterable, Sendable, Identifiable {
-    case general, heron, appearance, model, permissions, connections, usage
+    case general, heron, appearance, model, permissions, features, connections, usage
     public var id: String { rawValue }
     public var title: String { rawValue.capitalized }
     public var symbol: String {
@@ -62,6 +62,7 @@ public enum SettingsTab: String, CaseIterable, Sendable, Identifiable {
         case .appearance: "paintpalette"
         case .model: "cpu"
         case .permissions: "hand.raised"
+        case .features: "switch.2"
         case .connections: "link"
         case .usage: "chart.bar"
         }
