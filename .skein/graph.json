@@ -6148,7 +6148,8 @@
       "F8s",
       "F8c",
       "F8a",
-      "F8d"
+      "F8d",
+      "F8-fix-1"
     ],
     "evidence": [],
     "handoff_note": null,
@@ -6169,7 +6170,7 @@
     "shipped": {},
     "status": "blocked",
     "title": "Gate: email_drafts",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": null,
       "branch": null,
