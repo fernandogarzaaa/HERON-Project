@@ -2330,11 +2330,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F3: run records, GET /api/runs",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "d7bb8d754450035c634044c8385bcee14a7df211",
+      "branch": "skein/F3s",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F3s"
     }
   },
   "F3t": {
