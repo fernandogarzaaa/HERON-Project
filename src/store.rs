@@ -92,6 +92,19 @@ pub struct Task {
     pub owner: String,
 }
 
+/// What needs the owner in one local day: numbers only, so what reads them never sees other people's text.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DayCounts {
+    /// Calendar entries that start in the day.
+    pub events: i64,
+    /// Open tasks due in the day.
+    pub due: i64,
+    /// Open tasks due before the day.
+    pub overdue: i64,
+    /// Parked approvals not yet answered.
+    pub waiting: i64,
+}
+
 /// Something Heron wanted to do while nobody was there to approve it, kept for the user to decide.
 #[derive(Debug, Clone, Serialize)]
 pub struct ParkedApproval {
@@ -1032,6 +1045,22 @@ impl Store {
             .query_map(params![status], |r| Ok(Task { id: r.get(0)?, title: r.get(1)?, notes: r.get(2)?, status: r.get(3)?, priority: r.get(4)?, due: r.get(5)?, created_at: r.get(6)?, owner: r.get(7)? }))?
             .collect::<rusqlite::Result<_>>()?;
         Ok(v)
+    }
+
+    /// Counts for the local day from `day_start` (inclusive) to `day_end` (exclusive), as timestamps. Read-only,
+    /// uncapped, and no text column is read: tasks are matched on the date part of `due`, which is local
+    /// time (`YYYY-MM-DD` or `YYYY-MM-DD HH:MM`), taken from `day_start` in local time, as the Today screen does.
+    pub fn count_day(&self, day_start: i64, day_end: i64) -> Result<DayCounts> {
+        use chrono::TimeZone;
+        let day = chrono::Local.timestamp_opt(day_start, 0).single().ok_or_else(|| anyhow!("{day_start} is not a time of day"))?.format("%Y-%m-%d").to_string();
+        let db = self.db();
+        let count = |sql: &str, p: &[&dyn rusqlite::ToSql]| db.query_row(sql, p, |r| r.get::<_, i64>(0));
+        Ok(DayCounts {
+            events: count("SELECT COUNT(*) FROM knowledge WHERE source IN ('calendar','google_calendar','microsoft_calendar') AND ts>=?1 AND ts<?2", &[&day_start, &day_end])?,
+            due: count("SELECT COUNT(*) FROM tasks WHERE status='open' AND due<>'' AND substr(due,1,10)=?1", &[&day])?,
+            overdue: count("SELECT COUNT(*) FROM tasks WHERE status='open' AND due<>'' AND substr(due,1,10)<?1", &[&day])?,
+            waiting: count("SELECT COUNT(*) FROM approvals WHERE status='new'", &[])?,
+        })
     }
 
     pub fn update_task(&self, id: i64, title: Option<&str>, notes: Option<&str>, status: Option<&str>, priority: Option<i64>, due: Option<&str>) -> Result<bool> {

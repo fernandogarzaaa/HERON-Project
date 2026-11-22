@@ -962,6 +962,12 @@ async fn add_schedule(State(st): S, Json(b): Json<Value>) -> ApiResult {
     let quiet = b.get("quiet").and_then(|q| q.as_bool()).unwrap_or(false);
     // What this job may do while nobody is watching. Granted here by the user, never by the agent.
     let allow = grants_for(s("may").unwrap_or("read")).ok_or_else(|| bad("Unknown permission level for this reminder."))?;
+    // An optional list of fixed steps, checked as `save_automation` checks them, before anything is saved.
+    // A job with steps runs them as plain code; the model is called only by steps that ask for it.
+    let workflow = match b.get("workflow").filter(|w| !w.is_null()) {
+        Some(steps) => Some(crate::tools::personal::checked_workflow(steps, &st.app.cfg())?),
+        None => None,
+    };
     let id = match crate::schedule::parse_trigger(when_text) {
         Some(trigger) => {
             if trigger.starts_with("@email") && st.app.cfg().sources.email.is_none() {
@@ -975,6 +981,9 @@ async fn add_schedule(State(st): S, Json(b): Json<Value>) -> ApiResult {
         }
     };
     st.app.store.set_schedule_quiet(id, quiet)?;
+    if let Some(workflow) = workflow {
+        st.app.store.set_schedule_workflow(id, &serde_json::to_string(&workflow.steps).map_err(anyhow::Error::from)?)?;
+    }
     Ok(Json(json!({"id": id})))
 }
 
@@ -1981,6 +1990,79 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         assert_eq!(h.app.test_hooks.desktop_notices.lock().unwrap()[0], ("Later".to_string(), "after the app closed".to_string()));
+    }
+
+    /// `POST /api/schedules` takes an optional `workflow`, checked as `save_automation` checks one before
+    /// anything is saved: an invalid one is a 400 and leaves no job behind.
+    #[tokio::test]
+    async fn schedule_with_workflow_is_validated() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let brief = json!([
+            {"id": "counts", "do": "tool", "tool": "today_counts", "args": {}},
+            {"id": "check", "do": "if", "condition": "{{ steps.counts.out | lines | first }} > 0",
+             "then": [{"id": "tell", "do": "notify", "title": "Heron", "text": "{{ steps.counts.out | lines | last }}"}]}
+        ]);
+        let body = |workflow: Value| json!({"name": "Morning brief", "when": "daily 08:30", "prompt": "Morning brief", "workflow": workflow});
+
+        // A valid workflow is saved with the job and is what runs.
+        let id = h.json("POST", "/schedules", body(brief.clone())).await["id"].as_i64().unwrap();
+        let job = h.app.store.get_schedule(id).unwrap();
+        assert_eq!((job.name.as_str(), job.cron.as_str()), ("Morning brief", "30 8 * * *"));
+        // (The stored steps are the parsed ones, which spell out the empty `else`.)
+        let stored: Value = serde_json::from_str(&job.workflow).unwrap();
+        assert_eq!((&stored[0], &stored[1]["id"], &stored[1]["condition"], &stored[1]["then"], stored.as_array().unwrap().len()), (&brief[0], &brief[1]["id"], &brief[1]["condition"], &brief[1]["then"], 2));
+        let listed = h.json("GET", "/schedules", Value::Null).await;
+        let listed = listed.as_array().unwrap().iter().find(|s| s["id"] == id).unwrap().clone();
+        assert_eq!(listed["uses_model"], false, "{listed}");
+        assert!(listed["outline"].as_str().is_some_and(|o| o.contains("today_counts")), "{listed}");
+        assert!(listed.get("workflow").is_none(), "the steps are shown as an outline, not raw");
+
+        // Without the field, or with null, the job is made as before: no steps.
+        let plain = h.json("POST", "/schedules", json!({"when": "daily 08:30", "prompt": "Say hello"})).await["id"].as_i64().unwrap();
+        let null = h.json("POST", "/schedules", json!({"when": "daily 09:30", "prompt": "Say hi", "workflow": null})).await["id"].as_i64().unwrap();
+        for id in [plain, null] {
+            assert_eq!(h.app.store.get_schedule(id).unwrap().workflow, "");
+        }
+
+        // Each of these is refused with 400 and a reason, and saves nothing.
+        let before = h.app.store.list_schedules().unwrap().len();
+        let invalid = [
+            ("a tool that does not exist", json!([{"id": "a", "do": "tool", "tool": "no_such_tool", "args": {}}]), "no_such_tool"),
+            ("a tool behind a feature that is off", json!([{"id": "a", "do": "tool", "tool": "test_feature_tool", "args": {}}]), "test_feature_tool"),
+            ("an automation that edits automations", json!([{"id": "a", "do": "tool", "tool": "save_automation", "args": {}}]), "automation"),
+            ("a step that refers to one that has not run", json!([{"id": "a", "do": "notify", "text": "{{ steps.later.out }}"}, {"id": "later", "do": "set", "value": 1}]), "has not run by then"),
+            ("a repeated step id", json!([{"id": "a", "do": "set", "value": 1}, {"id": "a", "do": "set", "value": 2}]), "both called"),
+            ("no steps", json!([]), "at least one step"),
+            ("a step that is not one", json!([{"id": "a", "do": "juggle"}]), "not valid"),
+            ("text instead of a list", json!("notify me"), "not valid"),
+            ("a number", json!(7), "not valid"),
+        ];
+        for (what, workflow, reason) in invalid {
+            let reply = h.send("POST", "/schedules", body(workflow)).await;
+            let status = reply.status;
+            let v = reply.json().await;
+            assert_eq!(status, 400, "{what}: {v}");
+            assert!(v["error"].as_str().is_some_and(|e| e.contains(reason)), "{what}: {v}");
+            assert_eq!(h.app.store.list_schedules().unwrap().len(), before, "{what}: a job was saved");
+        }
+
+        // The checks on the rest of the request still come first or alongside: no time, no job.
+        let reply = h.send("POST", "/schedules", json!({"prompt": "x", "workflow": brief})).await;
+        assert_eq!(reply.status, 400);
+        assert_eq!(h.app.store.list_schedules().unwrap().len(), before);
+    }
+
+    /// A tool that is off for the user's settings is refused, and one that is on is accepted: the route
+    /// asks the same question `save_automation` does, of the current settings.
+    #[tokio::test]
+    async fn schedule_workflow_follows_the_feature_switches() {
+        let h = harness(scripted(vec![]), true, |cfg| {
+            cfg.features.flags.insert("test_key".into(), true);
+        })
+        .await;
+        let steps = json!([{"id": "a", "do": "tool", "tool": "test_feature_tool", "args": {}}]);
+        let reply = h.send("POST", "/schedules", json!({"when": "daily 08:30", "prompt": "x", "workflow": steps})).await;
+        assert_eq!(reply.status, 200);
     }
 
     /// With no client asking for notices (no stream, or a stream without `?notify=1`), the core posts

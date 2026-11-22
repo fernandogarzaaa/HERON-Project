@@ -1154,6 +1154,7 @@ mod tests {
             ("schedule_remove", json!({"id": 1}), LocalStateWrite),
             ("search_knowledge", json!({"query": "x"}), LocalRead),
             ("upcoming_events", json!({"days": 2}), LocalRead),
+            ("today_counts", json!({}), LocalRead),
             ("save_automation", json!({"name": "x"}), Privileged),
             ("update_persona", json!({"text": "x"}), Privileged),
             ("save_skill", json!({"name": "x", "content": "y"}), Privileged),
@@ -1174,6 +1175,39 @@ mod tests {
         }
         let all: std::collections::BTreeSet<String> = crate::tools::ToolRegistry::builtin().names().into_iter().collect();
         assert_eq!(covered, all, "a built-in tool is missing from the table");
+    }
+
+    /// F6: `today_counts` only counts, so it is a local read with trusted output: allowed in every mode, in a
+    /// clean conversation and after outside content, and reading its answer does not taint the conversation.
+    #[tokio::test]
+    async fn decision_table_today_counts() {
+        use crate::permissions::{decide_for, Verdict};
+        let ws = tempfile::tempdir().unwrap();
+        let tools = ToolRegistry::builtin();
+        let tool = tools.get("today_counts").expect("today_counts is a built-in tool");
+        assert!(!tool.untrusted_output() && tool.feature().is_none(), "trusted output with no feature key");
+        assert!(!crate::mcp::SERVED_TOOLS.contains(&"today_counts"), "it is not served to other programs");
+        let (agent, _) = agent_with(ScriptedLlm::new(vec![]), Mode::ReadOnly, Arc::new(DenyAll), ws.path());
+        let (args, ctx) = (json!({}), agent.tool_ctx("t"));
+        let effect = tool.risk(&args, &ctx);
+        assert_eq!(effect, Effect::LocalRead);
+        // The table's cells: allowed in all four modes, clean and tainted.
+        for mode in [Mode::ReadOnly, Mode::Ask, Mode::Auto, Mode::Yolo] {
+            for tainted in [false, true] {
+                let verdict = decide_for(&Policy::new(mode, &[], &[]), "today_counts", &tool.summary(&args), effect, tainted);
+                assert!(matches!(verdict, Verdict::Allow), "{mode:?}, tainted {tainted}: {verdict:?}");
+            }
+        }
+        // Through a real turn, nobody is asked, and the conversation stays clean.
+        for mode in [Mode::ReadOnly, Mode::Ask, Mode::Auto, Mode::Yolo] {
+            let llm = ScriptedLlm::new(vec![ScriptedLlm::tool_call("today_counts", json!({})), Message::assistant("Nothing needs you.")]);
+            let (agent, _) = agent_with(llm, mode, Arc::new(DenyAll), ws.path());
+            let mut s = Session::create(&agent.store, "").unwrap();
+            agent.run_turn(&mut s, "what needs me today?", &[], &null_sink()).await.unwrap();
+            let answer = s.messages[2].text();
+            assert_eq!(answer, "0\nToday: ", "{mode:?}: {answer}");
+            assert!(!crate::taint::is_tainted(&agent.store, &s.id), "{mode:?}: the counts tainted the conversation");
+        }
     }
 
     #[tokio::test]
