@@ -251,4 +251,84 @@ final class ChatRecoveryTests: XCTestCase {
         XCTAssertEqual(card.title, "This reply didn't finish")
         XCTAssertTrue(card.text.contains("It was stopped"), card.text)
     }
+
+    // MARK: Bug 6: prompting a conversation whose reply the restart cut off
+
+    /// The core went away mid-reply and no resync came (it stopped for good): the run it was doing is over.
+    /// The box takes a new prompt, Send shows instead of Stop, and the prompt goes out.
+    func testWhenTheCoreGoesAwayMidReplyTheBoxSendsANewPrompt() async throws {
+        let client = try await makeClient()
+        let chat = ChatStore(client: client, now: { self.now })
+        let stream = client.events(since: nil)
+        await chat.send("Draft a reply to Maria")
+        _ = await feed(stream, to: chat, through: isApproval)
+        client.simulateCoreRestart()
+        chat.coreWentAway()
+        XCTAssertFalse(chat.isRunning, "Send shows, not Stop")
+        XCTAssertNil(chat.liveApproval, "the box is enabled and the approval sheet closes")
+        XCTAssertEqual(chat.composerPlaceholder, "Ask Heron anything")
+        XCTAssertEqual(chat.messages.last?.error, .cutOff)
+        XCTAssertNil(chat.runStatusLine)
+        chat.composer = "Try that again"
+        XCTAssertTrue(chat.canSend)
+        await chat.send()
+        XCTAssertNil(chat.composerError)
+        XCTAssertEqual(chat.composer, "")
+        XCTAssertTrue(chat.isRunning)
+        XCTAssertEqual(chat.messages.suffix(2).map(\.role), [.user, .assistant])
+        XCTAssertEqual(chat.messages.suffix(2).first?.text, "Try that again")
+        await chat.stop()
+    }
+
+    /// Nothing was running: a core restart changes nothing in the open conversation.
+    func testTheCoreGoingAwayWhileIdleChangesNothing() async throws {
+        let client = try await makeClient()
+        let chat = ChatStore(client: client, now: { self.now })
+        let stream = client.events(since: nil)
+        await chat.send("What is on today?")
+        _ = await feed(stream, to: chat, through: { if case .runEnd = $0 { return true } else { return false } })
+        let before = chat.messages
+        chat.coreWentAway()
+        XCTAssertEqual(chat.messages, before)
+        XCTAssertNil(chat.messages.last?.error)
+    }
+
+    /// Stop on a reply whose core has stopped: there is nothing left to stop, so the reply ends and the box is free.
+    func testStopWhenTheCoreHasStoppedEndsTheReply() async throws {
+        let client = try await makeClient()
+        let chat = ChatStore(client: client, now: { self.now })
+        let stream = client.events(since: nil)
+        await chat.send("Draft a reply to Maria")
+        _ = await feed(stream, to: chat, through: isApproval)
+        client.failCancels(with: .coreStopped(details: "x"))
+        await chat.stop()
+        XCTAssertFalse(chat.isRunning)
+        XCTAssertNil(chat.liveApproval)
+        XCTAssertNil(chat.composerError, "no card for stopping what is already gone")
+        XCTAssertEqual(chat.messages.last?.error, .cutOff)
+        client.failCancels(with: nil)
+    }
+
+    /// Return on a reply stuck as running, while the core is down and can't start: the card says so, and the
+    /// stuck reply ends, so Send shows for the next try.
+    func testASendThatFindsTheCoreStoppedEndsTheStuckReply() async throws {
+        let client = try await makeClient()
+        let chat = ChatStore(client: client, now: { self.now })
+        let stream = client.events(since: nil)
+        await chat.send("Draft a reply to Maria")
+        _ = await feed(stream, to: chat, through: isApproval)
+        client.simulateCoreRestart()
+        client.failSends(with: .coreStopped(details: "x"))
+        chat.composer = "Try that again"
+        await chat.send()
+        XCTAssertEqual(chat.composerError, .coreStopped)
+        XCTAssertFalse(chat.isRunning)
+        XCTAssertNil(chat.liveApproval)
+        XCTAssertEqual(chat.composer, "Try that again")
+        client.failSends(with: nil)
+        await chat.retry()
+        XCTAssertNil(chat.composerError)
+        XCTAssertTrue(chat.isRunning)
+        await chat.stop()
+    }
 }

@@ -231,6 +231,7 @@ public final class ChatStore {
         } catch CoreError.riskNoticeNotAccepted {
             needsRiskNotice = true
         } catch CoreError.coreStopped {
+            coreWentAway()
             composerError = .coreStopped
         } catch {
             composerError = ChatErrorCard(title: describe(error), text: "Your message is kept in the box.", actions: [.tryAgain])
@@ -277,9 +278,20 @@ public final class ChatStore {
         defer { isStopping = false }
         do {
             if try await client.cancel(sessionID: id) == false { endRun() }
+        } catch CoreError.coreStopped {
+            coreWentAway() // nothing is left to stop
         } catch {
             composerError = ChatErrorCard(title: "Heron couldn't stop the reply", text: describe(error), actions: [.stopReply])
         }
+    }
+
+    /// The core restarted or stopped: a reply it was running is gone and sends nothing more. Without this the
+    /// conversation stays "running" (Stop instead of Send, the box disabled under a dead approval) until a
+    /// resync that a stopped core never sends.
+    public func coreWentAway() {
+        guard isRunning || liveApproval != nil else { return }
+        mutateAssistant { m in if !m.finished { m.error = .cutOff } }
+        endRun()
     }
 
     /// The reply is over: the composer is free and the reply shows as finished.
