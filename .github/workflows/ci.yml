@@ -57,7 +57,8 @@ jobs:
   eval:
     # The release gates' own code: pass rules, the gate checker, the runners and the containment check.
     name: Eval tests
-    runs-on: ubuntu-22.04
+    # macOS: the scripts these tests drive (discover-dirs.sh, owner-use.sh) use the Mac's own date and paths.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
