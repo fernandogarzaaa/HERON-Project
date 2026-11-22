@@ -35,7 +35,10 @@ public final class FeaturesSettingsStore {
     @ObservationIgnored private let poster: any NotificationPoster
     @ObservationIgnored private let permissionRequests: [String: @Sendable () async -> Bool]
     @ObservationIgnored private let appSwitches: [String: @Sendable (Bool) async throws -> Void]
+    @ObservationIgnored private let brief: BriefController?
     private var appState: [String: Bool] = [:]
+    /// The Morning brief's time of day, "HH:mm", as the picker shows it.
+    public private(set) var briefTime: String = BriefSchedule.defaultTime
 
     /// - Parameters:
     ///   - permissionRequests: how to ask for each non-notification permission, by the name a row gives. A feature's
@@ -47,13 +50,15 @@ public final class FeaturesSettingsStore {
                 defaults: UserDefaults = .standard,
                 poster: any NotificationPoster = SystemNotificationPoster(),
                 permissionRequests: [String: @Sendable () async -> Bool] = [:],
-                appSwitches: [String: @Sendable (Bool) async throws -> Void] = [:]) {
+                appSwitches: [String: @Sendable (Bool) async throws -> Void] = [:],
+                brief: BriefController? = nil) {
         self.client = client
         self.rows = rows
         self.defaults = defaults
         self.poster = poster
         self.permissionRequests = permissionRequests
         self.appSwitches = appSwitches
+        self.brief = brief
         refreshAppRows()
     }
 
@@ -61,6 +66,24 @@ public final class FeaturesSettingsStore {
     /// store was made, so the list reads again when it loads.
     public func refreshAppRows() {
         for row in rows { if case .app(let defaultsKey) = row.kind { appState[row.key] = defaults.bool(forKey: defaultsKey) } }
+        if let brief { briefTime = brief.time }
+    }
+
+    /// The owner picked a time for the Morning brief. Returns whether it now holds; on a refusal the picker goes back
+    /// to the stored time and the error shows.
+    @discardableResult
+    public func setBriefTime(_ time: String) async -> Bool {
+        guard let brief else { return false }
+        do {
+            try await brief.setTime(time)
+            briefTime = brief.time
+            errorMessage = nil
+            return true
+        } catch {
+            briefTime = brief.time
+            errorMessage = describe(error)
+            return false
+        }
     }
 
     // MARK: Reading
@@ -194,6 +217,14 @@ private struct FeatureRowView: View {
                     if item.denied, let pane = item.row.settingsPane {
                         Button("Open System Settings") { NSWorkspace.shared.open(pane) }.buttonStyle(HButtonStyle(.secondary))
                     }
+                }
+                if item.row.key == FeatureRow.morningBrief.key, item.on {
+                    DatePicker("Time", selection: Binding(
+                        get: { BriefSchedule.date(fromTime: store.briefTime) },
+                        set: { d in Task { await store.setBriefTime(BriefSchedule.time(from: d)) } }),
+                               displayedComponents: .hourAndMinute)
+                        .font(HeronFont.callout).foregroundStyle(theme.ink2)
+                        .fixedSize()
                 }
             }
             Spacer()
