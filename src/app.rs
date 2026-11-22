@@ -1247,6 +1247,28 @@ impl App {
         })
     }
 
+    /// A sink that publishes on the bus for a session with no run under way (an automation's own
+    /// steps, an MCP connection): the envelope's `run_id` is null. The first `tainted` goes out here.
+    pub fn session_sink(&self, session_id: &str) -> EventSink {
+        let (bus, sid) = (self.events.clone(), session_id.to_string());
+        Arc::new(move |e| {
+            bus.publish_notice(Some(&sid), None, crate::events::event_json(e));
+        })
+    }
+
+    /// One turn of the terminal conversation (`heron chat`). The agent is built here, for each turn,
+    /// from the settings as they are now, so a feature key or other setting changed while the
+    /// conversation is open (in the app, or through `POST /api/features`) applies from the next turn.
+    /// Returns the reply and the turn's agent, for the caller to `learn` from the turn with.
+    pub async fn repl_turn(&self, approver: Arc<dyn Approver>, session: &mut Session, input: &str, sink: &EventSink) -> Result<(String, Agent)> {
+        // What another Heron on this home granted or revoked since the last turn applies to this one.
+        self.reload_rules();
+        let agent = self.agent(approver);
+        let result = agent.run_turn(session, input, &[], sink).await;
+        self.persist_rules();
+        Ok((result?, agent))
+    }
+
     /// Count one open event stream that posts Heron's notices, until the returned guard is dropped.
     pub fn notify_client(&self) -> NotifyClient {
         self.notify_clients.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -1677,17 +1699,19 @@ impl App {
         let outcome: Result<crate::workflow::RunRecord> = async {
             let workflow = crate::workflow::Workflow::parse(&serde_json::from_str::<serde_json::Value>(&job.workflow)?)?;
             let session = Session::create_with_origin(&self.store, &format!("⚙ {}", job.name), crate::agent::Origin::Automation)?;
+            // No run is on the bus for the automation itself (each agent step is its own), so the
+            // first taint from the trigger or a tool step is published for the session alone.
+            let sink = self.session_sink(&session.id);
             if event.is_some() {
-                // Whatever set a trigger off (a file name, an email) is outside content. No run is on
-                // the bus yet (each agent step is its own), so the first taint is not announced.
-                crate::taint::mark(&self.store, &crate::agent::null_sink(), &session.tainted, &session.id, crate::agent::ContentEntry::TriggerEvent, &job.name, trigger_detail(job));
+                // Whatever set a trigger off (a file name, an email) is outside content.
+                crate::taint::mark(&self.store, &sink, &session.tainted, &session.id, crate::agent::ContentEntry::TriggerEvent, &job.name, trigger_detail(job));
             }
             let mut ctx = agent.tool_ctx(&session.id);
             ctx.tainted = session.tainted.clone();
             // Addresses written into the automation are the user's own choice of destination.
             session.seen_urls.note(&job.workflow);
             ctx.seen_urls = session.seen_urls.clone();
-            let host = JobHost { app: self, agent: &agent, ctx, session: tokio::sync::Mutex::new(session), extra_tokens: Default::default(), attended, held: &held, refused: &refused };
+            let host = JobHost { app: self, agent: &agent, ctx, sink, session: tokio::sync::Mutex::new(session), extra_tokens: Default::default(), attended, held: &held, refused: &refused };
             let record = crate::workflow::run(&host, &workflow, event.as_deref()).await;
             let extra = *host.extra_tokens.lock().unwrap();
             spent.lock().unwrap().completion_tokens += extra;
@@ -2208,6 +2232,8 @@ struct JobHost<'a> {
     app: &'a App,
     agent: &'a Agent,
     ctx: crate::tools::ToolCtx,
+    /// Where a tool step's first taint of the session is published.
+    sink: EventSink,
     session: tokio::sync::Mutex<Session>,
     /// Tokens used by `ask` steps (agent steps are metered by the agent itself).
     extra_tokens: Mutex<u64>,
@@ -2297,7 +2323,7 @@ impl crate::workflow::Host for JobHost<'_> {
         if name == "delegate" {
             self.hold().map_err(|e| e.to_string())?;
         }
-        self.agent.call_tool(&self.ctx, name, args).await
+        self.agent.call_tool(&self.ctx, name, args, &self.sink).await
     }
 
     async fn ask(&self, prompt: &str) -> Result<String> {
@@ -2458,7 +2484,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let app = plain_app(dir.path(), vec![], |_| {}).await;
         let offered = |agent: &Agent| agent.tool_schemas().iter().any(|t| t["function"]["name"] == "test_feature_tool");
-        let runs = |agent: Agent| async move { agent.call_tool(&agent.tool_ctx("s"), "test_feature_tool", &json!({})).await };
+        let runs = |agent: Agent| async move { agent.call_tool(&agent.tool_ctx("s"), "test_feature_tool", &json!({}), &crate::agent::null_sink()).await };
         let before = app.agent(Arc::new(DenyAll));
         assert!(!offered(&before));
         assert!(runs(before.clone()).await.unwrap_err().contains("unknown tool"));
@@ -2477,6 +2503,83 @@ mod tests {
         assert!(runs(off).await.unwrap_err().contains("unknown tool"));
         assert!(!app.tools.names_for(&app.cfg()).contains(&"test_feature_tool".to_string()));
         assert!(app.tools.names().contains(&"test_feature_tool".to_string()), "still registered, only not available");
+    }
+
+    /// The terminal conversation builds its agent per turn: a feature key switched while it is open
+    /// (as `POST /api/features` does) changes the tools the very next turn offers, in the same session.
+    #[tokio::test]
+    async fn repl_agent_sees_feature_change_next_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        let llm = Arc::new(ScriptedLlm::new(vec![Message::assistant("one"), Message::assistant("two"), Message::assistant("three")]));
+        let app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap();
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        let offered = |n: usize| llm.requests.lock().unwrap()[n].tools.iter().any(|t| t["function"]["name"] == "test_feature_tool");
+        // `update_config` rebuilds the model client from the settings; put the scripted one back.
+        let switch = |on: bool| {
+            set_test_key(&app, on);
+            app.llm.swap(llm.clone());
+        };
+        let mut session = Session::create(&app.store, "").unwrap();
+        let sink = crate::agent::null_sink();
+        assert_eq!(app.repl_turn(Arc::new(DenyAll), &mut session, "hello", &sink).await.unwrap().0, "one");
+        assert!(!offered(0));
+        switch(true);
+        assert_eq!(app.repl_turn(Arc::new(DenyAll), &mut session, "again", &sink).await.unwrap().0, "two");
+        assert!(offered(1), "the next turn offers the tool switched on");
+        switch(false);
+        app.repl_turn(Arc::new(DenyAll), &mut session, "once more", &sink).await.unwrap();
+        assert!(!offered(2), "and drops it once switched off");
+        assert_eq!(session.messages.len(), 6, "all three turns ran in the one session");
+    }
+
+    /// The first taint of an automation's session, from a `do: tool` step or from the event that set
+    /// it off, publishes `tainted` on the bus for that session (it has no run), once.
+    #[tokio::test]
+    async fn first_taint_from_automation_step_publishes_tainted() {
+        use crate::events::Item;
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![], |_| {}).await;
+        let collect = |mut bus: crate::events::Subscription| async move {
+            let mut events = vec![];
+            while let Ok(Some(Item::Event(e))) = tokio::time::timeout(std::time::Duration::from_millis(200), bus.next()).await {
+                events.push(e);
+            }
+            events
+        };
+        // Two tool steps whose output is outside content; nothing else in the automation taints.
+        let bus = app.events.subscribe(Some(0));
+        let steps = json!([
+            {"id": "look", "do": "tool", "tool": "recent_activity", "args": {}},
+            {"id": "again", "do": "tool", "tool": "recent_activity", "args": {}}
+        ]);
+        let job = app.store.add_schedule("watch", "", "automation", 1, "").unwrap();
+        app.store.set_schedule_workflow(job, &steps.to_string()).unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        let events = collect(bus).await;
+        let tainted: Vec<_> = events.iter().filter(|e| e.kind() == "tainted").collect();
+        assert_eq!(tainted.len(), 1, "announced once: {events:?}");
+        let sid = &tainted[0].session_id;
+        assert_eq!(app.store.session_origin(sid).as_deref(), Some("automation"));
+        assert!(crate::taint::is_tainted(&app.store, sid));
+        let wire = tainted[0].envelope();
+        assert_eq!((wire["source"]["kind"].as_str(), wire["source"]["name"].as_str()), (Some("tool"), Some("recent_activity")), "{wire}");
+        assert_eq!((wire["session_id"].as_str(), wire["run_id"].is_null()), (Some(sid.as_str()), true), "{wire}");
+        assert_eq!(events.len(), 1, "a tool step's start and end belong to no run, so only the taint is published: {events:?}");
+
+        // Set off by an event: the trigger is the first taint, and it is published the same way.
+        let bus = app.events.subscribe(None);
+        let triggered = app.store.add_schedule("on mail", "@email:invoices", "automation", 0, "").unwrap();
+        app.store.set_schedule_workflow(triggered, &json!([{"id": "look", "do": "tool", "tool": "recent_activity", "args": {}}]).to_string()).unwrap();
+        let job = app.store.list_schedules().unwrap().into_iter().find(|j| j.id == triggered).unwrap();
+        app.run_job(&job, Some("Subject: invoice".into()), false).await;
+        let events = collect(bus).await;
+        let tainted: Vec<_> = events.iter().filter(|e| e.kind() == "tainted").collect();
+        assert_eq!(tainted.len(), 1, "{events:?}");
+        let wire = tainted[0].envelope();
+        assert_eq!((wire["source"]["kind"].as_str(), wire["source"]["name"].as_str(), wire["source"]["detail"].as_str()), (Some("trigger"), Some("on mail"), Some("email")), "{wire}");
+        assert_eq!(app.store.session_origin(&tainted[0].session_id).as_deref(), Some("automation"));
     }
 
     /// A call parked while its feature was on is refused, not run, once the feature is off; and runs
@@ -3404,7 +3507,7 @@ mod tests {
         let session = Session::create_with_origin(&app.store, "⚙ test", crate::agent::Origin::Automation).unwrap();
         let agent = app.agent(Arc::new(DenyAll));
         let (held, refused) = (std::sync::atomic::AtomicBool::new(false), std::sync::atomic::AtomicBool::new(false));
-        let host = JobHost { app: &app, agent: &agent, ctx: agent.tool_ctx(&session.id), session: tokio::sync::Mutex::new(session), extra_tokens: Default::default(), attended: true, held: &held, refused: &refused };
+        let host = JobHost { app: &app, agent: &agent, ctx: agent.tool_ctx(&session.id), sink: crate::agent::null_sink(), session: tokio::sync::Mutex::new(session), extra_tokens: Default::default(), attended: true, held: &held, refused: &refused };
 
         let asked = crate::workflow::Host::ask(&host, "Summarize the notes").await;
         let reflected = app.reflect_if_due().await;

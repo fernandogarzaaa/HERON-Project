@@ -328,7 +328,7 @@ impl Approver for TelegramApprover {
 /// The question a phone is asked. It offers yes or no, nothing else: a yes approves this one call
 /// ("always" and "for this conversation" are given at the computer), so a once-only tool is offered
 /// exactly what every other tool is.
-fn approval_prompt(req: &ApprovalRequest, challenge: &str) -> String {
+pub fn approval_prompt(req: &ApprovalRequest, challenge: &str) -> String {
     format!("Heron wants permission ({}):\n\n{}\n\nReply yes {challenge} or no {challenge}.", req.tool, crate::util::truncate_middle(&req.detail, 1200))
 }
 

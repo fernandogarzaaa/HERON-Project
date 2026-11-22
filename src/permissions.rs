@@ -1332,11 +1332,19 @@ pub async fn check_url(raw: &str) -> Result<url::Url> {
 mod tests {
     use super::*;
 
-    /// A standing rule never covers a once-only tool, `*` and the tool's own `tool:*` included. The
-    /// same rules cover an ordinary tool with the same effect, and the user's "never" still applies.
+    /// A standing rule never covers a once-only tool, `*`, `*:*` and the tool's own `tool:*` included.
+    /// The same rules cover an ordinary tool with the same effect, and the user's "never" still applies.
     #[test]
     fn once_only_tools_ignore_star_rules() {
-        let rules: Vec<String> = ["*", "run_shortcut:*", "draft_email:*", "write_file:*"].iter().map(|r| r.to_string()).collect();
+        // `*:*` alone: it covers an ordinary tool, so it is a live rule, but never a once-only one.
+        let star_star = Policy::new(Mode::Ask, &["*:*".to_string()], &[]);
+        for effect in [Effect::WorkspaceWrite, Effect::ProcessExec, Effect::ExternalWrite] {
+            assert_eq!(decide_for(&star_star, "write_file", "notes.md", effect, false), Verdict::Allow, "the control: `*:*` covers write_file {effect:?}");
+            for tool in ["run_shortcut", "draft_email"] {
+                assert_eq!(decide_for(&star_star, tool, "Get Notes", effect, false), Verdict::Ask, "`*:*` covered {tool} {effect:?}");
+            }
+        }
+        let rules: Vec<String> = ["*", "*:*", "run_shortcut:*", "draft_email:*", "write_file:*"].iter().map(|r| r.to_string()).collect();
         let p = Policy::new(Mode::Ask, &rules, &[]);
         // Effects that Ask mode asks about, so only a rule could allow them.
         for effect in [Effect::WorkspaceWrite, Effect::ProcessExec, Effect::ExternalWrite] {
@@ -1353,8 +1361,8 @@ mod tests {
         assert!(matches!(decide_for(&never, "run_shortcut", "Get Notes", Effect::WorkspaceWrite, false), Verdict::Deny(_)));
     }
 
-    #[test]
-    fn once_only_tools_cannot_be_set_to_allow() {
+    #[tokio::test]
+    async fn once_only_tools_cannot_be_set_to_allow() {
         let p = Policy::new(Mode::Ask, &[], &[]);
         for tool in ["run_shortcut", "draft_email"] {
             let err = Policy::check_tool_setting(tool, "allow").unwrap_err().to_string();
@@ -1370,6 +1378,34 @@ mod tests {
         // The control: an ordinary tool may be set to allow.
         p.set_tool_setting("write_file", "allow").unwrap();
         assert_eq!(p.allow_rules(), vec!["write_file:*"]);
+
+        // Through the app, as the Settings page and `POST /api/tools/{name}` set it: refused, and
+        // nothing lands in the live rules, the running settings or config.toml.
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        cfg.save().unwrap();
+        let app = crate::app::App::assemble(cfg, dir.path().join("ws"), crate::store::Store::in_memory().unwrap(), Arc::new(crate::llm::ScriptedLlm::new(vec![]))).await.unwrap();
+        let home = app.cfg().home.clone();
+        for tool in ["run_shortcut", "draft_email"] {
+            let err = app.set_tool_setting(tool, "allow").unwrap_err().to_string();
+            assert!(err.contains("one call at a time"), "{err}");
+            let rule = format!("{tool}:*");
+            assert!(!app.policy.allow_rules().contains(&rule), "{:?}", app.policy.allow_rules());
+            assert_eq!(app.policy.tool_setting(tool), "ask");
+            assert!(!app.cfg().permissions.allow.contains(&rule), "{:?}", app.cfg().permissions.allow);
+            assert!(!Config::read_saved(&home).unwrap().permissions.allow.contains(&rule));
+            assert!(!std::fs::read_to_string(home.join("config.toml")).unwrap().contains(&rule));
+            // "never" may still be chosen there, and lifted again.
+            app.set_tool_setting(tool, "never").unwrap();
+            assert_eq!(app.policy.tool_setting(tool), "never");
+            app.set_tool_setting(tool, "ask").unwrap();
+        }
+        // The control: the same call sets an ordinary tool to allow, everywhere.
+        app.set_tool_setting("write_file", "allow").unwrap();
+        assert!(app.policy.allow_rules().contains(&"write_file:*".to_string()));
+        assert!(app.cfg().permissions.allow.contains(&"write_file:*".to_string()));
+        assert!(Config::read_saved(&home).unwrap().permissions.allow.contains(&"write_file:*".to_string()));
     }
 
     #[test]
