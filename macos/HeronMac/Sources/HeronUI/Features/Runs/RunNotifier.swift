@@ -27,13 +27,16 @@ public enum RunNoticeTarget: Equatable, Sendable {
 /// Posts F3's notices through `NotificationPoster` (heron-v1-features.md, "Notifications have one owner").
 ///
 /// * a `notification` event from the core (a schedule, an automation or a suggestion) is posted always, whether
-///   or not the window is frontmost: the core posts none of its own while this app asks for them;
+///   or not the window is frontmost: the core posts none of its own while this app asks for them (the app asks only
+///   while notifications are on and macOS has not refused them);
 /// * while the main window isn't frontmost, an `approval` posts "Heron needs your OK: tool", and a run's end posts
 ///   "Heron finished: title", except for runs whose origin is `schedule`, `automation`, `proactive` or `telegram`.
 ///   The first three already send a notice through the core. The fourth is the owner on the phone.
 ///
 /// A notice has a title and a body and nothing else. It never offers approve or deny: an approval is answered only
-/// in the sheet, the terminal or Telegram. The title is the owner's own words, and the body never holds content.
+/// in the sheet, the terminal or Telegram. The title is the owner's own words. The body of an approval or a run's
+/// end is fixed text and holds no content. The body of a core notice is the core's own: up to 180 characters,
+/// which for a schedule can be the start of its result.
 @MainActor
 public final class RunNotifier {
     private let poster: any NotificationPoster
@@ -41,6 +44,9 @@ public final class RunNotifier {
     private let isEnabled: @MainActor () -> Bool
     private let windowIsFrontmost: @MainActor () -> Bool
     private var handled: Set<String> = []
+    /// Called when macOS has just refused the permission this notifier asked for, so the owner of the event stream
+    /// can stop asking the core to hand its notices over.
+    public var onAuthorizationRefused: (@MainActor () -> Void)?
 
     public init(poster: any NotificationPoster,
                 runs: any RunsClientProtocol,
@@ -94,7 +100,10 @@ public final class RunNotifier {
     private func post(title: String, body: String, identifier: String, once: Bool) async {
         if once, !handled.insert(identifier).inserted { return }
         if !(await poster.isAuthorized()) {
-            guard await poster.requestAuthorization() else { return }
+            guard await poster.requestAuthorization() else {
+                onAuthorizationRefused?()
+                return
+            }
         }
         try? await poster.post(title: title, body: body, identifier: identifier)
     }

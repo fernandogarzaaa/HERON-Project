@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Observation
 import HeronCore
 
@@ -83,7 +84,16 @@ public final class AppModel {
     /// The `seq` of the newest event routed, so a restarted stream resumes after it.
     @ObservationIgnored private var lastEventSeq: Int?
     @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
+    @ObservationIgnored private var activeObserver: NSObjectProtocol?
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private let poster: any NotificationPoster
+    /// Whether macOS has refused notifications. Cached so the stream can be opened synchronously; refreshed by
+    /// `refreshNotificationAuthorization()`.
+    @ObservationIgnored private var notificationsDenied = false
+
+    /// The core hands its notices to the app (`?notify=1`) only while the app can post them: the switch is on and
+    /// macOS has not refused. Otherwise the core keeps posting its own, and a schedule's result is not lost.
+    private var wantsCoreNotices: Bool { runs.enabled && !notificationsDenied }
 
     public init(client: any CoreClientProtocol, preferences: DisplayPreferences? = nil,
                 userFirstName: String? = nil, now: @escaping () -> Date = Date.init,
@@ -96,6 +106,7 @@ public final class AppModel {
         self.client = client
         self.preferences = preferences ?? DisplayPreferences()
         self.now = now
+        self.poster = poster
         avatar = AvatarModel()
         chat = ChatStore(client: client)
         approvals = ApprovalsStore(client: client)
@@ -135,6 +146,11 @@ public final class AppModel {
             return client.events(since: since)
         }
         chat.onOtherApproval = { [weak self] event in self?.addToFeed(event) }
+        // macOS refusing the first request, or the owner changing it in System Settings, changes what the core is asked.
+        runNotifier.onAuthorizationRefused = { [weak self] in Task { await self?.refreshNotificationAuthorization() } }
+        activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in await self?.refreshNotificationAuthorization() }
+        }
         // The switch lives in `UserDefaults`, written by the Features list; follow it.
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.applyRunsSetting() }
@@ -182,6 +198,7 @@ public final class AppModel {
         await loadedPersona
         hasBootstrapped = true
         if needsFirstRun { await firstRun.load() } else { await loadAll() }
+        await refreshNotificationAuthorization()
         startEvents()
     }
 
@@ -213,8 +230,8 @@ public final class AppModel {
     /// - Parameter resumingAfter: the `seq` to resume from when reopening a stream; nil on a first start.
     public func startEvents(resumingAfter seq: Int? = nil) {
         guard eventTask == nil else { return }
-        // With "Runs and notifications" on, the stream asks the core to hand over its notices (`?notify=1`).
-        let stream = openEvents(seq, runs.enabled)
+        // With "Runs and notifications" on and macOS not refusing, the stream asks the core to hand over its notices (`?notify=1`).
+        let stream = openEvents(seq, wantsCoreNotices)
         eventTask = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
@@ -297,16 +314,30 @@ public final class AppModel {
         if runs.enabled { await runs.load() }
     }
 
+    /// Reads whether macOS has refused notifications. When that changes what the core should be asked, the event
+    /// stream is reopened (with `?notify=1` only while the app can post the core's notices).
+    public func refreshNotificationAuthorization() async {
+        let denied = await poster.isDenied()
+        guard denied != notificationsDenied else { return }
+        let before = wantsCoreNotices
+        notificationsDenied = denied
+        if wantsCoreNotices != before { reopenEvents() }
+    }
+
+    private func reopenEvents() {
+        guard eventTask != nil else { return }
+        stopEvents()
+        startEvents(resumingAfter: lastEventSeq)
+    }
+
     /// Follows the "Runs and notifications" switch. When it changes, the event stream is reopened, with `?notify=1`
     /// while it is on and without it while it is off, so the core knows whether to keep posting its own notices.
     public func applyRunsSetting() {
         guard runs.refreshEnabled() else { return }
-        if eventTask != nil {
-            stopEvents()
-            startEvents(resumingAfter: lastEventSeq)
-        }
+        reopenEvents()
         if runs.enabled {
-            Task { await runs.load() }
+            // Turning the switch on may have just asked macOS for permission.
+            Task { await refreshNotificationAuthorization(); await runs.load() }
         } else if selection == .runs {
             selection = .today
         }

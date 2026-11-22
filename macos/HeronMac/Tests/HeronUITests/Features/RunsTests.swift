@@ -12,12 +12,18 @@ private final class RecordingPoster: NotificationPoster, @unchecked Sendable {
     private var _requests = 0
     private var _posted: [Notice] = []
     var grants = true
+    var denied: Bool {
+        get { lock.withLock { _denied } }
+        set { lock.withLock { _denied = newValue } }
+    }
+    private var _denied = false
 
     var requests: Int { lock.withLock { _requests } }
     var posted: [Notice] { lock.withLock { _posted } }
 
     func requestAuthorization() async -> Bool { lock.withLock { _requests += 1 }; return grants }
     func isAuthorized() async -> Bool { grants }
+    func isDenied() async -> Bool { denied }
     func post(title: String, body: String, identifier: String) async throws {
         lock.withLock { _posted.append(Notice(title: title, body: body, identifier: identifier)) }
     }
@@ -350,6 +356,40 @@ final class RunsTests: XCTestCase {
         let model = AppModel(client: PreviewCoreClient(), defaults: d, poster: RecordingPoster(), openEvents: recorder.open)
         model.startEvents()
         XCTAssertEqual(recorder.calls.map { $0.notify }, [false], "the core keeps posting its own notices")
+        model.stopEvents()
+    }
+
+    func test_notifyFlagIsOffWhileNotificationsAreDenied() async {
+        let recorder = OpenRecorder()
+        let poster = RecordingPoster()
+        poster.denied = true
+        let model = AppModel(client: PreviewCoreClient(), defaults: defaults(), poster: poster, openEvents: recorder.open)
+        await model.refreshNotificationAuthorization()
+        model.startEvents()
+        XCTAssertEqual(recorder.calls.map { $0.notify }, [false], "the switch is on, but the app cannot post: the core keeps its notices")
+
+        poster.denied = false
+        await model.refreshNotificationAuthorization()
+        await model.refreshNotificationAuthorization()
+        XCTAssertEqual(recorder.calls.map { $0.notify }, [false, true], "allowed in System Settings: reopened once, with notify")
+
+        poster.denied = true
+        await model.refreshNotificationAuthorization()
+        XCTAssertEqual(recorder.calls.map { $0.notify }, [false, true, false], "refused again: reopened without notify")
+        model.stopEvents()
+    }
+
+    func test_aRefusedPermissionRequestTakesNotifyOffTheStream() async throws {
+        let recorder = OpenRecorder()
+        let poster = RecordingPoster()
+        poster.grants = false
+        let model = AppModel(client: PreviewCoreClient(), defaults: defaults(), poster: poster, windowIsFrontmost: { false }, openEvents: recorder.open)
+        model.startEvents()
+        // macOS answers the first request with a refusal, which also makes its status "denied".
+        poster.denied = true
+        model.route(CoreEvent(seq: 5, kind: .notification(title: "Daily summary", body: "Done", source: "schedule")))
+        for _ in 0..<100 where recorder.calls.count < 2 { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(recorder.calls.map { $0.notify }, [true, false])
         model.stopEvents()
     }
 
