@@ -1530,7 +1530,7 @@
       "claim_token": "c708d8f7fec84207897d5a50a9ae5ae5",
       "claimed_at": "2026-11-22T09:46:16.212823+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:46:16.212823+00:00",
+      "last_heartbeat": "2026-11-22T09:47:16.912441+00:00",
       "node_version": 39,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -1565,9 +1565,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 42,
+    "version": 44,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -2389,7 +2389,16 @@
     }
   },
   "F3s": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "a675b544a4534914a43594b3ba00df3b",
+        "ended_at": "2026-11-22T09:47:41.797275+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:38:37.697102+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -2401,19 +2410,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "a675b544a4534914a43594b3ba00df3b",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "e0734d26ff51435f89d5f935502e35ff",
-      "claimed_at": "2026-11-22T09:38:37.697102+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:46:08.872810+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- run_record_follows_the_bus failed_edit_attaches_no_checkpoint waiting_returns_to_running run_record_is_written_before_run_end parked_calls_are_not_counted_as_the_run run_records_are_pruned_to_500",
+        "duration_ms": 25413,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F3s_20261122T094716201297_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F3s_20261122T094741615962_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F3s",
     "integration_for": null,
     "intent": {
@@ -2425,13 +2446,61 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "a675b544a4534914a43594b3ba00df3b",
+      "base_commit": "d7bb8d754450035c634044c8385bcee14a7df211",
+      "changed_files": [
+        "src/agent.rs",
+        "src/app.rs",
+        "src/events.rs",
+        "src/lib.rs",
+        "src/server.rs",
+        "src/store.rs",
+        "src/tools/fs.rs",
+        "src/runs.rs"
+      ],
+      "commit": "c32409e8854a6aa4e907025f647a7ccd0ea3df2c",
+      "diff_stats": {
+        "src/agent.rs": {
+          "added": 77,
+          "deleted": 10
+        },
+        "src/app.rs": {
+          "added": 35,
+          "deleted": 1
+        },
+        "src/events.rs": {
+          "added": 33,
+          "deleted": 2
+        },
+        "src/lib.rs": {
+          "added": 1,
+          "deleted": 0
+        },
+        "src/runs.rs": {
+          "added": 353,
+          "deleted": 0
+        },
+        "src/server.rs": {
+          "added": 28,
+          "deleted": 0
+        },
+        "src/store.rs": {
+          "added": 83,
+          "deleted": 4
+        },
+        "src/tools/fs.rs": {
+          "added": 1,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "F3: run records, GET /api/runs",
-    "version": 18,
+    "version": 22,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "d7bb8d754450035c634044c8385bcee14a7df211",
