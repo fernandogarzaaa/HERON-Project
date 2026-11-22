@@ -2689,15 +2689,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "057c1ec3ae194a3b9513ae9360261863",
+      "base_branch": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
+      "claim_token": "ed422649849143a8851f455b7a1e1aed",
+      "claimed_at": "2026-11-22T10:37:00.644186+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T10:37:00.644186+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F2g"
@@ -2719,11 +2719,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Kill F2's surviving mutants",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
       "branch": null,
       "path": null
     }
