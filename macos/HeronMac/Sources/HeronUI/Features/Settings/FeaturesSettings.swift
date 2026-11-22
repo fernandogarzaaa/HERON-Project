@@ -34,21 +34,32 @@ public final class FeaturesSettingsStore {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let poster: any NotificationPoster
     @ObservationIgnored private let permissionRequests: [String: @Sendable () async -> Bool]
+    @ObservationIgnored private let appSwitches: [String: @Sendable (Bool) async throws -> Void]
     private var appState: [String: Bool] = [:]
 
     /// - Parameters:
     ///   - permissionRequests: how to ask for each non-notification permission, by the name a row gives. A feature's
     ///     `a` unit registers its own. A permission with no entry here is not asked for.
+    ///   - appSwitches: what an app row does besides saving its setting, by row key (F6 makes or deletes its schedule).
+    ///     It runs before the setting is saved; if it throws, the setting stays as it was and the error shows.
     public init(client: any FeaturesClientProtocol,
                 rows: [FeatureRow] = FeatureRows.all,
                 defaults: UserDefaults = .standard,
                 poster: any NotificationPoster = SystemNotificationPoster(),
-                permissionRequests: [String: @Sendable () async -> Bool] = [:]) {
+                permissionRequests: [String: @Sendable () async -> Bool] = [:],
+                appSwitches: [String: @Sendable (Bool) async throws -> Void] = [:]) {
         self.client = client
         self.rows = rows
         self.defaults = defaults
         self.poster = poster
         self.permissionRequests = permissionRequests
+        self.appSwitches = appSwitches
+        refreshAppRows()
+    }
+
+    /// Reads each app row's setting again. A feature that is on by default records itself on its first launch, after this
+    /// store was made, so the list reads again when it loads.
+    public func refreshAppRows() {
         for row in rows { if case .app(let defaultsKey) = row.kind { appState[row.key] = defaults.bool(forKey: defaultsKey) } }
     }
 
@@ -79,6 +90,7 @@ public final class FeaturesSettingsStore {
     // MARK: Loading and switching
 
     public func load() async {
+        refreshAppRows()
         loadState = .loading
         do {
             coreFeatures = try await client.features()
@@ -101,6 +113,12 @@ public final class FeaturesSettingsStore {
         deniedKeys.remove(row.key)
         switch row.kind {
         case .app(let defaultsKey):
+            if let action = appSwitches[row.key] {
+                do { try await action(on) } catch {
+                    errorMessage = describe(error)
+                    return false
+                }
+            }
             defaults.set(on, forKey: defaultsKey)
             appState[row.key] = on
             errorMessage = nil
