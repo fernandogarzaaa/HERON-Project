@@ -9,13 +9,29 @@ enum SourceCopy {
     static let calendarHint = "Google Calendar: Settings › your calendar › “Secret address in iCal format”. iCloud: the calendar's public (subscription) link. Anyone with the link can read the calendar, so keep it private."
     static let emailHint = "Gmail and iCloud need an app-specific password, not your usual one. Create one in your account's security settings. Heron checks the sign-in before saving anything."
 
+    static let accountsIntro = "One sign-in connects both your email and your calendar for that account. Heron can only read them, and it asks for nothing else."
+    static let accountScope = "Email and Calendar, read-only"
+    static let waitingForSignIn = "Waiting for you to finish signing in…"
+    static let readingAccount = "Reading your email and calendar…"
+    static let browserWouldNotOpen = "Heron couldn't open your browser. Open your default browser once, then try again."
+    static let signInTimedOut = "The sign-in wasn't finished in time. Try again."
+    static let localCalendarSentence = "Reads every calendar in the Calendar app on this Mac, including Google and iCloud accounts you've added there. Read-only, and macOS asks you first."
+    static let calendarAccessDenied = "Heron can't read your calendars yet. Open System Settings › Privacy & Security › Calendars, turn Heron on, then try again."
+    static let privacyCalendarsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
+
+    static func signInButton(_ provider: OAuthProviderID) -> String { "Sign in with \(provider.displayName)" }
+    static func signInNotSetUp(_ provider: OAuthProviderID) -> String { "\(provider.displayName) sign-in isn't set up in this build yet." }
+    static func firstSyncFailed(_ reason: String) -> String { "Signed in, but the first read failed: \(reason) Heron will try again later." }
+
     /// What the confirm sheet says Heron will forget.
     static func forgetSentence(_ source: ConnectionInfo) -> String {
         switch source.id {
         case "documents": "Heron will stop reading your folders and forget the notes and facts it learned from them."
         case "calendar": "Heron will stop reading your calendar and forget the events and facts it learned from it."
+        case "calendar_local": "Heron will stop reading the Calendar app on this Mac and forget the events and facts it learned from it."
         case "email": "Heron will delete its saved app password and forget the messages and facts it learned from it."
         case "computer": "Heron will forget what it learned by scanning this Mac."
+        case "google", "microsoft": "Heron will sign out of this account and forget the email, events and facts it learned from it. To take back its access at \(source.name) as well, remove Heron in your \(source.name) account's security settings."
         default: "Heron will forget what it learned from this source."
         }
     }
@@ -23,32 +39,44 @@ enum SourceCopy {
     static func connectTitle(_ id: String) -> String { id == "computer" ? "Scan" : "Connect…" }
 }
 
-/// Which sheet is open on the rows.
-private enum SourceSheet: String, Identifiable {
+/// Which sheet is open.
+enum SourceSheet: String, Identifiable {
     case calendar, email
     var id: String { rawValue }
 }
 
-/// The four sources as rows with Connect, Scan and Disconnect. Used by Settings › Connections and by the first-run
-/// sources step, so both connect the same way.
-struct SourceRows: View {
+/// Everything Settings › Connections shows, and the first-run sources step shows the same: the account sign-ins
+/// first, then the Mac's Calendar, folders and this Mac, then the link and password flows under "Other ways to connect".
+struct ConnectionsPanel: View {
     let store: SettingsStore
     @Environment(\.heronTheme) private var theme
     @State private var sheet: SourceSheet?
+    @State private var showsOtherWays = false
 
     var body: some View {
-        let rows = store.settings?.connections ?? []
-        Group {
-            if rows.isEmpty {
-                Text("Heron couldn't read your sources. Reopen Settings to try again.").foregroundStyle(theme.ink2)
-            } else {
+        VStack(alignment: .leading, spacing: Spacing.s4) {
+            VStack(alignment: .leading, spacing: Spacing.s2) {
+                Text(SourceCopy.accountsIntro).font(HeronFont.callout).foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
                 RowGroup {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+                    ForEach(Array(OAuthProviderID.allCases.enumerated()), id: \.element.id) { i, provider in
                         if i > 0 { RowDivider() }
-                        SourceRow(row: row, store: store, onConnect: { connect(row.id) })
+                        AccountRow(provider: provider, store: store)
                     }
+                    RowDivider()
+                    LocalCalendarRow(store: store)
                 }
             }
+            SourceRows(store: store, ids: ["documents", "computer"], onSheet: { sheet = $0 })
+            DisclosureGroup(isExpanded: $showsOtherWays) {
+                VStack(alignment: .leading, spacing: Spacing.s2) {
+                    Text("A calendar's private link, or a mailbox's app password. Use these if you can't sign in above.")
+                        .font(HeronFont.callout).foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
+                    SourceRows(store: store, ids: ["calendar", "email"], onSheet: { sheet = $0 })
+                }.padding(.top, Spacing.s2)
+            } label: {
+                Text("Other ways to connect").font(HeronFont.subLabel).foregroundStyle(theme.ink)
+            }
+            .accessibilityLabel("Other ways to connect")
         }
         .sheet(item: $sheet) { which in
             switch which {
@@ -61,13 +89,146 @@ struct SourceRows: View {
                                         onConfirm: { Task { await store.confirmDisconnect() } })
         }
     }
+}
+
+/// One provider: the main button, the waiting state with Cancel, or the connected account with Disconnect.
+struct AccountRow: View {
+    let provider: OAuthProviderID
+    let store: SettingsStore
+    @Environment(\.heronTheme) private var theme
+
+    private var account: OAuthAccount { store.account(provider) }
+    private var waiting: Bool { store.signingIn == provider }
+    private var reading: Bool { store.syncingAccounts.contains(provider) }
+    private var busy: Bool { store.isBusy(source: provider.rawValue) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.s1) {
+            HStack(spacing: Spacing.s3) {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: Spacing.s2) {
+                        Text(provider.displayName).foregroundStyle(theme.ink)
+                        if account.connected { HTag("Connected", tone: .ok) }
+                    }
+                    Text(account.connected ? (account.account ?? SourceCopy.accountScope) : SourceCopy.accountScope)
+                        .font(HeronFont.callout).foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: Spacing.s3)
+                trailing
+            }
+            if !account.clientConfigured && !account.connected {
+                Text(SourceCopy.signInNotSetUp(provider)).font(HeronFont.callout).foregroundStyle(theme.ink3)
+            }
+            if waiting {
+                Text(SourceCopy.waitingForSignIn).font(HeronFont.callout).foregroundStyle(theme.ink2)
+            }
+            if let message = store.sourceErrors[provider.rawValue] {
+                Text(message).font(HeronFont.callout).foregroundStyle(theme.danger).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Couldn't connect \(provider.displayName). \(message)")
+            }
+        }
+        .padding(.horizontal, Spacing.s4).padding(.vertical, 10)
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder private var trailing: some View {
+        if waiting {
+            ProgressView().controlSize(.small)
+            Button("Cancel") { store.cancelSignIn() }.buttonStyle(HButtonStyle(.secondary))
+        } else if reading || busy {
+            ProgressView().controlSize(.small)
+            Text(reading ? SourceCopy.readingAccount : "Working…").font(HeronFont.callout).foregroundStyle(theme.ink2)
+        } else if account.connected {
+            Button("Disconnect") { store.askToDisconnect(account: provider) }
+                .buttonStyle(HButtonStyle(.secondary)).accessibilityLabel("Disconnect \(provider.displayName)")
+        } else {
+            Button(SourceCopy.signInButton(provider)) {
+                store.beginSignIn(provider) { NSWorkspace.shared.open($0) }
+            }
+            .buttonStyle(HButtonStyle(.primary)).disabled(!account.clientConfigured || store.signingIn != nil)
+        }
+    }
+}
+
+/// "Use your Mac's Calendar": one click, then the macOS permission prompt.
+struct LocalCalendarRow: View {
+    let store: SettingsStore
+    @Environment(\.heronTheme) private var theme
+
+    private var row: ConnectionInfo? { store.settings?.connections.first { $0.id == "calendar_local" } }
+    private var connected: Bool { row?.connected == true }
+    private var busy: Bool { store.isBusy(source: "calendar_local") }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.s1) {
+            HStack(spacing: Spacing.s3) {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: Spacing.s2) {
+                        Text("Mac Calendar").foregroundStyle(theme.ink)
+                        if connected { HTag("Connected", tone: .ok) }
+                    }
+                    if connected, let detail = row?.detail {
+                        Text(detail).font(HeronFont.callout).foregroundStyle(theme.ink2)
+                    }
+                }
+                Spacer(minLength: Spacing.s3)
+                if busy {
+                    ProgressView().controlSize(.small)
+                    Text("Working…").font(HeronFont.callout).foregroundStyle(theme.ink2)
+                } else if connected {
+                    Button("Refresh") { Task { await store.connectLocalCalendar() } }.buttonStyle(HButtonStyle(.secondary))
+                    Button("Disconnect") { store.askToDisconnect("calendar_local") }
+                        .buttonStyle(HButtonStyle(.secondary)).accessibilityLabel("Disconnect Mac Calendar")
+                } else {
+                    Button("Use your Mac's Calendar") { Task { await store.connectLocalCalendar() } }
+                        .buttonStyle(HButtonStyle(.secondary))
+                }
+            }
+            Text(SourceCopy.localCalendarSentence).font(HeronFont.callout).foregroundStyle(theme.ink3).fixedSize(horizontal: false, vertical: true)
+            if let message = store.sourceErrors["calendar_local"] {
+                Text(message).font(HeronFont.callout).foregroundStyle(theme.danger).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Couldn't connect the Mac Calendar. \(message)")
+                if store.localCalendarDenied {
+                    Button("Open System Settings") {
+                        if let url = URL(string: SourceCopy.privacyCalendarsURL) { NSWorkspace.shared.open(url) }
+                    }.buttonStyle(HButtonStyle(.link))
+                }
+            }
+        }
+        .padding(.horizontal, Spacing.s4).padding(.vertical, 10)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// Some of the sources as rows with Connect, Scan and Disconnect.
+struct SourceRows: View {
+    let store: SettingsStore
+    let ids: [String]
+    let onSheet: (SourceSheet) -> Void
+    @Environment(\.heronTheme) private var theme
+
+    var body: some View {
+        let rows = (store.settings?.connections ?? []).filter { ids.contains($0.id) }
+        Group {
+            if rows.isEmpty {
+                Text("Heron couldn't read your sources. Reopen Settings to try again.").foregroundStyle(theme.ink2)
+            } else {
+                RowGroup {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+                        if i > 0 { RowDivider() }
+                        SourceRow(row: row, store: store, onConnect: { connect(row.id) })
+                    }
+                }
+            }
+        }
+    }
 
     private func connect(_ id: String) {
         store.clearSourceError(id)
         switch id {
         case "documents": chooseFolder()
-        case "calendar": sheet = .calendar
-        case "email": sheet = .email
+        case "calendar": onSheet(.calendar)
+        case "email": onSheet(.email)
         case "computer": Task { await store.connect(.computer) }
         default: break
         }
@@ -186,7 +347,7 @@ struct CalendarConnectSheet: View {
     private var canConnect: Bool { !link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !busy }
 
     var body: some View {
-        SheetFrame(title: "Connect your calendar") {
+        SheetFrame(title: "Connect a calendar by link") {
             Text("Paste your calendar's private link (an ICS link). Heron reads your events and never changes the calendar.")
                 .foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: Spacing.s2) {
@@ -227,7 +388,7 @@ struct EmailConnectSheet: View {
     }
 
     var body: some View {
-        SheetFrame(title: "Connect your email") {
+        SheetFrame(title: "Connect a mailbox with an app password") {
             Text("Heron reads recent messages in your inbox so it can answer questions about them. It signs in with an app password you create for it.")
                 .foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: Spacing.s2) {

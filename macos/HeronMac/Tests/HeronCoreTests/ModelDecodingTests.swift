@@ -100,6 +100,29 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(s.modelDisplayName, "Codex")
     }
 
+    func testOAuthAccountsDecodeProvidersAndSkipUnknownOnes() throws {
+        let json = #"{"providers":[{"provider":"google","connected":true,"client_configured":true,"account":"sam@gmail.com","read_only":true},{"provider":"microsoft","connected":false,"client_configured":false,"read_only":true},{"provider":"yahoo","connected":false,"client_configured":false}]}"#
+        let accounts = try CoreWire.oauthAccounts(Data(json.utf8))
+        XCTAssertEqual(accounts, [OAuthAccount(provider: .google, connected: true, clientConfigured: true, account: "sam@gmail.com"),
+                                  OAuthAccount(provider: .microsoft, connected: false, clientConfigured: false, account: nil)])
+    }
+
+    func testOAuthStartOnlyAcceptsAnHTTPSAddress() throws {
+        let url = try CoreWire.oauthStart(Data(#"{"provider":"google","authorization_url":"https://accounts.google.com/o/oauth2/v2/auth?x=1","expires_in_seconds":600}"#.utf8))
+        XCTAssertEqual(url.host, "accounts.google.com")
+        for bad in ["file:///etc/passwd", "javascript:alert(1)", "http://accounts.example.com/x", "not a url"] {
+            XCTAssertThrowsError(try CoreWire.oauthStart(Data(#"{"authorization_url":"\#(bad)"}"#.utf8)), bad)
+        }
+    }
+
+    func testTheMacCalendarSourceIsARowWhenTheCoreServesIt() throws {
+        let json = #"{"calendar_local":{"connected":true,"indexed":12,"learned":0},"documents":{"connected":false,"folders":[],"indexed":0,"learned":0}}"#
+        let rows = CoreWire.connections(Data(json.utf8))
+        XCTAssertEqual(rows.map(\.id), ["documents", "calendar_local"])
+        XCTAssertEqual(rows.last?.detail, "12 events indexed")
+        XCTAssertEqual(rows.last?.connected, true)
+    }
+
     func testSandboxNoneIsOff() throws {
         let json = String(decoding: try Fixtures.data("state.json"), as: UTF8.self).replacingOccurrences(of: "\"seatbelt\"", with: "\"none\"")
         XCTAssertFalse(try CoreWire.state(Data(json.utf8)).sandboxOn)

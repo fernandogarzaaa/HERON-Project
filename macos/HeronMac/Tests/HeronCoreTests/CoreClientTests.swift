@@ -174,6 +174,58 @@ final class CoreClientTests: XCTestCase {
         XCTAssertEqual(json["tls"] as? Bool, false)
     }
 
+    func testMacCalendarEventsAreSentAsJSONToTheirSource() async throws {
+        let client = makeClient { _ in .init(200, json: #"{"indexed":2}"#) }
+        try await client.connectSource(.localCalendar(events: [
+            LocalCalendarEvent(uid: "e1", title: "Dentist", start: 1_795_100_000, end: 1_795_101_800, allDay: false, location: "Main St"),
+            LocalCalendarEvent(uid: "e2", title: "Holiday", start: 1_795_200_000, end: nil, allDay: true),
+        ]))
+        let seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual(seen.method, "POST")
+        XCTAssertEqual(seen.path, "/api/sources/calendar_local")
+        let events = try XCTUnwrap(try body(seen)["events"] as? [[String: Any]])
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events[0]["uid"] as? String, "e1")
+        XCTAssertEqual(events[0]["start"] as? Int, 1_795_100_000)
+        XCTAssertEqual(events[0]["end"] as? Int, 1_795_101_800)
+        XCTAssertEqual(events[0]["location"] as? String, "Main St")
+        XCTAssertEqual(events[1]["all_day"] as? Bool, true)
+        XCTAssertNil(events[1]["end"], "an event with no end sends none")
+    }
+
+    func testOAuthRoutes() async throws {
+        let status = #"{"providers":[{"provider":"google","connected":false,"client_configured":true,"read_only":true}]}"#
+        var client = makeClient { _ in .init(200, json: status) }
+        let accounts = try await client.oauthAccounts()
+        XCTAssertEqual(accounts.map(\.provider), [.google])
+        var seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual([seen.method, seen.path, seen.token ?? ""], ["GET", "/api/oauth", "secret-token"])
+
+        client = makeClient { _ in .init(200, json: #"{"provider":"google","authorization_url":"https://accounts.google.com/o/oauth2/v2/auth?state=s","expires_in_seconds":600}"#) }
+        let url = try await client.startOAuth(provider: .google)
+        XCTAssertEqual(url.host, "accounts.google.com")
+        seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual([seen.method, seen.path], ["POST", "/api/oauth/google/start"])
+        XCTAssertEqual(seen.contentType, "application/json", "the core's Json extractor needs a body")
+
+        client = makeClient { _ in .init(200, json: #"{"emails":3,"events":4}"#) }
+        try await client.syncOAuth(provider: .microsoft)
+        seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual([seen.method, seen.path], ["POST", "/api/oauth/microsoft/sync"])
+
+        client = makeClient { _ in .init(200, json: #"{"removed_items":1,"removed_memories":0}"#) }
+        try await client.disconnectOAuth(provider: .google)
+        seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual([seen.method, seen.path], ["DELETE", "/api/oauth/google"])
+    }
+
+    func testAnOAuthStartThatTheCoreRefusesCarriesItsSentence() async throws {
+        let client = makeClient { _ in .init(400, json: #"{"error":"This build has no public desktop OAuth client ID."}"#) }
+        do { _ = try await client.startOAuth(provider: .google); XCTFail("expected the failure") } catch {
+            XCTAssertEqual(error as? CoreError, .failed("This build has no public desktop OAuth client ID."))
+        }
+    }
+
     func testDisconnectingASourceDeletesItsRoute() async throws {
         let client = makeClient { _ in .init(200, json: #"{"removed_items":4,"removed_memories":1}"#) }
         try await client.disconnectSource(id: "email")

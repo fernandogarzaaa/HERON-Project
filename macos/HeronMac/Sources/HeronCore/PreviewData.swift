@@ -114,6 +114,18 @@ struct PreviewData {
     var neverRemovalFailure: CoreError?
     /// When set, the next `connectSource` or `disconnectSource` throws it (a test hook).
     var sourceFailure: CoreError?
+    /// `GET /api/oauth`. Both providers are signed out and configured in the sample.
+    var oauth: [OAuthAccount] = [
+        OAuthAccount(provider: .google, connected: false, clientConfigured: true),
+        OAuthAccount(provider: .microsoft, connected: false, clientConfigured: true),
+    ]
+    /// The provider whose sign-in is under way and how many polls until the "browser" finishes it (nil: never).
+    var pendingOAuth: OAuthProviderID?
+    var oauthPollsLeft: Int?
+    var oauthAddress = "sam@example.com"
+    var oauthStartFailure: CoreError?
+    var oauthSyncFailure: CoreError?
+    var oauthSyncs: [OAuthProviderID] = []
     /// Every `connectSource` request, in order (a test hook).
     var sourceRequests: [SourceConnection] = []
     var ruleNotices: [RuleNotice] = []
@@ -222,6 +234,7 @@ struct PreviewData {
             ConnectionInfo(id: "calendar", name: "Calendar", connected: true, detail: "3 events today"),
             ConnectionInfo(id: "documents", name: "Documents", connected: false, detail: "Not connected"),
             ConnectionInfo(id: "computer", name: "This Mac", connected: false, detail: "Not connected"),
+            ConnectionInfo(id: "calendar_local", name: "Mac Calendar", connected: false, detail: "Not connected"),
         ]
         d.usage = UsageReport(days: [
             UsageDay(day: "2026-11-18", model: "Claude Code", promptTokens: 18_400, completionTokens: 3_100),

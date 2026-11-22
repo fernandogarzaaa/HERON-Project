@@ -563,6 +563,170 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertEqual(SourceCopy.connectTitle("email"), "Connect…")
     }
 
+    // MARK: Sign in with Google or Microsoft
+
+    /// Opened URLs, captured on the main actor.
+    @MainActor private final class Opened { var urls: [URL] = []; var canOpen = true }
+
+    private func signInStore(_ client: PreviewCoreClient, calendar: FakeCalendar = FakeCalendar()) async -> SettingsStore {
+        let store = SettingsStore(client: client, localCalendar: calendar, sleep: { _ in await Task.yield() })
+        await store.load()
+        return store
+    }
+
+    func testSignInOpensTheConsentPagePollsUntilConnectedThenReadsTheAccount() async throws {
+        let client = try await makeClient()
+        client.completeSignIn(afterPolls: 3, address: "sam@gmail.com")
+        let store = await signInStore(client)
+        XCTAssertFalse(store.account(.google).connected)
+        let opened = Opened()
+        await store.beginSignIn(.google) { opened.urls.append($0); return opened.canOpen }.value
+        XCTAssertEqual(opened.urls, [URL(string: "https://accounts.example.com/consent?provider=google")!], "the consent page went to the system browser")
+        XCTAssertTrue(store.account(.google).connected)
+        XCTAssertEqual(store.account(.google).account, "sam@gmail.com")
+        XCTAssertEqual(client.oauthSyncs, [.google], "the first read was triggered once connected")
+        XCTAssertNil(store.signingIn)
+        XCTAssertTrue(store.syncingAccounts.isEmpty)
+        XCTAssertNil(store.sourceErrors["google"])
+        XCTAssertFalse(store.account(.microsoft).connected, "one provider's sign-in doesn't touch the other")
+    }
+
+    func testWhileWaitingTheStoreSaysSoAndCancelStopsWithoutConnecting() async throws {
+        let client = try await makeClient()
+        client.completeSignIn(afterPolls: nil)   // the user never finishes
+        let store = SettingsStore(client: client, localCalendar: FakeCalendar(), sleep: { _ in try await Task.sleep(for: .seconds(60)) })
+        await store.load()
+        let task = store.beginSignIn(.google) { _ in true }
+        for _ in 0..<200 where store.signingIn == nil { await Task.yield() }
+        XCTAssertEqual(store.signingIn, .google, "waiting for the browser")
+        store.cancelSignIn()
+        XCTAssertNil(store.signingIn)
+        await task.value
+        XCTAssertFalse(store.account(.google).connected)
+        XCTAssertTrue(client.oauthSyncs.isEmpty, "nothing is read after a cancel")
+        XCTAssertNil(store.sourceErrors["google"], "cancelling is not an error")
+    }
+
+    func testSignInThatIsNotFinishedInTimeSaysSoAndStopsWaiting() async throws {
+        let client = try await makeClient()
+        client.completeSignIn(afterPolls: nil)
+        let store = await signInStore(client)
+        store.pollInterval = .seconds(2)
+        store.signInTimeout = .seconds(10)
+        await store.beginSignIn(.microsoft) { _ in true }.value
+        XCTAssertEqual(store.sourceErrors["microsoft"], SourceCopy.signInTimedOut)
+        XCTAssertNil(store.signingIn)
+    }
+
+    func testAProviderThisBuildCannotSignInToIsOffAndNeverStartsASignIn() async throws {
+        let client = try await makeClient()
+        client.setOAuthConfigured(.google, false)
+        let store = await signInStore(client)
+        XCTAssertFalse(store.account(.google).clientConfigured)
+        XCTAssertTrue(store.account(.microsoft).clientConfigured, "the other provider is unaffected")
+        let opened = Opened()
+        await store.beginSignIn(.google) { opened.urls.append($0); return true }.value
+        XCTAssertTrue(opened.urls.isEmpty, "nothing opens")
+        XCTAssertEqual(store.sourceErrors["google"], "Google sign-in isn't set up in this build yet.")
+        XCTAssertNil(store.signingIn)
+    }
+
+    func testAFailedStartAndABrowserThatWontOpenShowAMessage() async throws {
+        let client = try await makeClient()
+        let store = await signInStore(client)
+        client.failNextOAuthStart(with: .failed("Too many unfinished sign-ins. Try again later."))
+        await store.beginSignIn(.google) { _ in true }.value
+        XCTAssertEqual(store.sourceErrors["google"], "Too many unfinished sign-ins. Try again later.")
+        await store.beginSignIn(.google) { _ in false }.value
+        XCTAssertEqual(store.sourceErrors["google"], SourceCopy.browserWouldNotOpen)
+        XCTAssertNil(store.signingIn)
+    }
+
+    func testAFirstReadThatFailsKeepsTheAccountConnectedAndSaysWhat() async throws {
+        let client = try await makeClient()
+        client.completeSignIn(afterPolls: 1)
+        client.failNextOAuthSync(with: .failed("Read-only account sync failed (HTTP 403)."))
+        let store = await signInStore(client)
+        await store.beginSignIn(.google) { _ in true }.value
+        XCTAssertTrue(store.account(.google).connected, "the sign-in itself worked")
+        XCTAssertTrue(store.sourceErrors["google"]?.contains("Read-only account sync failed (HTTP 403).") ?? false)
+    }
+
+    func testDisconnectingAnAccountAsksFirstThenSignsOut() async throws {
+        let client = try await makeClient()
+        client.completeSignIn(afterPolls: 1)
+        let store = await signInStore(client)
+        await store.beginSignIn(.google) { _ in true }.value
+        store.askToDisconnect(account: .google)
+        XCTAssertEqual(store.pendingDisconnect?.id, "google")
+        XCTAssertTrue(SourceCopy.forgetSentence(try XCTUnwrap(store.pendingDisconnect)).contains("sign out of this account"))
+        XCTAssertTrue(store.account(.google).connected, "asking changes nothing")
+        await store.confirmDisconnect()
+        XCTAssertFalse(store.account(.google).connected)
+        XCTAssertNil(store.pendingDisconnect)
+        store.askToDisconnect(account: .microsoft)
+        XCTAssertNil(store.pendingDisconnect, "an account that isn't connected has nothing to disconnect")
+    }
+
+    // MARK: The Mac's Calendar (EventKit)
+
+    func testMacCalendarAsksMacOSThenSendsTheEventsToTheCore() async throws {
+        let client = try await makeClient()
+        let calendar = FakeCalendar(status: .notDetermined, afterPrompt: .granted,
+                                    events: [LocalCalendarEvent(uid: "e1", title: "Dentist", start: 1_795_100_000), LocalCalendarEvent(uid: "e2", title: "Standup", start: 1_795_200_000)])
+        let store = await signInStore(client, calendar: calendar)
+        let ok = await store.connectLocalCalendar()
+        XCTAssertTrue(ok)
+        XCTAssertEqual(calendar.prompts, 1, "the macOS prompt was shown once")
+        XCTAssertEqual(client.sourceRequests.last, .localCalendar(events: calendar.eventList))
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "calendar_local" }?.connected, true)
+        XCTAssertFalse(store.localCalendarDenied)
+    }
+
+    func testMacCalendarDeniedExplainsHowToTurnItOnInSystemSettings() async throws {
+        let client = try await makeClient()
+        let calendar = FakeCalendar(status: .denied, afterPrompt: .denied)
+        let store = await signInStore(client, calendar: calendar)
+        let ok = await store.connectLocalCalendar()
+        XCTAssertFalse(ok)
+        XCTAssertEqual(calendar.prompts, 0, "macOS won't ask twice, so Heron doesn't try")
+        XCTAssertTrue(store.localCalendarDenied)
+        let message = try XCTUnwrap(store.sourceErrors["calendar_local"])
+        XCTAssertTrue(message.contains("System Settings"))
+        XCTAssertTrue(message.contains("Calendars"))
+        XCTAssertTrue(client.sourceRequests.isEmpty, "nothing was sent")
+        XCTAssertTrue(SourceCopy.privacyCalendarsURL.hasSuffix("Privacy_Calendars"))
+        XCTAssertFalse(store.isBusy(source: "calendar_local"))
+    }
+
+    func testRefusingTheMacOSPromptIsTheSameAsDenied() async throws {
+        let client = try await makeClient()
+        let calendar = FakeCalendar(status: .notDetermined, afterPrompt: .denied)
+        let store = await signInStore(client, calendar: calendar)
+        let ok = await store.connectLocalCalendar()
+        XCTAssertFalse(ok)
+        XCTAssertEqual(calendar.prompts, 1)
+        XCTAssertTrue(store.localCalendarDenied)
+    }
+
+    func testAConnectedMacCalendarIsReadAgainQuietlyAndNeverPromptsOnItsOwn() async throws {
+        let client = try await makeClient()
+        let calendar = FakeCalendar(status: .granted, afterPrompt: .granted, events: [LocalCalendarEvent(uid: "e1", title: "Dentist", start: 1_795_100_000)])
+        let store = await signInStore(client, calendar: calendar)
+        await store.refreshLocalCalendarIfConnected()
+        XCTAssertTrue(client.sourceRequests.isEmpty, "not connected, so nothing is read")
+        _ = await store.connectLocalCalendar()
+        calendar.eventList.append(LocalCalendarEvent(uid: "e2", title: "Standup", start: 1_795_200_000))
+        await store.refreshLocalCalendarIfConnected()
+        XCTAssertEqual(client.sourceRequests.last, .localCalendar(events: calendar.eventList), "the new event went along")
+        // Access was taken away in System Settings: the refresh does nothing and doesn't prompt.
+        calendar.status = .denied
+        let sent = client.sourceRequests.count
+        await store.refreshLocalCalendarIfConnected()
+        XCTAssertEqual(client.sourceRequests.count, sent)
+        XCTAssertEqual(calendar.prompts, 0)
+    }
+
     // MARK: Run setup again
 
     func testRunSetupAgainShowsSetupWithoutUnsettingOnboardedAndKeepsAcceptedRisks() async throws {
@@ -977,4 +1141,21 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertEqual(TextSizeChoice.allCases.map(\.scale), TextSizeChoice.allCases.map(\.scale).sorted())
         XCTAssertEqual(TextSizeChoice.m.scale, 1)
     }
+}
+
+
+/// A stand-in for the Mac's Calendar app, so no test reaches EventKit or the permission prompt.
+final class FakeCalendar: LocalCalendarAccess, @unchecked Sendable {
+    var status: CalendarAuthorization
+    let afterPrompt: CalendarAuthorization
+    var eventList: [LocalCalendarEvent]
+    private(set) var prompts = 0
+
+    init(status: CalendarAuthorization = .granted, afterPrompt: CalendarAuthorization = .granted, events: [LocalCalendarEvent] = []) {
+        self.status = status; self.afterPrompt = afterPrompt; self.eventList = events
+    }
+
+    func authorization() -> CalendarAuthorization { status }
+    func requestAccess() async -> CalendarAuthorization { prompts += 1; status = afterPrompt; return status }
+    func events() async throws -> [LocalCalendarEvent] { eventList }
 }

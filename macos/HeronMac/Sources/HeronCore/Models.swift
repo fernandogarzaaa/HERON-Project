@@ -560,6 +560,8 @@ public enum SourceConnection: Sendable, Equatable, CustomStringConvertible {
     case email(host: String, username: String, password: String, port: Int?, tls: Bool?)
     /// Scans this Mac (the apps and files Heron may read).
     case computer
+    /// Events the app read from the Mac's Calendar app (EventKit); each sync replaces the last.
+    case localCalendar(events: [LocalCalendarEvent])
 
     /// The `{name}` in the route, and the id of the matching `ConnectionInfo`.
     public var sourceID: String {
@@ -568,6 +570,7 @@ public enum SourceConnection: Sendable, Equatable, CustomStringConvertible {
         case .calendar: "calendar"
         case .email: "email"
         case .computer: "computer"
+        case .localCalendar: "calendar_local"
         }
     }
 
@@ -575,8 +578,46 @@ public enum SourceConnection: Sendable, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .email(let host, let username, _, _, _): "email(\(username)@\(host), password hidden)"
+        case .localCalendar(let events): "calendar_local(\(events.count) events)"
         default: sourceID
         }
+    }
+}
+
+/// One event read from the Mac's Calendar app, as `POST /api/sources/calendar_local` takes it.
+public struct LocalCalendarEvent: Sendable, Equatable {
+    public var uid: String
+    public var title: String
+    /// Unix seconds.
+    public var start: Int
+    public var end: Int?
+    public var allDay: Bool
+    public var location: String
+
+    public init(uid: String, title: String, start: Int, end: Int? = nil, allDay: Bool = false, location: String = "") {
+        self.uid = uid; self.title = title; self.start = start; self.end = end; self.allDay = allDay; self.location = location
+    }
+}
+
+/// The accounts one sign-in can connect (`/api/oauth/{provider}`): each gives Email and Calendar, read-only.
+public enum OAuthProviderID: String, CaseIterable, Sendable, Identifiable {
+    case google, microsoft
+    public var id: String { rawValue }
+    public var displayName: String { self == .google ? "Google" : "Microsoft" }
+}
+
+/// One provider in `GET /api/oauth`.
+public struct OAuthAccount: Sendable, Equatable, Identifiable {
+    public var provider: OAuthProviderID
+    public var connected: Bool
+    /// False when this build has no OAuth client for the provider: the sign-in button stays off.
+    public var clientConfigured: Bool
+    /// The signed-in address, when the core recorded one.
+    public var account: String?
+    public var id: String { provider.rawValue }
+
+    public init(provider: OAuthProviderID, connected: Bool, clientConfigured: Bool, account: String? = nil) {
+        self.provider = provider; self.connected = connected; self.clientConfigured = clientConfigured; self.account = account
     }
 }
 

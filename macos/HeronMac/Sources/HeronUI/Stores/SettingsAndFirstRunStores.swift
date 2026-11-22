@@ -89,11 +89,30 @@ public final class SettingsStore {
     public private(set) var sourceErrors: [String: String] = [:]
     /// The source the user asked to disconnect; the confirm sheet shows while it is set.
     public private(set) var pendingDisconnect: ConnectionInfo?
+    /// Google and Microsoft sign-ins (`GET /api/oauth`): each connects Email and Calendar, read-only.
+    public private(set) var oauthAccounts: [OAuthAccount] = []
+    /// The provider whose sign-in page is open in the browser while Heron waits for it to finish.
+    public private(set) var signingIn: OAuthProviderID?
+    /// Accounts that just signed in and are being read for the first time.
+    public private(set) var syncingAccounts: Set<OAuthProviderID> = []
+    /// True after "Use your Mac's Calendar" was refused: the row then offers System Settings.
+    public private(set) var localCalendarDenied = false
+    public let localCalendar: any LocalCalendarAccess
+    /// How often the sign-in is checked, and how long Heron waits (the core's sign-in expires after ten minutes).
+    public var pollInterval: Duration = .seconds(2)
+    public var signInTimeout: Duration = .seconds(600)
+    @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
+    @ObservationIgnored private var signInTask: Task<Void, Never>?
     public private(set) var usage: UsageReport?
     public private(set) var loadState: LoadState = .idle
     public private(set) var error: String?
 
-    public init(client: any CoreClientProtocol) { self.client = client }
+    public init(client: any CoreClientProtocol, localCalendar: any LocalCalendarAccess = SystemCalendarAccess(),
+                sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+        self.client = client
+        self.localCalendar = localCalendar
+        self.sleep = sleep
+    }
 
     public var sandboxOn: Bool { state?.sandboxOn ?? false }
     public var mode: PermissionMode { settings?.mode ?? state?.mode ?? .ask }
@@ -110,6 +129,7 @@ public final class SettingsStore {
             (state, settings, providers, grants, usage) = try await (s, st, p, g, u)
             loadState = .loaded
         } catch { loadState = .failed(describe(error)) }
+        if let accounts = try? await client.oauthAccounts() { oauthAccounts = accounts }
         // Its own request: a core that can't list "never" rules still lets the rest of Settings load.
         do { nevers = try await client.nevers(); neverError = nil } catch { neverError = describe(error) }
     }
@@ -151,6 +171,108 @@ public final class SettingsStore {
     /// Reads the Connections rows again, without the rest of Settings.
     public func reloadConnections() async {
         if let fresh = try? await client.settings() { settings = fresh }
+        if let accounts = try? await client.oauthAccounts() { oauthAccounts = accounts }
+    }
+
+    // MARK: Sign in with Google or Microsoft
+
+    /// The provider's state, or "unknown, so try it" when the core didn't list it.
+    public func account(_ provider: OAuthProviderID) -> OAuthAccount {
+        oauthAccounts.first { $0.provider == provider } ?? OAuthAccount(provider: provider, connected: false, clientConfigured: true)
+    }
+
+    /// "Sign in with Google": asks the core to start the sign-in, opens the consent page it returns in the system
+    /// browser through `open`, then polls until the core has finished the sign-in and reads the account once.
+    /// Returns the running task so a caller (or a test) can wait for it. Only one sign-in runs at a time.
+    @discardableResult
+    public func beginSignIn(_ provider: OAuthProviderID, open: @escaping @MainActor (URL) -> Bool) -> Task<Void, Never> {
+        cancelSignIn()
+        let task = Task { await signIn(provider, open: open) }
+        signInTask = task
+        return task
+    }
+
+    /// "Cancel" while waiting. If the user finishes in the browser anyway, the account shows up the next time the page loads.
+    public func cancelSignIn() {
+        signInTask?.cancel()
+        signInTask = nil
+        signingIn = nil
+    }
+
+    private func signIn(_ provider: OAuthProviderID, open: @MainActor (URL) -> Bool) async {
+        let id = provider.rawValue
+        sourceErrors[id] = nil
+        guard account(provider).clientConfigured else { sourceErrors[id] = SourceCopy.signInNotSetUp(provider); return }
+        signingIn = provider
+        defer { if signingIn == provider { signingIn = nil } }
+        let url: URL
+        do { url = try await client.startOAuth(provider: provider) } catch { sourceErrors[id] = describe(error); return }
+        if Task.isCancelled { return }
+        guard open(url) else { sourceErrors[id] = SourceCopy.browserWouldNotOpen; return }
+        var waited = Duration.zero
+        while !Task.isCancelled {
+            do { try await sleep(pollInterval) } catch { return }
+            waited += pollInterval
+            if let accounts = try? await client.oauthAccounts() {
+                oauthAccounts = accounts
+                if accounts.first(where: { $0.provider == provider })?.connected == true { break }
+            }
+            if waited >= signInTimeout { sourceErrors[id] = SourceCopy.signInTimedOut; return }
+        }
+        if Task.isCancelled { return }
+        signingIn = nil
+        syncingAccounts.insert(provider)
+        defer { syncingAccounts.remove(provider) }
+        do { try await client.syncOAuth(provider: provider) } catch {
+            sourceErrors[id] = SourceCopy.firstSyncFailed(describe(error))
+        }
+        await reloadConnections()
+    }
+
+    /// Disconnect an account: asks first, like every source.
+    public func askToDisconnect(account provider: OAuthProviderID) {
+        let row = account(provider)
+        guard row.connected, !busySources.contains(provider.rawValue) else { return }
+        pendingDisconnect = ConnectionInfo(id: provider.rawValue, name: provider.displayName, connected: true, detail: row.account ?? "")
+    }
+
+    // MARK: The Mac's Calendar app
+
+    /// "Use your Mac's Calendar": asks macOS for read access if needed, reads the events and sends them to the core.
+    @discardableResult
+    public func connectLocalCalendar() async -> Bool {
+        let id = "calendar_local"
+        guard !busySources.contains(id) else { return false }
+        busySources.insert(id)
+        sourceErrors[id] = nil
+        localCalendarDenied = false
+        defer { busySources.remove(id) }
+        var access = localCalendar.authorization()
+        if access == .notDetermined { access = await localCalendar.requestAccess() }
+        guard access == .granted else {
+            localCalendarDenied = true
+            sourceErrors[id] = SourceCopy.calendarAccessDenied
+            return false
+        }
+        do {
+            try await client.connectSource(.localCalendar(events: try await localCalendar.events()))
+        } catch {
+            sourceErrors[id] = describe(error)
+            return false
+        }
+        await reloadConnections()
+        return true
+    }
+
+    /// Events change after the first sync, so a connected Mac Calendar is read again when the app starts. Silent:
+    /// it never prompts, and a failure leaves what the core already holds.
+    public func refreshLocalCalendarIfConnected() async {
+        if settings == nil { await reloadConnections() }
+        guard settings?.connections.first(where: { $0.id == "calendar_local" })?.connected == true,
+              localCalendar.authorization() == .granted,
+              let events = try? await localCalendar.events() else { return }
+        try? await client.connectSource(.localCalendar(events: events))
+        await reloadConnections()
     }
 
     /// Connects one source: `POST /api/sources/{name}`, then the rows are read again so they show what the core holds.
@@ -187,7 +309,14 @@ public final class SettingsStore {
         busySources.insert(row.id)
         sourceErrors[row.id] = nil
         defer { busySources.remove(row.id) }
-        do { try await client.disconnectSource(id: row.id) } catch { sourceErrors[row.id] = describe(error) }
+        do {
+            if let provider = OAuthProviderID(rawValue: row.id) {
+                if signingIn == provider { cancelSignIn() }
+                try await client.disconnectOAuth(provider: provider)
+            } else {
+                try await client.disconnectSource(id: row.id)
+            }
+        } catch { sourceErrors[row.id] = describe(error) }
         await reloadConnections()
     }
 

@@ -13,6 +13,10 @@
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>Heron reads the events in your Calendar app so it can answer questions about your schedule. It never changes them.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>Heron reads the events in your Calendar app so it can answer questions about your schedule. It never changes them.</string>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict>

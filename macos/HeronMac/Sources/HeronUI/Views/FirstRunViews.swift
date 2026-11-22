@@ -305,9 +305,9 @@ public struct FirstRunView: View {
     private var sourcesStep: some View {
         VStack(alignment: .leading, spacing: Spacing.s4) {
             Text("Connect your sources").font(HeronFont.title).foregroundStyle(theme.ink).accessibilityAddTraits(.isHeader)
-            Text("Heron can learn from your calendar, email and notes, so it can answer questions about your day. Every one is optional, and you can connect or disconnect them later in Settings › Connections.")
+            Text("Sign in once and Heron can read your email and calendar, so it can answer questions about your day. Every one is optional, and you can connect or disconnect them later in Settings › Connections.")
                 .foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
-            SourceRows(store: model.settings)
+            ConnectionsPanel(store: model.settings)
             HStack {
                 Spacer()
                 Button("Skip for now") { store.continueFromSources() }.buttonStyle(HButtonStyle(.link))

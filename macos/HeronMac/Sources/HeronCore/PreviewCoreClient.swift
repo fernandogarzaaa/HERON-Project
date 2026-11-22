@@ -70,6 +70,22 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     /// Makes the next `connectSource` or `disconnectSource` fail with `error`, as a core that can't reach a mail server would.
     public func failNextSourceChange(with error: CoreError) { with { $0.sourceFailure = error } }
 
+    /// Marks a provider as having (or lacking) an OAuth client in this build.
+    public func setOAuthConfigured(_ provider: OAuthProviderID, _ configured: Bool) {
+        with { d in if let i = d.oauth.firstIndex(where: { $0.provider == provider }) { d.oauth[i].clientConfigured = configured } }
+    }
+
+    /// The signed-in "browser" finishes the sign-in after this many `oauthAccounts()` polls (default 2). Nil: never.
+    public func completeSignIn(afterPolls polls: Int?, address: String = "sam@example.com") {
+        with { $0.oauthPollsLeft = polls; $0.oauthAddress = address }
+    }
+
+    public func failNextOAuthStart(with error: CoreError) { with { $0.oauthStartFailure = error } }
+    public func failNextOAuthSync(with error: CoreError) { with { $0.oauthSyncFailure = error } }
+
+    /// Providers `syncOAuth` was called for, oldest first.
+    public var oauthSyncs: [OAuthProviderID] { with { $0.oauthSyncs } }
+
     /// Every request `connectSource` has accepted or refused, oldest first.
     public var sourceRequests: [SourceConnection] { with { $0.sourceRequests } }
 
@@ -382,6 +398,8 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
                 detail = username
             case .computer:
                 detail = "20 items indexed"
+            case .localCalendar(let events):
+                detail = "\(events.count) events indexed"
             }
             guard let i = d.connections.firstIndex(where: { $0.id == source.sourceID }) else { throw CoreError.notFound }
             d.connections[i].connected = true
@@ -395,6 +413,47 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
             guard let i = d.connections.firstIndex(where: { $0.id == id }) else { throw CoreError.notFound }
             d.connections[i].connected = false
             d.connections[i].detail = "Not connected"
+        }
+    }
+
+    public func oauthAccounts() async throws -> [OAuthAccount] {
+        with { d in
+            if let provider = d.pendingOAuth, let left = d.oauthPollsLeft {
+                if left <= 1 {
+                    if let i = d.oauth.firstIndex(where: { $0.provider == provider }) { d.oauth[i].connected = true; d.oauth[i].account = d.oauthAddress }
+                    d.pendingOAuth = nil
+                    d.oauthPollsLeft = nil
+                } else {
+                    d.oauthPollsLeft = left - 1
+                }
+            }
+            return d.oauth
+        }
+    }
+
+    public func startOAuth(provider: OAuthProviderID) async throws -> URL {
+        try with { d in
+            if let failure = d.oauthStartFailure { d.oauthStartFailure = nil; throw failure }
+            guard d.oauth.first(where: { $0.provider == provider })?.clientConfigured == true else {
+                throw CoreError.failed("This build has no public desktop OAuth client ID.")
+            }
+            d.pendingOAuth = provider
+            return URL(string: "https://accounts.example.com/consent?provider=\(provider.rawValue)")!
+        }
+    }
+
+    public func syncOAuth(provider: OAuthProviderID) async throws {
+        try with { d in
+            d.oauthSyncs.append(provider)
+            if let failure = d.oauthSyncFailure { d.oauthSyncFailure = nil; throw failure }
+        }
+    }
+
+    public func disconnectOAuth(provider: OAuthProviderID) async throws {
+        try with { d in
+            guard let i = d.oauth.firstIndex(where: { $0.provider == provider && $0.connected }) else { throw CoreError.notFound }
+            d.oauth[i].connected = false
+            d.oauth[i].account = nil
         }
     }
 

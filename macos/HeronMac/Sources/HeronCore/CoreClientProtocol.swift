@@ -76,6 +76,15 @@ public protocol CoreClientProtocol: Sendable {
     func connectSource(_ source: SourceConnection) async throws
     /// `DELETE /api/sources/{name}`: disconnects and forgets what came from it.
     func disconnectSource(id: String) async throws
+    /// `GET /api/oauth`: Google and Microsoft, whether each is connected and whether this build can sign in to it.
+    func oauthAccounts() async throws -> [OAuthAccount]
+    /// `POST /api/oauth/{provider}/start`: the consent URL to open in the system browser. The core finishes the
+    /// sign-in itself when the browser reaches its loopback callback; the app polls `oauthAccounts()` for it.
+    func startOAuth(provider: OAuthProviderID) async throws -> URL
+    /// `POST /api/oauth/{provider}/sync`: reads the account's mail and calendar now.
+    func syncOAuth(provider: OAuthProviderID) async throws
+    /// `DELETE /api/oauth/{provider}`: signs out and forgets what came from the account.
+    func disconnectOAuth(provider: OAuthProviderID) async throws
     func usage() async throws -> UsageReport                                // GET /api/usage
 }
 

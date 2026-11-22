@@ -298,9 +298,7 @@ private struct ConnectionsTab: View {
     var body: some View {
         let store = model.settings
         VStack(alignment: .leading, spacing: Spacing.s4) {
-            Text("What Heron may read to learn about your work. Connect only what you want it to know about; you can disconnect any of them, and Heron then forgets what it learned from it.")
-                .font(HeronFont.callout).foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
-            SourceRows(store: store)
+            ConnectionsPanel(store: store)
             VStack(alignment: .leading, spacing: Spacing.s1) {
                 Toggle("Awareness", isOn: Binding(get: { store.settings?.awareness ?? false }, set: { v in Task { await store.setAwareness(v) } }))
                 Text("Lets Heron notice what you're working on, so it can suggest things. Its suggestions appear in the Inbox.")

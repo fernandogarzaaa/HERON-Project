@@ -344,7 +344,27 @@ public enum CoreWire {
             row("email", "Email") { ($0["address"] as? String) ?? "\($0["indexed"] as? Int ?? 0) messages indexed" },
             row("documents", "Documents") { "\(($0["folders"] as? [String])?.count ?? 0) folders, \($0["indexed"] as? Int ?? 0) files indexed" },
             row("computer", "This Mac"),
+            row("calendar_local", "Mac Calendar") { "\($0["indexed"] as? Int ?? 0) events indexed" },
         ].compactMap { $0 }
+    }
+
+    /// `GET /api/oauth`: one entry per provider the app knows. An unknown provider is skipped.
+    public static func oauthAccounts(_ data: Data) throws -> [OAuthAccount] {
+        struct Entry: Decodable { var provider: String; var connected: Bool; var clientConfigured: Bool; var account: String? }
+        struct DTO: Decodable { var providers: [Entry] }
+        return try decode(DTO.self, data).providers.compactMap { e in
+            OAuthProviderID(rawValue: e.provider).map { OAuthAccount(provider: $0, connected: e.connected, clientConfigured: e.clientConfigured, account: e.account) }
+        }
+    }
+
+    /// `POST /api/oauth/{provider}/start`: the consent page to open in the system browser. Only https is accepted.
+    public static func oauthStart(_ data: Data) throws -> URL {
+        struct DTO: Decodable { var authorizationUrl: String }
+        let d = try decode(DTO.self, data)
+        guard let url = URL(string: d.authorizationUrl), url.scheme == "https", url.host != nil else {
+            throw CoreError.failed("The core sent a sign-in address Heron won't open.")
+        }
+        return url
     }
 
     // MARK: Usage
