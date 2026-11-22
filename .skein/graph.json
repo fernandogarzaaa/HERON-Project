@@ -1508,15 +1508,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "ed4a29a0335d4fd6a4d4bd674e65e9d1",
+      "base_branch": "f6715177fcbe62452e348220ddf8d05db4aafc67",
+      "claim_token": "213e55c84bb04a27923d8b20436c920a",
+      "claimed_at": "2026-11-22T10:30:00.099684+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T10:30:00.099684+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F1a"
@@ -1538,11 +1538,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fix F1 review findings (app)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "f6715177fcbe62452e348220ddf8d05db4aafc67",
       "branch": null,
       "path": null
     }
