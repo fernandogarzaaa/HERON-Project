@@ -3289,9 +3289,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Fix: close unfinished runs only in the lock owner",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/F3-fix-3__integrate-base",
       "branch": null,
       "path": null
     }
