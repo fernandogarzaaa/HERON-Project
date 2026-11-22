@@ -1174,7 +1174,15 @@ async fn list_live_approvals(State(st): S) -> ApiResult {
 
 async fn answer_approval(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>) -> ApiResult {
     match b.get("action").and_then(|a| a.as_str()) {
-        Some("approve") => match st.app.run_parked(id).await {
+        // Carried out on its own task: a client that stops waiting (a timeout, a closed window) must
+        // not cancel the action halfway and leave it marked as running.
+        Some("approve") => match tokio::spawn({
+            let app = st.app.clone();
+            async move { app.run_parked(id).await }
+        })
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("the approved action stopped unexpectedly: {e}")))
+        {
             Ok(result) => Ok(Json(json!({"result": result}))),
             // As for `/api/chat` (Q15): the request stays waiting until the notice is accepted.
             Err(e) if e.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some() => Err(ApiError(StatusCode::PRECONDITION_REQUIRED, "risk_notice_not_accepted".into())),
