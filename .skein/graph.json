@@ -4590,15 +4590,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "e9742684c8824b2bbaeed7e5a50bd8eb",
+      "base_branch": "skein/F4g__integrate-base",
+      "claim_token": "f5647ba8b3624cedba7019f96fb530eb",
+      "claimed_at": "2026-11-22T16:24:50.264418+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T16:24:50.264418+00:00",
+      "node_version": 8,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "F4s",
@@ -4625,9 +4625,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Gate: undo_files",
-    "version": 8,
+    "version": 9,
     "worktree": {
       "base_branch": "skein/F4g__integrate-base",
       "branch": null,
