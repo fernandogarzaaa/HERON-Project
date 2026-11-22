@@ -3587,7 +3587,7 @@
     "id": "F8c",
     "integration_for": null,
     "intent": {
-      "completion": "python3 -I eval/check_tasks.py --features eval/features/email_drafts.md && test -x eval/fixtures/features/email_drafts/bin/open",
+      "completion": "python3 -I eval/check_tasks.py --features eval/features/email_drafts.md && test -f eval/fixtures/features/email_drafts/bin/open && chmod +x eval/fixtures/features/email_drafts/bin/open && test -x eval/fixtures/features/email_drafts/bin/open",
       "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
       "context": "Spec: docs/designs/heron-v1-features.md, section 'F8' under 'The features' (with its check table) and 'Detailed Implementation Plan', F8 items 37. Base unit B1 defined the feature task format; read eval/features/README.md and eval/core-tasks.md first.",
       "goal": "Build item 37: eval/features/email_drafts.md with ft8 exactly as F8's EVE row gives it, an executable fake bin/open that records its argument, and web/mail.html, under eval/fixtures/features/email_drafts/."
@@ -3601,7 +3601,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "F8: ft8, fake binary, page",
-    "version": 12,
+    "version": 13,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "804c6770f74b2f6aadc773879e7f8fada12cf31e",
