@@ -1,7 +1,7 @@
 # Heron: several accounts per provider
 
 *   **Author:** fernandogarzaaa (drafted with Claude)
-*   **Status:** Proposed. Waiting for owner approval; this change also needs the owner's review under rule Q7
+*   **Status:** Approved by the owner on 2026-11-23 ("approve #83 with defaults"). The code still needs the owner's review under rule Q7 before it merges.
 *   **Date:** 2026-11-23
 *   **Base:** PR #72 (`fix/mac-connect-sources`) at commit `614d681`. Every file and line cited here is from that commit, unless it says `main`.
     *   PR #72 has moved on since then, to `4e57087` on 2026-11-23. It adds a Mac Mail source, `mail_local`, to `SOURCES` and `OUTSIDE_SOURCES` and to the Email card's members.
@@ -97,14 +97,14 @@ Microsoft has no registered client yet. The Microsoft code paths change in the s
 
 ## Open Questions
 
-These are the owner's calls. Each has a proposed default, which the design uses until the owner says otherwise.
+The owner resolved all four on 2026-11-23 by approving the defaults. Each entry keeps its alternative for the record.
 
-*   **Q-1, account cap.**
-    *   Proposed: five accounts per provider. The cap is checked only when a new account is added, by `sub` ([§5](#5-sign-in-and-its-reported-result)).
+*   **Q-1, account cap.** **Resolved: up to five accounts per provider.**
+    *   Five accounts per provider. The cap is checked only when a new account is added, by `sub` ([§5](#5-sign-in-and-its-reported-result)).
     *   It bounds background sync, and the number of vault entries and rows in Settings. One Google account costs 28 HTTP calls per 30-minute cycle: one token refresh, one message list, 25 message reads and one calendar read (`google_mail`, `google_calendar`).
     *   The alternative is no cap, which leaves Google's 100-address test-user list as the only limit.
-*   **Q-2, Google Testing or unverified production.** Both are free.
-    *   **Stay in Testing (proposed).** Each extra Gmail must be added as a test user, and each account is signed out every week. G-6 makes signing in again one click.
+*   **Q-2, Google Testing or unverified production.** **Resolved: stay in Testing.** Both options are free.
+    *   **Stay in Testing (chosen).** Each extra Gmail must be added as a test user, and each account is signed out every week. G-6 makes signing in again one click.
     *   **Switch to "In production" without verification** ([fact G3](research/heron-multi-account-provider-facts.md)):
         *   users click through Google's "unverified app" warning;
         *   the app may admit 100 new users over its whole lifetime;
@@ -113,11 +113,11 @@ These are the owner's calls. Each has a proposed default, which the design uses 
 
         Work accounts may be more likely to block an unverified app.
     *   The code is the same either way.
-*   **Q-3, work mail through Heron's MCP server.** Heron's MCP server gives `search_knowledge` and `recall` to other apps the owner connects (`src/mcp.rs:232`). Adding a work Gmail makes that mailbox searchable by those apps too, and employer policy may forbid that.
-    *   Proposed: keep today's behaviour (every connected account is searchable), and state the risk in the PR.
+*   **Q-3, work mail through Heron's MCP server.** Heron's MCP server gives `search_knowledge` and `recall` to other apps the owner connects (`src/mcp.rs:232`). Adding a work Gmail makes that mailbox searchable by those apps too, and employer policy may forbid that. **Resolved: MCP-connected apps may search every connected account, work mail included, and the PR states the risk.**
+    *   Today's behaviour is kept: every connected account is searchable.
     *   The alternative is a per-account "keep out of other apps" switch, under Future Improvements.
-*   **Q-4, a server-side Cancel.** Today **Cancel** only stops the Mac app from waiting. If the owner then approves in the browser anyway, the account is still added ([§5](#5-sign-in-and-its-reported-result)).
-    *   Proposed: keep Cancel local. The owner did approve the account at the provider.
+*   **Q-4, a server-side Cancel.** Today **Cancel** only stops the Mac app from waiting. If the owner then approves in the browser anyway, the account is still added ([§5](#5-sign-in-and-its-reported-result)). **Resolved: Cancel stays local, inside Heron.**
+    *   Cancel stays local. The owner did approve the account at the provider.
     *   The alternative is a cancel route, which removes the waiting record so a later approval adds nothing. It needs an internal exchanging state that clients can see, and three more tests.
 
 ## Critical User Journeys (CUJs)
