@@ -109,7 +109,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Replay suite, grader, genesis adapter, required-tests list, gate-script tests (item 20)",
-    "version": 64,
+    "version": 65,
     "worktree": {
       "base_branch": "feat/harness2-1a",
       "base_commit": "cdd31f0a74e17ca4fa541f854133abffa680e1ac",
