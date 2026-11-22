@@ -292,6 +292,18 @@ async fn http_api_chat_approval_and_settings() {
     let waiting: Value = get("/api/memories?q=contoso%20quarterly", &token).await.unwrap().json().await.unwrap();
     let row = waiting.as_array().unwrap().iter().find(|m| m["content"].as_str().unwrap().contains("contoso")).expect("restored row");
     assert_eq!(row["confirmed"].as_bool(), Some(false), "{row}");
+    // An outside row keeps its own source when it comes back waiting.
+    assert!(post("/api/memories", json!({"content": "Payroll questions go to fabrikam dot test", "source": "email", "confirmed": false})).await.unwrap().status().is_success());
+    let payroll: Value = get("/api/memories?q=fabrikam%20payroll", &token).await.unwrap().json().await.unwrap();
+    let row = payroll.as_array().unwrap().iter().find(|m| m["content"].as_str().unwrap().contains("fabrikam")).expect("restored row");
+    assert_eq!((row["source"].as_str(), row["confirmed"].as_bool()), (Some("email"), Some(false)), "{row}");
+    // What the owner adds themselves is still theirs, and a source name has a length limit.
+    assert!(post("/api/memories", json!({"content": "The user's bike is a green tandem", "confirmed": true})).await.unwrap().status().is_success());
+    let bike: Value = get("/api/memories?q=green%20tandem%20bike", &token).await.unwrap().json().await.unwrap();
+    let row = bike.as_array().unwrap().iter().find(|m| m["content"].as_str().unwrap().contains("tandem")).expect("added row");
+    assert_eq!((row["source"].as_str(), row["confirmed"].as_bool()), (Some("user"), Some(true)), "{row}");
+    assert_eq!(post("/api/memories", json!({"content": "A long source name", "source": "a".repeat(33)})).await.unwrap().status(), 400);
+    assert!(post("/api/memories", json!({"content": "A source name at the limit", "source": "a".repeat(32)})).await.unwrap().status().is_success());
     assert!(post("/api/tasks", json!({"title": "Tune the cello"})).await.unwrap().status().is_success());
     assert!(post("/api/schedules", json!({"prompt": "Practice reminder", "when": "daily 18:00"})).await.unwrap().status().is_success());
     let bad_when = post("/api/schedules", json!({"prompt": "x", "when": "sometime"})).await.unwrap();

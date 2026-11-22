@@ -1271,6 +1271,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_built_in_tool_failing_on_its_own_does_not_taint() {
+        let ws = tempfile::tempdir().unwrap();
+        let llm = ScriptedLlm::new(vec![ScriptedLlm::tool_call("web_fetch", json!({"url": "not a web address"})), Message::assistant("done")]);
+        let (agent, _) = agent_with(llm, Mode::Auto, Arc::new(DenyAll), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        agent.run_turn(&mut s, "read not a web address", &null_sink()).await.unwrap();
+        let result = s.messages.iter().find(|m| m.role == "tool").unwrap().text();
+        assert!(result.starts_with("Error:") && !result.contains("<untrusted_content"), "{result}");
+        assert!(!s.tainted.load(std::sync::atomic::Ordering::SeqCst), "Heron's own error message is not outside content");
+    }
+
+    #[tokio::test]
     async fn an_error_from_a_tool_with_outside_output_taints_and_is_wrapped() {
         let ws = tempfile::tempdir().unwrap();
         let llm = ScriptedLlm::new(vec![ScriptedLlm::tool_call("outside_feed", json!({})), Message::assistant("done")]);
