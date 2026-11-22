@@ -384,7 +384,7 @@
       "claim_token": "03a38b9997764d7b8c766bef811a6f03",
       "claimed_at": "2026-11-22T06:59:00.451243+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T06:59:30.867313+00:00",
+      "last_heartbeat": "2026-11-22T07:00:31.016164+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -411,7 +411,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Integration tests and the features fixture",
-    "version": 4,
+    "version": 6,
     "worktree": {
       "base_branch": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
       "base_commit": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
@@ -559,7 +559,16 @@
     }
   },
   "B5": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "38cc318d2e8d49adac89b76f9a5a16da",
+        "ended_at": "2026-11-22T07:00:36.275598+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T06:59:43.896216+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -571,21 +580,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "38cc318d2e8d49adac89b76f9a5a16da",
-      "base_branch": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
-      "claim_token": "362a333da9e4488188b7bbccf5aeaf64",
-      "claimed_at": "2026-11-22T06:59:43.896216+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T06:59:43.896216+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "B2"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -qF 'After the last feature merges' docs/release-checklist.md && test -s docs/features/README.md && grep -qx '## Ways content enters, and processes Heron starts' docs/engineering/SECURITY_THREAT_MODEL.md",
+        "duration_ms": 244,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B5_20261122T070035862221_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B5_20261122T070036109858_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: B6 (the base gate) can run now. It depends on B1 to B5.",
     "id": "B5",
     "integration_for": null,
     "intent": {
@@ -597,13 +618,36 @@
     "max_retries": 3,
     "rejected_count": 1,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "38cc318d2e8d49adac89b76f9a5a16da",
+      "base_commit": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
+      "changed_files": [
+        "docs/engineering/SECURITY_THREAT_MODEL.md",
+        "docs/release-checklist.md",
+        "docs/features/README.md"
+      ],
+      "commit": "eb774c794449694f2df5c85b3f4aaae7221b6aa1",
+      "diff_stats": {
+        "docs/engineering/SECURITY_THREAT_MODEL.md": {
+          "added": 26,
+          "deleted": 0
+        },
+        "docs/features/README.md": {
+          "added": 3,
+          "deleted": 0
+        },
+        "docs/release-checklist.md": {
+          "added": 2,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Release checklist step, guide index, threat-model section",
-    "version": 4,
+    "version": 6,
     "worktree": {
       "base_branch": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
       "base_commit": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
