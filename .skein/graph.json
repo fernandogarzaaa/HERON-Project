@@ -1513,7 +1513,7 @@
       "claim_token": "4bafa9a67ed846819d1820dc75c7913d",
       "claimed_at": "2026-11-22T09:26:45.215217+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T09:32:46.345070+00:00",
+      "last_heartbeat": "2026-11-22T09:33:46.438659+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1538,7 +1538,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 15,
+    "version": 17,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -2041,7 +2041,7 @@
       "claim_token": "4f24bda6e109434cb4029f3ac436505d",
       "claimed_at": "2026-11-22T09:28:07.903394+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:32:38.876658+00:00",
+      "last_heartbeat": "2026-11-22T09:33:38.994389+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -2066,7 +2066,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F2: why text, session taint, Telegram sentence",
-    "version": 12,
+    "version": 14,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "60f8a3020282ed59e863bc50a0796511e74daddb",
@@ -2982,7 +2982,16 @@
     }
   },
   "F6c": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "e83e4395f7e741369bb9d2f704c589ef",
+        "ended_at": "2026-11-22T09:34:06.311772+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:33:04.780305+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -2994,19 +3003,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "e83e4395f7e741369bb9d2f704c589ef",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "be9bfcf8703b422c99c120151acb1dfa",
-      "claimed_at": "2026-11-22T09:33:04.780305+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:33:04.780305+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I eval/check_tasks.py --features eval/features/morning_brief.md",
+        "duration_ms": 243,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F6c_20261122T093405888173_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F6c_20261122T093406135456_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I didn't run the Axiom proxy health check from CLAUDE.md. The sandbox blocked that command, and this task doesn't use the proxy.",
     "id": "F6c",
     "integration_for": null,
     "intent": {
@@ -3018,13 +3039,26 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "e83e4395f7e741369bb9d2f704c589ef",
+      "base_commit": "c4ffcbf74185dc1dfa032921c6f7e46193ba152c",
+      "changed_files": [
+        "eval/features/morning_brief.md"
+      ],
+      "commit": "7eac1c15b6500ec52a4a875d8b4a5c88862acea8",
+      "diff_stats": {
+        "eval/features/morning_brief.md": {
+          "added": 31,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "F6: feature task ft6",
-    "version": 3,
+    "version": 6,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "c4ffcbf74185dc1dfa032921c6f7e46193ba152c",
