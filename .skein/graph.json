@@ -6168,9 +6168,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "blocked",
+    "status": "unclaimed",
     "title": "Gate: email_drafts",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": null,
       "branch": null,
