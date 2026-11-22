@@ -3047,7 +3047,7 @@
       "claim_token": "161ce386a4bd44f7b2da37ff35b42617",
       "claimed_at": "2026-11-22T10:38:14.133449+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:42:15.134864+00:00",
+      "last_heartbeat": "2026-11-22T10:42:45.209223+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3074,7 +3074,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fix F3 review findings (core)",
-    "version": 11,
+    "version": 12,
     "worktree": {
       "base_branch": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
       "base_commit": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
@@ -4863,6 +4863,56 @@
       "path": null
     }
   },
+  "F6g__integrate": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F6s",
+      "F6c",
+      "F6a",
+      "F6-fix-1"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F6g__integrate",
+    "integration_for": "F6g",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['F6s', 'F6c', 'F6a', 'F6-fix-1'] into one base branch for F6g."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Integrate parents of F6g",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F6s": {
     "attempts": [
       {
@@ -4986,7 +5036,7 @@
       "claim_token": "b02a02963d7b45f78ca1d9a5d3eb301e",
       "claimed_at": "2026-11-22T10:41:52.012970+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:42:22.507562+00:00",
+      "last_heartbeat": "2026-11-22T10:42:52.584468+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -5013,7 +5063,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F7: dictation button, spoken replies",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
