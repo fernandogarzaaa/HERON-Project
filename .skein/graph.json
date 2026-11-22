@@ -4121,11 +4121,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F4: recorded-checkpoint undo, route",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
-      "branch": null,
-      "path": null
+      "base_commit": "5f0429b96cea5bec4c35f01f8e02d096b1e05e6a",
+      "branch": "skein/F4s",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F4s"
     }
   },
   "F4t": {
