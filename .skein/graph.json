@@ -1199,29 +1199,44 @@
     }
   },
   "B6r2__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "618d038406284fb599b4c14f677c37bb",
+        "ended_at": "2026-11-22T07:51:44.206333+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-22T07:51:43.626913+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "618d038406284fb599b4c14f677c37bb",
-      "base_branch": "skein/B6r2__integrate__integrate-base",
-      "claim_token": "cccd6b659b5644e5b3db4464c31f77a5",
-      "claimed_at": "2026-11-22T07:51:43.626913+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-22T07:51:43.626913+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "B6",
       "B2-fix-2"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 217324ad6e23d7748ff80e62f3b4d807f73cc2b7",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['80bd04a8346e3faa317c940e5ec839248d443435', '217324ad6e23d7748ff80e62f3b4d807f73cc2b7'] into skein/B6r2__integrate-base.",
     "id": "B6r2__integrate",
     "integration_for": "B6r2",
     "intent": {
@@ -1233,16 +1248,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "80bd04a8346e3faa317c940e5ec839248d443435",
+      "changed_files": [],
+      "commit": "b54d83005dead8cb56fefcadf5d63f1a45a62760",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of B6r2",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/B6r2__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "80bd04a8346e3faa317c940e5ec839248d443435",
+      "branch": "skein/B6r2__integrate-base",
       "path": null
     }
   },
