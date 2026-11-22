@@ -185,6 +185,8 @@ pub fn router_with(app: Arc<App>, token: String, loopback_only: bool) -> Router 
         .route("/tools/{name}", post(set_tool))
         .route("/features", get(list_features))
         .route("/features/{key}", post(set_feature))
+        .route("/shortcuts", get(list_shortcuts))
+        .route("/shortcuts/allowed", post(set_shortcuts_allowed))
         .route("/today", get(get_today))
         .route("/telegram", get(get_telegram).post(set_telegram).delete(remove_telegram))
         .route("/usage", get(get_usage).post(set_usage))
@@ -1236,6 +1238,54 @@ async fn set_feature(State(st): S, Path(key): Path<String>, Json(b): Json<Featur
     Ok(Json(json!({"key": known.key, "on": st.app.cfg().feature_on(known.key)})).into_response())
 }
 
+/// `409 {"error":"feature_off"}` while the core key `shortcuts` is off.
+fn shortcuts_off(st: &ServerState) -> Option<Response> {
+    (!st.app.cfg().feature_on(crate::tools::shortcuts::KEY)).then(|| coded(StatusCode::CONFLICT, "feature_off", "Run your Shortcuts is switched off in Settings › Features."))
+}
+
+/// The owner's shortcuts, from `shortcuts list`, and the ones Heron may run:
+/// `{"available", "shortcuts": [names], "allowed": [names]}`. Without the binary, `available` is
+/// false and `shortcuts` is empty.
+async fn list_shortcuts(State(st): S) -> std::result::Result<Response, ApiError> {
+    if let Some(off) = shortcuts_off(&st) {
+        return Ok(off);
+    }
+    let listed = crate::tools::shortcuts::list(&crate::tools::shortcuts::bin(), &crate::child::own_var).await?;
+    let allowed = st.app.cfg().features.shortcuts_allowed.clone();
+    let (available, shortcuts) = match listed {
+        Some(names) => (true, names),
+        None => (false, vec![]),
+    };
+    Ok(Json(json!({"available": available, "shortcuts": shortcuts, "allowed": allowed})).into_response())
+}
+
+#[derive(Deserialize)]
+struct ShortcutsAllowedBody {
+    names: Vec<String>,
+}
+
+/// Save the shortcuts Heron may run (`shortcuts_allowed`) through `App::update_config`. Each name must
+/// be one `shortcuts list` gives now.
+async fn set_shortcuts_allowed(State(st): S, Json(b): Json<ShortcutsAllowedBody>) -> std::result::Result<Response, ApiError> {
+    if let Some(off) = shortcuts_off(&st) {
+        return Ok(off);
+    }
+    let listed = if b.names.is_empty() { vec![] } else { crate::tools::shortcuts::list(&crate::tools::shortcuts::bin(), &crate::child::own_var).await?.unwrap_or_default() };
+    let mut names: Vec<String> = Vec::new();
+    for name in b.names {
+        if !listed.contains(&name) {
+            return Ok(coded(StatusCode::BAD_REQUEST, "unknown_shortcut", &format!("There is no shortcut called \"{name}\" in Shortcuts.")));
+        }
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    st.app.update_config(ConfigChange::edit(move |c| {
+        c.features.shortcuts_allowed = names;
+    }))?;
+    Ok(Json(json!({"allowed": st.app.cfg().features.shortcuts_allowed})).into_response())
+}
+
 async fn list_tools(State(st): S) -> ApiResult {
     let agent = st.app.agent(Arc::new(crate::permissions::DenyAll));
     let ctx = agent.tool_ctx("settings");
@@ -1862,7 +1912,10 @@ mod tests {
     #[tokio::test]
     async fn features_routes_list_and_set_keys() {
         let h = harness(scripted(vec![]), true, |_| {}).await;
-        assert_eq!(h.json("GET", "/features", Value::Null).await, json!({"features": [{"key": "test_key", "title": "Test feature", "on": false}]}));
+        assert_eq!(
+            h.json("GET", "/features", Value::Null).await,
+            json!({"features": [{"key": "test_key", "title": "Test feature", "on": false}, {"key": "shortcuts", "title": "Run your Shortcuts", "on": true}]})
+        );
         assert_eq!(h.json("POST", "/features/test_key", json!({"on": true})).await, json!({"key": "test_key", "on": true}));
         assert_eq!(h.json("GET", "/features", Value::Null).await["features"][0]["on"], true);
         assert!(h.app.cfg().feature_on("test_key"), "the running core sees it at once");
@@ -1875,6 +1928,57 @@ mod tests {
         assert_eq!((status, v["error"].as_str()), (404, Some("unknown_feature")), "{v}");
         assert!(v["message"].as_str().is_some_and(|m| m.contains("no_such_feature")), "{v}");
         assert!(!h.app.cfg().features.flags.contains_key("no_such_feature"), "nothing was saved");
+    }
+
+    /// F5: `POST /api/shortcuts/allowed` saves only names `shortcuts list` gives, through
+    /// `update_config`, and unticking every one is saved too. `GET /api/shortcuts` lists them, says
+    /// when the binary is missing, and both routes answer 409 while the key is off.
+    #[tokio::test]
+    async fn allowed_names_must_exist() {
+        let bins = tempfile::tempdir().unwrap();
+        let bin = crate::tools::shortcuts::fake_bin(bins.path(), "[ \"$1\" = list ] || exit 2\nprintf 'Get Notes\\nAdd Reminder\\n\\nSend Message\\n'");
+        let fake = crate::tools::shortcuts::test_bin::fake(bin).await;
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let saved = |h: &Harness| Config::read_saved(&h.app.cfg().home).unwrap().features.shortcuts_allowed;
+        assert_eq!(h.json("GET", "/shortcuts", Value::Null).await, json!({"available": true, "shortcuts": ["Get Notes", "Add Reminder", "Send Message"], "allowed": []}));
+
+        assert_eq!(h.json("POST", "/shortcuts/allowed", json!({"names": ["Add Reminder", "Get Notes", "Get Notes"]})).await, json!({"allowed": ["Add Reminder", "Get Notes"]}));
+        assert_eq!(h.app.cfg().features.shortcuts_allowed, ["Add Reminder", "Get Notes"], "the running core sees it at once");
+        assert_eq!(saved(&h), ["Add Reminder", "Get Notes"], "saved to config.toml");
+        assert_eq!(h.json("GET", "/shortcuts", Value::Null).await["allowed"], json!(["Add Reminder", "Get Notes"]));
+
+        // A name `shortcuts list` does not give (a different case or spacing included) is refused,
+        // and nothing changes, the other names in the request included.
+        for bad in ["Delete Everything", "get notes", "Get Notes ", ""] {
+            let reply = h.send("POST", "/shortcuts/allowed", json!({"names": ["Send Message", bad]})).await;
+            let status = reply.status;
+            let v = reply.json().await;
+            assert_eq!((status, v["error"].as_str()), (400, Some("unknown_shortcut")), "{bad:?}: {v}");
+            assert!(v["message"].as_str().is_some_and(|m| m.contains(&format!("\"{bad}\""))), "{v}");
+            assert_eq!(saved(&h), ["Add Reminder", "Get Notes"], "{bad:?}: nothing was saved");
+            assert_eq!(h.app.cfg().features.shortcuts_allowed, ["Add Reminder", "Get Notes"]);
+        }
+
+        // Unticking every one is saved.
+        assert_eq!(h.json("POST", "/shortcuts/allowed", json!({"names": []})).await, json!({"allowed": []}));
+        assert!(saved(&h).is_empty(), "the empty list reached config.toml");
+        assert!(h.app.cfg().features.shortcuts_allowed.is_empty());
+
+        // Without the binary: not available, and nothing can be ticked.
+        drop(fake);
+        let _missing = crate::tools::shortcuts::test_bin::fake(bins.path().join("not-there")).await;
+        assert_eq!(h.json("GET", "/shortcuts", Value::Null).await, json!({"available": false, "shortcuts": [], "allowed": []}));
+        let reply = h.send("POST", "/shortcuts/allowed", json!({"names": ["Get Notes"]})).await;
+        assert_eq!(reply.status, 400);
+        assert!(saved(&h).is_empty());
+
+        // With the key off, both routes answer 409.
+        h.json("POST", "/features/shortcuts", json!({"on": false})).await;
+        for (method, path, body) in [("GET", "/shortcuts", Value::Null), ("POST", "/shortcuts/allowed", json!({"names": []}))] {
+            let reply = h.send(method, path, body).await;
+            let status = reply.status;
+            assert_eq!((status, reply.json().await["error"].clone()), (409, json!("feature_off")), "{method} {path}");
+        }
     }
 
     #[tokio::test]

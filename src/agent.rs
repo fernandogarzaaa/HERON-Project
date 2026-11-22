@@ -804,6 +804,13 @@ impl Agent {
             let risk = tool.risk(&args, ctx);
             let target = tool.read_target(&args, ctx);
             let audit_args = redact_secrets(&preview(&call.function.arguments, 600));
+            // Refused before the decision function: no mode, rule, grant or approval opens it.
+            if let Some(reason) = tool.refusal(&args, ctx) {
+                self.audit(&ctx.session_id, name, &audit_args, "denied-by-policy", &reason);
+                sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk });
+                sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: format!("blocked: {reason}") });
+                return format!("Permission denied: {reason} Do not retry or work around this; tell the user.");
+            }
             let tainted = ctx.tainted.load(std::sync::atomic::Ordering::SeqCst);
             let verdict = self.policy.decide(&Call { tool: name, summary: &summary, effect: risk, read_target: target.as_deref() }, ctx);
             let mut grant_after_call = false;
@@ -1158,6 +1165,8 @@ mod tests {
             ("update_persona", json!({"text": "x"}), Privileged),
             ("save_skill", json!({"name": "x", "content": "y"}), Privileged),
             ("use_skill", json!({"name": "x"}), LocalRead),
+            // F5: a shortcut can send or change anything.
+            ("run_shortcut", json!({"name": "Get Notes", "input": "x"}), ExternalWrite),
             // Test builds only: the tool behind the test feature key.
             ("test_feature_tool", json!({}), LocalRead),
         ];
@@ -2202,5 +2211,77 @@ mod tests {
                 assert_eq!(agent.policy.allow_rules(), vec!["write_file:*"]);
             }
         }
+    }
+
+    /// F5: a shortcut the owner has not ticked is refused before the decision function, in every
+    /// mode, whatever the rules say, and nothing is asked or run. A ticked one goes on to the decision
+    /// function, is asked about once only, and its output is outside content.
+    #[tokio::test]
+    async fn shortcut_not_on_allowlist_is_refused() {
+        use crate::tools::shortcuts::{recording_bin, test_bin, NOT_ALLOWED};
+        struct Records(Mutex<Vec<ApprovalRequest>>);
+        #[async_trait::async_trait]
+        impl Approver for Records {
+            async fn approve(&self, req: &ApprovalRequest) -> Approval {
+                self.0.lock().unwrap().push(req.clone());
+                Approval::Once
+            }
+        }
+        let (ws, bins, rec) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let _fake = test_bin::fake(recording_bin(bins.path(), rec.path())).await;
+        let asked = Arc::new(Records(Mutex::new(vec![])));
+        let (mut agent, _) = agent_with(ScriptedLlm::new(vec![]), Mode::Ask, asked.clone(), ws.path());
+        let mut cfg = (*agent.cfg).clone();
+        cfg.features.shortcuts_allowed = vec!["Get Notes".into()];
+        agent.cfg = Arc::new(cfg);
+        let s = Session::create(&agent.store, "").unwrap();
+        let rules: Vec<String> = ["*", "*:*", "run_shortcut:*"].iter().map(|r| r.to_string()).collect();
+        // Each of these would get a different answer from the decision function: read-only would
+        // refuse with its own reason, ask and auto would ask, yolo would run it, and a "never" names itself.
+        let policies = [
+            Policy::new(Mode::ReadOnly, &[], &[]),
+            Policy::new(Mode::Ask, &rules, &[]),
+            Policy::new(Mode::Auto, &[], &[]),
+            Policy::new(Mode::Yolo, &rules, &[]),
+            Policy::new(Mode::Yolo, &[], &["run_shortcut:*".to_string()]),
+        ];
+        for policy in policies {
+            agent.policy = Arc::new(policy);
+            for tainted in [false, true] {
+                let ctx = agent.tool_ctx(&s.id);
+                ctx.tainted.store(tainted, std::sync::atomic::Ordering::SeqCst);
+                for name in ["Send Message", "get notes", "Get Notes ", ""] {
+                    let err = agent.call_tool(&ctx, "run_shortcut", &json!({"name": name, "input": "hi"}), &null_sink()).await.unwrap_err();
+                    assert_eq!(err, format!("Permission denied: {NOT_ALLOWED} Do not retry or work around this; tell the user."), "{name:?} in {:?}", agent.policy.mode());
+                }
+                let err = agent.call_tool(&ctx, "run_shortcut", &json!({}), &null_sink()).await.unwrap_err();
+                assert!(err.contains(NOT_ALLOWED), "{err}");
+            }
+        }
+        assert!(asked.0.lock().unwrap().is_empty(), "nothing was asked");
+        assert!(!rec.path().join("argv").exists(), "nothing ran");
+        let log = agent.store.audit_log(100).unwrap();
+        assert!(!log.is_empty() && log.iter().all(|e| e.tool == "run_shortcut" && e.decision == "denied-by-policy" && e.result == NOT_ALLOWED), "every refusal is audited as blocked");
+
+        // Called directly, as a parked approval is carried out, the tool refuses by itself too.
+        let tool = agent.tools.get("run_shortcut").unwrap();
+        let ctx = agent.tool_ctx(&s.id);
+        for args in [json!({"name": "Send Message", "input": "hi"}), json!({})] {
+            assert_eq!(tool.call(&args, &ctx).await.unwrap_err().to_string(), NOT_ALLOWED, "{args}");
+        }
+        assert!(!rec.path().join("argv").exists(), "still nothing ran");
+
+        // The control: the ticked name goes on to the decision function, which asks in ask mode, once only.
+        agent.policy = Arc::new(Policy::new(Mode::Ask, &rules, &[]));
+        let ctx = agent.tool_ctx(&s.id);
+        let out = agent.call_tool(&ctx, "run_shortcut", &json!({"name": "Get Notes", "input": "milk"}), &null_sink()).await.unwrap();
+        assert_eq!(out, "done");
+        let asked = asked.0.lock().unwrap();
+        assert_eq!(asked.len(), 1);
+        assert_eq!((asked[0].tool.as_str(), asked[0].summary.as_str(), asked[0].risk), ("run_shortcut", "Get Notes", Effect::ExternalWrite));
+        assert!(!asked[0].can_always(), "once only");
+        assert_eq!(asked[0].detail, "Run the shortcut \"Get Notes\" with this input:\nmilk", "the approval shows the name and the input");
+        assert_eq!(std::fs::read_to_string(rec.path().join("argv")).unwrap().lines().take(2).collect::<Vec<_>>(), ["run", "Get Notes"]);
+        assert!(ctx.tainted.load(std::sync::atomic::Ordering::SeqCst), "a shortcut's output is outside content");
     }
 }
