@@ -590,7 +590,7 @@ Today's warning line has three limits:
     *   An unknown run returns `404 {"error":"unknown_run"}`.
     *   A run still in `running` or `waiting` returns `409 {"error":"run_active"}`.
 *   **The lists.** Both come from the run's `audit_ids` with an executed decision. Nothing in them is reverted.
-    *   **`also_changed`** covers `remember`, `forget`, `task_add`, `task_update`, `schedule_add`, `schedule_remove`, `save_automation`, `save_skill` and `update_persona`. The app maps each tool to the Memory, Tasks or Schedules screen, where heron-v1.md already lets the owner retire or remove it.
+    *   **`also_changed`** covers `remember`, `forget`, `task_add`, `task_update`, `schedule_add`, `schedule_remove`, `save_automation`, `save_skill` and `update_persona`. The app maps each tool to the Memory, Tasks or Schedules screen, where heron-v1.md already lets the owner retire or remove it. `update_persona` links to Settings, Heron, where the personality is edited; `save_skill` is listed with no link, because the app has no skills screen.
     *   **`cannot_undo`** covers every other tool with an effect that changes or sends: `shell`, `browser_click`, `browser_type`, `mcp__*`, `run_shortcut`, `draft_email` and the rest.
 *   **The audit.** Each call appends one row in the run's session, through the existing audit append. The row has tool `undo_run`, arguments `{"run_id"}`, decision `user`, and result "restored `n` files". The hash chain only grows.
 *   **Only the owner can undo.** The model gets no undo tool. The owner undoes from the app.
