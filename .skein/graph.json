@@ -6752,7 +6752,16 @@
     }
   },
   "F8mut": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "5a84674bc8d043b3ab94548846c012c6",
+        "ended_at": "2026-11-22T12:45:47.450130+00:00",
+        "error": "completion command failed (adapter exit=1); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-22T12:37:50.739902+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -6764,21 +6773,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "5a84674bc8d043b3ab94548846c012c6",
-      "base_branch": "a7aeb03f0e6660a30ebef3783739d23c76ba9c53",
-      "claim_token": "00b611e4ff0249b4beb3fccd720f9864",
-      "claimed_at": "2026-11-22T12:37:50.739902+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T12:45:32.579299+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F8g"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- draft_email_summary_names_recipients_and_subject",
+        "duration_ms": 272702,
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8mut_20261122T124114700301_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 1,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F8mut_20261122T124547404224_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=1); see evidence",
     "id": "F8mut",
     "integration_for": null,
     "intent": {
@@ -6791,12 +6812,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-22T12:46:49.241114+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "unclaimed",
     "title": "Kill F8's surviving mutants",
-    "version": 18,
+    "version": 19,
     "worktree": {
       "base_branch": "a7aeb03f0e6660a30ebef3783739d23c76ba9c53",
       "base_commit": "a7aeb03f0e6660a30ebef3783739d23c76ba9c53",
