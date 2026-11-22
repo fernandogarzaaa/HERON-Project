@@ -2994,15 +2994,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "e83e4395f7e741369bb9d2f704c589ef",
+      "base_branch": "feat/v1-features-base",
+      "claim_token": "be9bfcf8703b422c99c120151acb1dfa",
+      "claimed_at": "2026-11-22T09:33:04.780305+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T09:33:04.780305+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [],
     "evidence": [],
@@ -3022,11 +3022,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F6: feature task ft6",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/v1-features-base",
       "branch": null,
       "path": null
     }
