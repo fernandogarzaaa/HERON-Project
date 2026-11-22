@@ -4257,6 +4257,59 @@
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F4-fix-2"
     }
   },
+  "F4-fix-3": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F4-fix-1",
+      "F4-fix-2"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F4-fix-3",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- undo_refuses_a_hard_linked_file a_parent_swapped_after_the_check_is_not_followed a_file_changed_during_the_undo_is_a_conflict undo_never_reads_through_a_symlink undo_refuses_a_symlinked_parent a_stale_confirmation_restores_nothing concurrent_undo_calls_restore_once audit_chain_intact_after_undo",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging. No database schema change.",
+      "context": "Spec: docs/designs/heron-v1-features.md, F4 and base heron-v1.md file undo. Q7 paths: append-only audit, no schema change. Keep the symlinked-root case working (macOS /var -> /private/var: recorded paths are canonical). Inside your sandbox about 27 unrelated cargo tests fail; run your tests by name.",
+      "goal": "Fix findings from the independent check of F4-fix-1 (file:line in today's tree). (1) MEDIUM: a hard link passes the no-follow check (src/tools/fs.rs look ~576-604, read_no_follow ~532): ln ~/.ssh/id_ed25519 ws/notes/a.md is a regular file to O_NOFOLLOW and lstat, so Restore anyway copies the key into the workspace beside the file. After opening, treat a file whose metadata is not a regular file or whose nlink() > 1 as Diverted (a conflict restore_anyway can't override). Test: undo_refuses_a_hard_linked_file. (2) MEDIUM: between look and the writes (save_copy_beside ~443, stage_new_version ~88, the swap, remove_file ~718) every call uses a full path, so a parent folder swapped for a symlink in that window sends the staged file and the exchange elsewhere. Open the canonical parent once with O_DIRECTORY|O_NOFOLLOW and do the create, rename/exchange and unlink relative to that handle (openat, renameatx_np on macOS / renameat2 on Linux as fs.rs already does, unlinkat), so a late swap of the parent can't redirect them. libc is already a dependency; add no crate. Test: a_parent_swapped_after_the_check_is_not_followed (simulate by swapping between the check and the write through a test hook, or prove the writes take a directory handle). (3) LOW, same path: server.rs ~937 computes the confirmation, then restore_checked (fs.rs ~651-655) hashes the file again, so a change between the two reads reports the file as already undone and continues; compute the confirmation once and pass it in, or report that case as a conflict. Test: a_file_changed_during_the_undo_is_a_conflict. (4) LOW: drop_checkpoint (store.rs ~1429) must also match session_id and after_hash. (5) Tests: pin the lstat check and the ELOOP -> Diverted branch (fs.rs ~600) separately, so removing either alone fails a test. Fix nothing else."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fix the check of F4-fix-1: hard links, parent swap, reporting",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F4a": {
     "attempts": [
       {
