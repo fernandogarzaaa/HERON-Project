@@ -2613,15 +2613,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "fbe8afbb32944abc815706ab43c25339",
+      "base_branch": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
+      "claim_token": "5f3a4720e7cf4c2fad52e583541f8cf3",
+      "claimed_at": "2026-11-22T10:18:46.345508+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T10:18:46.345508+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F3a"
@@ -2643,11 +2643,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fix: core notices lost when notifications are denied",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
       "branch": null,
       "path": null
     }
