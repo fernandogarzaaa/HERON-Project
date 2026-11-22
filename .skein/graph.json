@@ -224,7 +224,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "Core switches, chat context, taint source, notification owner",
-    "version": 47,
+    "version": 48,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "48aa65c853c6a54666cfd23e0a648044f34ff67d",
