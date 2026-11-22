@@ -319,7 +319,7 @@ public final class SettingsStore {
             case .notAuthorized: localMailProblem = .automationDenied; sourceErrors[id] = SourceCopy.mailAccessDenied
             case .noAccounts: localMailProblem = .noAccounts; sourceErrors[id] = SourceCopy.mailHasNoAccounts
             case .notRunning: sourceErrors[id] = SourceCopy.mailWouldNotOpen
-            case .failed(let message): sourceErrors[id] = message
+            case .failed(let message): sourceErrors[id] = String(message.prefix(SourceCopy.maxErrorCharacters))
             }
             return false
         } catch {

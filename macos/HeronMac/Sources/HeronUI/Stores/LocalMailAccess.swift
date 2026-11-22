@@ -141,16 +141,21 @@ public struct SystemMailAccess: LocalMailAccess {
             -- Mail's own unified inbox: it covers every account whatever its mailbox is called ("INBOX", "Inbox", a
             -- localized name), and a failure here is an error the app shows, not an account that quietly adds nothing.
             set recent to (messages of inbox whose date received > cutoff)
+            -- One message at a time: the unified inbox hands back references that live in other mailboxes (Gmail's
+            -- "[Gmail]/All Mail"), and Mail can't read a property across that whole list in one Apple Event.
             set total to count of recent
-            if total > \(limit) then set total to \(limit)
+            if total > \(limit) * 3 then set total to \(limit) * 3
             set out to ""
-            if total > 0 then
-              set theIds to message id of recent
-              set theSubjects to subject of recent
-              set theSenders to sender of recent
-              set theDates to date received of recent
-              repeat with i from 1 to total
+            set kept to 0
+            set skipped to 0
+            repeat with i from 1 to total
+              if kept ≥ \(limit) then exit repeat
+              try
                 set msg to item i of recent
+                set theId to message id of msg
+                set theSubject to subject of msg
+                set theSender to sender of msg
+                set theDate to date received of msg
                 set acctName to ""
                 try
                   set acctName to name of account of mailbox of msg
@@ -160,11 +165,15 @@ public struct SystemMailAccess: LocalMailAccess {
                   set bodyText to content of msg
                   if (count of bodyText) > \(bodyCharacters) then set bodyText to text 1 thru \(bodyCharacters) of bodyText
                 end try
-                set age to (nowDate - (item i of theDates)) as integer
-                set rec to (my clean(item i of theIds)) & (character id 31) & (my clean(item i of theSenders)) & (character id 31) & (my clean(item i of theSubjects)) & (character id 31) & (age as text) & (character id 31) & (my clean(acctName)) & (character id 31) & (my clean(bodyText))
+                set age to (nowDate - theDate) as integer
+                set rec to (my clean(theId)) & (character id 31) & (my clean(theSender)) & (character id 31) & (my clean(theSubject)) & (character id 31) & (age as text) & (character id 31) & (my clean(acctName)) & (character id 31) & (my clean(bodyText))
                 set out to out & rec & (character id 30)
-              end repeat
-            end if
+                set kept to kept + 1
+              on error
+                set skipped to skipped + 1
+              end try
+            end repeat
+            if out is "" and skipped > 0 then return "unreadable:" & skipped
             return out
           end tell
         end timeout
@@ -198,23 +207,25 @@ public struct SystemMailAccess: LocalMailAccess {
         return String(decoding: out, as: UTF8.self)
     }
 
-    /// osascript reports `execution error: <text> (<number>)` on stderr and exits 1.
+    /// osascript reports `execution error: <text> (<number>)` on stderr and exits 1. Only the number is used: the text can be
+    /// enormous (it once listed hundreds of message references) and is never shown.
     static func failure(stderr: String, status: Int32) -> MailAccessError {
-        let text = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = stderr.suffix(400).trimmingCharacters(in: .whitespacesAndNewlines)
         var number = 0
         if let open = text.lastIndex(of: "("), let close = text.lastIndex(of: ")"), open < close,
            let n = Int(text[text.index(after: open)..<close]) { number = n }
         if number == 0, status == 15 || status == 9 { return .failed("Mail didn't answer in time. Try again.") }
-        let message = text.replacingOccurrences(of: "execution error: ", with: "")
-        return map(errorNumber: number, message: message.isEmpty ? "" : message)
+        return map(errorNumber: number, message: "")
     }
 
-    /// `-1743` is "not authorized to send Apple events"; `-600` and `-609` mean Mail isn't there to answer.
+    /// `-1743` is "not authorized to send Apple events"; `-600` and `-609` mean Mail isn't there to answer. Anything else
+    /// is one short sentence with the number, never the raw message.
     static func map(errorNumber: Int, message: String) -> MailAccessError {
         switch errorNumber {
-        case -1743, -1744: .notAuthorized
-        case -600, -609, -10004: .notRunning
-        default: .failed(message.isEmpty ? "Mail answered with error \(errorNumber)." : message)
+        case -1743, -1744: return .notAuthorized
+        case -600, -609, -10004: return .notRunning
+        case 0: return .failed("Mail couldn't read your inbox. Try Refresh.")
+        default: return .failed("Mail couldn't read your inbox (error \(errorNumber)). Try Refresh.")
         }
     }
 
@@ -222,6 +233,10 @@ public struct SystemMailAccess: LocalMailAccess {
     static func parse(_ output: String, now: Date = Date()) throws -> [LocalMailMessage] {
         let text = output.trimmingCharacters(in: .whitespacesAndNewlines)
         if text == "no-accounts" { throw MailAccessError.noAccounts }
+        if text.hasPrefix("unreadable:") {
+            let count = Int(text.dropFirst("unreadable:".count)) ?? 0
+            throw MailAccessError.failed("Mail found messages in your inbox but couldn't read any of them (\(count) skipped). Open Mail, let it finish loading, then try Refresh.")
+        }
         let nowSeconds = Int(now.timeIntervalSince1970)
         return text.split(separator: recordSeparator, omittingEmptySubsequences: true).compactMap { record in
             let fields = record.split(separator: fieldSeparator, maxSplits: 5, omittingEmptySubsequences: false).map(String.init)

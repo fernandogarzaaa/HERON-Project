@@ -29,6 +29,8 @@ enum SourceCopy {
     static let connectedButCouldNotRefresh = "Connected, but Heron couldn't refresh this list. Close Settings and open it again."
     static let cancelledBeforeFinishing = "That was cancelled before it finished. Try again."
     static let mailWasEmpty = "Mail returned no inbox messages from the last 14 days. Is your account set up in Mail, and has Mail finished downloading? Press Refresh to try again."
+    /// No error line on a row is longer than this, whatever a tool printed.
+    static let maxErrorCharacters = 200
     static let readingMail = "Reading Mail… (it can take a moment)"
     static let privacyAutomationURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
     static let internetAccountsURL = "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension"

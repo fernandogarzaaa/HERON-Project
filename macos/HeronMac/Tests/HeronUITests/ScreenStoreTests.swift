@@ -830,6 +830,13 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertTrue(client.sourceRequests.isEmpty)
     }
 
+    func testAnyMailFailureTextOnTheRowIsCapped() async throws {
+        let client = try await makeClient()
+        let store = await mailStore(client, mail: FakeMail(result: .failure(.failed(String(repeating: "x", count: 10_000)))))
+        _ = await store.connectLocalMail()
+        XCTAssertEqual(store.sourceErrors["mail_local"]?.count, SourceCopy.maxErrorCharacters)
+    }
+
     func testMacMailThatCannotBeOpenedOrFailsIsExplainedWithoutASettingsButton() async throws {
         let client = try await makeClient()
         let notRunning = await mailStore(client, mail: FakeMail(result: .failure(.notRunning)))
@@ -838,7 +845,7 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertNil(notRunning.localMailProblem)
         let broken = await mailStore(client, mail: FakeMail(result: .failure(.failed("Mail answered with error 7."))))
         _ = await broken.connectLocalMail()
-        XCTAssertEqual(broken.sourceErrors["mail_local"], "Mail answered with error 7.")
+        XCTAssertEqual(broken.sourceErrors["mail_local"], "Mail answered with error 7.", "a short message passes through unchanged")
     }
 
     func testMacMailTakesItsTimeOffTheMainThreadAndShowsBusyUntilMailAnswers() async throws {

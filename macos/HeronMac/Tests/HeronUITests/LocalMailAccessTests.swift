@@ -45,8 +45,8 @@ final class LocalMailAccessTests: XCTestCase {
         XCTAssertEqual(SystemMailAccess.map(errorNumber: -1743, message: "x"), .notAuthorized)
         XCTAssertEqual(SystemMailAccess.map(errorNumber: -600, message: "x"), .notRunning)
         XCTAssertEqual(SystemMailAccess.map(errorNumber: -609, message: "x"), .notRunning)
-        XCTAssertEqual(SystemMailAccess.map(errorNumber: 5, message: "Boom"), .failed("Boom"))
-        XCTAssertEqual(SystemMailAccess.map(errorNumber: 5, message: ""), .failed("Mail answered with error 5."))
+        XCTAssertEqual(SystemMailAccess.map(errorNumber: 5, message: "Boom"), .failed("Mail couldn't read your inbox (error 5). Try Refresh."), "Mail's own text is not used")
+        XCTAssertEqual(SystemMailAccess.map(errorNumber: 5, message: ""), .failed("Mail couldn't read your inbox (error 5). Try Refresh."))
     }
 
     func testTheScriptAsksForTheLastFourteenDaysUpToTheCapAndNeverTouchesTheMailFolder() {
@@ -82,9 +82,38 @@ final class LocalMailAccessTests: XCTestCase {
     func testOsascriptsStderrBecomesTheRightProblem() {
         XCTAssertEqual(SystemMailAccess.failure(stderr: "execution error: Not authorized to send Apple events to Mail. (-1743)\n", status: 1), .notAuthorized)
         XCTAssertEqual(SystemMailAccess.failure(stderr: "execution error: Application isn't running. (-600)", status: 1), .notRunning)
-        XCTAssertEqual(SystemMailAccess.failure(stderr: "execution error: Something odd happened. (-1728)", status: 1), .failed("Something odd happened. (-1728)"))
+        XCTAssertEqual(SystemMailAccess.failure(stderr: "execution error: Something odd happened. (-1728)", status: 1),
+                       .failed("Mail couldn't read your inbox (error -1728). Try Refresh."), "a short sentence and the number, not Mail's own text")
         XCTAssertEqual(SystemMailAccess.failure(stderr: "", status: 15), .failed("Mail didn't answer in time. Try again."))
-        XCTAssertEqual(SystemMailAccess.failure(stderr: "", status: 1), .failed("Mail answered with error 0."))
+        XCTAssertEqual(SystemMailAccess.failure(stderr: "", status: 1), .failed("Mail couldn't read your inbox. Try Refresh."))
+    }
+
+    func testAHugeStderrNeverReachesTheRow() {
+        // What Mail once printed: hundreds of message references, ten kilobytes of them.
+        let refs = (0..<400).map { "message id \(83_000 + $0) of mailbox \"[Gmail]/All Mail\" of account id \"1B7AD060\"" }.joined(separator: ", ")
+        let stderr = "943:953: execution error: Can't get message id of {\(refs)}. (-1728)"
+        XCTAssertGreaterThan(stderr.count, 10_000)
+        guard case .failed(let message) = SystemMailAccess.failure(stderr: stderr, status: 1) else { return XCTFail("expected a failure") }
+        XCTAssertEqual(message, "Mail couldn't read your inbox (error -1728). Try Refresh.")
+        XCTAssertLessThan(message.count, 160)
+        XCTAssertFalse(message.contains("All Mail"))
+    }
+
+    func testTheScriptReadsEachMessageInsideItsOwnTryAndNeverInBulk() {
+        let script = SystemMailAccess.script(daysBack: 14, limit: 300, bodyCharacters: 4000)
+        for bulk in ["message id of recent", "subject of recent", "sender of recent", "date received of recent"] {
+            XCTAssertFalse(script.contains(bulk), "\(bulk) reads a property across the whole list in one Apple Event, which Mail can't resolve")
+        }
+        XCTAssertTrue(script.contains("item i of recent") && script.contains("on error") && script.contains("skipped"))
+        XCTAssertTrue(script.contains("unreadable:"))
+    }
+
+    func testEveryMessageUnreadableIsAShortErrorNotASilentZero() {
+        XCTAssertThrowsError(try SystemMailAccess.parse("unreadable:37\n")) { error in
+            guard case .failed(let message) = error as? MailAccessError else { return XCTFail("expected a failure") }
+            XCTAssertTrue(message.contains("couldn't read any of them") && message.contains("37"), message)
+            XCTAssertLessThan(message.count, SourceCopy.maxErrorCharacters)
+        }
     }
 
     // MARK: A Mail that was only just launched
