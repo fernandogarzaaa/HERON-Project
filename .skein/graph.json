@@ -595,7 +595,7 @@
       "goal": "Build base unit B5 (item 12): add the release checklist step 'After the last feature merges, run the G7 task gate on main on every Tier 1 CLI.' to docs/release-checklist.md; create docs/features/README.md with one sentence; add the section '## Ways content enters, and processes Heron starts' to docs/engineering/SECURITY_THREAT_MODEL.md holding the ContentEntry table as it stands after B2 (read src/agent.rs for the real variants)."
     },
     "max_retries": 3,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -603,11 +603,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Release checklist step, guide index, threat-model section",
-    "version": 2,
+    "version": 4,
     "worktree": {
       "base_branch": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
-      "branch": null,
-      "path": null
+      "base_commit": "347f3d9213c5f868fcb97a264476b7b4357e98c8",
+      "branch": "skein/B5",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/B5"
     }
   },
   "B6": {
