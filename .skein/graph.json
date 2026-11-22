@@ -489,7 +489,16 @@
     }
   },
   "B2-fix-2": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "6eaa81e05b1a49ae965d5dd0d70430ab",
+        "ended_at": "2026-11-22T07:50:42.799244+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T07:45:17.304006+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -501,21 +510,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "6eaa81e05b1a49ae965d5dd0d70430ab",
-      "base_branch": "f8f67f9b99a9c69a5e928423769c3f993166c897",
-      "claim_token": "1136004f8fa641c69372b5c8ed00b8ca",
-      "claimed_at": "2026-11-22T07:45:17.304006+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T07:45:17.304006+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "B2-fix-1"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib --bins -- repl_sees_feature_change_from_another_process repl_agent_sees_feature_change_next_turn",
+        "duration_ms": 25707,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B2-fix-2_20261122T075016930213_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B2-fix-2_20261122T075042641237_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "B2-fix-2",
     "integration_for": null,
     "intent": {
@@ -527,13 +548,26 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "6eaa81e05b1a49ae965d5dd0d70430ab",
+      "base_commit": "f8f67f9b99a9c69a5e928423769c3f993166c897",
+      "changed_files": [
+        "src/app.rs"
+      ],
+      "commit": "217324ad6e23d7748ff80e62f3b4d807f73cc2b7",
+      "diff_stats": {
+        "src/app.rs": {
+          "added": 62,
+          "deleted": 8
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Fix: REPL reads feature keys changed by another process",
-    "version": 3,
+    "version": 14,
     "worktree": {
       "base_branch": "f8f67f9b99a9c69a5e928423769c3f993166c897",
       "base_commit": "f8f67f9b99a9c69a5e928423769c3f993166c897",
