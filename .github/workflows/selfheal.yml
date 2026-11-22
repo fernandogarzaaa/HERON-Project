@@ -1,0 +1,39 @@
+name: selfheal
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  gate:
+    name: selfheal-gate
+    if: startsWith(github.head_ref, 'heron/selfheal/')
+    runs-on: macos-latest
+    steps:
+      # The gate scripts and pins come from main, never from the PR under test.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: gate
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: fix
+          fetch-depth: 0
+      # The runner's Homebrew Python refuses pip installs (PEP 668).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --require-hashes -r gate/eval/selfheal/requirements-ci.txt
+      - name: Install the pinned cargo-mutants
+        run: |
+          pin="$(head -n 1 gate/eval/selfheal/requirements-ci.txt)"
+          version="${pin#\# cargo-mutants==}"
+          if [ "$version" = "$pin" ] || ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "requirements-ci.txt line 1 must be '# cargo-mutants==<version>', got: $pin" >&2
+            exit 1
+          fi
+          cargo install --locked "cargo-mutants@$version"
+      - run: bash gate/scripts/verify-selfheal.sh "$(git -C fix merge-base origin/main HEAD)" "${{ github.event.pull_request.head.sha }}" fix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gate-report
+          path: fix/gate-report.json
