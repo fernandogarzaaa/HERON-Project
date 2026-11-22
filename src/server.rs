@@ -26,6 +26,11 @@ const INDEX_HTML: &str = include_str!("../assets/index.html");
 
 // A stalled HTTP client must not accumulate unbounded streaming events.
 const CHAT_EVENT_CAPACITY: usize = 128;
+// Credential replacement and removal must be one serialized transition. The
+// Config mutex protects individual vault/file operations, not the full
+// stop -> revoke -> replace/remove -> generation-fence sequence.
+static TELEGRAM_CREDENTIAL_TRANSITION: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
 type Tx = mpsc::Sender<Value>;
 
 pub struct ServerState {
@@ -1029,6 +1034,9 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
     if !valid {
         return Err(bad("That does not look like a bot token. Create a bot with @BotFather in Telegram and paste the token it gives you."));
     }
+    // Serialize the complete credential transition, including verification,
+    // so a concurrent DELETE cannot remove a token installed by this POST.
+    let _transition = TELEGRAM_CREDENTIAL_TRANSITION.lock().await;
     let cfg = st.app.cfg();
     let old_token = cfg.secret("telegram_token");
     let replacing = old_token.as_deref() != Some(token);
@@ -1081,6 +1089,7 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
 }
 
 async fn remove_telegram(State(st): S) -> ApiResult {
+    let _transition = TELEGRAM_CREDENTIAL_TRANSITION.lock().await;
     crate::telegram::stop(&st.app);
     if let Err(err) = crate::telegram::bump_generation(&st.app) {
         crate::telegram::spawn_if_configured(&st.app);
@@ -1470,5 +1479,20 @@ mod stream_backpressure_tests {
             tx.try_send(json!({"type":"text","text":"late"})),
             Err(mpsc::error::TrySendError::Closed(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn telegram_credential_set_and_remove_transitions_are_serialized() {
+        let first = TELEGRAM_CREDENTIAL_TRANSITION.lock().await;
+        let (started_tx, started_rx) = oneshot::channel();
+        let second = tokio::spawn(async move {
+            let _ = started_tx.send(());
+            let _second = TELEGRAM_CREDENTIAL_TRANSITION.lock().await;
+        });
+        started_rx.await.unwrap();
+        tokio::task::yield_now().await;
+        assert!(!second.is_finished(), "a second credential mutation overlapped the first");
+        drop(first);
+        second.await.unwrap();
     }
 }
