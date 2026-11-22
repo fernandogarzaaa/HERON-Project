@@ -3113,15 +3113,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "567eb897c1f146f2afda9acf78cbf656",
+      "base_branch": "feat/v1-features-base",
+      "claim_token": "4729963a6b124f52affe1bc0ca83e299",
+      "claimed_at": "2026-11-22T09:47:41.942322+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T09:47:41.942322+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [],
     "evidence": [],
@@ -3141,11 +3141,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F5: run_shortcut, shortcuts routes, key",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/v1-features-base",
       "branch": null,
       "path": null
     }
