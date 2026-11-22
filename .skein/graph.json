@@ -7065,11 +7065,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Gate: screen_text",
-    "version": 8,
+    "version": 9,
     "worktree": {
       "base_branch": "skein/F9g__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "a7999060f5b42e756de22f56de47d7e440e1b840",
+      "branch": "skein/F9g",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F9g"
     }
   },
   "F9g__integrate": {
