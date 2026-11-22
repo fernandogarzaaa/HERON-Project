@@ -364,7 +364,7 @@ B2 adds `enum ContentEntry` to `src/agent.rs`, with one variant per way content 
 *   **Today.** The core posts desktop notifications itself, through the free function `notify(cfg, title, body)` in `app.rs`, for scheduled jobs, automations and suggestions. It runs `notify_command` when one is configured, and `osascript` otherwise.
 *   **The change.** B2 turns `notify` into an `App` method that also takes the notice's source (`schedule`, `automation` or `suggestion`), its `session_id` and its `run_id`.
     *   B2 also counts open `GET /api/events` streams that were opened with `?notify=1`.
-    *   While that count is above zero, the method publishes a bus event, `notification {title, body, source}`, instead of calling `osascript`. The bus envelope's `session_id` and `run_id` are set when the notice belongs to a run, and are `null` otherwise. Every other event's envelope is unchanged.
+    *   While that count is above zero, the method publishes a bus event, `notification {title, body, source}`, instead of calling `osascript`. The bus envelope's `session_id` and `run_id` are set when the notice belongs to a run, and are `null` otherwise. A `tainted` event from work that belongs to no run, such as an automation trigger, also carries `null` ids. Every other event's envelope is unchanged.
     *   A configured `notify_command` still runs.
     *   At zero, it behaves as today.
 *   **A lost notice is accepted.** A notice raised while the stream is dropping may reach nobody. This is accepted, because the inbox records every notice.
@@ -917,6 +917,10 @@ Low findings from the build's independent reviews that were left as they are. Me
 *   **B2: a once-only call can be audited as "approved-for-conversation" (low).** A client may answer a `run_shortcut` or `draft_email` approval with `decision: "session"`, although "for this conversation" isn't offered. The call runs once and no grant is recorded, which is correct, but the audit row's label says otherwise.
 *   **B2: one bad value under `[features]` stops `config.toml` from loading (low, fail-closed).** `FeaturesConfig.flags` is a flattened map of booleans, so a non-boolean value there, from a typo, fails the whole file's parse. Heron then doesn't start with that config, so nothing runs with a wrong switch.
 *   **B2: MCP serves a fixed tool list without the feature filter (low, inferred).** `mcp.rs` serves `SERVED_TOOLS` through the unfiltered registry. No feature tool is on that list today. F5 and F8 must not add theirs to it without the filter.
+*   **B2: a failed taint write leaves an empty, titled session (low, fail-closed).** When marking a chat-context session tainted fails, the turn stops before any message is stored, but a new session already has its row and its title, which comes from the typed message only. No context leaks.
+*   **B2: `heron mcp-serve` publishes its first `tainted` event to a bus no client reads (low).** That process runs no event stream. The taint source is still stored, so permissions and F2's session view are unaffected.
+*   **B2t: the integration test's taint timing is checked by event order only (low).** The unit test `chat_context_taints_before_the_model_call` checks it at the model request.
+*   **B2t: `api_features_lists_and_sets_keys` can't switch a key until a feature adds one.** `KEYS` holds only a test-only key, which integration tests don't see. F2t extends the test to switch `ask_reasons` over HTTP, and re-records `features.json`, once F2s adds that key.
 
 --------------------------------------------------------------------------------
 
