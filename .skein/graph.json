@@ -3459,15 +3459,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "0c54ba8c19b04f018f91690ee1da0d7d",
+      "base_branch": "beacef1f170f56de6ed0fe74a91556415730d37b",
+      "claim_token": "d2f0fd9f5ebb4911af5fbe87ddf24811",
+      "claimed_at": "2026-11-22T10:08:04.645308+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-22T10:08:04.645308+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [
       "F5s"
@@ -3489,11 +3489,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F5: integration test, shortcuts fixture",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "beacef1f170f56de6ed0fe74a91556415730d37b",
       "branch": null,
       "path": null
     }
