@@ -194,7 +194,7 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
     let mut out = Vec::new();
     let mut names = std::collections::HashSet::new();
 
-    for entry in entries {
+    for entry in bounded_entries {
         if out.len() >= MAX_SKILLS {
             break;
         }
