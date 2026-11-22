@@ -3,5 +3,6 @@
   "v1_verify_passed_at": "2026-11-21T13:17:17Z",
   "v1_main_commit": "39dbdf5d7851c538478643e16ba4119300ba249d",
   "freeze": "2026-12-05",
-  "freeze_tz": "+08:00"
+  "freeze_tz": "+08:00",
+  "features_base_commit": "01a977db85e62e070807a498e3e222c9a95d2a6f"
 }
