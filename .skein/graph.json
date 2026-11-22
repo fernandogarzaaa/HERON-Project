@@ -3707,11 +3707,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F9: feature task ft9",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "7f9dfeaa2a539b6c7a7ab0472da6353c34aa303c",
+      "branch": "skein/F9c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F9c"
     }
   },
   "F9g": {
