@@ -2233,6 +2233,14 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-22T09:49:59.765714+00:00"
+      },
+      {
+        "attempt_id": "97f85a10fda34061a6e042fd0b4f03be",
+        "ended_at": "2026-11-22T09:52:53.906549+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:52:17.609762+00:00"
       }
     ],
     "attempts_used": 3,
@@ -2246,15 +2254,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "97f85a10fda34061a6e042fd0b4f03be",
-      "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
-      "claim_token": "0ebf5775613e493184cdd5a82af5a89f",
-      "claimed_at": "2026-11-22T09:52:17.609762+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T09:52:17.609762+00:00",
-      "node_version": 20,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F2s"
@@ -2262,17 +2270,17 @@
     "evidence": [
       {
         "command": "cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_approval_carries_why api_fixtures_match_the_live_core api_features_lists_and_sets_keys && grep -q ask_reasons tests/fixtures/api/features.json",
-        "duration_ms": 2706,
-        "exit_code": 101,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2t_20261122T095030033458_0.log"
+        "duration_ms": 2895,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2t_20261122T095250911804_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2t_20261122T095032742900_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2t_20261122T095253808494_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F2t",
     "integration_for": null,
     "intent": {
@@ -2284,13 +2292,41 @@
     "max_retries": 4,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "97f85a10fda34061a6e042fd0b4f03be",
+      "base_commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
+      "changed_files": [
+        "tests/fixtures/api/events-approval.jsonl",
+        "tests/fixtures/api/features.json",
+        "tests/fixtures/api/session.json",
+        "tests/integration.rs"
+      ],
+      "commit": "4b4660347f30da79dd80c1558592a62bd120f123",
+      "diff_stats": {
+        "tests/fixtures/api/events-approval.jsonl": {
+          "added": 1,
+          "deleted": 1
+        },
+        "tests/fixtures/api/features.json": {
+          "added": 7,
+          "deleted": 1
+        },
+        "tests/fixtures/api/session.json": {
+          "added": 7,
+          "deleted": 3
+        },
+        "tests/integration.rs": {
+          "added": 73,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "F2: re-recorded fixtures, api_approval_carries_why",
-    "version": 22,
+    "version": 24,
     "worktree": {
       "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
       "base_commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
@@ -2316,7 +2352,7 @@
       "claim_token": "2beedbc9d19f4ed2969873c30c49a682",
       "claimed_at": "2026-11-22T09:50:32.939784+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:52:03.527013+00:00",
+      "last_heartbeat": "2026-11-22T09:52:33.581456+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -2343,7 +2379,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F3: Runs screen, badge, notifications",
-    "version": 6,
+    "version": 7,
     "worktree": {
       "base_branch": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
       "base_commit": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
@@ -3180,7 +3216,7 @@
       "claim_token": "4729963a6b124f52affe1bc0ca83e299",
       "claimed_at": "2026-11-22T09:47:41.942322+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:52:12.971523+00:00",
+      "last_heartbeat": "2026-11-22T09:52:43.025005+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -3205,7 +3241,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F5: run_shortcut, shortcuts routes, key",
-    "version": 12,
+    "version": 13,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "a5c863430fd6d88e8fe59e19063303332f903064",
