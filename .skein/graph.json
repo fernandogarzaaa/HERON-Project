@@ -2517,7 +2517,16 @@
     }
   },
   "F3t": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "6b5b9b4ece334d8db6a4ec30290196cf",
+        "ended_at": "2026-11-22T09:49:59.602007+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:47:59.171045+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -2529,21 +2538,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "6b5b9b4ece334d8db6a4ec30290196cf",
-      "base_branch": "c32409e8854a6aa4e907025f647a7ccd0ea3df2c",
-      "claim_token": "df3b9621d6d94c38b9e0031ba609277a",
-      "claimed_at": "2026-11-22T09:47:59.171045+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:47:59.171045+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F3s"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_runs_lists_a_finished_run api_run_record_survives_a_dropped_stream && test -s tests/fixtures/api/runs.json",
+        "duration_ms": 3617,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F3t_20261122T094955892350_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F3t_20261122T094959510054_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F3t",
     "integration_for": null,
     "intent": {
@@ -2555,13 +2576,36 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "6b5b9b4ece334d8db6a4ec30290196cf",
+      "base_commit": "c32409e8854a6aa4e907025f647a7ccd0ea3df2c",
+      "changed_files": [
+        "tests/fixtures/api/events-approval.jsonl",
+        "tests/integration.rs",
+        "tests/fixtures/api/runs.json"
+      ],
+      "commit": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
+      "diff_stats": {
+        "tests/fixtures/api/events-approval.jsonl": {
+          "added": 1,
+          "deleted": 1
+        },
+        "tests/fixtures/api/runs.json": {
+          "added": 14,
+          "deleted": 0
+        },
+        "tests/integration.rs": {
+          "added": 108,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "F3: integration tests, runs fixture",
-    "version": 3,
+    "version": 7,
     "worktree": {
       "base_branch": "c32409e8854a6aa4e907025f647a7ccd0ea3df2c",
       "base_commit": "c32409e8854a6aa4e907025f647a7ccd0ea3df2c",
@@ -3127,7 +3171,7 @@
       "claim_token": "4729963a6b124f52affe1bc0ca83e299",
       "claimed_at": "2026-11-22T09:47:41.942322+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:47:41.942322+00:00",
+      "last_heartbeat": "2026-11-22T09:49:42.638308+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -3150,9 +3194,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "F5: run_shortcut, shortcuts routes, key",
-    "version": 3,
+    "version": 7,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "a5c863430fd6d88e8fe59e19063303332f903064",
