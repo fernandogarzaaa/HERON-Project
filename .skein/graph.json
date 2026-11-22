@@ -4037,15 +4037,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "d6093fb89a70418fbcf443246c06c179",
+      "base_branch": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
+      "claim_token": "11fde3582fa34c79a64b2d4e20cbe914",
+      "claimed_at": "2026-11-22T12:19:24.761725+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T12:19:24.761725+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [
       "F4t"
@@ -4067,11 +4067,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F4: undo button and lists",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
       "branch": null,
       "path": null
     }
