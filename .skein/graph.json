@@ -13257,11 +13257,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Verify the 1a subset: eval suite, patches, gate script, workflow lint, genesis, testteeth",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/verify-1a-subset__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "92140cb233fd261c1bc00b0c64645a2b7fc87830",
+      "branch": "skein/verify-1a-subset",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/worktrees/verify-1a-subset"
     }
   },
   "verify-1a-subset__integrate": {
