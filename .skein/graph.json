@@ -4856,9 +4856,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Gate: morning_brief",
-    "version": 4,
+    "version": 5,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/F6g__integrate-base",
       "branch": null,
       "path": null
     }
