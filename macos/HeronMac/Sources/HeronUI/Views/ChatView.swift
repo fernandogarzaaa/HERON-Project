@@ -98,6 +98,7 @@ struct ChatView: View {
                     .disabled(chat.liveApproval != nil)
                     .onSubmit { Task { await chat.send() } }
                     .accessibilityLabel("Message")
+                DictationButton()
                 if chat.isRunning {
                     Button { Task { await chat.stop() } } label: { Image(systemName: "stop.circle.fill").font(.title2) }
                         .buttonStyle(.plain).foregroundStyle(theme.accent)

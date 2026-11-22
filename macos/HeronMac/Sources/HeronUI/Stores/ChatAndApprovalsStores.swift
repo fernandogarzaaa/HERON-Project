@@ -120,6 +120,8 @@ public final class ChatStore {
     @ObservationIgnored private var heldEvents: [CoreEvent] = []
     /// Where an approval goes when a held event turns out to belong to another conversation (the Inbox feed).
     @ObservationIgnored public var onOtherApproval: ((CoreEvent) -> Void)?
+    /// Every event of the open conversation, after held events have been replayed in order. F7 reads replies from it.
+    @ObservationIgnored public var onConversationEvent: ((CoreEvent) -> Void)?
     @ObservationIgnored private var stepStarts: [String: Date] = [:]
     @ObservationIgnored private var locallyAnswered: Set<String> = []
 
@@ -259,6 +261,7 @@ public final class ChatStore {
     public func handle(_ event: CoreEvent) {
         if awaitingStart, event.sessionID != nil { heldEvents.append(event); return }
         guard accepts(event) else { return }
+        onConversationEvent?(event)
         switch event.kind {
         case .session(let id, _):
             if currentSessionID == nil { currentSessionID = id }

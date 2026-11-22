@@ -143,14 +143,17 @@ struct QuickEntryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s3) {
-            TextField("Ask Heron anything", text: $model.field, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.system(size: 18))
-                .foregroundStyle(theme.ink)
-                .lineLimit(1...4)
-                .focused($focused)
-                .onSubmit { Task { await model.submit() } }
-                .accessibilityLabel("Ask Heron")
+            HStack(alignment: .top, spacing: Spacing.s2) {
+                TextField("Ask Heron anything", text: $model.field, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 18))
+                    .foregroundStyle(theme.ink)
+                    .lineLimit(1...4)
+                    .focused($focused)
+                    .onSubmit { Task { await model.submit() } }
+                    .accessibilityLabel("Ask Heron")
+                DictationButton().padding(.top, Spacing.s1)
+            }
             if let chip = model.chip { ChipRow(chip: chip, remove: { model.removeChip() }) }
             if !model.reply.isEmpty {
                 RowDivider()

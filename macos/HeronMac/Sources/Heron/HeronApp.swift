@@ -57,6 +57,8 @@ struct HeronApp: App {
         // F1: the Services item and the recorded hotkey open the quick-entry panel. The "Ask Heron" App Intent is
         // deferred to v1.1 (macos/HeronMac/APP-INTENTS-CHECK.md).
         model.quickEntry.start()
+        // F7: any key or click stops a reply being read aloud.
+        model.voice.start()
         _model = State(initialValue: model)
     }
 
