@@ -1525,15 +1525,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "97f25da601c44de8b2c0b7ca405d0c74",
+      "base_branch": "feat/v1-features-base",
+      "claim_token": "c708d8f7fec84207897d5a50a9ae5ae5",
+      "claimed_at": "2026-11-22T09:46:16.212823+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T09:46:16.212823+00:00",
+      "node_version": 39,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [],
     "evidence": [
@@ -1562,12 +1562,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": "2026-11-22T09:46:15.997034+00:00",
+    "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 39,
+    "version": 40,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -2406,7 +2406,7 @@
       "claim_token": "e0734d26ff51435f89d5f935502e35ff",
       "claimed_at": "2026-11-22T09:38:37.697102+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:44:38.703250+00:00",
+      "last_heartbeat": "2026-11-22T09:46:08.872810+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -2431,7 +2431,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F3: run records, GET /api/runs",
-    "version": 15,
+    "version": 18,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "d7bb8d754450035c634044c8385bcee14a7df211",
