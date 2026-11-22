@@ -2141,15 +2141,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "8074cf5bdd7d4a96bd99327e8e7a3237",
+      "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
+      "claim_token": "1702070fd211496c898148fa6ee411ca",
+      "claimed_at": "2026-11-22T09:38:27.201142+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T09:38:27.201142+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F2s"
@@ -2171,11 +2171,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F2: re-recorded fixtures, api_approval_carries_why",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
       "branch": null,
       "path": null
     }
