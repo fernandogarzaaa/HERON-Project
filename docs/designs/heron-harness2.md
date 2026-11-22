@@ -1,7 +1,7 @@
 # Heron Harness2: self-healing, self-evolution, connectors and observation
 
 *   **Author:** fernandogarzaaa (drafted with Claude)
-*   **Status:** In Review
+*   **Status:** Approved (2026-11-22). The owner replied "accept them all" to HQ1-HQ24 and OD2/OD3; the reply was relayed by the main Heron session
 *   **Date:** 2026-11-22
 *   **Builds on:** [heron-v1.md](heron-v1.md) (merged to `main` as `f732b4e`) and [heron-v1-features.md](heron-v1-features.md) (approved, being built)
 *   **Read at:** `main` = `39dbdf5`
@@ -157,18 +157,18 @@ Harness2 keeps all three, including for code Heron writes into itself and for ev
 ## Owner decisions recorded in this doc
 
 *   **OD1 (2026-11-22).** Full autonomy for trusted self-heal runs, chosen over proposal-only. HQ22 phases it, so the decision is unchanged and only the order differs.
-*   **OD2 (2026-11-22, relayed by the main session; to confirm).** Self-healing and self-evolution apply to everything, including new connectors and integrations.
+*   **OD2 (2026-11-22, confirmed by the owner).** Self-healing and self-evolution apply to everything, including new connectors and integrations.
     *   A connector from a trusted trigger may install itself under the same loop.
     *   A scout-found integration stays a proposal.
     *   Changes to trust tables stay fenced and need owner review.
-*   **OD3 (2026-11-22, relayed by the main session; to confirm).** Keystroke capture stays in, as its own switch, contained by sealbox.
+*   **OD3 (2026-11-22, confirmed by the owner).** Keystroke capture stays in, as its own switch, contained by sealbox.
     *   **What it overruled.** The earlier recommendation was to log no raw keystrokes, because they hold passwords, 2FA codes and private messages. Workflow would have been derived from app switches, window titles and file events instead.
     *   **The owner's reason.** v1.x is a research preview that tests how a personal agent works with full context, so accuracy from rich context is the goal.
     *   **What stays.** Raw keystrokes stay in sealbox. Secure Input and password fields are never captured.
 
 ## Open Questions
 
-Each question has a proposed default, which the build uses unless the owner changes it.
+**Answered 2026-11-22.** The owner accepted HQ1 to HQ24 at their proposed defaults ("accept them all"). The build uses those defaults. The text below keeps each question as it was asked, so the reasoning stays on record.
 
 **Shape decisions: HQ1 to HQ5, HQ22 to HQ24**
 
