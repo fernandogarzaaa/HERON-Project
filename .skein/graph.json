@@ -13210,7 +13210,16 @@
     }
   },
   "verify-1a-subset": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "364a9fc49429431eaa8ecf7e51cd137f",
+        "ended_at": "2026-11-22T16:32:19.887133+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-1",
+        "outcome": "failed",
+        "started_at": "2026-11-22T16:29:43.489035+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -13222,15 +13231,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "364a9fc49429431eaa8ecf7e51cd137f",
-      "base_branch": "skein/verify-1a-subset__integrate-base",
-      "claim_token": "e8f12e32db084866bb7ccd2e94d8076b",
-      "claimed_at": "2026-11-22T16:29:43.489035+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T16:29:43.489035+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "H3",
@@ -13238,8 +13247,20 @@
       "H12",
       "H5"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "python3 -I -m unittest discover -s eval/tests -t eval && python3 -I eval/selfheal/run_replay.py --check-patches && bash -n scripts/verify-selfheal.sh && bash -n packaging/macos/build-app.sh && actionlint .github/workflows/selfheal.yml && genesis audit-evaluator eval/selfheal/genesis.yaml --suite json && genesis audit-evaluator eval/genesis/pass-rules-json.yaml --suite json && testteeth run --lang python --base main --fail-under 70 -q eval/selfheal",
+        "duration_ms": 51876,
+        "exit_code": 3,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/evidence/verify-1a-subset_20261122T163127980732_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/evidence/verify-1a-subset_20261122T163219860960_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
     "id": "verify-1a-subset",
     "integration_for": null,
     "intent": {
@@ -13255,9 +13276,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "failed",
     "title": "Verify the 1a subset: eval suite, patches, gate script, workflow lint, genesis, testteeth",
-    "version": 4,
+    "version": 10,
     "worktree": {
       "base_branch": "skein/verify-1a-subset__integrate-base",
       "base_commit": "92140cb233fd261c1bc00b0c64645a2b7fc87830",
