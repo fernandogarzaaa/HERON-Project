@@ -3554,6 +3554,12 @@ mod tests {
         }
         other.observer_tick().await;
         assert!(other_llm.requests.lock().unwrap().is_empty(), "a second Heron on the same home does the owner's background work too");
+        let mut off = cfg.clone();
+        off.agent.ambient_context = false;
+        *owner.cfg.write().unwrap() = Arc::new(off);
+        owner.observer_tick().await;
+        assert!(owner_llm.requests.lock().unwrap().is_empty(), "with ambient context off, not even the owner does it");
+        *owner.cfg.write().unwrap() = Arc::new(cfg.clone());
         owner.observer_tick().await;
         assert_eq!(owner_llm.requests.lock().unwrap().len(), 1, "the owner still does it");
     }
