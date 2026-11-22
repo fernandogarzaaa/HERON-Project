@@ -4519,7 +4519,7 @@
       "goal": "Fix two findings from the independent review of F6 (paths under macos/HeronMac). (1) BriefController.swift ~95 (ensureSchedule) adopts any existing schedule named 'Morning brief', and ~87 (switch off) deletes every schedule with that name, so an owner's own 'Morning brief' automation (possibly with model steps) is taken over and later deleted. Store the id of the schedule the app created in UserDefaults; switching off deletes only that id; first launch creates the brief unless that stored id still exists, never adopting a schedule by name. Tests in BriefTests: switchOffLeavesTheOwnersSameNamedSchedule and firstLaunchDoesNotAdoptTheOwnersSchedule (replace test_firstLaunchDoesNotDuplicateAScheduleThatIsAlreadyThere, whose expectation the spec doesn't support). (2) The spec says the owner picks the time (default 08:30), but nothing writes BriefSchedule.timeKey and the core can't change a schedule's time. Add a time picker to the Morning brief row; changing the time deletes the app's schedule by its stored id and creates it again with the new 'daily HH:MM'. Test: changingTheTimeRecreatesTheSchedule. Fix nothing else."
     },
     "max_retries": 3,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -4527,11 +4527,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fix F6 review findings (app)",
-    "version": 2,
+    "version": 4,
     "worktree": {
       "base_branch": "fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd",
-      "branch": null,
-      "path": null
+      "base_commit": "fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd",
+      "branch": "skein/F6-fix-1",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F6-fix-1"
     }
   },
   "F6a": {
