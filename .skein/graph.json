@@ -3491,11 +3491,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F5: integration test, shortcuts fixture",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "beacef1f170f56de6ed0fe74a91556415730d37b",
-      "branch": null,
-      "path": null
+      "base_commit": "beacef1f170f56de6ed0fe74a91556415730d37b",
+      "branch": "skein/F5t",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F5t"
     }
   },
   "F6a": {
