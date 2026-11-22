@@ -4627,11 +4627,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Gate: undo_files",
-    "version": 9,
+    "version": 10,
     "worktree": {
       "base_branch": "skein/F4g__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "f26fe3b00ffeed0acea57cfb581dc4e603c66d72",
+      "branch": "skein/F4g",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F4g"
     }
   },
   "F4g__integrate": {
