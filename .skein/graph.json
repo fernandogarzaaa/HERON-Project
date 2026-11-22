@@ -1912,7 +1912,16 @@
     }
   },
   "F2a": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "ad81eb2401f64bf4a94d38f6edfe3bee",
+        "ended_at": "2026-11-22T10:15:24.296500+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:07:15.802815+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -1924,21 +1933,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "ad81eb2401f64bf4a94d38f6edfe3bee",
-      "base_branch": "4b4660347f30da79dd80c1558592a62bd120f123",
-      "claim_token": "be2f5a2d06c442c59a90753bcc9a595a",
-      "claimed_at": "2026-11-22T10:07:15.802815+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:11:46.821034+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F2t"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q TaintChipTests",
+        "duration_ms": 27477,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2a_20261122T101456692762_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2a_20261122T101524177113_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: - I made no edits to Cargo files or the Slint app.",
     "id": "F2a",
     "integration_for": null,
     "intent": {
@@ -1950,13 +1971,96 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "ad81eb2401f64bf4a94d38f6edfe3bee",
+      "base_commit": "4b4660347f30da79dd80c1558592a62bd120f123",
+      "changed_files": [
+        "macos/HeronMac/DESIGN-CHOICES.md",
+        "macos/HeronMac/Sources/HeronCore/CoreEvent.swift",
+        "macos/HeronMac/Sources/HeronCore/Models.swift",
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/Wire.swift",
+        "macos/HeronMac/Sources/HeronUI/Avatar/AvatarStateMachine.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeaturesSettings.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/ChatAndApprovalsStores.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/ApprovalSheetView.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/ChatView.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/ModelDecodingTests.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/AskReasons/TaintChip.swift",
+        "macos/HeronMac/Tests/HeronUITests/Features/TaintChipTests.swift"
+      ],
+      "commit": "ecdb3bc0098320fc8f38d546aed5620d4d0cf73a",
+      "diff_stats": {
+        "macos/HeronMac/DESIGN-CHOICES.md": {
+          "added": 2,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronCore/CoreEvent.swift": {
+          "added": 2,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/Models.swift": {
+          "added": 23,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift": {
+          "added": 10,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/Wire.swift": {
+          "added": 12,
+          "deleted": 3
+        },
+        "macos/HeronMac/Sources/HeronUI/Avatar/AvatarStateMachine.swift": {
+          "added": 1,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/AskReasons/TaintChip.swift": {
+          "added": 59,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift": {
+          "added": 4,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeaturesSettings.swift": {
+          "added": 5,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift": {
+          "added": 10,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/ChatAndApprovalsStores.swift": {
+          "added": 8,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/ApprovalSheetView.swift": {
+          "added": 18,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/ChatView.swift": {
+          "added": 6,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/ModelDecodingTests.swift": {
+          "added": 4,
+          "deleted": 1
+        },
+        "macos/HeronMac/Tests/HeronUITests/Features/TaintChipTests.swift": {
+          "added": 224,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "F2: taint chip, why on the sheet",
-    "version": 12,
+    "version": 20,
     "worktree": {
       "base_branch": "4b4660347f30da79dd80c1558592a62bd120f123",
       "base_commit": "4b4660347f30da79dd80c1558592a62bd120f123",
@@ -3853,7 +3957,7 @@
       "claim_token": "8582d178af574f2c8b0876d30dee8ee3",
       "claimed_at": "2026-11-22T10:08:58.043975+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:11:58.820510+00:00",
+      "last_heartbeat": "2026-11-22T10:14:59.208940+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3878,7 +3982,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F6: today_counts, count_day, workflow field",
-    "version": 9,
+    "version": 15,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "db2f7fa50e3c27e84d56be46d0530631c9b18a71",
