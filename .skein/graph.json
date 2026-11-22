@@ -1513,7 +1513,7 @@
       "claim_token": "4bafa9a67ed846819d1820dc75c7913d",
       "claimed_at": "2026-11-22T09:26:45.215217+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T09:32:16.281680+00:00",
+      "last_heartbeat": "2026-11-22T09:32:46.345070+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1538,7 +1538,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 14,
+    "version": 15,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -2041,7 +2041,7 @@
       "claim_token": "4f24bda6e109434cb4029f3ac436505d",
       "claimed_at": "2026-11-22T09:28:07.903394+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:32:08.811411+00:00",
+      "last_heartbeat": "2026-11-22T09:32:38.876658+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -2066,7 +2066,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F2: why text, session taint, Telegram sentence",
-    "version": 11,
+    "version": 12,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "60f8a3020282ed59e863bc50a0796511e74daddb",
@@ -2605,9 +2605,17 @@
         "holder": "agent-3",
         "outcome": "failed",
         "started_at": "2026-11-22T09:29:03.666876+00:00"
+      },
+      {
+        "attempt_id": "1b81ccbd05c344d4b375b17bad837bc8",
+        "ended_at": "2026-11-22T09:33:04.565461+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-3",
+        "outcome": "failed",
+        "started_at": "2026-11-22T09:32:26.007451+00:00"
       }
     ],
-    "attempts_used": 0,
+    "attempts_used": 1,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -2618,15 +2626,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "1b81ccbd05c344d4b375b17bad837bc8",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "3cf320178e834999b4f4fbcb49398e78",
-      "claimed_at": "2026-11-22T09:32:26.007451+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T09:32:26.007451+00:00",
-      "node_version": 5,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
     "evidence": [
@@ -2634,12 +2642,12 @@
         "command": "python3 -I eval/check_tasks.py --features eval/features/shortcuts.md && test -x eval/fixtures/features/shortcuts/bin/shortcuts",
         "duration_ms": 236,
         "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5c_20261122T093001733562_0.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5c_20261122T093304294993_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5c_20261122T093001970963_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5c_20261122T093304532432_adapter.log"
       }
     ],
     "handoff_note": "completion command failed (adapter exit=0); see evidence",
@@ -2655,12 +2663,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-22T09:35:30.046565+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "F5: ft5, ft5b, fake binary, page",
-    "version": 7,
+    "version": 9,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "f4b709336df0e4922d480595e7ce1c641cf4b234",
