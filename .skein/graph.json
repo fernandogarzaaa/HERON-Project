@@ -4372,7 +4372,7 @@
       "claim_token": "d6eba2ac22574a3aa970b93716ba54ed",
       "claimed_at": "2026-11-22T11:04:41.231540+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:04:41.231540+00:00",
+      "last_heartbeat": "2026-11-22T11:05:11.678613+00:00",
       "node_version": 5,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4402,9 +4402,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Gate: shortcuts",
-    "version": 7,
+    "version": 8,
     "worktree": {
       "base_branch": "skein/F5g__integrate-base",
       "base_commit": "8a127b1d7ba228890a5ff7885383eb168eddc44d",
@@ -5771,7 +5771,7 @@
       "claim_token": "343284e286e846b3b8fed51d3d1957f9",
       "claimed_at": "2026-11-22T11:03:45.379759+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T11:04:15.700137+00:00",
+      "last_heartbeat": "2026-11-22T11:05:15.866198+00:00",
       "node_version": 41,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -5808,7 +5808,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F8: draft_email, key",
-    "version": 44,
+    "version": 46,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "b13942e9f6196e1009af8e865292d2efa5bf1466",
@@ -6190,9 +6190,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "blocked",
+    "status": "unclaimed",
     "title": "Gate: screen_text",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": null,
       "branch": null,
