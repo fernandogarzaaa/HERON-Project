@@ -2561,11 +2561,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F3: integration tests, runs fixture",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "c32409e8854a6aa4e907025f647a7ccd0ea3df2c",
-      "branch": null,
-      "path": null
+      "base_commit": "c32409e8854a6aa4e907025f647a7ccd0ea3df2c",
+      "branch": "skein/F3t",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F3t"
     }
   },
   "F4a": {
