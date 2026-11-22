@@ -2067,7 +2067,16 @@
     }
   },
   "F1g": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "2c03c744802541819ada4c7f8b980a2e",
+        "ended_at": "2026-11-22T10:41:02.098213+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:35:37.481851+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -2079,15 +2088,15 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "2c03c744802541819ada4c7f8b980a2e",
-      "base_branch": "skein/F1g__integrate-base",
-      "claim_token": "f3897ff3c9fa44d5885099709cf0cd0e",
-      "claimed_at": "2026-11-22T10:35:37.481851+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T10:39:08.388501+00:00",
-      "node_version": 6,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F1c",
@@ -2097,8 +2106,20 @@
       "F1-fix-1",
       "F1-fix-2"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash scripts/verify-feature.sh quick_entry",
+        "duration_ms": 305533,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1g_20261122T103556505233_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F1g_20261122T104102045089_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: the supervisor runs `bash scripts/verify-feature.sh quick_entry` unsandboxed. If a step fails, the failing step name in the output says which unit needs a fix node.",
     "id": "F1g",
     "integration_for": null,
     "intent": {
@@ -2110,13 +2131,19 @@
     "max_retries": 0,
     "rejected_count": 1,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "2c03c744802541819ada4c7f8b980a2e",
+      "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
+      "changed_files": [],
+      "commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Gate: quick_entry",
-    "version": 15,
+    "version": 19,
     "worktree": {
       "base_branch": "skein/F1g__integrate-base",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
@@ -3020,7 +3047,7 @@
       "claim_token": "161ce386a4bd44f7b2da37ff35b42617",
       "claimed_at": "2026-11-22T10:38:14.133449+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:39:14.743061+00:00",
+      "last_heartbeat": "2026-11-22T10:40:44.940906+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3047,7 +3074,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fix F3 review findings (core)",
-    "version": 5,
+    "version": 8,
     "worktree": {
       "base_branch": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
       "base_commit": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
@@ -4500,7 +4527,7 @@
       "claim_token": "9ba62654266e4064961143bbb65f4759",
       "claimed_at": "2026-11-22T10:39:18.522085+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:39:18.522085+00:00",
+      "last_heartbeat": "2026-11-22T10:40:49.420655+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -4525,9 +4552,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Fix F6 review findings (app)",
-    "version": 4,
+    "version": 7,
     "worktree": {
       "base_branch": "fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd",
       "base_commit": "fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd",
