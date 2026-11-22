@@ -126,14 +126,12 @@ public final class SettingsStore {
     public func load() async {
         loadState = .loading
         do {
-            // One after another, not `async let`: the Swift runtime on the macOS 26 CI image aborts ("freed pointer was
-            // not the last allocation") when concurrent children are torn down in some orders.
-            let s = try await client.state()
-            let st = try await client.settings()
-            let p = try await client.providers()
-            let g = try await client.grants()
-            let u = try await client.usage()
-            (state, settings, providers, grants, usage) = (s, st, p, g, u)
+            async let s = client.state()
+            async let st = client.settings()
+            async let p = client.providers()
+            async let g = client.grants()
+            async let u = client.usage()
+            (state, settings, providers, grants, usage) = try await (s, st, p, g, u)
             loadState = .loaded
         } catch { loadState = .failed(describe(error)) }
         if let accounts = try? await client.oauthAccounts() { oauthAccounts = accounts }
@@ -229,11 +227,11 @@ public final class SettingsStore {
         if Task.isCancelled { return }
         signingIn = nil
         syncingAccounts.insert(provider)
+        defer { syncingAccounts.remove(provider) }
         do { try await client.syncOAuth(provider: provider) } catch {
             sourceErrors[id] = SourceCopy.firstSyncFailed(describe(error))
         }
         await reloadConnections()
-        syncingAccounts.remove(provider)
     }
 
     /// Disconnect an account: asks first, like every source.
