@@ -221,9 +221,9 @@
     "retry_at": "2026-11-22T06:19:00.326915+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "blocked",
     "title": "Core switches, chat context, taint source, notification owner",
-    "version": 43,
+    "version": 44,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "48aa65c853c6a54666cfd23e0a648044f34ff67d",
