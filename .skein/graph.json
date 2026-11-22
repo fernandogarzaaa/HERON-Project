@@ -4090,7 +4090,7 @@
       "goal": "Build item 26: the button on a run, the 'Also changed' list with each tool mapped to its screen, the 'Can't be undone here' list, the conflict confirmation, F4's row, and UndoRunTests."
     },
     "max_retries": 3,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -4098,7 +4098,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "F4: undo button and lists",
-    "version": 27,
+    "version": 29,
     "worktree": {
       "base_branch": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
       "base_commit": "d04c69da7266e2e7968b7e77240c9fdc0f506a8e",
