@@ -2529,15 +2529,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "6b5b9b4ece334d8db6a4ec30290196cf",
+      "base_branch": "c32409e8854a6aa4e907025f647a7ccd0ea3df2c",
+      "claim_token": "df3b9621d6d94c38b9e0031ba609277a",
+      "claimed_at": "2026-11-22T09:47:59.171045+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T09:47:59.171045+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F3s"
@@ -2559,11 +2559,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F3: integration tests, runs fixture",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "c32409e8854a6aa4e907025f647a7ccd0ea3df2c",
       "branch": null,
       "path": null
     }
