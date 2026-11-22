@@ -1513,7 +1513,7 @@
       "claim_token": "4bafa9a67ed846819d1820dc75c7913d",
       "claimed_at": "2026-11-22T09:26:45.215217+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T09:37:47.002493+00:00",
+      "last_heartbeat": "2026-11-22T09:38:17.053275+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -1538,7 +1538,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F1: panel, hotkey, Services, Ask Heron intent",
-    "version": 25,
+    "version": 26,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "be328eb884534f74404c82f39d5cad277127ce0c",
@@ -2024,7 +2024,16 @@
     }
   },
   "F2s": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "bb4717225e934f4ca3caf818a86938f1",
+        "ended_at": "2026-11-22T09:38:27.039349+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T09:28:07.903394+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -2036,19 +2045,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "bb4717225e934f4ca3caf818a86938f1",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "4f24bda6e109434cb4029f3ac436505d",
-      "claimed_at": "2026-11-22T09:28:07.903394+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T09:37:39.563050+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- why_matches_the_old_warning_when_untainted why_is_never_empty why_names_the_taint_source why_covers_outside_reads tainted_event_published_once telegram_refusal_names_the_taint_source ask_reasons_off_leaves_out_why",
+        "duration_ms": 36030,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2s_20261122T093750915519_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F2s_20261122T093826947116_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "F2s",
     "integration_for": null,
     "intent": {
@@ -2060,13 +2081,46 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "bb4717225e934f4ca3caf818a86938f1",
+      "base_commit": "60f8a3020282ed59e863bc50a0796511e74daddb",
+      "changed_files": [
+        "src/features.rs",
+        "src/lib.rs",
+        "src/server.rs",
+        "src/telegram.rs",
+        "src/approval_text.rs"
+      ],
+      "commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
+      "diff_stats": {
+        "src/approval_text.rs": {
+          "added": 203,
+          "deleted": 0
+        },
+        "src/features.rs": {
+          "added": 5,
+          "deleted": 0
+        },
+        "src/lib.rs": {
+          "added": 1,
+          "deleted": 0
+        },
+        "src/server.rs": {
+          "added": 77,
+          "deleted": 5
+        },
+        "src/telegram.rs": {
+          "added": 92,
+          "deleted": 2
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "F2: why text, session taint, Telegram sentence",
-    "version": 22,
+    "version": 24,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "60f8a3020282ed59e863bc50a0796511e74daddb",
