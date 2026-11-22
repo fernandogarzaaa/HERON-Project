@@ -3733,11 +3733,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F6: today_counts, count_day, workflow field",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "db2f7fa50e3c27e84d56be46d0530631c9b18a71",
+      "branch": "skein/F6s",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F6s"
     }
   },
   "F7a": {
