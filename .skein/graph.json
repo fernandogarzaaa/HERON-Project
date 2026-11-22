@@ -1589,11 +1589,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F1: feature task ft1",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "1ad1f3b6f8a58952fb4cec45efc9f760fac9f3ca",
+      "branch": "skein/F1c",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F1c"
     }
   },
   "F1d": {
