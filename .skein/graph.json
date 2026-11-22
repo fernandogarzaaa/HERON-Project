@@ -829,11 +829,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Base gate",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/B6__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "80bd04a8346e3faa317c940e5ec839248d443435",
+      "branch": "skein/B6",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/B6"
     }
   },
   "B6__integrate": {
