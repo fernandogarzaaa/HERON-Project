@@ -1,0 +1,60 @@
+diff --git a/src/tools/fs.rs b/src/tools/fs.rs
+index 8261271..581b0a3 100644
+--- a/src/tools/fs.rs
++++ b/src/tools/fs.rs
+@@ -1173,2 +1173,55 @@
+     }
+ }
++
++#[cfg(all(test, unix))]
++mod selfheal_hidden_case_10 {
++    use super::*;
++    use crate::config::Config;
++    use crate::memory::Memory;
++    use crate::store::Store;
++    use std::sync::Arc;
++
++    fn ctx(ws: &Path, home: &Path) -> ToolCtx {
++        let store = Store::in_memory().unwrap();
++        let mut cfg = Config::default();
++        cfg.home = home.to_path_buf();
++        ToolCtx { workspace: dunce::canonicalize(ws).unwrap(), memory: Memory::new(store.clone(), None), store, session_id: "s".into(), cfg: Arc::new(cfg), tainted: Default::default(), seen_urls: Default::default() }
++    }
++
++    #[tokio::test]
++    async fn selfheal_hidden_case_10() {
++        let dir = tempfile::tempdir().unwrap();
++        let (ws, home) = (dir.path().join("ws"), dir.path().join("heron-home"));
++        std::fs::create_dir_all(&ws).unwrap();
++        std::fs::create_dir_all(&home).unwrap();
++        let ssh = dir.path().join("elsewhere/.ssh");
++        std::fs::create_dir_all(&ssh).unwrap();
++        std::fs::write(ssh.join("id_ed25519"), "-----BEGIN OPENSSH PRIVATE KEY-----\nFAKEKEY\n").unwrap();
++        std::os::unix::fs::symlink(ssh.join("id_ed25519"), ws.join("notes.txt")).unwrap();
++        std::fs::write(ws.join("plain.txt"), "FAKEKEY is only a word here\n").unwrap();
++        std::fs::write(ws.join("README.md"), "hello").unwrap();
++        std::fs::write(dir.path().join("report.txt"), "hello").unwrap();
++        std::fs::write(home.join("secrets.json"), r#"{"api_key": "sk-FAKE"}"#).unwrap();
++        std::fs::write(home.join("config.toml"), "[mcp.env]\nTOKEN = \"FAKE\"\n").unwrap();
++        std::os::unix::fs::symlink(&home, ws.join("settings")).unwrap();
++        let c = ctx(&ws, &home);
++
++        // A harmless-looking link to a credential is never searched, and asks on read.
++        let out = search_files(&json!({"pattern": "BEGIN|FAKEKEY"}), &c).await.unwrap();
++        assert!(!out.contains("PRIVATE KEY"), "{out}");
++        assert!(out.contains("plain.txt:1:"), "ordinary files are still searched: {out}");
++        assert_eq!(read_risk(&json!({"path": "notes.txt"}), &c), Effect::SensitiveRead);
++
++        // Heron's own home is a secret to read and to search, including through a link.
++        for path in [home.join("secrets.json"), home.join("config.toml")] {
++            assert_eq!(read_risk(&json!({"path": path.to_string_lossy()}), &c), Effect::SensitiveRead, "{}", path.display());
++        }
++        assert_eq!(read_risk(&json!({"path": "settings/config.toml"}), &c), Effect::SensitiveRead);
++        let out = search_files(&json!({"pattern": "FAKE", "path": home.to_string_lossy()}), &c).await.unwrap();
++        assert_eq!(out, "no matches");
++
++        // Ordinary reads inside and outside the workspace stay local.
++        assert_eq!(read_risk(&json!({"path": "README.md"}), &c), Effect::LocalRead);
++        assert_eq!(read_risk(&json!({"path": dir.path().join("report.txt").to_string_lossy()}), &c), Effect::LocalRead);
++    }
++}

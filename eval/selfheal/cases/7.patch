@@ -1,0 +1,50 @@
+diff --git a/src/memory.rs b/src/memory.rs
+index 3c064a9..bc27c6b 100644
+--- a/src/memory.rs
++++ b/src/memory.rs
+@@ -499,3 +499,45 @@
+         assert_eq!(m.core(5).unwrap()[0].kind, "profile");
+     }
+ }
++
++#[cfg(test)]
++mod selfheal_hidden_case_7 {
++    use super::*;
++
++    fn mem() -> Memory {
++        Memory::new(Store::in_memory().unwrap(), None)
++    }
++
++    #[tokio::test]
++    async fn selfheal_hidden_case_7() {
++        // A fact the user also states survives erasing the account that taught it.
++        let m = mem();
++        let fact = m.save("The dentist is Dr Lee on Main Street", "person", "", 0.5, "google_email").await.unwrap();
++        assert_eq!(m.save("The dentist is Dr Lee on Main Street.", "person", "", 0.5, "agent").await.unwrap(), SaveOutcome::Updated(fact.id()));
++        assert_eq!(m.store.delete_memories_by_source("google_email").unwrap(), 0);
++        let kept = m.store.get_memory(fact.id()).unwrap().expect("the user's own statement was erased");
++        assert_eq!((kept.source.as_str(), kept.confirmed), ("agent", true));
++        // Outside material restating an outside fact does not take it over.
++        let other = m.save("The gym opens at six", "fact", "", 0.5, "email").await.unwrap();
++        m.save("The gym opens at six", "fact", "", 0.5, "google_email").await.unwrap();
++        assert_eq!(m.store.get_memory(other.id()).unwrap().unwrap().source, "email");
++
++        // Erasing an account brings back what it replaced, unless something newer did.
++        let old = m.save("The office is on the third floor", "fact", "", 0.5, "email").await.unwrap().id();
++        let from_google = m.save_replacing("The office is on the fifth floor", "fact", "", 0.5, "google_email", Some(old)).await.unwrap().id();
++        assert!(m.store.get_memory(old).unwrap().is_none());
++        assert_eq!(m.store.delete_memories_by_source("google_email").unwrap(), 1);
++        assert!(m.store.get_memory(from_google).unwrap().is_none());
++        assert!(m.store.get_memory(old).unwrap().is_some(), "the fact Google replaced stayed hidden");
++
++        // email -> google -> user: the user's version stays current and the old one stays history.
++        let first = m.save("Parking is in lot B", "fact", "", 0.5, "email").await.unwrap().id();
++        let middle = m.save_replacing("Parking is in lot C", "fact", "", 0.5, "google_email", Some(first)).await.unwrap().id();
++        let last = m.save_replacing("Parking is in lot D", "fact", "", 0.5, "agent", Some(middle)).await.unwrap().id();
++        m.store.delete_memories_by_source("google_email").unwrap();
++        assert!(m.store.get_memory(first).unwrap().is_none(), "an outdated fact came back");
++        assert!(m.store.get_memory(last).unwrap().is_some());
++        let history = m.store.memory_history(last).unwrap();
++        assert_eq!(history, ["Parking is in lot B"], "the old version lost its link");
++    }
++}

@@ -1,0 +1,30 @@
+diff --git a/src/store.rs b/src/store.rs
+index 06371fe..8924ac5 100644
+--- a/src/store.rs
++++ b/src/store.rs
+@@ -2020,3 +2020,25 @@
+         assert_eq!(db.knowledge_count("google_email"), 0);
+     }
+ }
++
++#[cfg(test)]
++mod selfheal_hidden_case_1 {
++    use super::*;
++
++    #[test]
++    fn selfheal_hidden_case_1() {
++        let store = Store::in_memory().unwrap();
++        // An older Google message matches both words; newer Microsoft and ICS entries match one.
++        store.upsert_knowledge("google_email", "g1", "Acme invoice overdue", "The Acme invoice is overdue", 100).unwrap();
++        store.upsert_knowledge("microsoft_email", "m1", "Lunch", "About the invoice for lunch", 300).unwrap();
++        store.upsert_knowledge("email", "e1", "Weekly note", "Nothing about invoices here, just an invoice", 200).unwrap();
++        let best = crate::sources::search(&store, "acme invoice", Some("email"), 1).unwrap();
++        assert!(best.contains("Acme invoice overdue"), "{best}");
++        // Shown newest first once chosen, across every provider of that kind.
++        let all = crate::sources::search(&store, "invoice", Some("email"), 3).unwrap();
++        let order: Vec<usize> = ["[microsoft_email]", "[email]", "[google_email]"].iter().map(|s| all.find(s).unwrap()).collect();
++        assert!(order.windows(2).all(|w| w[0] < w[1]), "{all}");
++        // Calendar aliases and other kinds stay separate.
++        assert_eq!(crate::sources::search(&store, "invoice", Some("calendar"), 3).unwrap(), "nothing found in the connected sources");
++    }
++}
