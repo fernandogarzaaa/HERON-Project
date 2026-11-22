@@ -602,6 +602,22 @@ fn generation(app: &App) -> String {
     app.store.kv_get(GENERATION_KEY).unwrap_or_default()
 }
 
+/// Open the shared gateway lock using the canonical home identity. HERON_HOME is
+/// preserved as supplied, so symlink/relative aliases must not create independent pollers.
+fn open_gateway_lock(home: &std::path::Path) -> Result<std::fs::File> {
+    std::fs::create_dir_all(home)?;
+    let canonical_home = std::fs::canonicalize(home)?;
+    let path = canonical_home.join("telegram.lock");
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    Ok(opts.open(path)?)
+}
+
 /// One gateway per Heron home, across processes: two readers of one bot split its updates and
 /// race the spool. Waits for the current holder to stop, and gives up if the token changes first.
 async fn take_gateway_lock(
@@ -617,14 +633,7 @@ async fn take_gateway_lock(
         return None;
     }
     let cfg = app.cfg();
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
-    let file = match cfg.ensure_home().and_then(|_| Ok(opts.open(cfg.home.join("telegram.lock"))?)) {
+    let file = match cfg.ensure_home().and_then(|_| open_gateway_lock(&cfg.home)) {
         Ok(file) => file,
         Err(err) => {
             eprintln!("HERON Telegram: gateway disabled because its lock file cannot open: {err}");
@@ -906,6 +915,27 @@ mod tests {
     use crate::config::Config;
     use crate::llm::ScriptedLlm;
     use crate::store::Store;
+
+    #[cfg(unix)]
+    #[test]
+    fn gateway_lock_uses_canonical_home_for_symlink_aliases() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let alias = dir.path().join("home-alias");
+        std::fs::create_dir_all(&home).unwrap();
+        symlink(&home, &alias).unwrap();
+
+        let held = open_gateway_lock(&home).unwrap();
+        let contender = open_gateway_lock(&alias).unwrap();
+        assert!(
+            matches!(contender.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
+            "a symlink alias must not start a second Telegram poller"
+        );
+        drop(held);
+        assert!(contender.try_lock().is_ok(), "the shared gateway lock should be released");
+    }
 
     #[test]
     fn splits_telegram_replies_by_utf16_not_unicode_scalar_count() {
