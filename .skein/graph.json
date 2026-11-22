@@ -2294,7 +2294,7 @@
       "goal": "Gate unit. Write nothing. The supervisor runs bash scripts/verify-feature.sh <slug> as your check, which includes this feature's EVE tasks on claude-cli. You may run read-only commands to confirm the feature looks complete, then stop."
     },
     "max_retries": 0,
-    "rejected_count": 0,
+    "rejected_count": 2,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -2302,7 +2302,7 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Gate: ask_reasons",
-    "version": 5,
+    "version": 7,
     "worktree": {
       "base_branch": "skein/F2g__integrate-base",
       "branch": null,
@@ -2310,22 +2310,31 @@
     }
   },
   "F2g__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "8c56d0a13c8c4d39933f5794b8c8cf8c",
+        "ended_at": "2026-11-22T10:20:18.143747+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:20:17.568153+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "8c56d0a13c8c4d39933f5794b8c8cf8c",
-      "base_branch": "skein/F2g__integrate__integrate-base",
-      "claim_token": "4613c8c7afa44929a56c8bef5982edb4",
-      "claimed_at": "2026-11-22T10:20:17.568153+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-22T10:20:17.568153+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F2s",
@@ -2333,8 +2342,14 @@
       "F2c",
       "F2a"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 4b4660347f30da79dd80c1558592a62bd120f123 719e2195304baffbd65707dabc143706a820e9dd ecdb3bc0098320fc8f38d546aed5620d4d0cf73a",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['6cb6c606d908be7003369fe3336ffce889a2c77b', '4b4660347f30da79dd80c1558592a62bd120f123', '719e2195304baffbd65707dabc143706a820e9dd', 'ecdb3bc0098320fc8f38d546aed5620d4d0cf73a'] into skein/F2g__integrate-base.",
     "id": "F2g__integrate",
     "integration_for": "F2g",
     "intent": {
@@ -2344,18 +2359,23 @@
       "goal": "Merge parent branches ['F2s', 'F2t', 'F2c', 'F2a'] into one base branch for F2g."
     },
     "max_retries": 3,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "6cb6c606d908be7003369fe3336ffce889a2c77b",
+      "changed_files": [],
+      "commit": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of F2g",
-    "version": 3,
+    "version": 5,
     "worktree": {
-      "base_branch": "skein/F2g__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "6cb6c606d908be7003369fe3336ffce889a2c77b",
+      "branch": "skein/F2g__integrate-base",
       "path": null
     }
   },
