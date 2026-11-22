@@ -151,10 +151,13 @@ pub fn parse_ddg(html: &str) -> Vec<SearchResult> {
         .collect()
 }
 
+/// Where `web_search` sends its queries.
+pub const SEARCH_ENDPOINT: &str = "https://html.duckduckgo.com/html/";
+
 async fn web_search(args: &Value, _ctx: &ToolCtx) -> Result<String> {
     let query = arg_str(args, "query")?;
     let limit = opt_i64(args, "limit").unwrap_or(8).clamp(1, 20) as usize;
-    let url = url::Url::parse_with_params("https://html.duckduckgo.com/html/", &[("q", query)])?;
+    let url = url::Url::parse_with_params(SEARCH_ENDPOINT, &[("q", query)])?;
     let (_, body) = get_limited(url).await.map_err(|e| anyhow!("search failed: {e}"))?;
     let results = parse_ddg(&String::from_utf8_lossy(&body));
     if results.is_empty() {
@@ -175,6 +178,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: |a, c| if a.get("url").and_then(|u| u.as_str()).map(|u| c.seen_urls.contains(u)).unwrap_or(false) { Effect::NetworkRead } else { Effect::NetworkEgress },
             detail: None,
             untrusted: true,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(web_fetch(a, c)),
         },
@@ -187,6 +191,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: |_, _| Effect::NetworkEgress,
             detail: None,
             untrusted: true,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(web_search(a, c)),
         },

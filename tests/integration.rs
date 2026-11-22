@@ -569,7 +569,7 @@ async fn browser_reads_pages_follows_links_and_fills_in_forms() {
     // Nobody is there to approve anything.
     let agent = app.agent(Arc::new(heron::permissions::DenyAll));
     let mut session = heron::agent::Session::create(&app.store, "").unwrap();
-    agent.run_turn(&mut session, &format!("look at {base}/"), &heron::agent::null_sink()).await.unwrap();
+    agent.run_turn(&mut session, &format!("look at {base}/"), &[], &heron::agent::null_sink()).await.unwrap();
     let page = session.messages[2].text().to_string();
     assert!(page.contains("Rendered by script"), "scripts ran: {page}");
     assert!(page.contains(&format!("[1] link \"Second page\" -> {base}/second")), "{page}");
@@ -655,11 +655,11 @@ async fn usage_is_recorded_and_shapes_model_choice_and_effort() {
     let mut session = heron::agent::Session::create(&app.store, "").unwrap();
     let models = |llm: &ScriptedLlm| llm.requests.lock().unwrap().iter().map(|r| r.model.clone().unwrap_or_else(|| "main".into())).collect::<Vec<_>>();
 
-    agent.run_turn(&mut session, "hi there", &sink).await.unwrap();
+    agent.run_turn(&mut session, "hi there", &[], &sink).await.unwrap();
     assert_eq!(models(&llm), vec!["small"]);
-    agent.run_turn(&mut session, "what's on my list?", &sink).await.unwrap();
+    agent.run_turn(&mut session, "what's on my list?", &[], &sink).await.unwrap();
     assert_eq!(models(&llm)[1..], ["small", "small", "main", "main"], "two steps on the cheaper model, then the main one takes over");
-    agent.run_turn(&mut session, "Research the best way to learn Rust in a month and write a plan", &sink).await.unwrap();
+    agent.run_turn(&mut session, "Research the best way to learn Rust in a month and write a plan", &[], &sink).await.unwrap();
     assert_eq!(models(&llm).last().unwrap(), "main");
     {
         let e = events.lock().unwrap();
@@ -682,7 +682,7 @@ async fn usage_is_recorded_and_shapes_model_choice_and_effort() {
     // update_config swaps in a client built from the settings; put the stand-in back for the test.
     app.llm.swap(llm.clone());
     let agent = app.agent(Arc::new(heron::permissions::DenyAll));
-    agent.run_turn(&mut session, "Research the best way to learn Go and write a plan", &sink).await.unwrap();
+    agent.run_turn(&mut session, "Research the best way to learn Go and write a plan", &[], &sink).await.unwrap();
     let calls_so_far = {
         let requests = llm.requests.lock().unwrap();
         let last = requests.last().unwrap();

@@ -23,6 +23,10 @@ pub struct BusEvent {
     pub run_id: String,
     /// `{"type": …, …fields}`, the shape `/api/chat` has always streamed.
     pub json: Value,
+    /// The envelope's `session_id` is null: the event belongs to no session (a notice).
+    pub no_session: bool,
+    /// The envelope's `run_id` is null: the event belongs to no run (a notice).
+    pub no_run: bool,
 }
 
 impl BusEvent {
@@ -31,8 +35,8 @@ impl BusEvent {
         let mut v = self.json.clone();
         if let Some(o) = v.as_object_mut() {
             o.insert("seq".into(), json!(self.seq));
-            o.insert("session_id".into(), json!(self.session_id));
-            o.insert("run_id".into(), json!(self.run_id));
+            o.insert("session_id".into(), if self.no_session { Value::Null } else { json!(self.session_id) });
+            o.insert("run_id".into(), if self.no_run { Value::Null } else { json!(self.run_id) });
         }
         v
     }
@@ -91,11 +95,28 @@ impl EventBus {
 
     /// Publish one event and return its `seq`.
     pub fn publish(&self, session_id: &str, run_id: &str, json: Value) -> u64 {
+        self.publish_event(Some(session_id), Some(run_id), json)
+    }
+
+    /// Publish a notice, whose envelope carries `session_id` and `run_id` as null when it belongs to
+    /// no session or run. Returns its `seq`.
+    pub fn publish_notice(&self, session_id: Option<&str>, run_id: Option<&str>, json: Value) -> u64 {
+        self.publish_event(session_id, run_id, json)
+    }
+
+    fn publish_event(&self, session_id: Option<&str>, run_id: Option<&str>, json: Value) -> u64 {
         // Numbering, the ring and the live channel change together under the ring lock, so every
         // subscriber sees events in `seq` order and none falls between its backlog and its live feed.
         let mut ring = self.0.ring.lock().unwrap_or_else(|e| e.into_inner());
         let seq = self.0.next_seq.fetch_add(1, Ordering::SeqCst);
-        let event = Arc::new(BusEvent { seq, session_id: session_id.to_string(), run_id: run_id.to_string(), json });
+        let event = Arc::new(BusEvent {
+            seq,
+            session_id: session_id.unwrap_or_default().to_string(),
+            run_id: run_id.unwrap_or_default().to_string(),
+            json,
+            no_session: session_id.is_none(),
+            no_run: run_id.is_none(),
+        });
         ring.push_back(event.clone());
         while ring.len() > RING_CAPACITY {
             ring.pop_front();
@@ -190,6 +211,7 @@ pub fn event_json(e: Event) -> Value {
         Event::Notice(t) => json!({"type": "notice", "text": t}),
         Event::Usage(u) => json!({"type": "usage", "prompt": u.prompt_tokens, "completion": u.completion_tokens}),
         Event::Model { name, why } => json!({"type": "model", "name": name, "why": why}),
+        Event::Tainted { kind, name, detail, ts } => json!({"type": "tainted", "source": {"kind": kind, "name": name, "detail": detail, "ts": ts}}),
     }
 }
 

@@ -246,10 +246,9 @@ pub async fn serve_app<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R
 /// [`serve`], calling `before_call` before each tool call is decided.
 async fn serve_with<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mut writer: W, registry: &ToolRegistry, ctx: &ToolCtx, policy: &crate::permissions::Policy, before_call: &(dyn Fn() + Sync)) -> Result<()> {
     // What another program sends is outside content: the connection is tainted from the start, so
-    // every state write asks, and with nobody here to answer, is refused (M-2).
-    if !ctx.tainted.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        let _ = ctx.store.kv_set(&format!("tainted:{}", ctx.session_id), "1");
-    }
+    // every state write asks, and with nobody here to answer, is refused (M-2). No event bus reaches
+    // this process, so the first taint is not announced.
+    crate::taint::mark(&ctx.store, &crate::agent::null_sink(), &ctx.tainted, &ctx.session_id, crate::agent::ContentEntry::McpCall, "mcp", &ctx.session_id);
     let mut lines = reader.lines();
     while let Some(line) = lines.next_line().await? {
         if line.trim().is_empty() {
@@ -412,6 +411,8 @@ mod tests {
             // The connection is marked as carrying outside content, under its own session id.
             assert!(ctx.tainted.load(std::sync::atomic::Ordering::SeqCst));
             assert!(store.kv_get(&format!("tainted:{session}")).is_some());
+            let src = crate::taint::source(&store, &session).expect("the source is recorded");
+            assert_eq!((src["kind"].as_str(), src["name"].as_str(), src["detail"].as_str()), (Some("mcp"), Some("mcp"), Some(session.as_str())), "{mode:?}");
             assert!(store.audit_log(10).unwrap().iter().all(|a| a.session_id == session), "{mode:?}");
         }
     }

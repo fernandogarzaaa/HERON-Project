@@ -232,19 +232,21 @@ async fn upcoming_events(args: &Value, ctx: &ToolCtx) -> Result<String> {
     Ok(events.iter().map(|e| format!("- {e}")).collect::<Vec<_>>().join("\n"))
 }
 
-fn automation_from(args: &Value) -> Result<(String, String, crate::workflow::Workflow)> {
+/// The automation `args` describe, checked against the tools `cfg` makes available (a tool whose
+/// feature key is off does not exist for it).
+fn automation_from(args: &Value, cfg: &crate::config::Config) -> Result<(String, String, crate::workflow::Workflow)> {
     let name = arg_str(args, "name")?.trim().to_string();
     let when = arg_str(args, "when")?.trim().to_string();
     if name.is_empty() {
         bail!("give the automation a name");
     }
     let workflow = crate::workflow::Workflow::parse(args.get("steps").unwrap_or(&Value::Null))?;
-    workflow.validate(&crate::tools::ToolRegistry::builtin().names())?;
+    workflow.validate(&crate::tools::ToolRegistry::builtin().names_for(cfg))?;
     Ok((name, when, workflow))
 }
 
 async fn save_automation(args: &Value, ctx: &ToolCtx) -> Result<String> {
-    let (name, when_text, workflow) = automation_from(args)?;
+    let (name, when_text, workflow) = automation_from(args, &ctx.cfg)?;
     // Like any job the agent creates, it starts with no extra permissions; the user grants those in the app.
     let (id, runs) = match crate::schedule::parse_trigger(&when_text) {
         Some(trigger) => (ctx.store.add_trigger(&name, &trigger, "automation", "")?, crate::schedule::describe_trigger(&trigger)),
@@ -328,6 +330,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: state,
             detail: None,
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(remember(a, c)),
         },
@@ -339,6 +342,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: safe,
             detail: None,
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(recall(a, c)),
         },
@@ -350,6 +354,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: safe,
             detail: None,
             untrusted: true,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(recall_unconfirmed(a, c)),
         },
@@ -361,6 +366,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: safe,
             detail: None,
             untrusted: true,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(recent_activity(a, c)),
         },
@@ -372,6 +378,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: state,
             detail: None,
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(forget(a, c)),
         },
@@ -383,6 +390,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: state,
             detail: None,
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(task_add(a, c)),
         },
@@ -394,6 +402,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: safe,
             detail: None,
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(task_list(a, c)),
         },
@@ -405,6 +414,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: state,
             detail: None,
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(task_update(a, c)),
         },
@@ -416,6 +426,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: state,
             detail: None,
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(schedule_add(a, c)),
         },
@@ -427,6 +438,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: safe,
             detail: None,
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(schedule_list(a, c)),
         },
@@ -438,6 +450,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: state,
             detail: None,
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(schedule_remove(a, c)),
         },
@@ -449,6 +462,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: safe,
             detail: None,
             untrusted: true,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(upcoming_events(a, c)),
         },
@@ -460,6 +474,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: safe,
             detail: None,
             untrusted: true,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(search_knowledge(a, c)),
         },
@@ -469,11 +484,12 @@ pub fn tools() -> Vec<FnTool> {
             parameters: schema(json!({"name": {"type": "string"}, "when": {"type": "string"}, "steps": {"type": "array", "items": {"type": "object"}}}), &["name", "when", "steps"]),
             summary: |a| field("name")(a),
             risk: |_, _| Effect::Privileged,
-            detail: Some(|a, _| match automation_from(a) {
+            detail: Some(|a, c| match automation_from(a, &c.cfg) {
                 Ok((name, when, wf)) => format!("Save automation \"{name}\"\nRuns: {when}\n{}\n\n{}", if wf.uses_model() { "Some steps call the AI model, so each run uses tokens." } else { "Runs without the AI model: no tokens used." }, wf.describe()),
                 Err(e) => format!("This automation is not valid: {e}"),
             }),
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(save_automation(a, c)),
         },
@@ -485,6 +501,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: |_, _| Effect::Privileged,
             detail: Some(|a, _| format!("Change how Heron behaves: {}\n\nNew character:\n{}", field("what_changed")(a), field("persona")(a))),
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(update_persona(a, c)),
         },
@@ -500,6 +517,7 @@ pub fn tools() -> Vec<FnTool> {
                 Err(e) => format!("Invalid skill: {e}"),
             }),
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(save_skill(a, c)),
         },
@@ -511,6 +529,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: safe,
             detail: None,
             untrusted: false,
+            feature: None,
             target: None,
             run: |a, c| Box::pin(use_skill(a, c)),
         },
