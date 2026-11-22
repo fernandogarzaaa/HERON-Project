@@ -3439,11 +3439,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F8: guide, threat-model line, index line",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/v1-features-base",
-      "branch": null,
-      "path": null
+      "base_commit": "57b5066bb8b68e66b32b943cf622c12a05dcc5b2",
+      "branch": "skein/F8d",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F8d"
     }
   },
   "F8g": {
