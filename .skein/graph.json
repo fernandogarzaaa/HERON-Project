@@ -307,11 +307,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Feature gate script",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "4811cbc906cec5b0151d44094fb391215441c89e",
-      "branch": null,
-      "path": null
+      "base_commit": "4811cbc906cec5b0151d44094fb391215441c89e",
+      "branch": "skein/B3",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/B3"
     }
   },
   "B4": {
