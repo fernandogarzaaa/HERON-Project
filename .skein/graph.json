@@ -1540,11 +1540,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Fix F1 review findings (app)",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "f6715177fcbe62452e348220ddf8d05db4aafc67",
-      "branch": null,
-      "path": null
+      "base_commit": "f6715177fcbe62452e348220ddf8d05db4aafc67",
+      "branch": "skein/F1-fix-1",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F1-fix-1"
     }
   },
   "F1-fix-2": {
