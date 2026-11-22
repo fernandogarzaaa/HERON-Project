@@ -4635,22 +4635,31 @@
     }
   },
   "F4g__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "8461d96aa6da41a4b377be79915eca96",
+        "ended_at": "2026-11-22T16:24:50.116726+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-22T16:24:49.249351+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "8461d96aa6da41a4b377be79915eca96",
-      "base_branch": "skein/F4g__integrate__integrate-base",
-      "claim_token": "28b9a20b1d0d481c8f82581c2758ddba",
-      "claimed_at": "2026-11-22T16:24:49.249351+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-22T16:24:49.249351+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F4s",
@@ -4660,8 +4669,14 @@
       "F4-fix-2",
       "F4-fix-3"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge d04c69da7266e2e7968b7e77240c9fdc0f506a8e 97640c6a9443da7966e4cc67adda8ddc408f2db5 1ddaa93bcf6a5251147f2ddc30d8ccc0acf72961 d257e33f859d4399eda687349577ccc7940be506 8b15649eadecfca5d19c51f3de215ae85f78605c",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['b57635286d7fcdccca2967f5977f1a1639078dbf', 'd04c69da7266e2e7968b7e77240c9fdc0f506a8e', '97640c6a9443da7966e4cc67adda8ddc408f2db5', '1ddaa93bcf6a5251147f2ddc30d8ccc0acf72961', 'd257e33f859d4399eda687349577ccc7940be506', '8b15649eadecfca5d19c51f3de215ae85f78605c'] into skein/F4g__integrate-base.",
     "id": "F4g__integrate",
     "integration_for": "F4g",
     "intent": {
@@ -4673,16 +4688,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "b57635286d7fcdccca2967f5977f1a1639078dbf",
+      "changed_files": [],
+      "commit": "f26fe3b00ffeed0acea57cfb581dc4e603c66d72",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of F4g",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/F4g__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "b57635286d7fcdccca2967f5977f1a1639078dbf",
+      "branch": "skein/F4g__integrate-base",
       "path": null
     }
   },
