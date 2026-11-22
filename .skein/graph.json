@@ -2343,11 +2343,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F3: Runs screen, badge, notifications",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
-      "branch": null,
-      "path": null
+      "base_commit": "98fb87644e047ccc1e9acf5b49df3aed889403c7",
+      "branch": "skein/F3a",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F3a"
     }
   },
   "F3g": {
