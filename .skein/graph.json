@@ -13265,22 +13265,31 @@
     }
   },
   "verify-1a-subset__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "94d90107d8aa46bc976b201fed91238a",
+        "ended_at": "2026-11-22T16:29:43.293282+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-22T16:29:42.367750+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "94d90107d8aa46bc976b201fed91238a",
-      "base_branch": "skein/verify-1a-subset__integrate__integrate-base",
-      "claim_token": "a4c40001d9094e4491d7ee57ace55721",
-      "claimed_at": "2026-11-22T16:29:42.367750+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-22T16:29:42.367750+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "H3",
@@ -13288,8 +13297,14 @@
       "H12",
       "H5"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 504bc450b3e1c072ecb472b2e56dd3557ccfa9fb 63f4b2c5e1e5797d6989e684e85012616d14cc44 26590c8e1ca75e60361296d754f23f6d939cea11",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['8087860abc6c3c4b34603a867248b2f8eac56f34', '504bc450b3e1c072ecb472b2e56dd3557ccfa9fb', '63f4b2c5e1e5797d6989e684e85012616d14cc44', '26590c8e1ca75e60361296d754f23f6d939cea11'] into skein/verify-1a-subset__integrate-base.",
     "id": "verify-1a-subset__integrate",
     "integration_for": "verify-1a-subset",
     "intent": {
@@ -13301,16 +13316,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "8087860abc6c3c4b34603a867248b2f8eac56f34",
+      "changed_files": [],
+      "commit": "92140cb233fd261c1bc00b0c64645a2b7fc87830",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of verify-1a-subset",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/verify-1a-subset__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "8087860abc6c3c4b34603a867248b2f8eac56f34",
+      "branch": "skein/verify-1a-subset__integrate-base",
       "path": null
     }
   },
