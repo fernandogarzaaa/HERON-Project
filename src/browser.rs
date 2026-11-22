@@ -326,7 +326,7 @@ where
 // ---------------- pages ----------------
 
 fn local_allowed() -> bool {
-    std::env::var("HERON_ALLOW_LOCAL_FETCH").is_ok()
+    crate::permissions::local_web_fetch_allowed()
 }
 
 async fn goto(b: &mut Live, url: &url::Url) -> Result<()> {
@@ -589,4 +589,16 @@ pub fn tools() -> Vec<FnTool> {
             run: |a, c| Box::pin(type_into(a, c)),
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn local_pages_need_an_explicit_yes() {
+        // "0" means no: the same as leaving it unset, so other tests are unaffected.
+        std::env::set_var("HERON_ALLOW_LOCAL_FETCH", "0");
+        assert!(!super::local_allowed());
+        std::env::remove_var("HERON_ALLOW_LOCAL_FETCH");
+        assert!(!super::local_allowed());
+    }
 }

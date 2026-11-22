@@ -347,6 +347,25 @@ pub fn git_config_files(cfg: &Config, home: &Path, workdir: &Path) -> Vec<PathBu
     out
 }
 
+/// The temporary folder shell commands get as `TMPDIR`: their own, so the sockets they make there
+/// work while other programs' sockets in the user's temporary folder stay out of reach.
+pub fn shell_tmpdir() -> PathBuf {
+    let dir = std::env::temp_dir().join("heron-shell");
+    let _ = std::fs::create_dir_all(&dir);
+    dunce::canonicalize(&dir).unwrap_or(dir)
+}
+
+/// Local sockets act with the owner's keys without any key file being read (ssh-agent, gpg-agent,
+/// Docker, tmux, password managers). A command may reach only name lookup, the system log, and
+/// sockets in the working folder or its own temporary folder (Python's multiprocessing puts its
+/// own under `/tmp/pymp-*`, as the temporary folder's path is too long for a socket address).
+fn local_sockets(workdir: &Path) -> String {
+    let own: String = [workdir.to_path_buf(), shell_tmpdir()].iter().map(|d| format!(" (remote unix-socket (subpath \"{}\"))", d.display())).collect();
+    format!(
+        "(deny network-outbound (remote unix-socket))\n(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")) (remote unix-socket (path-literal \"/private/var/run/syslog\")) (remote unix-socket (path-regex #\"^/private/tmp/pymp-[^/]+/\")){own})\n"
+    )
+}
+
 /// The Seatbelt profile for one command or CLI. Seatbelt applies the last rule that matches, so the
 /// order is the design: deny reads under the user roots, allow metadata everywhere, allow the readable
 /// set, deny writes except the writable set, then deny Refused paths and secrets again (writes too,
@@ -391,6 +410,7 @@ pub fn seatbelt_profile(cfg: &Config, home: &Path, workdir: &Path, profile: &Pro
             p.push_str(&secrets());
             let names: Vec<String> = KEYCHAIN_SERVICES.iter().map(|n| format!(" (global-name \"{n}\")")).collect();
             p.push_str(&format!("(deny mach-lookup{})\n", names.concat()));
+            p.push_str(&local_sockets(workdir));
             p.push_str(&launch);
         }
         Profile::Cli { spec, binary_dir, extra_read } => {

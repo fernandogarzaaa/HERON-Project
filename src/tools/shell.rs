@@ -67,6 +67,10 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
                 cmd.env(name, value);
             }
         }
+        if crate::sandbox::active(&ctx.cfg) == crate::sandbox::Kind::Seatbelt {
+            let tmp = crate::sandbox::shell_tmpdir();
+            cmd.env("TMPDIR", &tmp).env("TMP", &tmp).env("TEMP", &tmp);
+        }
         #[cfg(unix)]
         cmd.process_group(0); // so a timeout kills the whole process tree, not just the shell
         match cmd.spawn() {
@@ -414,6 +418,32 @@ pub(crate) mod tests {
 
     pub(crate) fn q(p: &std::path::Path) -> String {
         format!("'{}'", p.display().to_string().replace('\'', "'\\''"))
+    }
+
+    #[tokio::test]
+    async fn sandboxed_shell_cannot_reach_a_local_agent_socket() {
+        let mut cfg = Config::default();
+        cfg.permissions.mode = "auto".into();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let ws = tempfile::tempdir().unwrap();
+        // Where launchd puts the ssh agent's socket: a temporary folder the sandbox may write to.
+        let dir = tempfile::Builder::new().prefix("heron-agent-sock").tempdir_in("/private/tmp").unwrap();
+        let socket = dir.path().join("agent.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut conn, _)) = listener.accept() {
+                let _ = std::io::Write::write_all(&mut conn, b"AGENT-ANSWERED\n");
+            }
+        });
+        let ctx = test_ctx(&cfg, &dunce::canonicalize(ws.path()).unwrap(), "t");
+        let out = sh(&ctx, &format!("/usr/bin/nc -U -w 2 {} < /dev/null; echo done", q(&socket))).await;
+        assert!(out.contains("done"), "{out}");
+        assert!(!out.contains("AGENT-ANSWERED"), "a sandboxed command used a local agent socket: {out}");
+        // Its own sockets, in the working folder and in its temporary folder, still work.
+        let own = sh(&ctx, "python3 -c \"import os,socket,tempfile\nfor d in ('.', tempfile.gettempdir()):\n  p=os.path.join(d,'own.sock')\n  s=socket.socket(socket.AF_UNIX); s.bind(p); s.listen(1)\n  c=socket.socket(socket.AF_UNIX); c.connect(p); print('OWN-OK'); os.unlink(p)\"").await;
+        assert_eq!(own.matches("OWN-OK").count(), 2, "{own}");
     }
 
     #[tokio::test]
