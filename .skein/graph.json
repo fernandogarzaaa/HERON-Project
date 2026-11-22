@@ -4236,11 +4236,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "F6: brief switch",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "9582dd3e819d67992625647b36f42203298ffb57",
-      "branch": null,
-      "path": null
+      "base_commit": "9582dd3e819d67992625647b36f42203298ffb57",
+      "branch": "skein/F6a",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F6a"
     }
   },
   "F6c": {
