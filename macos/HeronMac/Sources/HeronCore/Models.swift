@@ -596,6 +596,11 @@ public enum SourceConnection: Sendable, Equatable, CustomStringConvertible {
     }
 }
 
+/// "1 item", "2 items": the count with its noun in the right number.
+public func countPhrase(_ count: Int, _ singular: String, _ plural: String? = nil) -> String {
+    "\(count) \(count == 1 ? singular : (plural ?? singular + "s"))"
+}
+
 /// One event read from the Mac's Calendar app, as `POST /api/sources/calendar_local` takes it.
 public struct LocalCalendarEvent: Sendable, Equatable {
     public var uid: String

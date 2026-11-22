@@ -69,6 +69,8 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
 
     /// Makes the next `connectSource` or `disconnectSource` fail with `error`, as a core that can't reach a mail server would.
     public func failNextSourceChange(with error: CoreError) { with { $0.sourceFailure = error } }
+    /// The next `settings()` read fails (the rows can't be refreshed after a connect).
+    public func failNextSettingsRead(with error: CoreError) { with { $0.settingsFailure = error } }
 
     /// Marks a provider as having (or lacking) an OAuth client in this build.
     public func setOAuthConfigured(_ provider: OAuthProviderID, _ configured: Bool) {
@@ -349,8 +351,9 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     // MARK: Settings
 
     public func settings() async throws -> CoreSettings {
-        with { d in
-            CoreSettings(workspace: d.workspace, mode: d.mode, ruleNotices: d.ruleNotices,
+        try with { d in
+            if let failure = d.settingsFailure { d.settingsFailure = nil; throw failure }
+            return CoreSettings(workspace: d.workspace, mode: d.mode, ruleNotices: d.ruleNotices,
                          allowSubscriptionUnattended: d.allowSubscriptionUnattended, connections: d.connections,
                          awareness: d.awareness, phoneConnected: false)
         }
@@ -387,21 +390,21 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
             switch source {
             case .documents(let path):
                 guard filled(path) else { throw CoreError.failed("Enter the folder that holds your notes or documents.") }
-                detail = "1 folders, 12 files indexed"
+                detail = "\(countPhrase(1, "folder")), \(countPhrase(12, "file")) indexed"
             case .calendar(let url):
                 guard filled(url) else { throw CoreError.failed("Paste your calendar's private ICS link.") }
-                detail = "8 items indexed"
+                detail = "\(countPhrase(8, "item")) indexed"
             case .email(let host, let username, let password, _, _):
                 guard filled(host) else { throw CoreError.failed("Enter your mail server, for example imap.gmail.com.") }
                 guard filled(username) else { throw CoreError.failed("Enter your email address.") }
                 guard filled(password) else { throw CoreError.failed("Enter the app password for this account.") }
                 detail = username
             case .computer:
-                detail = "20 items indexed"
+                detail = "\(countPhrase(20, "item")) indexed"
             case .localCalendar(let events):
-                detail = "\(events.count) events indexed"
+                detail = "\(countPhrase(events.count, "event")) indexed"
             case .localMail(let messages):
-                detail = "\(messages.count) messages indexed"
+                detail = "\(countPhrase(messages.count, "message")) indexed"
             }
             guard let i = d.connections.firstIndex(where: { $0.id == source.sourceID }) else { throw CoreError.notFound }
             d.connections[i].connected = true

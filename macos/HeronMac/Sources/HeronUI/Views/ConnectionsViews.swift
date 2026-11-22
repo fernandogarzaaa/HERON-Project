@@ -26,6 +26,9 @@ enum SourceCopy {
     static let mailAccessDenied = "Heron can't read Mail yet. Open System Settings › Privacy & Security › Automation, turn on Mail under Heron, then try again."
     static let mailHasNoAccounts = "The Mail app has no accounts yet. Add one in System Settings › Internet Accounts, then try again."
     static let mailWouldNotOpen = "Heron couldn't open Mail. Open the Mail app once, then try again."
+    static let connectedButCouldNotRefresh = "Connected, but Heron couldn't refresh this list. Close Settings and open it again."
+    static let cancelledBeforeFinishing = "That was cancelled before it finished. Try again."
+    static let mailWasEmpty = "Mail returned no inbox messages from the last 14 days. Is your account set up in Mail, and has Mail finished downloading? Press Refresh to try again."
     static let readingMail = "Reading Mail… (it can take a moment)"
     static let privacyAutomationURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
     static let internetAccountsURL = "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension"
@@ -185,7 +188,7 @@ struct LocalCalendarRow: View {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: Spacing.s2) {
                         Text("Mac Calendar").foregroundStyle(theme.ink)
-                        if connected { HTag("Connected", tone: .ok) }
+                        HTag(connected ? "Connected" : "Not connected", tone: connected ? .ok : .neutral)
                     }
                     if connected, let detail = row?.detail {
                         Text(detail).font(HeronFont.callout).foregroundStyle(theme.ink2)
@@ -235,7 +238,7 @@ struct LocalMailRow: View {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: Spacing.s2) {
                         Text("Mac Mail").foregroundStyle(theme.ink)
-                        if connected { HTag("Connected", tone: .ok) }
+                        HTag(connected ? "Connected" : "Not connected", tone: connected ? .ok : .neutral)
                     }
                     if connected, let detail = row?.detail {
                         Text(detail).font(HeronFont.callout).foregroundStyle(theme.ink2)

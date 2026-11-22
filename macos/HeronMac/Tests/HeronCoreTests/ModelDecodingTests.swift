@@ -123,6 +123,27 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(rows.last?.connected, true)
     }
 
+    func testCountsAreWrittenInTheRightNumber() {
+        XCTAssertEqual(countPhrase(1, "item"), "1 item")
+        XCTAssertEqual(countPhrase(0, "item"), "0 items")
+        XCTAssertEqual(countPhrase(2, "message"), "2 messages")
+        XCTAssertEqual(countPhrase(1, "entry", "entries"), "1 entry")
+        XCTAssertEqual(countPhrase(2, "entry", "entries"), "2 entries")
+        let one = #"{"computer":{"connected":true,"indexed":1},"calendar_local":{"connected":true,"indexed":1},"mail_local":{"connected":true,"indexed":1},"documents":{"connected":true,"folders":["/a"],"indexed":1},"calendar":{"connected":true,"indexed":1,"ics_connected":true,"ics_indexed":1}}"#
+        let rows = Dictionary(uniqueKeysWithValues: CoreWire.connections(Data(one.utf8)).map { ($0.id, $0.detail) })
+        XCTAssertEqual(rows["computer"], "1 item indexed")
+        XCTAssertEqual(rows["calendar"], "1 item indexed")
+        XCTAssertEqual(rows["calendar_local"], "1 event indexed")
+        XCTAssertEqual(rows["mail_local"], "1 message indexed")
+        XCTAssertEqual(rows["documents"], "1 folder, 1 file indexed")
+        let many = one.replacingOccurrences(of: "\"indexed\":1", with: "\"indexed\":3").replacingOccurrences(of: "\"ics_indexed\":1", with: "\"ics_indexed\":3")
+        let plural = Dictionary(uniqueKeysWithValues: CoreWire.connections(Data(many.utf8)).map { ($0.id, $0.detail) })
+        XCTAssertEqual(plural["computer"], "3 items indexed")
+        XCTAssertEqual(plural["mail_local"], "3 messages indexed")
+        XCTAssertEqual(plural["calendar_local"], "3 events indexed")
+        XCTAssertEqual(plural["documents"], "1 folder, 3 files indexed")
+    }
+
     func testTheMacMailSourceIsARowWhenTheCoreServesIt() throws {
         let rows = CoreWire.connections(Data(#"{"mail_local":{"connected":true,"indexed":42,"learned":0}}"#.utf8))
         XCTAssertEqual(rows.map(\.id), ["mail_local"])

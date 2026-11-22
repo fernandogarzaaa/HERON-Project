@@ -114,6 +114,7 @@ struct PreviewData {
     var neverRemovalFailure: CoreError?
     /// When set, the next `connectSource` or `disconnectSource` throws it (a test hook).
     var sourceFailure: CoreError?
+    var settingsFailure: CoreError?
     /// `GET /api/oauth`. Both providers are signed out and configured in the sample.
     var oauth: [OAuthAccount] = [
         OAuthAccount(provider: .google, connected: false, clientConfigured: true),

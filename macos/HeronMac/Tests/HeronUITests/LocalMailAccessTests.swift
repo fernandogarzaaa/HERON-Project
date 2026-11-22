@@ -54,6 +54,8 @@ final class LocalMailAccessTests: XCTestCase {
         XCTAssertTrue(script.contains("14 * days") && script.contains("300") && script.contains("4000"))
         XCTAssertTrue(script.contains("tell application \"Mail\""))
         XCTAssertFalse(script.contains("Library/Mail"), "no reading of Mail's own files")
+        XCTAssertTrue(script.contains("messages of inbox whose"), "Mail's own unified inbox, not a mailbox looked up by name")
+        XCTAssertFalse(script.contains("mailbox \"INBOX\""), "a mailbox name can miss (Gmail, Exchange, localized names)")
         XCTAssertTrue(script.contains("timeout"), "the wait for Mail to open is allowed for")
     }
 
@@ -83,6 +85,67 @@ final class LocalMailAccessTests: XCTestCase {
         XCTAssertEqual(SystemMailAccess.failure(stderr: "execution error: Something odd happened. (-1728)", status: 1), .failed("Something odd happened. (-1728)"))
         XCTAssertEqual(SystemMailAccess.failure(stderr: "", status: 15), .failed("Mail didn't answer in time. Try again."))
         XCTAssertEqual(SystemMailAccess.failure(stderr: "", status: 1), .failed("Mail answered with error 0."))
+    }
+
+    // MARK: A Mail that was only just launched
+
+    private final class Calls: @unchecked Sendable {
+        private let lock = NSLock()
+        private var runs = 0
+        private var naps: [Duration] = []
+        var runCount: Int { lock.withLock { runs } }
+        var sleeps: [Duration] { lock.withLock { naps } }
+        func ran() -> Int { lock.withLock { runs += 1; return runs } }
+        func slept(_ d: Duration) { lock.withLock { naps.append(d) } }
+    }
+
+    private var record: String {
+        ["<a@x>", "Dana", "Hi", "60", "iCloud", "Text"].joined(separator: String(SystemMailAccess.fieldSeparator)) + String(SystemMailAccess.recordSeparator)
+    }
+
+    private func access(running: Bool, answers: [String], calls: Calls) -> SystemMailAccess {
+        SystemMailAccess(runner: { _ in
+            let n = calls.ran()
+            return answers[min(n, answers.count) - 1]
+        }, isRunning: { running }, sleep: { calls.slept($0) }, launchGrace: .seconds(5))
+    }
+
+    func testAnEmptyAnswerFromAMailThatWasJustLaunchedWaitsAndAsksOnce() async throws {
+        let calls = Calls()
+        let mail = access(running: false, answers: ["", record], calls: calls)
+        let messages = try await mail.messages()
+        XCTAssertEqual(messages.map(\.id), ["<a@x>"], "the second answer, after Mail loaded, is used")
+        XCTAssertEqual(calls.runCount, 2)
+        XCTAssertEqual(calls.sleeps, [.seconds(5)])
+    }
+
+    func testStillEmptyAfterTheOneRetryIsEmptyNotAnError() async throws {
+        let calls = Calls()
+        let messages = try await access(running: false, answers: ["", ""], calls: calls).messages()
+        XCTAssertEqual(messages, [])
+        XCTAssertEqual(calls.runCount, 2, "asked once more, not in a loop")
+    }
+
+    func testNoRetryWhenMailWasAlreadyRunningOrAnswered() async throws {
+        let running = Calls()
+        _ = try await access(running: true, answers: [""], calls: running).messages()
+        XCTAssertEqual(running.runCount, 1)
+        XCTAssertEqual(running.sleeps, [])
+        let answered = Calls()
+        _ = try await access(running: false, answers: [record], calls: answered).messages()
+        XCTAssertEqual(answered.runCount, 1)
+        XCTAssertEqual(answered.sleeps, [])
+    }
+
+    func testNoAccountsAndErrorsAreNotRetried() async throws {
+        let calls = Calls()
+        do { _ = try await access(running: false, answers: ["no-accounts"], calls: calls).messages(); XCTFail("expected no accounts") }
+        catch { XCTAssertEqual(error as? MailAccessError, .noAccounts) }
+        XCTAssertEqual(calls.runCount, 1)
+        XCTAssertEqual(calls.sleeps, [])
+        let failing = SystemMailAccess(runner: { _ in throw MailAccessError.notAuthorized }, isRunning: { false }, sleep: { _ in }, launchGrace: .zero)
+        do { _ = try await failing.messages(); XCTFail("expected a refusal") }
+        catch { XCTAssertEqual(error as? MailAccessError, .notAuthorized) }
     }
 
     func testTheRealPathRunsOsascriptAsAChildNeverNSAppleScript() throws {

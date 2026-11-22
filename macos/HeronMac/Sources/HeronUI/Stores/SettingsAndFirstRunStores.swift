@@ -176,9 +176,18 @@ public final class SettingsStore {
     public func clearSourceError(_ id: String) { sourceErrors[id] = nil }
 
     /// Reads the Connections rows again, without the rest of Settings.
-    public func reloadConnections() async {
-        if let fresh = try? await client.settings() { settings = fresh }
+    @discardableResult
+    public func reloadConnections() async -> Bool {
+        var refreshed = false
+        if let fresh = try? await client.settings() { settings = fresh; refreshed = true }
         if let accounts = try? await client.oauthAccounts() { oauthAccounts = accounts }
+        return refreshed
+    }
+
+    /// After a connect succeeded: the rows are read again. If that read fails the list would still say "Not connected" with
+    /// no word of why, so the row says what happened instead.
+    private func refreshAfterConnect(_ id: String) async {
+        if await !reloadConnections() { sourceErrors[id] = SourceCopy.connectedButCouldNotRefresh }
     }
 
     // MARK: Sign in with Google or Microsoft
@@ -263,11 +272,14 @@ public final class SettingsStore {
         }
         do {
             try await client.connectSource(.localCalendar(events: try await localCalendar.events()))
+        } catch is CancellationError {
+            sourceErrors[id] = SourceCopy.cancelledBeforeFinishing
+            return false
         } catch {
             sourceErrors[id] = describe(error)
             return false
         }
-        await reloadConnections()
+        await refreshAfterConnect(id)
         return true
     }
 
@@ -294,9 +306,14 @@ public final class SettingsStore {
         sourceErrors[id] = nil
         localMailProblem = nil
         defer { busySources.remove(id) }
+        var found = 0
         do {
             let messages = try await localMail.messages()
+            found = messages.count
             try await client.connectSource(.localMail(messages: messages))
+        } catch is CancellationError {
+            sourceErrors[id] = SourceCopy.cancelledBeforeFinishing
+            return false
         } catch let problem as MailAccessError {
             switch problem {
             case .notAuthorized: localMailProblem = .automationDenied; sourceErrors[id] = SourceCopy.mailAccessDenied
@@ -309,7 +326,9 @@ public final class SettingsStore {
             sourceErrors[id] = describe(error)
             return false
         }
-        await reloadConnections()
+        await refreshAfterConnect(id)
+        // Connected, but nothing came back: say so, so a quiet "0 messages" isn't mistaken for a failure to connect.
+        if found == 0, sourceErrors[id] == nil { sourceErrors[id] = SourceCopy.mailWasEmpty }
         return true
     }
 
@@ -337,11 +356,14 @@ public final class SettingsStore {
         defer { busySources.remove(id) }
         do {
             try await client.connectSource(source)
+        } catch is CancellationError {
+            sourceErrors[id] = SourceCopy.cancelledBeforeFinishing
+            return false
         } catch {
             sourceErrors[id] = describe(error)
             return false
         }
-        await reloadConnections()
+        await refreshAfterConnect(id)
         return true
     }
 

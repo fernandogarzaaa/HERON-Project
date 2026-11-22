@@ -340,13 +340,13 @@ public enum CoreWire {
             guard let entry = object[key] as? [String: Any] else { return nil }
             let connected = own.flatMap { entry[$0.connected] as? Bool } ?? entry["connected"] as? Bool ?? false
             let indexed = own.flatMap { entry[$0.indexed] as? Int } ?? entry["indexed"] as? Int ?? 0
-            let text = connected ? (detail?(entry) ?? "\(indexed) items indexed") : "Not connected"
+            let text = connected ? (detail?(entry) ?? "\(countPhrase(indexed, "item")) indexed") : "Not connected"
             return ConnectionInfo(id: key, name: name, connected: connected, detail: text)
         }
         return [
             row("calendar", "Calendar link", own: ("ics_connected", "ics_indexed")),
             row("email", "iCloud Mail", own: ("imap_connected", "imap_indexed")) { entry in
-                (entry["address"] as? String) ?? "\(entry["imap_indexed"] as? Int ?? entry["indexed"] as? Int ?? 0) messages indexed"
+                (entry["address"] as? String) ?? "\(countPhrase(entry["imap_indexed"] as? Int ?? entry["indexed"] as? Int ?? 0, "message")) indexed"
             }.map { mail in
                 // The name follows the server: iCloud's, or whatever IMAP server the user set up under "Other ways to connect".
                 guard let host = (object["email"] as? [String: Any])?["imap_host"] as? String, mail.connected,
@@ -355,10 +355,10 @@ public enum CoreWire {
                 other.name = "Mailbox (\(host))"
                 return other
             },
-            row("documents", "Documents") { "\(($0["folders"] as? [String])?.count ?? 0) folders, \($0["indexed"] as? Int ?? 0) files indexed" },
+            row("documents", "Documents") { "\(countPhrase(($0["folders"] as? [String])?.count ?? 0, "folder")), \(countPhrase($0["indexed"] as? Int ?? 0, "file")) indexed" },
             row("computer", "This Mac"),
-            row("calendar_local", "Mac Calendar") { "\($0["indexed"] as? Int ?? 0) events indexed" },
-            row("mail_local", "Mac Mail") { "\($0["indexed"] as? Int ?? 0) messages indexed" },
+            row("calendar_local", "Mac Calendar") { "\(countPhrase($0["indexed"] as? Int ?? 0, "event")) indexed" },
+            row("mail_local", "Mac Mail") { "\(countPhrase($0["indexed"] as? Int ?? 0, "message")) indexed" },
         ].compactMap { $0 }
     }
 

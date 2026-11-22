@@ -64,7 +64,20 @@ public enum LocalMailPolicy {
 /// in Info.plist and, in a hardened build, the Apple Events entitlement (`packaging/macos/Heron.entitlements`). It never
 /// reads ~/Library/Mail.
 public struct SystemMailAccess: LocalMailAccess {
-    public init() {}
+    /// Seams for tests; all nil in the app. They are optional, not stored default closures: calling a stored default
+    /// `Task.sleep` closure aborts the macOS 26 runtime, so the real sleep is called inline below.
+    let runner: (@Sendable (String) throws -> String)?
+    let isRunning: (@Sendable () -> Bool)?
+    let sleep: (@Sendable (Duration) async throws -> Void)?
+    /// How long a Mail that was only just launched gets to load its mailboxes before the one retry.
+    let launchGrace: Duration
+
+    public init() { self.init(runner: nil, isRunning: nil, sleep: nil, launchGrace: .seconds(5)) }
+
+    init(runner: (@Sendable (String) throws -> String)?, isRunning: (@Sendable () -> Bool)?,
+         sleep: (@Sendable (Duration) async throws -> Void)?, launchGrace: Duration = .seconds(5)) {
+        self.runner = runner; self.isRunning = isRunning; self.sleep = sleep; self.launchGrace = launchGrace
+    }
 
     static let mailBundleID = "com.apple.mail"
     static let osascriptPath = "/usr/bin/osascript"
@@ -76,18 +89,32 @@ public struct SystemMailAccess: LocalMailAccess {
     static let processTimeout: TimeInterval = 200
 
     public func isMailRunning() -> Bool {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: Self.mailBundleID).isEmpty
+        if let isRunning { return isRunning() }
+        return !NSRunningApplication.runningApplications(withBundleIdentifier: Self.mailBundleID).isEmpty
     }
 
     public func messages() async throws -> [LocalMailMessage] {
         // A unit test must never reach the real Mail: Apple Events from a test host with no usage description
-        // is killed by macOS. Tests inject a fake behind `LocalMailAccess` instead.
-        if NSClassFromString("XCTestCase") != nil { throw MailAccessError.failed("Mail is not available in tests.") }
+        // is killed by macOS. Tests inject a fake behind `LocalMailAccess` (or a `runner` here) instead.
+        if runner == nil, NSClassFromString("XCTestCase") != nil { throw MailAccessError.failed("Mail is not available in tests.") }
+        let wasRunning = isMailRunning()
+        var result = try await read()
+        // Asking opens Mail when it isn't running, and a Mail that was only just launched has usually not loaded its
+        // mailboxes yet, so an empty answer then is not believed: wait a moment and ask once more.
+        if result.isEmpty, !wasRunning {
+            if let sleep { try await sleep(launchGrace) } else { try await Task.sleep(for: launchGrace) }
+            result = try await read()
+        }
+        return result
+    }
+
+    private func read() async throws -> [LocalMailMessage] {
+        let runner = self.runner
         // A detached task, so the blocking read of the child's output is never on the main thread or the shared pool's
         // short-lived workers; Mail may first have to launch.
         return try await Task.detached(priority: .utility) {
             let script = Self.script(daysBack: LocalMailPolicy.daysBack, limit: LocalMailPolicy.maxMessages, bodyCharacters: LocalMailPolicy.maxBodyCharacters)
-            let output = try Self.run(script)
+            let output = try runner?(script) ?? Self.run(script)
             return LocalMailPolicy.prepare(try Self.parse(output))
         }.value
     }
@@ -111,39 +138,33 @@ public struct SystemMailAccess: LocalMailAccess {
             if (count of accounts) is 0 then return "no-accounts"
             set nowDate to current date
             set cutoff to nowDate - \(daysBack) * days
+            -- Mail's own unified inbox: it covers every account whatever its mailbox is called ("INBOX", "Inbox", a
+            -- localized name), and a failure here is an error the app shows, not an account that quietly adds nothing.
+            set recent to (messages of inbox whose date received > cutoff)
+            set total to count of recent
+            if total > \(limit) then set total to \(limit)
             set out to ""
-            set n to 0
-            repeat with acct in accounts
-              if n ≥ \(limit) then exit repeat
-              set acctName to name of acct
-              set recent to {}
-              try
-                set recent to (messages of mailbox "INBOX" of acct whose date received > cutoff)
-              on error
+            if total > 0 then
+              set theIds to message id of recent
+              set theSubjects to subject of recent
+              set theSenders to sender of recent
+              set theDates to date received of recent
+              repeat with i from 1 to total
+                set msg to item i of recent
+                set acctName to ""
                 try
-                  set recent to (messages of mailbox "Inbox" of acct whose date received > cutoff)
+                  set acctName to name of account of mailbox of msg
                 end try
-              end try
-              set total to count of recent
-              if total > 0 then
-                set theIds to message id of recent
-                set theSubjects to subject of recent
-                set theSenders to sender of recent
-                set theDates to date received of recent
-                repeat with i from 1 to total
-                  if n ≥ \(limit) then exit repeat
-                  set bodyText to ""
-                  try
-                    set bodyText to content of (item i of recent)
-                    if (count of bodyText) > \(bodyCharacters) then set bodyText to text 1 thru \(bodyCharacters) of bodyText
-                  end try
-                  set age to (nowDate - (item i of theDates)) as integer
-                  set rec to (my clean(item i of theIds)) & (character id 31) & (my clean(item i of theSenders)) & (character id 31) & (my clean(item i of theSubjects)) & (character id 31) & (age as text) & (character id 31) & (my clean(acctName)) & (character id 31) & (my clean(bodyText))
-                  set out to out & rec & (character id 30)
-                  set n to n + 1
-                end repeat
-              end if
-            end repeat
+                set bodyText to ""
+                try
+                  set bodyText to content of msg
+                  if (count of bodyText) > \(bodyCharacters) then set bodyText to text 1 thru \(bodyCharacters) of bodyText
+                end try
+                set age to (nowDate - (item i of theDates)) as integer
+                set rec to (my clean(item i of theIds)) & (character id 31) & (my clean(item i of theSenders)) & (character id 31) & (my clean(item i of theSubjects)) & (character id 31) & (age as text) & (character id 31) & (my clean(acctName)) & (character id 31) & (my clean(bodyText))
+                set out to out & rec & (character id 30)
+              end repeat
+            end if
             return out
           end tell
         end timeout
@@ -164,7 +185,8 @@ public struct SystemMailAccess: LocalMailAccess {
         let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + processTimeout, execute: watchdog)
         defer { watchdog.cancel() }
-        stdin.fileHandleForWriting.write(Data(source.utf8))
+        // The throwing form: a plain write() raises an Objective-C exception (and kills the app) if osascript has already exited.
+        try? stdin.fileHandleForWriting.write(contentsOf: Data(source.utf8))
         try? stdin.fileHandleForWriting.close()
         // stdout can be a megabyte: read it to the end (so the child never blocks on a full pipe) before stderr.
         let out = stdout.fileHandleForReading.readDataToEndOfFile()

@@ -796,6 +796,40 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertTrue(SourceCopy.internetAccountsURL.contains("Internet-Accounts"))
     }
 
+    // The silent-failure paths: every one ends with the row connected or a visible sentence.
+
+    func testAnEmptyMailIsConnectedWithAVisibleNoteNotASilentZero() async throws {
+        let client = try await makeClient()
+        let store = await mailStore(client, mail: FakeMail(result: .success([])))
+        let ok = await store.connectLocalMail()
+        XCTAssertTrue(ok, "it did connect")
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "mail_local" }?.connected, true)
+        XCTAssertEqual(store.sourceErrors["mail_local"], SourceCopy.mailWasEmpty)
+        XCTAssertTrue(SourceCopy.mailWasEmpty.contains("no inbox messages from the last 14 days") && SourceCopy.mailWasEmpty.contains("finished downloading"))
+    }
+
+    func testAConnectThatWorkedButCouldNotRefreshTheRowsSaysSo() async throws {
+        let client = try await makeClient()
+        let store = await mailStore(client, mail: FakeMail(result: .success([sampleMail("<a@x>")])))
+        client.failNextSettingsRead(with: .failed("offline"))
+        let ok = await store.connectLocalMail()
+        XCTAssertTrue(ok)
+        XCTAssertEqual(store.sourceErrors["mail_local"], SourceCopy.connectedButCouldNotRefresh, "the list still says Not connected, so the row explains")
+        XCTAssertEqual(client.sourceRequests.count, 1)
+    }
+
+    func testACancelledMailReadSaysSoAndIsNotBusyAfterwards() async throws {
+        let client = try await makeClient()
+        let mail = FakeMail(result: .success([]))
+        mail.cancelled = true
+        let store = await mailStore(client, mail: mail)
+        let ok = await store.connectLocalMail()
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.sourceErrors["mail_local"], SourceCopy.cancelledBeforeFinishing)
+        XCTAssertFalse(store.isBusy(source: "mail_local"))
+        XCTAssertTrue(client.sourceRequests.isEmpty)
+    }
+
     func testMacMailThatCannotBeOpenedOrFailsIsExplainedWithoutASettingsButton() async throws {
         let client = try await makeClient()
         let notRunning = await mailStore(client, mail: FakeMail(result: .failure(.notRunning)))
@@ -1279,6 +1313,7 @@ final class ScreenStoreTests: XCTestCase {
 final class FakeMail: LocalMailAccess, @unchecked Sendable {
     var result: Result<[LocalMailMessage], MailAccessError>
     var running = true
+    var cancelled = false
     let delay: Duration?
     private let lock = NSLock()
     private var count = 0
@@ -1290,6 +1325,7 @@ final class FakeMail: LocalMailAccess, @unchecked Sendable {
     func messages() async throws -> [LocalMailMessage] {
         lock.withLock { count += 1 }
         if let delay { try await Task.sleep(for: delay) }
+        if cancelled { throw CancellationError() }
         return try result.get()
     }
 }
