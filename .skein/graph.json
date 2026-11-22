@@ -6788,11 +6788,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "Kill F8's surviving mutants",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "a7aeb03f0e6660a30ebef3783739d23c76ba9c53",
-      "branch": null,
-      "path": null
+      "base_commit": "a7aeb03f0e6660a30ebef3783739d23c76ba9c53",
+      "branch": "skein/F8mut",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F8mut"
     }
   },
   "F8s": {
