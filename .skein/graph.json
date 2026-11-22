@@ -3926,7 +3926,7 @@
       "claim_token": "cf317b355394452687973eb9ae8a71fa",
       "claimed_at": "2026-11-22T11:00:03.653676+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T11:01:04.152257+00:00",
+      "last_heartbeat": "2026-11-22T11:01:34.199912+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3953,7 +3953,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fix F5 review findings (core)",
-    "version": 5,
+    "version": 6,
     "worktree": {
       "base_branch": "271ce07d639562a10b67169cb722d64080194bdf",
       "base_commit": "271ce07d639562a10b67169cb722d64080194bdf",
@@ -5143,9 +5143,17 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-22T10:55:17.105864+00:00"
+      },
+      {
+        "attempt_id": "0077934fc937404fb55a0b873556a562",
+        "ended_at": "2026-11-22T11:01:38.178309+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-22T10:59:41.905212+00:00"
       }
     ],
-    "attempts_used": 1,
+    "attempts_used": 2,
     "backend": "claude_build_swift",
     "backend_config": {
       "effort": "high",
@@ -5156,15 +5164,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "0077934fc937404fb55a0b873556a562",
-      "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
-      "claim_token": "08d6388ca40d4220943b34fa0b260bf1",
-      "claimed_at": "2026-11-22T10:59:41.905212+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T11:01:12.549234+00:00",
-      "node_version": 24,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F1g"
@@ -5172,14 +5180,14 @@
     "evidence": [
       {
         "command": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q 'VoiceTests.*speechStopsOnKey'",
-        "duration_ms": 18468,
+        "duration_ms": 17225,
         "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F7a_20261122T105707803210_0.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F7a_20261122T110120925756_0.log"
       },
       {
         "command": "<adapter:claude_build_swift>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F7a_20261122T105726275749_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F7a_20261122T110138152470_adapter.log"
       }
     ],
     "handoff_note": "completion command failed (adapter exit=0); see evidence",
@@ -5195,12 +5203,12 @@
     "rejected_count": 2,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-22T11:05:38.593140+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "unclaimed",
     "title": "F7: dictation button, spoken replies",
-    "version": 31,
+    "version": 32,
     "worktree": {
       "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
