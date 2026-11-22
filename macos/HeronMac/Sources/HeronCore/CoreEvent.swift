@@ -27,6 +27,8 @@ public struct CoreEvent: Sendable, Equatable {
         case model(name: String, why: String)
         case notice(String)
         case learned([String])
+        /// The conversation was tainted for the first time, by this source. Published once per session.
+        case tainted(TaintSource)
         case done(text: String, title: String?)
         case cancelled
         /// `code` is `cli_version_untested` (with `provider` and `version`), `risk_notice_not_accepted`,

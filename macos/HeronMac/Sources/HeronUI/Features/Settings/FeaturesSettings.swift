@@ -76,6 +76,11 @@ public final class FeaturesSettingsStore {
         }
     }
 
+    /// Whether the core says `key` is on. False while the core hasn't answered or doesn't list it.
+    public func isOn(coreKey key: String) -> Bool {
+        coreFeatures.first { $0.key == key }?.on ?? false
+    }
+
     // MARK: Loading and switching
 
     public func load() async {

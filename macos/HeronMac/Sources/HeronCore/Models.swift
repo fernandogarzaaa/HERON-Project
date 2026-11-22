@@ -122,6 +122,20 @@ public struct SessionMessage: Sendable, Equatable, Identifiable {
     }
 }
 
+/// What first tainted a conversation (`taint.source` of `GET /api/sessions/{id}`, `source` of the `tainted` event).
+/// `kind` is `tool`, `chat_context`, `mcp`, `telegram_forward`, `trigger` or `suggestion`; `detail` never holds content.
+public struct TaintSource: Sendable, Equatable {
+    public var kind: String
+    public var name: String
+    public var detail: String
+
+    public init(kind: String, name: String = "", detail: String = "") {
+        self.kind = kind
+        self.name = name
+        self.detail = detail
+    }
+}
+
 /// `GET /api/sessions/{id}`.
 public struct SessionDetail: Sendable, Equatable {
     public var id: String
@@ -131,14 +145,17 @@ public struct SessionDetail: Sendable, Equatable {
     public var interrupted: Bool
     /// The conversation has read outside content (the taint flag).
     public var tainted: Bool
+    /// What first tainted it. Nil when it isn't tainted, or was tainted before the core recorded sources.
+    public var taintSource: TaintSource?
 
-    public init(id: String, title: String, messages: [SessionMessage], busy: Bool, interrupted: Bool, tainted: Bool) {
+    public init(id: String, title: String, messages: [SessionMessage], busy: Bool, interrupted: Bool, tainted: Bool, taintSource: TaintSource? = nil) {
         self.id = id
         self.title = title
         self.messages = messages
         self.busy = busy
         self.interrupted = interrupted
         self.tainted = tainted
+        self.taintSource = taintSource
     }
 }
 
@@ -162,13 +179,16 @@ public struct ApprovalRequest: Sendable, Equatable, Identifiable {
     /// One line of why, from the run ("Heron wants to save the reply draft for Northwind.").
     public var reason: String?
     public var sessionID: String?
+    /// Why the core is asking: one or two sentences, from the `approval` event's `why`. Nil when the core sent none
+    /// (the `ask_reasons` key is off, or the core is older).
+    public var why: String?
 
     /// Sends, deletes, spends and other actions that can't be undone.
     public var isHighRisk: Bool {
         ["sensitive", "sensitive-write", "DANGEROUS", "refused", "forbidden", "external", "egress"].contains(risk)
     }
 
-    public init(id: String, tool: String, summary: String, risk: String, detail: String, alwaysRule: String?, canAlways: Bool, canSession: Bool, tainted: Bool, outsideSource: String?, reason: String?, sessionID: String?) {
+    public init(id: String, tool: String, summary: String, risk: String, detail: String, alwaysRule: String?, canAlways: Bool, canSession: Bool, tainted: Bool, outsideSource: String?, reason: String?, sessionID: String?, why: String? = nil) {
         self.id = id
         self.tool = tool
         self.summary = summary
@@ -181,6 +201,7 @@ public struct ApprovalRequest: Sendable, Equatable, Identifiable {
         self.outsideSource = outsideSource
         self.reason = reason
         self.sessionID = sessionID
+        self.why = why
     }
 }
 

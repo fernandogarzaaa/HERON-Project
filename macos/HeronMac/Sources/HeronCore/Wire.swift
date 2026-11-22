@@ -64,7 +64,10 @@ public enum CoreWire {
     public static func session(_ data: Data) throws -> SessionDetail {
         struct Call: Decodable { struct Fn: Decodable { var name: String; var arguments: String? }; var id: String; var function: Fn }
         struct Raw: Decodable { var role: String; var content: String?; var toolCalls: [Call]?; var toolCallId: String? }
-        struct DTO: Decodable { var id: String; var title: String; var messages: [Raw]; var busy: Bool; var interrupted: Bool; var tainted: Bool? }
+        // `taint: {tainted, source}`; `source` is null for a clean conversation and for one tainted before sources were recorded.
+        struct Source: Decodable { var kind: String; var name: String?; var detail: String? }
+        struct Taint: Decodable { var tainted: Bool; var source: Source? }
+        struct DTO: Decodable { var id: String; var title: String; var messages: [Raw]; var busy: Bool; var interrupted: Bool; var taint: Taint? }
         let d = try decode(DTO.self, data)
 
         var out: [SessionMessage] = []
@@ -100,7 +103,8 @@ public enum CoreWire {
                 break
             }
         }
-        return SessionDetail(id: d.id, title: d.title, messages: out, busy: d.busy, interrupted: d.interrupted, tainted: d.tainted ?? false)
+        return SessionDetail(id: d.id, title: d.title, messages: out, busy: d.busy, interrupted: d.interrupted, tainted: d.taint?.tainted ?? false,
+                             taintSource: d.taint?.source.map { TaintSource(kind: $0.kind, name: $0.name ?? "", detail: $0.detail ?? "") })
     }
 
     /// "write file · plan.md": the tool's name in words and its first argument, since the transcript has no summary.
@@ -411,12 +415,17 @@ public enum CoreWire {
                                           detail: o["detail"] as? String ?? "", alwaysRule: o["always_rule"] as? String,
                                           canAlways: o["can_always"] as? Bool ?? false, canSession: o["can_session"] as? Bool ?? false,
                                           tainted: o["tainted"] as? Bool ?? false, outsideSource: o["outside_source"] as? String,
-                                          reason: o["reason"] as? String, sessionID: sessionID)
+                                          reason: o["reason"] as? String, sessionID: sessionID, why: o["why"] as? String)
             return make(.approval(request))
         case "approval_resolved": return make(.approvalResolved(id: try str("id"), decision: try str("decision")))
         case "approval_parked": return make(.approvalParked(id: try str("id"), parkedID: try int("parked_id")))
         case "usage": return make(.usage(prompt: o["prompt"] as? Int ?? 0, completion: o["completion"] as? Int ?? 0))
         case "model": return make(.model(name: try str("name"), why: o["why"] as? String ?? ""))
+        case "tainted":
+            guard let source = o["source"] as? [String: Any], let kind = source["kind"] as? String else {
+                throw DecodingError.keyNotFound(AnyKey("source"), .init(codingPath: [], debugDescription: "tainted event has no source"))
+            }
+            return make(.tainted(TaintSource(kind: kind, name: source["name"] as? String ?? "", detail: source["detail"] as? String ?? "")))
         case "notice": return make(.notice(try str("text")))
         case "learned": return make(.learned(o["items"] as? [String] ?? []))
         case "done": return make(.done(text: o["text"] as? String ?? "", title: o["title"] as? String))
