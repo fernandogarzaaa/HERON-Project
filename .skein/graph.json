@@ -1,6 +1,15 @@
 {
   "H12": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "07f0c609d7754fa3a1b80b62c299ad28",
+        "ended_at": "2026-11-22T16:29:41.675639+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T16:29:09.770000+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -12,21 +21,33 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "07f0c609d7754fa3a1b80b62c299ad28",
-      "base_branch": "504bc450b3e1c072ecb472b2e56dd3557ccfa9fb",
-      "claim_token": "3395575bf0cc429ab94f59b2f845fb65",
-      "claimed_at": "2026-11-22T16:29:09.770000+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T16:29:09.770000+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "H4"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "grep -q \"startsWith(github.head_ref, 'heron/selfheal/')\" .github/workflows/selfheal.yml && grep -q 'fetch-depth: 0' .github/workflows/selfheal.yml && grep -q 'contents: read' .github/workflows/selfheal.yml && ! grep -q 'secrets\\.' .github/workflows/selfheal.yml && grep -qF 'verify-selfheal.sh \"$(git -C fix merge-base' .github/workflows/selfheal.yml && grep -q 'name: selfheal-gate' .github/workflows/selfheal.yml && grep -q 'requirements-ci.txt' .github/workflows/selfheal.yml && actionlint .github/workflows/selfheal.yml",
+        "duration_ms": 240,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/evidence/H12_20261122T162941167401_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/serene-shamir-92b5d8/.skein/evidence/H12_20261122T162941408960_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: if you want the version step confirmed before it runs in CI, run `head -n 1 eval/selfheal/requirements-ci.txt` and check it prints the pin line.",
     "id": "H12",
     "integration_for": null,
     "intent": {
@@ -38,13 +59,26 @@
     "max_retries": 2,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "07f0c609d7754fa3a1b80b62c299ad28",
+      "base_commit": "504bc450b3e1c072ecb472b2e56dd3557ccfa9fb",
+      "changed_files": [
+        ".github/workflows/selfheal.yml"
+      ],
+      "commit": "63f4b2c5e1e5797d6989e684e85012616d14cc44",
+      "diff_stats": {
+        ".github/workflows/selfheal.yml": {
+          "added": 39,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": ".github/workflows/selfheal.yml (item 26)",
-    "version": 3,
+    "version": 5,
     "worktree": {
       "base_branch": "504bc450b3e1c072ecb472b2e56dd3557ccfa9fb",
       "base_commit": "504bc450b3e1c072ecb472b2e56dd3557ccfa9fb",
