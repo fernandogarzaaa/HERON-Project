@@ -15,12 +15,13 @@ Read this first.
 
 The panel floats above any app. It has one text field, the reply below it, and "Open in Heron" to continue in the main window.
 
-You can open it in four ways:
+You can open it in three ways:
 
 - from the menu bar extra;
-- from the Services menu, with "Ask Heron" (below);
-- from Shortcuts, Spotlight or Siri, with "Ask Heron" (below);
-- with a global hotkey, once you record one.
+- with a global hotkey, once you record one;
+- from the Services menu, with "Ask Heron" (below).
+
+Shortcuts, Spotlight and Siri can't open the panel in this version. They come in v1.1.
 
 There is no default hotkey. The obvious choices are taken by macOS. Record one in Settings. The hotkey needs no macOS permission.
 
@@ -31,16 +32,9 @@ The panel continues your last conversation if you used it in the past 30 minutes
 1. Select text in any app.
 2. Choose the app's menu, then Services, then "Ask Heron".
 3. The panel opens with the text attached as a chip, "From" and the app's name.
-4. Type your question, or leave the field empty, and press Return.
+4. Type your question and press Return.
 
-## Ask from Shortcuts, Spotlight or Siri
-
-"Ask Heron" is also an action in Shortcuts, Spotlight and Siri. It takes one piece of text.
-
-- It opens the panel with that text attached as a chip, "From Shortcuts".
-- It never sends on its own. You type your own words and press Return.
-
-This action needs a build step that may not work without Xcode. If `macos/HeronMac/APP-INTENTS-CHECK.md` says "Status: deferred to v1.1", the action is not in this version. The panel and Services still work.
+You can also leave the field empty and press Return. Heron then gets only the attached text and answers about it.
 
 ## Why Heron asks before changes afterwards
 
