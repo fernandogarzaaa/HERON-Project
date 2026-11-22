@@ -94,7 +94,7 @@ Harness2 keeps all three, including for code Heron writes into itself and for ev
 ## Non-Goals
 
 *   **A Harness²-style optimizer.** This is deferred until a suite of at least 50 tasks exists ([Future Improvements](#future-improvements)).
-*   **Self-healing on preview users' Macs** ([§6](#6-preview-macs)), and an **auto-updater** for them.
+*   **Self-healing on preview users' Macs** ([§12](#12-preview-macs)), and an **auto-updater** for them.
 *   **Reading GitHub issues, PR comments or CI logs as triggers.** In a public repository, these are outside content.
 *   **Changing any v1 threshold:** G7's 26/30, its 2/3 per task, testteeth's 70, and the containment check.
 *   **Self-changes that install without owner review** in Harness2, the fence, the gate, observation code, the connector executor, CI workflows or any trust table.
@@ -927,6 +927,13 @@ Every process has a fixed path, fixed argument shapes, and the environment `PATH
 {"schema": 1, "version": "1.0.0", "commit": "<hex>", "text": "<user text>", "provenance": "typed",
  "failures": [{"kind": "panic", "location": "src/x.rs:12", "count": 2}], "conversation": null}
 ```
+
+### 12. Preview Macs
+
+*   **Self-healing.** On a Mac that isn't a builder Mac, the switch is replaced by the line "Self-healing runs on the Mac that builds Heron. Use Help › Report a problem." Fixes reach preview users in the next DMG the owner sends.
+*   **Self-evolution.** It is hidden, because its ideas are about Heron's code.
+*   **Observation.** It is available under each user's own control ([§8](#8-observation-and-workflow-learning)).
+*   **Failure records.** They are written, so that reports can carry them, but they start nothing.
 
 --------------------------------------------------------------------------------
 
