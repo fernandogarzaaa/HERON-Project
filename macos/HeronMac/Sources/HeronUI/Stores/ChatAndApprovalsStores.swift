@@ -325,7 +325,7 @@ public final class ChatStore {
             liveApproval = nil
             mutateAssistant { $0.finished = true }
             Task { await loadSessions() }
-        case .usage, .model, .notice, .learned, .resync:
+        case .usage, .model, .notice, .learned, .notification, .resync:
             break
         }
     }

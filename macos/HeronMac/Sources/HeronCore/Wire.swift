@@ -424,6 +424,7 @@ public enum CoreWire {
         case "error":
             return make(.error(message: o["message"] as? String ?? "", code: o["code"] as? String, provider: o["provider"] as? String, version: o["version"] as? String))
         case "run_end": return make(.runEnd)
+        case "notification": return make(.notification(title: try str("title"), body: o["body"] as? String ?? "", source: o["source"] as? String ?? ""))
         case "resync": return Envelope(seq: nil, event: CoreEvent(seq: 0, kind: .resync(oldest: try int("oldest"))))
         default: return Envelope(seq: seq, event: nil)
         }

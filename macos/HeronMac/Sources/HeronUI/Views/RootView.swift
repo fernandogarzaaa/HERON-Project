@@ -219,6 +219,7 @@ struct DestinationView: View {
         case .tasks: TasksView(model: model)
         case .schedules: SchedulesView(model: model)
         case .activity: ActivityView(model: model)
+        case .runs: RunsView(model: model)
         }
     }
 }
@@ -231,10 +232,12 @@ struct SidebarView: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
+    private var destinations: [Destination] { Destination.visible(runsEnabled: model.runs.enabled) }
+
     var body: some View {
         List(selection: Binding(get: { Optional(model.selection) }, set: { if let d = $0 { model.go(d) } })) {
             Section {
-                ForEach(Destination.allCases) { d in
+                ForEach(destinations) { d in
                     HStack(spacing: Spacing.s2) {
                         Image(systemName: d.symbol).foregroundStyle(theme.accent).frame(width: 20)
                         Text(d.title).foregroundStyle(theme.ink)
@@ -311,6 +314,12 @@ struct SidebarView: View {
             if let n = model.state?.memories, n > 0 { plain(n) }
         case .tasks:
             if model.tasks.openCount > 0 { plain(model.tasks.openCount) }
+        case .runs:
+            if model.runs.waitingCount > 0 {
+                Text("\(model.runs.waitingCount)").font(HeronFont.subLabel).monospacedDigit().foregroundStyle(theme.waiting)
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(Capsule().fill(theme.waitingSoft))
+            }
         default: EmptyView()
         }
     }
@@ -322,6 +331,7 @@ struct SidebarView: View {
         case .inbox: model.waitingCount > 0 ? ", \(model.waitingCount) waiting for you" : ""
         case .memory: model.state.map { ", \($0.memories)" } ?? ""
         case .tasks: model.tasks.openCount > 0 ? ", \(model.tasks.openCount)" : ""
+        case .runs: model.runs.waitingCount > 0 ? ", \(model.runs.waitingCount) waiting for you" : ""
         default: ""
         }
     }
@@ -329,7 +339,7 @@ struct SidebarView: View {
 
 // MARK: Commands
 
-/// ⌘1 to ⌘7 for the destinations, ⌘N for a new conversation, ⌘+ and ⌘− for text size.
+/// ⌘1 to ⌘7 for the destinations (⌘8 for Runs), ⌘N for a new conversation, ⌘+ and ⌘− for text size.
 public struct HeronCommands: Commands {
     let model: AppModel
 
@@ -340,7 +350,7 @@ public struct HeronCommands: Commands {
             Button("New Conversation") { model.newConversation() }.keyboardShortcut("n", modifiers: .command)
         }
         CommandMenu("Go") {
-            ForEach(Destination.allCases) { d in
+            ForEach(Destination.visible(runsEnabled: model.runs.enabled)) { d in
                 Button(d.title) { model.go(d) }
                     .keyboardShortcut(KeyEquivalent(Character("\(d.shortcutDigit)")), modifiers: .command)
             }

@@ -33,6 +33,9 @@ public struct CoreEvent: Sendable, Equatable {
         /// `workspace_refused`, or nil.
         case error(message: String, code: String?, provider: String?, version: String?)
         case runEnd
+        /// A notice for the app to post (F3). The core sends it only to a stream opened with `?notify=1`.
+        /// `source` is `schedule`, `automation` or `suggestion`.
+        case notification(title: String, body: String, source: String)
         /// The client fell behind or asked for a `since` the ring no longer holds: reload, then continue.
         case resync(oldest: Int)
     }
