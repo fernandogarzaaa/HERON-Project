@@ -67,6 +67,8 @@ struct Shared {
     ring: Mutex<VecDeque<Arc<BusEvent>>>,
     tx: broadcast::Sender<Arc<BusEvent>>,
     next_seq: AtomicU64,
+    /// Keeps run records (F3). Called under the ring lock, before an event is broadcast.
+    runs: Option<crate::runs::RunLog>,
 }
 
 impl Shared {
@@ -89,8 +91,22 @@ impl Default for EventBus {
 
 impl EventBus {
     pub fn new() -> Self {
+        Self::build(None)
+    }
+
+    /// A bus that keeps a run record in `store` for each run it carries (see [`crate::runs`]).
+    pub fn with_runs(store: crate::store::Store) -> Self {
+        Self::build(Some(crate::runs::RunLog::open(store)))
+    }
+
+    fn build(runs: Option<crate::runs::RunLog>) -> Self {
         let (tx, _) = broadcast::channel(LIVE_CAPACITY);
-        EventBus(Arc::new(Shared { ring: Mutex::new(VecDeque::new()), tx, next_seq: AtomicU64::new(1) }))
+        EventBus(Arc::new(Shared { ring: Mutex::new(VecDeque::new()), tx, next_seq: AtomicU64::new(1), runs }))
+    }
+
+    /// The run records, on a bus made with [`EventBus::with_runs`].
+    pub fn runs(&self) -> Option<&crate::runs::RunLog> {
+        self.0.runs.as_ref()
     }
 
     /// Publish one event and return its `seq`.
@@ -117,6 +133,11 @@ impl EventBus {
             no_session: session_id.is_none(),
             no_run: run_id.is_none(),
         });
+        // The run record follows the event before anyone can see it, so no subscriber's lag can lose an
+        // update and a run's record is final before its `run_end` goes out.
+        if let Some(runs) = &self.0.runs {
+            runs.record(&event);
+        }
         ring.push_back(event.clone());
         while ring.len() > RING_CAPACITY {
             ring.pop_front();
@@ -207,7 +228,17 @@ pub fn event_json(e: Event) -> Value {
     match e {
         Event::Text(t) => json!({"type": "text", "text": t}),
         Event::ToolStart { id, name, summary, risk } => json!({"type": "tool_start", "id": id, "name": name, "summary": summary, "risk": risk.label()}),
-        Event::ToolEnd { id, name, ok, preview } => json!({"type": "tool_end", "id": id, "name": name, "ok": ok, "preview": preview}),
+        Event::ToolEnd { id, name, ok, preview, audit_id, checkpoint } => {
+            let mut v = json!({"type": "tool_end", "id": id, "name": name, "ok": ok, "preview": preview});
+            // The run record (F3) takes these two from the event; clients ignore them.
+            if let Some(audit_id) = audit_id {
+                v["audit_id"] = json!(audit_id);
+            }
+            if let Some(checkpoint) = checkpoint {
+                v["checkpoint"] = json!(checkpoint);
+            }
+            v
+        }
         Event::Notice(t) => json!({"type": "notice", "text": t}),
         Event::Usage(u) => json!({"type": "usage", "prompt": u.prompt_tokens, "completion": u.completion_tokens}),
         Event::Model { name, why } => json!({"type": "model", "name": name, "why": why}),

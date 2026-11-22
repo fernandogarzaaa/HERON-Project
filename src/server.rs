@@ -200,6 +200,7 @@ pub fn router_with(app: Arc<App>, token: String, loopback_only: bool) -> Router 
         .route("/suggestions/{id}", post(answer_suggestion))
         .route("/settings", get(get_settings).post(set_settings))
         .route("/events", get(get_events))
+        .route("/runs", get(list_runs))
         .route("/risk-notice", get(get_risk_notice).post(accept_risk_notice))
         .route("/providers", get(list_providers))
         .route("/providers/{id}/accept-version", post(accept_provider_version))
@@ -1211,6 +1212,12 @@ async fn answer_approval(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>
     }
 }
 
+/// The runs in progress and the finished ones, newest first, without each run's checkpoint and audit
+/// lists: `{"runs": [{run_id, session_id, title, origin, status, started, ended, tool_calls}]}`.
+async fn list_runs(State(st): S) -> ApiResult {
+    Ok(Json(st.app.events.runs().map(|r| r.summaries()).unwrap_or_else(|| json!({"runs": []}))))
+}
+
 /// The core feature keys: `{"features": [{"key", "title", "on"}]}`.
 async fn list_features(State(st): S) -> ApiResult {
     let cfg = st.app.cfg();
@@ -1917,6 +1924,27 @@ mod tests {
         let err = h.app.agent(Arc::new(crate::permissions::DenyAll)).run_turn(&mut session, "look", &four, &crate::agent::null_sink()).await.unwrap_err();
         assert!(err.to_string().contains("bad context"), "{err:#}");
         assert!(h.app.store.load_messages(&session.id).unwrap().is_empty() && h.app.store.session_title(&session.id).is_empty());
+    }
+
+    /// `GET /api/runs` lists a finished run and a run still waiting, newest first, without the two lists.
+    #[tokio::test]
+    async fn runs_route_lists_runs_without_their_lists() {
+        let h = harness(scripted(vec![Message::assistant("ok")]), true, |_| {}).await;
+        assert_eq!(h.json("GET", "/runs", Value::Null).await, json!({"runs": []}));
+        let events = h.chat(json!({"message": "say ok"})).await.all().await;
+        let (sid, run) = (find(&events, "session")["id"].as_str().unwrap().to_string(), find(&events, "session")["run_id"].as_str().unwrap().to_string());
+        h.app.events.publish("s2", "r2", json!({"type": "session", "id": "s2", "run_id": "r2"}));
+        h.app.events.publish("s2", "r2", json!({"type": "approval", "id": "a", "tool": "shell"}));
+        let listed = h.json("GET", "/runs", Value::Null).await;
+        let runs = listed["runs"].as_array().unwrap();
+        assert_eq!(runs.len(), 2, "{listed}");
+        assert_eq!((runs[0]["run_id"].as_str(), runs[0]["status"].as_str()), (Some("r2"), Some("waiting")), "newest first");
+        assert_eq!((runs[1]["run_id"].as_str(), runs[1]["session_id"].as_str(), runs[1]["status"].as_str(), runs[1]["origin"].as_str()), (Some(run.as_str()), Some(sid.as_str()), Some("done"), Some("user")));
+        assert!(runs[1]["ended"].is_i64() && runs[0]["ended"].is_null());
+        for r in runs {
+            let keys: std::collections::BTreeSet<&str> = r.as_object().unwrap().keys().map(String::as_str).collect();
+            assert_eq!(keys, ["ended", "origin", "run_id", "session_id", "started", "status", "title", "tool_calls"].into_iter().collect(), "no checkpoints or audit_ids: {r}");
+        }
     }
 
     #[tokio::test]

@@ -60,7 +60,7 @@ fn write_risk(args: &Value, ctx: &ToolCtx) -> Effect {
     stricter(resolved, classify_path(&written_path(ctx, &raw), &ctx.workspace, &ctx.cfg, true))
 }
 
-fn content_hash(bytes: &[u8]) -> String {
+pub(crate) fn content_hash(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }

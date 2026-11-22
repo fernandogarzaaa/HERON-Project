@@ -20,7 +20,9 @@ pub enum Event {
     /// Streamed assistant text.
     Text(String),
     ToolStart { id: String, name: String, summary: String, risk: Effect },
-    ToolEnd { id: String, name: String, ok: bool, preview: String },
+    /// `audit_id` is the audit row this call appended; `checkpoint` is the one a file tool saved
+    /// (see [`Agent::execute_call`]). Both are for the run record (F3).
+    ToolEnd { id: String, name: String, ok: bool, preview: String, audit_id: Option<i64>, checkpoint: Option<crate::store::RecordedCheckpoint> },
     /// Out-of-band information for the user (compaction, sub-agent activity, ...).
     Notice(String),
     Usage(Usage),
@@ -777,9 +779,9 @@ impl Agent {
     }
 
     /// Append to the activity log, recording which model acted.
-    fn audit(&self, session_id: &str, tool: &str, args: &str, decision: &str, result: &str) {
+    fn audit(&self, session_id: &str, tool: &str, args: &str, decision: &str, result: &str) -> Option<i64> {
         let (provider, cli_version) = self.llm.audit_identity();
-        self.store.audit_row(&crate::store::AuditRow { session_id, tool, args, decision, result, provider: &provider, cli_version: &cli_version });
+        self.store.audit_row(&crate::store::AuditRow { session_id, tool, args, decision, result, provider: &provider, cli_version: &cli_version })
     }
 
     /// Execute one tool call through the permission gate. Always returns text for the model (errors included).
@@ -810,9 +812,9 @@ impl Agent {
             let decision = match verdict {
                 Verdict::Allow => "allowed",
                 Verdict::Deny(reason) => {
-                    self.audit(&ctx.session_id, name, &audit_args, "denied-by-policy", &reason);
+                    let audit_id = self.audit(&ctx.session_id, name, &audit_args, "denied-by-policy", &reason);
                     sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk });
-                    sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: format!("blocked: {reason}") });
+                    sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: format!("blocked: {reason}"), audit_id, checkpoint: None });
                     return format!("Permission denied: {reason}. Do not retry or work around this; tell the user.");
                 }
                 // Already allowed for this conversation by the user (never for risky actions, never once
@@ -845,9 +847,9 @@ impl Agent {
                         }
                         Approval::Deny(reason) => {
                             let reason = reason.unwrap_or_else(|| "the user declined this action".into());
-                            self.audit(&ctx.session_id, name, &audit_args, "denied-by-user", &reason);
+                            let audit_id = self.audit(&ctx.session_id, name, &audit_args, "denied-by-user", &reason);
                             sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk });
-                            sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: "Not allowed, so this was not done.".into() });
+                            sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: "Not allowed, so this was not done.".into(), audit_id, checkpoint: None });
                             return format!("Permission denied: {reason}. Do not retry or work around this; ask the user how they want to proceed.");
                         }
                     }
@@ -857,6 +859,10 @@ impl Agent {
             sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk });
             // The shell tool enforces its own (argument-controlled) timeout.
             let limit = if name == "shell" { Duration::from_secs(1900) } else { Duration::from_secs(self.cfg.agent.tool_timeout_secs) };
+            // A file tool's own checkpoint is the session's newest one that was not there before the
+            // call. File tools write, so they run one at a time, and a session has one active run.
+            let saves_checkpoint = matches!(name, "write_file" | "edit_file");
+            let newest_before = if saves_checkpoint { ctx.store.newest_checkpoint(&ctx.session_id) } else { None };
             let outcome = match tokio::time::timeout(limit, tool.call(&args, ctx)).await {
                 Ok(r) => r,
                 Err(_) => Err(anyhow::anyhow!("tool timed out after {}s", limit.as_secs())),
@@ -876,8 +882,9 @@ impl Agent {
                 }
                 Err(e) => (false, format!("Error: {e:#}")),
             };
-            self.audit(&ctx.session_id, name, &audit_args, decision, &redact_secrets(&preview(&text, 300)));
-            sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok, preview: preview(&text, 200) });
+            let audit_id = self.audit(&ctx.session_id, name, &audit_args, decision, &redact_secrets(&preview(&text, 300)));
+            let checkpoint = if saves_checkpoint { ctx.store.newest_checkpoint(&ctx.session_id).filter(|after| newest_before.as_ref() != Some(after)) } else { None };
+            sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok, preview: preview(&text, 200), audit_id, checkpoint });
             text
         })
     }
@@ -912,7 +919,7 @@ impl Agent {
             Ok(t) => (true, truncate_middle(&t, self.cfg.agent.max_tool_output_chars)),
             Err(e) => (false, format!("Error: sub-agent failed: {e:#}")),
         };
-        sink(Event::ToolEnd { id: call_id.into(), name: DELEGATE.into(), ok, preview: preview(&text, 200) });
+        sink(Event::ToolEnd { id: call_id.into(), name: DELEGATE.into(), ok, preview: preview(&text, 200), audit_id: None, checkpoint: None });
         text
     }
 
@@ -1033,6 +1040,66 @@ mod tests {
             token_limit: None,
         };
         (agent, llm)
+    }
+
+    /// The `tool_end` events of one turn.
+    async fn tool_ends(agent: &Agent) -> Vec<Event> {
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let events = Arc::new(Mutex::new(vec![]));
+        let ev = events.clone();
+        let sink: EventSink = Arc::new(move |e| ev.lock().unwrap().push(e));
+        agent.run_turn(&mut s, "go", &[], &sink).await.unwrap();
+        let all = events.lock().unwrap().clone();
+        all.into_iter().filter(|e| matches!(e, Event::ToolEnd { .. })).collect()
+    }
+
+    #[tokio::test]
+    async fn failed_edit_attaches_no_checkpoint() {
+        let ws = tempfile::tempdir().unwrap();
+        std::fs::write(ws.path().join("notes.md"), "alpha\n").unwrap();
+        let script = ScriptedLlm::new(vec![
+            ScriptedLlm::tool_call("write_file", json!({"path": "first.txt", "content": "one"})),
+            ScriptedLlm::tool_call("edit_file", json!({"path": "notes.md", "old_string": "not there", "new_string": "x"})),
+            ScriptedLlm::tool_call("edit_file", json!({"path": "notes.md", "old_string": "alpha", "new_string": "beta"})),
+            ScriptedLlm::tool_call("read_file", json!({"path": "notes.md"})),
+            Message::assistant("done"),
+        ]);
+        let (agent, _) = agent_with(script, Mode::Auto, Arc::new(DenyAll), ws.path());
+        let ends = tool_ends(&agent).await;
+        let field = |e: &Event| match e {
+            Event::ToolEnd { ok, audit_id, checkpoint, .. } => (*ok, *audit_id, checkpoint.clone()),
+            _ => unreachable!(),
+        };
+        let [write, missing, edit, read] = ends.iter().map(field).collect::<Vec<_>>().try_into().unwrap_or_else(|v: Vec<_>| panic!("{v:?}"));
+        // The first write saved a checkpoint, and the event carries it as the row has it.
+        let cp = write.2.clone().expect("a write that saved a checkpoint attaches it");
+        assert_eq!(Some(cp.clone()), agent.store.checkpoint_row(cp.id));
+        assert_eq!((cp.prev_hash.as_str(), cp.after_hash.is_some()), ("absent", true), "the file did not exist before");
+        assert!(cp.path.ends_with("first.txt"), "{cp:?}");
+        // The edit whose `old_string` is missing saved nothing, so it does not claim the write's
+        // checkpoint, which is still the session's newest.
+        assert!(!missing.0, "the edit failed");
+        assert_eq!(missing.2, None, "an older checkpoint is never claimed");
+        // The next edit saved its own, with the hash of the file's earlier contents.
+        let cp2 = edit.2.clone().expect("the edit that landed attaches its checkpoint");
+        assert_ne!(cp2.id, cp.id);
+        assert_eq!(cp2.prev_hash, crate::tools::fs::content_hash(b"alpha\n"));
+        assert!(cp2.path.ends_with("notes.md"));
+        // A tool that saves no checkpoint attaches none. Every call has its own audit row.
+        assert_eq!(read.2, None);
+        let ids: Vec<i64> = [&write, &missing, &edit, &read].iter().map(|f| f.1.expect("an audit id")).collect();
+        assert_eq!(agent.store.audit_log(10).unwrap().len(), 4);
+        assert!(ids.windows(2).all(|w| w[0] < w[1]), "{ids:?}");
+    }
+
+    #[tokio::test]
+    async fn denied_calls_carry_their_audit_id_and_no_checkpoint() {
+        let ws = tempfile::tempdir().unwrap();
+        let script = ScriptedLlm::new(vec![ScriptedLlm::tool_call("write_file", json!({"path": "no.txt", "content": "x"})), Message::assistant("done")]);
+        let (agent, _) = agent_with(script, Mode::Ask, Arc::new(DenyAll), ws.path());
+        let ends = tool_ends(&agent).await;
+        let [Event::ToolEnd { ok: false, audit_id: Some(_), checkpoint: None, .. }] = ends.as_slice() else { panic!("{ends:?}") };
+        assert_eq!(agent.store.audit_log(5).unwrap()[0].decision, "denied-by-user");
     }
 
     #[tokio::test]

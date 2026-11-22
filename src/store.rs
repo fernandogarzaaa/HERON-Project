@@ -5,7 +5,7 @@ use crate::llm::Message;
 use crate::util::now_ts;
 use anyhow::{anyhow, bail, Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -41,6 +41,17 @@ pub struct AuditRow<'a> {
     pub result: &'a str,
     pub provider: &'a str,
     pub cli_version: &'a str,
+}
+
+/// A checkpoint as a run record lists it (F3). `ts` is the row's own value, and `prev_hash` is the hash
+/// of the file's earlier contents, or `absent`, computed as `fs::confirmation` computes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordedCheckpoint {
+    pub id: i64,
+    pub path: String,
+    pub after_hash: Option<String>,
+    pub ts: i64,
+    pub prev_hash: String,
 }
 
 #[derive(Clone)]
@@ -1309,15 +1320,18 @@ impl Store {
 
     /// Append one entry that also says which model acted. New entries use hash version 2, which
     /// covers `provider` and `cli_version` too. The chain read and the append happen under one lock.
-    pub fn audit_row(&self, row: &AuditRow) {
+    /// Returns the new row's id, or `None` when the row could not be written.
+    pub fn audit_row(&self, row: &AuditRow) -> Option<i64> {
         let db = self.db();
         let ts = now_ts();
         let prev: String = db.query_row("SELECT COALESCE(hash,'') FROM audit ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).unwrap_or_default();
         let hash = audit_hash_v2(&prev, ts, row);
-        let _ = db.execute(
+        db.execute(
             "INSERT INTO audit(ts, session_id, tool, args, decision, result, provider, cli_version, hash_version, hash) VALUES (?,?,?,?,?,?,?,?,2,?)",
             params![ts, row.session_id, row.tool, row.args, row.decision, row.result, row.provider, row.cli_version, hash],
-        );
+        )
+        .ok()?;
+        Some(db.last_insert_rowid())
     }
 
     /// Check the activity log's hash chain. Returns how many entries were checked and the id of the
@@ -1387,6 +1401,31 @@ impl Store {
             })
             .optional()?;
         Ok(row.map(|(id, path, existed, prev, after)| (id, path, if existed != 0 { Some(prev.unwrap_or_default()) } else { None }, after)))
+    }
+
+    /// One checkpoint as a run record lists it, or None if it is gone. `prev_hash` is the hash of the
+    /// file's earlier contents, `absent` if there were none (the hash `fs::confirmation` uses).
+    pub fn checkpoint_row(&self, id: i64) -> Option<RecordedCheckpoint> {
+        type Row = (i64, i64, String, i64, Option<Vec<u8>>, Option<String>);
+        let row: Option<Row> = self
+            .db()
+            .query_row("SELECT id, ts, path, existed, prev, after_hash FROM checkpoints WHERE id=?", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
+            .optional()
+            .ok()
+            .flatten();
+        row.map(|(id, ts, path, existed, prev, after_hash)| RecordedCheckpoint {
+            id,
+            path,
+            after_hash,
+            ts,
+            prev_hash: if existed != 0 { crate::tools::fs::content_hash(&prev.unwrap_or_default()) } else { "absent".into() },
+        })
+    }
+
+    /// The conversation's newest checkpoint as a run record lists it (see [`Store::checkpoint_row`]).
+    pub fn newest_checkpoint(&self, session_id: &str) -> Option<RecordedCheckpoint> {
+        let id: i64 = self.db().query_row("SELECT id FROM checkpoints WHERE session_id=? ORDER BY id DESC LIMIT 1", [session_id], |r| r.get(0)).optional().ok().flatten()?;
+        self.checkpoint_row(id)
     }
 
     /// When a checkpoint was made (seconds), or None if it is gone.
@@ -1690,6 +1729,15 @@ impl Store {
         Ok(())
     }
 
+    /// Every key that starts with `prefix`, with its value, in key order. A `%` or `_` in the prefix
+    /// is literal.
+    pub fn kv_list_prefix(&self, prefix: &str) -> Result<Vec<(String, String)>> {
+        let db = self.db();
+        let mut st = db.prepare("SELECT k, v FROM kv WHERE substr(k, 1, length(?1)) = ?1 ORDER BY k")?;
+        let rows = st.query_map([prefix], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        Ok(rows)
+    }
+
     /// Remove `k`, so it reads as no value at all.
     pub fn kv_delete(&self, k: &str) -> Result<()> {
         self.db().execute("DELETE FROM kv WHERE k=?", [k])?;
@@ -1719,6 +1767,37 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_record_plumbing_in_the_store() {
+        let s = Store::in_memory().unwrap();
+        // `audit_row` returns the id of the row it appended.
+        let row = AuditRow { session_id: "s", tool: "t", args: "", decision: "allowed", result: "", provider: "", cli_version: "" };
+        let (a, b) = (s.audit_row(&row).unwrap(), s.audit_row(&row).unwrap());
+        assert_eq!(b, a + 1);
+        // A checkpoint as a run record lists it: the row's own `ts`, and the hash `fs::confirmation` uses.
+        assert_eq!(s.newest_checkpoint("s"), None);
+        let first = s.save_checkpoint("s", "/a", None, Some("h1")).unwrap();
+        let second = s.save_checkpoint("s", "/b", Some(b"old"), Some("h2")).unwrap();
+        s.save_checkpoint("other", "/c", None, None).unwrap();
+        let rec = s.checkpoint_row(second).unwrap();
+        assert_eq!((rec.id, rec.path.as_str(), rec.after_hash.as_deref()), (second, "/b", Some("h2")));
+        assert_eq!(rec.ts, s.checkpoint_made_at(second).unwrap().unwrap());
+        assert_eq!(rec.prev_hash, crate::tools::fs::content_hash(b"old"));
+        assert_eq!(s.checkpoint_row(first).unwrap().prev_hash, "absent");
+        assert_eq!(s.newest_checkpoint("s").map(|c| c.id), Some(second), "the session's own newest, not another session's");
+        assert_eq!(s.checkpoint_row(9999), None);
+        // An empty file existed: its hash is not `absent`.
+        let empty = s.save_checkpoint("s", "/e", Some(b""), None).unwrap();
+        assert_eq!(s.checkpoint_row(empty).unwrap().prev_hash, crate::tools::fs::content_hash(b""));
+        // `kv_list_prefix` is by prefix only, in key order, with `%` and `_` taken literally.
+        for (k, v) in [("run:b", "2"), ("run:a", "1"), ("runs", "x"), ("run", "x"), ("xrun:c", "x"), ("ru%:z", "x")] {
+            s.kv_set(k, v).unwrap();
+        }
+        assert_eq!(s.kv_list_prefix("run:").unwrap(), vec![("run:a".to_string(), "1".to_string()), ("run:b".to_string(), "2".to_string())]);
+        assert_eq!(s.kv_list_prefix("ru%").unwrap().len(), 1);
+        assert!(s.kv_list_prefix("nothing:").unwrap().is_empty());
+    }
 
     #[test]
     fn sessions_and_messages_roundtrip() {
