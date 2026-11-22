@@ -3,7 +3,7 @@
 
 use crate::agent::{Agent, EventSink, Session};
 use crate::events::EventBus;
-use crate::config::{Config, SavedRules};
+use crate::config::{Config, FeaturesConfig, SavedRules};
 use crate::llm::{Llm, SwappableLlm, Usage};
 use crate::memory::Memory;
 use crate::permissions::{Approver, DenyAll, Mode, Policy};
@@ -302,7 +302,8 @@ fn rules_json(rules: &[String]) -> String {
 enum ConfigFile {
     Missing,
     Unreadable(String),
-    Rules(SavedRules),
+    /// The standing rules, and the `[features]` table (a reload applies the second to the settings).
+    Rules(SavedRules, FeaturesConfig),
 }
 
 /// How a reload stands with `config.lock`.
@@ -324,7 +325,7 @@ fn read_config_rules(home: &std::path::Path) -> ConfigFile {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => ConfigFile::Missing,
         Err(e) => ConfigFile::Unreadable(format!("could not read {}: {e}", path.display())),
         Ok(text) => match toml::from_str::<Config>(&text) {
-            Ok(c) => ConfigFile::Rules(SavedRules { allow: c.permissions.allow, deny: c.permissions.deny }),
+            Ok(c) => ConfigFile::Rules(SavedRules { allow: c.permissions.allow, deny: c.permissions.deny }, c.features),
             Err(e) => ConfigFile::Unreadable(format!("could not parse {}: {e}", path.display())),
         },
     }
@@ -450,7 +451,7 @@ pub fn repair_saved_nevers(cfg: &Config, store: &Store) -> Result<NeversCheck> {
         return Ok(NeversCheck::Sound(rules.len()));
     }
     let file = match read_config_rules(&cfg.home) {
-        ConfigFile::Rules(rules) => Some(rules.deny),
+        ConfigFile::Rules(rules, _) => Some(rules.deny),
         ConfigFile::Missing => None,
         ConfigFile::Unreadable(why) => anyhow::bail!("the \"never\" rules saved in heron.db (`{DENY_KEY}`) are damaged, and were not rebuilt because {why}; fix config.toml, then run `heron doctor` again"),
     };
@@ -1139,7 +1140,7 @@ impl App {
 
     fn nevers_now(&self) -> Result<Vec<Never>> {
         let file_deny = match read_config_rules(&self.cfg().home) {
-            ConfigFile::Rules(rules) => rules.deny,
+            ConfigFile::Rules(rules, _) => rules.deny,
             ConfigFile::Missing | ConfigFile::Unreadable(_) => vec![],
         };
         let rules = union(self.saved_nevers()?, file_deny.iter().cloned());
@@ -1245,6 +1246,29 @@ impl App {
         Arc::new(move |e| {
             bus.publish(&sid, &rid, crate::events::event_json(e));
         })
+    }
+
+    /// A sink that publishes on the bus for a session with no run under way (an automation's own
+    /// steps, an MCP connection): the envelope's `run_id` is null. The first `tainted` goes out here.
+    pub fn session_sink(&self, session_id: &str) -> EventSink {
+        let (bus, sid) = (self.events.clone(), session_id.to_string());
+        Arc::new(move |e| {
+            bus.publish_notice(Some(&sid), None, crate::events::event_json(e));
+        })
+    }
+
+    /// One turn of the terminal conversation (`heron chat`). The agent is built here, for each turn,
+    /// from the settings as they are now. A feature key switched in this process (`update_config`)
+    /// is already in them, and one switched by another Heron on this home (the app's `heron serve`
+    /// writing `config.toml`) is taken in by the reload below, so either applies from the next turn.
+    /// Returns the reply and the turn's agent, for the caller to `learn` from the turn with.
+    pub async fn repl_turn(&self, approver: Arc<dyn Approver>, session: &mut Session, input: &str, sink: &EventSink) -> Result<(String, Agent)> {
+        // What another Heron on this home granted or revoked since the last turn applies to this one.
+        self.reload_rules();
+        let agent = self.agent(approver);
+        let result = agent.run_turn(session, input, &[], sink).await;
+        self.persist_rules();
+        Ok((result?, agent))
     }
 
     /// Count one open event stream that posts Heron's notices, until the returned guard is dropped.
@@ -1405,6 +1429,9 @@ impl App {
     /// heron.db is not written: the allow rules that came from the file are dropped, as for a file
     /// that cannot be read, and every "never" saved in heron.db that this one lacks is taken in, until
     /// a reload gets the lock. None is lifted meanwhile, as the holder may be half-way through a lift.
+    ///
+    /// The `[features]` table (the keys and `shortcuts_allowed`) is taken from the same read, when
+    /// the file is readable; otherwise the settings keep the table they have.
     fn take_config_rules(&self, saved_rules: &[String]) {
         let mut seen = self.lock_config_seen();
         // Under the file lock, so a read of the file made before another Heron lifts a "never" (from
@@ -1426,10 +1453,11 @@ impl App {
         };
         seen.lock_held = matches!(lock, FileLock::TimedOut(_));
         let (disk_allow, file_deny) = match file {
-            ConfigFile::Rules(rules) => {
+            ConfigFile::Rules(rules, features) => {
                 if seen.unreadable.take().is_some() {
                     eprintln!("heron: config.toml can be read again; its rules apply again.");
                 }
+                self.take_features(features);
                 (rules.allow, Some(rules.deny))
             }
             ConfigFile::Missing => {
@@ -1505,6 +1533,21 @@ impl App {
             // A deny rule that is not a valid glob was never loaded at startup either.
             let _ = self.policy.add_deny(r);
         }
+    }
+
+    /// Make the `[features]` table that another Heron on this home saved (`features`, read from
+    /// `config.toml` under the file lock) this one's own, so a key switched there applies from the
+    /// next turn here. A file that is missing, cannot be read, or is not locked leaves the settings as
+    /// they are: this is only called with a table that was read.
+    fn take_features(&self, features: FeaturesConfig) {
+        let mut slot = self.cfg.write().unwrap();
+        if slot.features == features {
+            return;
+        }
+        let mut cfg = (**slot).clone();
+        cfg.features = features;
+        cfg.revision += 1;
+        *slot = Arc::new(cfg);
     }
 
     /// Bring the policy from `seen` (the saved list as this one knows it) to `saved`. Rules this one
@@ -1677,17 +1720,19 @@ impl App {
         let outcome: Result<crate::workflow::RunRecord> = async {
             let workflow = crate::workflow::Workflow::parse(&serde_json::from_str::<serde_json::Value>(&job.workflow)?)?;
             let session = Session::create_with_origin(&self.store, &format!("⚙ {}", job.name), crate::agent::Origin::Automation)?;
+            // No run is on the bus for the automation itself (each agent step is its own), so the
+            // first taint from the trigger or a tool step is published for the session alone.
+            let sink = self.session_sink(&session.id);
             if event.is_some() {
-                // Whatever set a trigger off (a file name, an email) is outside content. No run is on
-                // the bus yet (each agent step is its own), so the first taint is not announced.
-                crate::taint::mark(&self.store, &crate::agent::null_sink(), &session.tainted, &session.id, crate::agent::ContentEntry::TriggerEvent, &job.name, trigger_detail(job));
+                // Whatever set a trigger off (a file name, an email) is outside content.
+                crate::taint::mark(&self.store, &sink, &session.tainted, &session.id, crate::agent::ContentEntry::TriggerEvent, &job.name, trigger_detail(job));
             }
             let mut ctx = agent.tool_ctx(&session.id);
             ctx.tainted = session.tainted.clone();
             // Addresses written into the automation are the user's own choice of destination.
             session.seen_urls.note(&job.workflow);
             ctx.seen_urls = session.seen_urls.clone();
-            let host = JobHost { app: self, agent: &agent, ctx, session: tokio::sync::Mutex::new(session), extra_tokens: Default::default(), attended, held: &held, refused: &refused };
+            let host = JobHost { app: self, agent: &agent, ctx, sink, session: tokio::sync::Mutex::new(session), extra_tokens: Default::default(), attended, held: &held, refused: &refused };
             let record = crate::workflow::run(&host, &workflow, event.as_deref()).await;
             let extra = *host.extra_tokens.lock().unwrap();
             spent.lock().unwrap().completion_tokens += extra;
@@ -2208,6 +2253,8 @@ struct JobHost<'a> {
     app: &'a App,
     agent: &'a Agent,
     ctx: crate::tools::ToolCtx,
+    /// Where a tool step's first taint of the session is published.
+    sink: EventSink,
     session: tokio::sync::Mutex<Session>,
     /// Tokens used by `ask` steps (agent steps are metered by the agent itself).
     extra_tokens: Mutex<u64>,
@@ -2297,7 +2344,7 @@ impl crate::workflow::Host for JobHost<'_> {
         if name == "delegate" {
             self.hold().map_err(|e| e.to_string())?;
         }
-        self.agent.call_tool(&self.ctx, name, args).await
+        self.agent.call_tool(&self.ctx, name, args, &self.sink).await
     }
 
     async fn ask(&self, prompt: &str) -> Result<String> {
@@ -2458,7 +2505,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let app = plain_app(dir.path(), vec![], |_| {}).await;
         let offered = |agent: &Agent| agent.tool_schemas().iter().any(|t| t["function"]["name"] == "test_feature_tool");
-        let runs = |agent: Agent| async move { agent.call_tool(&agent.tool_ctx("s"), "test_feature_tool", &json!({})).await };
+        let runs = |agent: Agent| async move { agent.call_tool(&agent.tool_ctx("s"), "test_feature_tool", &json!({}), &crate::agent::null_sink()).await };
         let before = app.agent(Arc::new(DenyAll));
         assert!(!offered(&before));
         assert!(runs(before.clone()).await.unwrap_err().contains("unknown tool"));
@@ -2477,6 +2524,116 @@ mod tests {
         assert!(runs(off).await.unwrap_err().contains("unknown tool"));
         assert!(!app.tools.names_for(&app.cfg()).contains(&"test_feature_tool".to_string()));
         assert!(app.tools.names().contains(&"test_feature_tool".to_string()), "still registered, only not available");
+    }
+
+    /// The terminal conversation builds its agent per turn: a feature key switched while it is open
+    /// (as `POST /api/features` does) changes the tools the very next turn offers, in the same session.
+    #[tokio::test]
+    async fn repl_agent_sees_feature_change_next_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        let llm = Arc::new(ScriptedLlm::new(vec![Message::assistant("one"), Message::assistant("two"), Message::assistant("three")]));
+        let app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap();
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        let offered = |n: usize| llm.requests.lock().unwrap()[n].tools.iter().any(|t| t["function"]["name"] == "test_feature_tool");
+        // `update_config` rebuilds the model client from the settings; put the scripted one back.
+        let switch = |on: bool| {
+            set_test_key(&app, on);
+            app.llm.swap(llm.clone());
+        };
+        let mut session = Session::create(&app.store, "").unwrap();
+        let sink = crate::agent::null_sink();
+        assert_eq!(app.repl_turn(Arc::new(DenyAll), &mut session, "hello", &sink).await.unwrap().0, "one");
+        assert!(!offered(0));
+        switch(true);
+        assert_eq!(app.repl_turn(Arc::new(DenyAll), &mut session, "again", &sink).await.unwrap().0, "two");
+        assert!(offered(1), "the next turn offers the tool switched on");
+        switch(false);
+        app.repl_turn(Arc::new(DenyAll), &mut session, "once more", &sink).await.unwrap();
+        assert!(!offered(2), "and drops it once switched off");
+        assert_eq!(session.messages.len(), 6, "all three turns ran in the one session");
+    }
+
+    /// A feature key the owner turns off in the app (a separate process writing `config.toml`) is gone
+    /// from the next turn of a `heron chat` that is already open, with no `update_config` of its own.
+    #[tokio::test]
+    async fn repl_sees_feature_change_from_another_process() {
+        let dir = tempfile::tempdir().unwrap();
+        let mk = |answers: Vec<Message>| {
+            let cfg = Config { home: dir.path().join("home"), agent: crate::config::AgentConfig { auto_memory: false, ..Default::default() }, ..Default::default() };
+            let llm = Arc::new(ScriptedLlm::new(answers));
+            (cfg, llm)
+        };
+        let (cfg, llm) = mk(vec![Message::assistant("one"), Message::assistant("two")]);
+        let chat = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap();
+        crate::risk_notice::accept_current(&chat.store).unwrap();
+        let offered = |n: usize| llm.requests.lock().unwrap()[n].tools.iter().any(|t| t["function"]["name"] == "test_feature_tool");
+        set_test_key(&chat, true);
+        chat.llm.swap(llm.clone());
+        let mut session = Session::create(&chat.store, "").unwrap();
+        let sink = crate::agent::null_sink();
+        chat.repl_turn(Arc::new(DenyAll), &mut session, "hello", &sink).await.unwrap();
+        assert!(offered(0), "the key is on, so the tool is offered");
+
+        // The other process, started on the same home after the key was switched on, switches it off.
+        let (cfg, other_llm) = mk(vec![]);
+        let app = App::assemble(Config::read_saved(&cfg.home).unwrap(), dir.path().join("ws"), Store::in_memory().unwrap(), other_llm).await.unwrap();
+        assert!(app.cfg().feature_on("test_key"), "it started from the file, with the key on");
+        set_test_key(&app, false);
+        assert!(chat.cfg().feature_on("test_key"), "nothing has told the open chat yet");
+
+        chat.repl_turn(Arc::new(DenyAll), &mut session, "again", &sink).await.unwrap();
+        assert!(!offered(1), "the next turn no longer offers the tool");
+        assert!(!chat.cfg().feature_on("test_key"));
+    }
+
+    /// The first taint of an automation's session, from a `do: tool` step or from the event that set
+    /// it off, publishes `tainted` on the bus for that session (it has no run), once.
+    #[tokio::test]
+    async fn first_taint_from_automation_step_publishes_tainted() {
+        use crate::events::Item;
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![], |_| {}).await;
+        let collect = |mut bus: crate::events::Subscription| async move {
+            let mut events = vec![];
+            while let Ok(Some(Item::Event(e))) = tokio::time::timeout(std::time::Duration::from_millis(200), bus.next()).await {
+                events.push(e);
+            }
+            events
+        };
+        // Two tool steps whose output is outside content; nothing else in the automation taints.
+        let bus = app.events.subscribe(Some(0));
+        let steps = json!([
+            {"id": "look", "do": "tool", "tool": "recent_activity", "args": {}},
+            {"id": "again", "do": "tool", "tool": "recent_activity", "args": {}}
+        ]);
+        let job = app.store.add_schedule("watch", "", "automation", 1, "").unwrap();
+        app.store.set_schedule_workflow(job, &steps.to_string()).unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        let events = collect(bus).await;
+        let tainted: Vec<_> = events.iter().filter(|e| e.kind() == "tainted").collect();
+        assert_eq!(tainted.len(), 1, "announced once: {events:?}");
+        let sid = &tainted[0].session_id;
+        assert_eq!(app.store.session_origin(sid).as_deref(), Some("automation"));
+        assert!(crate::taint::is_tainted(&app.store, sid));
+        let wire = tainted[0].envelope();
+        assert_eq!((wire["source"]["kind"].as_str(), wire["source"]["name"].as_str()), (Some("tool"), Some("recent_activity")), "{wire}");
+        assert_eq!((wire["session_id"].as_str(), wire["run_id"].is_null()), (Some(sid.as_str()), true), "{wire}");
+        assert_eq!(events.len(), 1, "a tool step's start and end belong to no run, so only the taint is published: {events:?}");
+
+        // Set off by an event: the trigger is the first taint, and it is published the same way.
+        let bus = app.events.subscribe(None);
+        let triggered = app.store.add_schedule("on mail", "@email:invoices", "automation", 0, "").unwrap();
+        app.store.set_schedule_workflow(triggered, &json!([{"id": "look", "do": "tool", "tool": "recent_activity", "args": {}}]).to_string()).unwrap();
+        let job = app.store.list_schedules().unwrap().into_iter().find(|j| j.id == triggered).unwrap();
+        app.run_job(&job, Some("Subject: invoice".into()), false).await;
+        let events = collect(bus).await;
+        let tainted: Vec<_> = events.iter().filter(|e| e.kind() == "tainted").collect();
+        assert_eq!(tainted.len(), 1, "{events:?}");
+        let wire = tainted[0].envelope();
+        assert_eq!((wire["source"]["kind"].as_str(), wire["source"]["name"].as_str(), wire["source"]["detail"].as_str()), (Some("trigger"), Some("on mail"), Some("email")), "{wire}");
+        assert_eq!(app.store.session_origin(&tainted[0].session_id).as_deref(), Some("automation"));
     }
 
     /// A call parked while its feature was on is refused, not run, once the feature is off; and runs
@@ -3404,7 +3561,7 @@ mod tests {
         let session = Session::create_with_origin(&app.store, "⚙ test", crate::agent::Origin::Automation).unwrap();
         let agent = app.agent(Arc::new(DenyAll));
         let (held, refused) = (std::sync::atomic::AtomicBool::new(false), std::sync::atomic::AtomicBool::new(false));
-        let host = JobHost { app: &app, agent: &agent, ctx: agent.tool_ctx(&session.id), session: tokio::sync::Mutex::new(session), extra_tokens: Default::default(), attended: true, held: &held, refused: &refused };
+        let host = JobHost { app: &app, agent: &agent, ctx: agent.tool_ctx(&session.id), sink: crate::agent::null_sink(), session: tokio::sync::Mutex::new(session), extra_tokens: Default::default(), attended: true, held: &held, refused: &refused };
 
         let asked = crate::workflow::Host::ask(&host, "Summarize the notes").await;
         let reflected = app.reflect_if_due().await;

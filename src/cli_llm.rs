@@ -766,8 +766,8 @@ pub async fn probe_status(cfg: &Config, spec: &CliSpec) -> ProviderStatus {
 /// allowlisted environment (`child_env`, which carries the account-folder override), inside the CLI's
 /// sandbox, and refused on macOS when there is no sandbox.
 async fn run_capture(llm: &CliLlm, path: &Path, args: &[&str], timeout_secs: u64) -> Result<String> {
-    let run_dir = make_run_folder()?;
-    let _dir_guard = RemoveTempDirOnDrop { dir: run_dir.clone() };
+    let dir_guard = private_temp_dir()?;
+    let run_dir = dir_guard.dir.clone();
     let (binary_dir, extra_read) = llm.binary_dirs(path);
     let sandbox = crate::sandbox::wrap(&llm.cfg, &run_dir, &crate::sandbox::Profile::Cli { spec: &llm.spec, binary_dir, extra_read });
     if sandbox.is_none() && crate::sandbox::required() {
@@ -1485,7 +1485,9 @@ impl std::fmt::Debug for CliLlm {
 
 /// Variables every CLI child gets from Heron's own environment (when set); see [`crate::child`].
 pub use crate::child::CHILD_ENV_ALLOWED;
-use crate::child::{kill_group, make_run_folder, RemoveTempDirOnDrop};
+use crate::child::{child_env_base, kill_group, own_var, private_temp_dir};
+#[cfg(test)]
+use crate::child::{make_run_folder, RemoveTempDirOnDrop};
 #[cfg(test)]
 use crate::child::remove_temp_dir;
 
@@ -1569,13 +1571,12 @@ impl CliLlm {
     /// `cli_allow_api_key` lists it. Tokens and keys in Heron's environment are not handed over, so a
     /// subscription turn cannot silently switch to metered billing.
     pub(crate) fn child_env(&self, run_dir: &Path) -> Vec<(String, String)> {
-        self.child_env_from(run_dir, &|k| std::env::var(k).ok())
+        self.child_env_from(run_dir, &own_var)
     }
 
     /// [`Self::child_env`], reading Heron's own variables through `get`.
     fn child_env_from(&self, run_dir: &Path, get: &dyn Fn(&str) -> Option<String>) -> Vec<(String, String)> {
-        let mut env: Vec<(String, String)> = CHILD_ENV_ALLOWED.iter().filter_map(|k| get(k).map(|v| (k.to_string(), v))).collect();
-        env.push(("TMPDIR".into(), run_dir.to_string_lossy().into_owned()));
+        let mut env = child_env_base(run_dir, get);
         if let Some(var) = self.spec.config_dir_env {
             if !self.config_dir.is_empty() {
                 env.push((var.to_string(), self.config_dir.clone()));
@@ -2195,13 +2196,11 @@ impl Llm for CliLlm {
 
 impl CliLlm {
     async fn turn(&self, req: ChatRequest, on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
-        let run_dir = make_run_folder()?;
         // Removes the folder when the turn returns or the future is dropped
         // (cancel). This is the only cleanup: explicit calls cannot run
         // on cancellation or on the early returns below.
-        let _dir_guard = RemoveTempDirOnDrop {
-            dir: run_dir.clone(),
-        };
+        let dir_guard = private_temp_dir()?;
+        let run_dir = dir_guard.dir.clone();
         self.turn_in(req, on_delta, &run_dir).await
     }
 

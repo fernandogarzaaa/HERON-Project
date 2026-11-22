@@ -4,7 +4,7 @@
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use clap::{Parser, Subcommand};
-use heron::agent::{Agent, Event, EventSink, Session};
+use heron::agent::{Event, EventSink, Session};
 use heron::app::App;
 use heron::config::Config;
 use heron::permissions::{Approval, ApprovalRequest, Approver, DenyAll, Mode};
@@ -165,34 +165,36 @@ impl Approver for TerminalApprover {
         }
         let st = style();
         let req = req.clone();
-        tokio::task::spawn_blocking(move || {
-            let head = if req.risk.high() { st.red("Heron wants to do something risky") } else { st.yellow("Heron wants permission") };
-            eprintln!("\n{head} — {} [{}]", st.bold(&req.tool), req.risk.label());
-            if req.tainted {
-                eprintln!("  {}", st.yellow("Content from outside (a web page, email or connected app) is in this conversation and may have influenced this request."));
-            }
-            for line in req.detail.lines().take(30) {
-                eprintln!("  {line}");
-            }
-            let can_always = req.can_always();
-            loop {
-                eprint!("{}", if can_always { "Allow? [y]es / [a]lways / [n]o: " } else { "Allow? [y]es / [n]o: " });
-                let _ = std::io::stderr().flush();
-                let mut line = String::new();
-                if std::io::stdin().read_line(&mut line).unwrap_or(0) == 0 {
-                    return Approval::Deny(None);
-                }
-                match line.trim().to_lowercase().as_str() {
-                    "y" | "yes" => return Approval::Once,
-                    "a" | "always" if can_always => return Approval::Always,
-                    "n" | "no" | "" => return Approval::Deny(None),
-                    other if other.len() > 3 => return Approval::Deny(Some(format!("the user declined and said: {other}"))),
-                    _ => continue,
-                }
-            }
-        })
-        .await
-        .unwrap_or(Approval::Deny(None))
+        tokio::task::spawn_blocking(move || terminal_ask(&req, st, &mut std::io::stdin().lock(), &mut std::io::stderr())).await.unwrap_or(Approval::Deny(None))
+    }
+}
+
+/// The terminal's approval question for `req`, written to `out`, with the answer read from `input`.
+/// "[a]lways" is offered, and accepted, only when [`ApprovalRequest::can_always`] says so.
+fn terminal_ask(req: &ApprovalRequest, st: Style, input: &mut dyn std::io::BufRead, out: &mut dyn Write) -> Approval {
+    let head = if req.risk.high() { st.red("Heron wants to do something risky") } else { st.yellow("Heron wants permission") };
+    let _ = writeln!(out, "\n{head} — {} [{}]", st.bold(&req.tool), req.risk.label());
+    if req.tainted {
+        let _ = writeln!(out, "  {}", st.yellow("Content from outside (a web page, email or connected app) is in this conversation and may have influenced this request."));
+    }
+    for line in req.detail.lines().take(30) {
+        let _ = writeln!(out, "  {line}");
+    }
+    let can_always = req.can_always();
+    loop {
+        let _ = write!(out, "{}", if can_always { "Allow? [y]es / [a]lways / [n]o: " } else { "Allow? [y]es / [n]o: " });
+        let _ = out.flush();
+        let mut line = String::new();
+        if input.read_line(&mut line).unwrap_or(0) == 0 {
+            return Approval::Deny(None);
+        }
+        match line.trim().to_lowercase().as_str() {
+            "y" | "yes" => return Approval::Once,
+            "a" | "always" if can_always => return Approval::Always,
+            "n" | "no" | "" => return Approval::Deny(None),
+            other if other.len() > 3 => return Approval::Deny(Some(format!("the user declined and said: {other}"))),
+            _ => continue,
+        }
     }
 }
 
@@ -283,20 +285,18 @@ fn ensure_risk_notice(app: &App) -> Result<()> {
     std::process::exit(RISK_NOTICE_EXIT);
 }
 
-async fn turn(app: &App, agent: &Agent, session: &mut Session, input: &str) -> Result<String> {
+async fn turn(app: &App, session: &mut Session, input: &str) -> Result<String> {
     let sink = terminal_sink();
-    // What another Heron on this home granted or revoked since the last turn applies to this one.
-    app.reload_rules();
+    // A new agent each turn, from the settings as they are now (see `App::repl_turn`).
     let result = tokio::select! {
-        r = agent.run_turn(session, input, &[], &sink) => r,
+        r = app.repl_turn(Arc::new(TerminalApprover), session, input, &sink) => r,
         _ = tokio::signal::ctrl_c() => {
             println!("\n{}", style().dim("  stopped"));
             return Ok(String::new());
         }
     };
     println!();
-    app.persist_rules();
-    let text = result?;
+    let (text, agent) = result?;
     let learned = agent.learn(session, input, &text).await;
     for l in learned {
         println!("{}", style().dim(&format!("  remembered: {l}")));
@@ -329,7 +329,6 @@ const HELP: &str = "Commands:
 async fn repl(app: Arc<App>, mut session: Session) -> Result<()> {
     let st = style();
     let cfg = app.cfg();
-    let agent = app.agent(Arc::new(TerminalApprover));
     println!("{} — {} · mode: {} · {}", st.bold(&cfg.agent.name), cfg.llm.model, app.policy.mode().name(), app.workspace.display());
     for s in &app.mcp_status {
         println!("{}", st.dim(&format!("  mcp {s}")));
@@ -386,7 +385,7 @@ async fn repl(app: Arc<App>, mut session: Session) -> Result<()> {
                     }
                     Err(e) => println!("{}", st.red(&e.to_string())),
                 },
-                "undo" => match heron::tools::fs::undo_last(&agent.tool_ctx(&session.id)) {
+                "undo" => match heron::tools::fs::undo_last(&app.agent(Arc::new(TerminalApprover)).tool_ctx(&session.id)) {
                     Ok(Some(what)) => println!("{}", st.dim(&format!("  undone: {what}"))),
                     Ok(None) => println!("{}", st.dim("  nothing to undo")),
                     // A refusal (the file has changed since) is an answer, not a reason to end the conversation.
@@ -397,7 +396,7 @@ async fn repl(app: Arc<App>, mut session: Session) -> Result<()> {
                     println!("{}", st.dim(&format!("  {} in / {} out · context ≈ {} tokens", u.prompt_tokens, u.completion_tokens, session.tokens())));
                 }
                 "compact" => {
-                    let mut tight = agent.clone();
+                    let mut tight = app.agent(Arc::new(TerminalApprover));
                     let mut c = (*tight.cfg).clone();
                     c.agent.context_tokens = 0;
                     tight.cfg = Arc::new(c);
@@ -407,7 +406,7 @@ async fn repl(app: Arc<App>, mut session: Session) -> Result<()> {
             }
             continue;
         }
-        if let Err(e) = turn(&app, &agent, &mut session, input).await {
+        if let Err(e) = turn(&app, &mut session, input).await {
             println!("{}", st.red(&format!("error: {e:#}")));
         }
     }
@@ -814,8 +813,7 @@ async fn real_main() -> Result<()> {
                 Some(id) => Session::load(&app.store, &id)?,
                 None => Session::create(&app.store, "")?,
             };
-            let agent = app.agent(Arc::new(TerminalApprover));
-            turn(&app, &agent, &mut session, &text).await.map(|_| ())
+            turn(&app, &mut session, &text).await.map(|_| ())
         }
         Cmd::Serve { port, no_open, print_endpoint } => {
             let cfg = app.cfg();
@@ -1110,6 +1108,56 @@ mod tests {
             "failed printing to stdout: Input/output error (os error 5)"
         ));
         assert!(!is_broken_pipe_print("something else entirely"));
+    }
+
+    /// What the terminal prompt (`TerminalApprover`'s question) and Telegram offer for a once-only
+    /// tool: one call only. The terminal offers and accepts "[a]lways" only where `can_always`
+    /// allows it, so an ordinary tool with the same effect is still offered "always".
+    #[test]
+    fn terminal_and_telegram_offer_once_only() {
+        use heron::permissions::{always_rule, Approval, ApprovalRequest, Effect};
+        let req = |tool: &str, risk: Effect| ApprovalRequest {
+            tool: tool.into(),
+            summary: "Get Notes".into(),
+            risk,
+            detail: "Run the shortcut Get Notes".into(),
+            tainted: false,
+            args: serde_json::json!({"name": "Get Notes"}),
+            session_id: "s".into(),
+            always_rule: always_rule(tool, "Get Notes", None),
+        };
+        let ask = |r: &ApprovalRequest, answers: &str| {
+            let mut out = Vec::new();
+            let got = terminal_ask(r, Style { on: false }, &mut answers.as_bytes(), &mut out);
+            (String::from_utf8(out).unwrap(), got)
+        };
+        // Effects that are asked about and are not high, so only the once-only check holds "always" back.
+        for risk in [Effect::WorkspaceWrite, Effect::ExternalWrite] {
+            assert!(!risk.high());
+            for tool in ["run_shortcut", "draft_email"] {
+                let r = req(tool, risk);
+                assert!(r.always_rule.is_some(), "a rule could be built, so only the once-only check holds it back");
+                // "a" is not an answer it takes: it asks again, and "y" approves the one call.
+                let (shown, got) = ask(&r, "a\ny\n");
+                assert_eq!(got, Approval::Once, "{tool} {risk:?}: {shown}");
+                assert!(!shown.contains("[a]lways"), "{tool} {risk:?}: {shown}");
+                assert_eq!(shown.matches("Allow? [y]es / [n]o: ").count(), 2, "{shown}");
+                // A typed "always" declines, as any other reply in words does.
+                assert!(matches!(ask(&r, "always\n").1, Approval::Deny(_)), "{tool} {risk:?}");
+                // Telegram asks yes or no, with no "always" and no "for this conversation".
+                let prompt = heron::telegram::approval_prompt(&r, "abc123");
+                assert!(prompt.starts_with(&format!("Heron wants permission ({tool}):")), "{prompt}");
+                assert!(prompt.ends_with("Reply yes abc123 or no abc123."), "{prompt}");
+                assert!(!prompt.to_lowercase().contains("always") && !prompt.contains("conversation"), "{prompt}");
+                assert!(!heron::agent::may_grant_for_conversation(tool, risk, false), "{tool}: the app would offer this conversation");
+            }
+            // The control: an ordinary tool with the same effect is offered "always", and "a" gives it.
+            let r = req("write_file", risk);
+            let (shown, got) = ask(&r, "a\n");
+            assert_eq!(got, Approval::Always, "{shown}");
+            assert!(shown.contains("Allow? [y]es / [a]lways / [n]o: "), "{shown}");
+            assert_eq!(heron::telegram::approval_prompt(&r, "abc123").replace("write_file", "run_shortcut"), heron::telegram::approval_prompt(&req("run_shortcut", risk), "abc123"));
+        }
     }
 
     #[test]
