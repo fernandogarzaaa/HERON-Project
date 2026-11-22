@@ -4068,6 +4068,58 @@
       "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/worktrees/F3t"
     }
   },
+  "F4-fix-1": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F4a"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F4-fix-1",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- undo_never_reads_through_a_symlink undo_refuses_a_symlinked_parent a_stale_confirmation_restores_nothing concurrent_undo_calls_restore_once restore_anyway_forces_only_its_own_file audit_chain_intact_after_undo",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging. No database schema change.",
+      "context": "Spec: docs/designs/heron-v1-features.md, F4 ('Restoring one checkpoint', 'The route') and base heron-v1.md file undo. Q7 paths (the audit, store.rs): append-only audit, no schema change. Inside your sandbox about 27 unrelated cargo tests fail; run your tests by name.",
+      "goal": "Fix three findings from the independent review of F4 (file:line in today's tree). (1) MEDIUM: 'Restore anyway' reads through a symlink planted at the file's path (src/tools/fs.rs ~568-597, read_if_there ~519, save_copy_beside ~443): a later run can ln -sf ~/.ssh/id_ed25519 notes/a.md, the undo reports a conflict, and Restore anyway copies the key's bytes into the workspace as a.md.before-undo-<ts>; a symlinked parent directory can make the restore write or remove files outside the workspace. Before reading or restoring, lstat the path and canonicalise its parent; if the path is a symlink or the canonical parent differs from the recorded path's parent, return a conflict that restore_anyway cannot override, and never read through a link. Apply it in the shared check so fs::undo (POST /api/undo) gets it too. Tests: undo_never_reads_through_a_symlink and undo_refuses_a_symlinked_parent. (2) MEDIUM: the confirmation string F4 returns (fs.rs ~654-670, server.rs ~918-921) is built from the checkpoint row only, so it stays valid after a newer checkpoint lands for the path or the file changes again, and then force skips both checks and overwrites that later write. Include the newest checkpoint id for the path and the file's current content hash in the confirmation, so any later change makes the old confirmation stop matching. Test: a_stale_confirmation_restores_nothing. (3) Two undo calls for the same run at once (server.rs ~903-943) can double-restore or delete another run's checkpoint, because drop_checkpoint deletes by id alone and ids are reused. Take a per-run lock in the handler, and delete with WHERE id=? AND ts=? AND path=?. Test: concurrent_undo_calls_restore_once. Also add the missing case: a run with two edited files, where a confirmation for the first must not force past the second (restore_anyway_forces_only_its_own_file). Fix nothing else."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fix F4 review findings (core)",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "F4a": {
     "attempts": [
       {
