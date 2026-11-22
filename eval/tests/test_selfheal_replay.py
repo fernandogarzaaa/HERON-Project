@@ -3,6 +3,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1063,6 +1064,625 @@ class CommandLine(unittest.TestCase):
         row = ROWS[3]
         proc = self.run_cli(self.dataset_task(row), self.write("o.json", row["reference"]), cwd=self.root)
         self.assertTrue(json.loads(proc.stdout)["pass"], proc.stderr)
+
+
+# ----------------------------------------------------------------------------- error paths and exit codes
+# testteeth only sees code that runs in this process, so these call the entry points directly.
+
+@contextlib.contextmanager
+def captured():
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        yield out, err
+
+
+class Scripts(unittest.TestCase):
+    """The scripts find their own siblings first, whatever else is on the path."""
+
+    def modules_seen_by(self, script, *names):
+        with tempfile.TemporaryDirectory() as shadow:
+            with open(os.path.join(shadow, "grade.py"), "w", encoding="utf-8") as handle:
+                handle.write("OUTCOME_KEYS = ()\nPASSING = {}\n")
+            os.mkdir(os.path.join(shadow, "genesis"))
+            for name in ("__init__.py", "json_verifier.py"):
+                with open(os.path.join(shadow, "genesis", name), "w", encoding="utf-8") as handle:
+                    handle.write("ENVELOPE_KEYS = set()\n")
+            code = ("import importlib.util, sys\n"
+                    "sys.path.insert(0, %r)\n"
+                    "spec = importlib.util.spec_from_file_location('probe', %r)\n"
+                    "module = importlib.util.module_from_spec(spec)\n"
+                    "spec.loader.exec_module(module)\n"
+                    "for name in %r:\n"
+                    "    print(getattr(module, name).__file__)\n") % (shadow, os.path.join(SELFHEAL, script), names)
+            proc = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return [os.path.realpath(line) for line in proc.stdout.splitlines()]
+
+    def test_run_replay_uses_its_own_grader(self):
+        self.assertEqual(self.modules_seen_by("run_replay.py", "grader"), [os.path.realpath(os.path.join(SELFHEAL, "grade.py"))])
+
+    def test_the_dataset_builder_uses_its_own_grader(self):
+        self.assertEqual(self.modules_seen_by("build_genesis_cases.py", "grader"), [os.path.realpath(os.path.join(SELFHEAL, "grade.py"))])
+
+    def test_the_verifier_uses_its_own_grader_and_the_genesis_package_beside_selfheal(self):
+        grader_file, jv_file = self.modules_seen_by("replay_verifier.py", "grader", "jv")
+        self.assertEqual(grader_file, os.path.realpath(os.path.join(SELFHEAL, "grade.py")))
+        self.assertEqual(jv_file, os.path.realpath(os.path.join(EVAL, "genesis", "json_verifier.py")))
+
+
+class RunCommand(unittest.TestCase):
+    def py(self, code, **kwargs):
+        return run_replay.run_command([sys.executable, "-c", code], **kwargs)
+
+    def test_the_output_is_stdout_then_stderr_with_the_exit_code(self):
+        self.assertEqual(self.py("import sys; sys.stdout.write('out|'); sys.stderr.write('err'); sys.exit(3)"), (3, "out|err"))
+        self.assertEqual(self.py("pass"), (0, ""))
+
+    def test_bytes_that_are_not_text_do_not_crash_it(self):
+        code, out = self.py("import sys; sys.stdout.buffer.write(b'a\\xffb')")
+        self.assertEqual((code, out), (0, "a\ufffdb"))
+
+    def test_it_runs_in_the_given_folder_with_the_given_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out = self.py("import os; print(os.getcwd()); print(os.environ['PROBE'])", cwd=tmp, env=dict(os.environ, PROBE="seen"))
+            self.assertEqual(out.split("\n")[:2], [os.path.realpath(tmp), "seen"])
+
+    def test_a_program_that_does_not_exist_is_exit_127_with_the_reason(self):
+        code, out = run_replay.run_command(["/no/such/program"])
+        self.assertEqual(code, 127)
+        self.assertIn("/no/such/program", out)
+
+    def test_a_program_that_outlives_its_timeout_is_exit_124(self):
+        self.assertEqual(self.py("import time; time.sleep(30)", timeout=0.5), (124, "timed out after 0.5s"))
+
+
+class ParseCaseLineNumbers(unittest.TestCase):
+    def message(self, text):
+        with self.assertRaises(run_replay.CaseError) as caught:
+            run_replay.parse_cases(text)
+        return str(caught.exception)
+
+    def test_a_stray_heading_is_reported_on_its_own_line(self):
+        self.assertEqual(self.message("# t\n" + case_text(1) + "## Nope\n"), "line 8: unexpected heading '## Nope'")
+
+    def test_a_misnumbered_case_is_reported_on_its_heading_line(self):
+        self.assertEqual(self.message("intro\n" + case_text(2)), "line 2: expected '## case 1', found '## case 2'")
+
+    def test_a_field_out_of_order_is_reported_on_its_own_line(self):
+        text = "## case 1\nfix: %s\nbase: %s\nreport: r.\nhidden: eval/selfheal/cases/1.patch\ntest: cargo --lib x\n" % (SHA_B, SHA_A)
+        self.assertEqual(self.message(text), "line 2: case 1 needs 'base: <value>', found 'fix: %s'" % SHA_B)
+
+
+class SelectorStatusEdges(unittest.TestCase):
+    def status(self, selector, code, out):
+        with mock.patch.object(run_replay, "run_command", return_value=(code, out)):
+            return run_replay.selector_status(selector, "/tree", {})
+
+    def test_the_test_runs_in_the_checkout_with_the_given_environment_and_an_hour(self):
+        with mock.patch.object(run_replay, "run_command", return_value=(0, "")) as run:
+            run_replay.selector_status("cargo --lib a", "/tree", {"E": "1"})
+        run.assert_called_once_with(["cargo", "test", "--locked", "--lib", "a"], cwd="/tree", env={"E": "1"}, timeout=3600)
+
+    def test_swift_needs_a_clean_exit_and_no_failures_to_pass(self):
+        self.assertEqual(self.status("swift T", 0, "Executed 2 tests, with 1 failure (0 unexpected)"), "failed")
+        self.assertEqual(self.status("swift T", 1, "Executed 2 tests, with 0 failures (0 unexpected)"), "failed")
+
+    def test_cargo_fails_on_a_failed_verdict_or_a_failure_count_alone(self):
+        self.assertEqual(self.status("cargo --lib a", 101, "test result: FAILED. 1 passed; 0 failed; 0 ignored"), "failed")
+        self.assertEqual(self.status("cargo --lib a", 0, "test result: ok. 1 passed; 1 failed; 0 ignored"), "failed")
+
+    def test_error_text_inside_a_test_that_ran_is_not_a_build_error(self):
+        out = "running 1 test\nerror: expected noise\ntest a ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored\n"
+        self.assertEqual(self.status("cargo --lib a", 0, out), "passed")
+
+    def test_a_compile_error_with_no_test_results_is_a_build_error(self):
+        self.assertEqual(self.status("cargo --lib a", 0, "error: could not compile `heron`\n"), "build_error")
+
+    def test_swift_runs_under_the_swift_named_by_the_environment(self):
+        with mock.patch.dict(os.environ, {"SWIFT": "/opt/swift"}):
+            self.assertEqual(run_replay.test_command("swift T")[0], "/opt/swift")
+
+
+class CheckPatchesCalls(unittest.TestCase):
+    """``check_patches`` against a scripted git: what it runs, and what it reports when git says no."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = tmp.name
+        self.case = dict(CASES[0], base=SHA_A, fix=SHA_B, hidden="one.patch")
+        self.patch = os.path.join(self.root, "one.patch")
+        with open(self.patch, "w", encoding="utf-8") as handle:
+            handle.write("diff\n")
+
+    def check(self, reply):
+        calls = []
+
+        def fake(argv, cwd=None, env=None, timeout=None):
+            calls.append((list(argv), env))
+            return reply(argv)
+
+        with mock.patch.object(run_replay, "run_command", fake):
+            return run_replay.check_patches([self.case], self.root, "mygit"), calls
+
+    def test_each_tree_is_read_into_its_own_temporary_index_and_the_patch_checked_against_it(self):
+        failures, calls = self.check(lambda argv: (0, ""))
+        self.assertEqual(failures, [])
+        self.assertEqual([argv for argv, _ in calls], [
+            ["mygit", "-C", self.root, "read-tree", SHA_A], ["mygit", "-C", self.root, "apply", "--cached", "--check", self.patch],
+            ["mygit", "-C", self.root, "read-tree", SHA_B], ["mygit", "-C", self.root, "apply", "--cached", "--check", self.patch]])
+        for read, apply in ((calls[0][1], calls[1][1]), (calls[2][1], calls[3][1])):
+            index = read["GIT_INDEX_FILE"]
+            self.assertEqual(index, apply["GIT_INDEX_FILE"])
+            self.assertEqual(os.path.basename(index), "index")
+            self.assertTrue(os.path.basename(os.path.dirname(index)).startswith("selfheal-index-"))
+            self.assertFalse(os.path.exists(os.path.dirname(index)), "the temporary index is removed")
+
+    def test_a_tree_git_cannot_read_is_reported_with_the_last_line_and_the_patch_is_not_tried(self):
+        failures, calls = self.check(lambda argv: (128, "warning: noise\nfatal: bad object aaaa\n"))
+        self.assertEqual(failures, [(1, "base", "fatal: bad object aaaa"), (1, "fix", "fatal: bad object aaaa")])
+        self.assertTrue(all("read-tree" in argv for argv, _ in calls))
+
+    def test_a_patch_that_does_not_apply_is_reported_with_the_last_line_of_git_output(self):
+        def reply(argv):
+            return (1, "error: first\nerror: patch failed: src/a.rs:1\n") if "apply" in argv else (0, "")
+        failures, _ = self.check(reply)
+        self.assertEqual(failures, [(1, "base", "error: patch failed: src/a.rs:1"), (1, "fix", "error: patch failed: src/a.rs:1")])
+
+    def test_a_failure_with_no_output_reports_its_exit_code(self):
+        failures, _ = self.check(lambda argv: (3, " \n") if "apply" in argv else (0, ""))
+        self.assertEqual([why for _, _, why in failures], ["exit 3", "exit 3"])
+
+    def test_only_the_commit_that_fails_is_reported(self):
+        failures, _ = self.check(lambda argv: (1, "no\n") if argv[-1] == SHA_A else (0, ""))
+        self.assertEqual(failures, [(1, "base", "no")])
+
+
+class WorktreeLifecycle(unittest.TestCase):
+    def setUp(self):
+        self.calls, self.parents = [], []
+        self.addCleanup(lambda: [shutil.rmtree(p, ignore_errors=True) for p in self.parents])
+
+    def fake(self, add=(0, ""), on_add=None):
+        def run(argv, cwd=None, env=None, timeout=None):
+            self.calls.append(list(argv))
+            if "add" in argv:
+                tree = argv[-2]
+                self.parents.append(os.path.dirname(tree))
+                if on_add:
+                    on_add(os.path.dirname(tree))
+                if add[0] == 0:
+                    os.makedirs(tree)
+                return add
+            shutil.rmtree(argv[-1], ignore_errors=True)  # what `git worktree remove` does to the checkout
+            return 0, ""
+        return mock.patch.object(run_replay, "run_command", run)
+
+    def test_a_detached_checkout_is_made_and_removed_with_its_folder(self):
+        with self.fake():
+            with run_replay.worktree(SHA_A, "/repo", "mygit") as tree:
+                self.assertEqual(os.path.basename(tree), "tree")
+                self.assertTrue(os.path.isdir(tree))
+                self.assertEqual(self.calls, [["mygit", "-C", "/repo", "worktree", "add", "--detach", tree, SHA_A]])
+        self.assertEqual(self.calls[1], ["mygit", "-C", "/repo", "worktree", "remove", "--force", tree])
+        self.assertFalse(os.path.exists(os.path.dirname(tree)))
+
+    def test_it_is_cleaned_up_when_the_body_raises(self):
+        with self.fake():
+            with self.assertRaises(KeyError):
+                with run_replay.worktree(SHA_A, "/repo") as tree:
+                    raise KeyError("boom")
+        self.assertEqual(self.calls[-1][3:6], ["worktree", "remove", "--force"])
+        self.assertFalse(os.path.exists(os.path.dirname(tree)))
+
+    def test_cleanup_does_not_fail_when_the_folder_is_already_gone(self):
+        with self.fake():
+            with run_replay.worktree(SHA_A, "/repo") as tree:
+                shutil.rmtree(os.path.dirname(tree))
+
+    def test_a_checkout_git_refuses_raises_with_the_short_commit_and_leaves_nothing_behind(self):
+        with self.fake(add=(128, " fatal: invalid reference\n")):
+            with self.assertRaises(RuntimeError) as caught:
+                with run_replay.worktree(SHA_A, "/repo"):
+                    self.fail("the body must not run")
+        self.assertEqual(str(caught.exception), "git worktree add aaaaaaaaaaaa failed: fatal: invalid reference")
+        self.assertEqual(len(self.calls), 1, "nothing to remove")
+        self.assertFalse(os.path.exists(self.parents[0]))
+
+    def test_a_refused_checkout_is_still_a_runtime_error_when_its_folder_vanished(self):
+        with self.fake(add=(128, "fatal: x"), on_add=shutil.rmtree):
+            with self.assertRaises(RuntimeError):
+                with run_replay.worktree(SHA_A, "/repo"):
+                    pass
+
+
+class HiddenTestOnACheckout(unittest.TestCase):
+    def test_the_hidden_patch_is_applied_three_way_and_conflicts_are_false(self):
+        for code, want in ((0, True), (1, False)):
+            calls = []
+            with mock.patch.object(run_replay, "run_command", lambda argv, **kw: (calls.append(list(argv)), (code, ""))[1]):
+                self.assertIs(run_replay.apply_hidden(CASES[0], "/t", "/repo", "mygit"), want)
+            self.assertEqual(calls, [["mygit", "-C", "/t", "apply", "--3way", os.path.join("/repo", CASES[0]["hidden"])]])
+
+    def status(self, **state):
+        seen = []
+
+        @contextlib.contextmanager
+        def tree(commit, root=None):
+            seen.append(commit)
+            yield "/tree"
+
+        with mock.patch.object(run_replay, "run_command", FakeWorld(**state)), mock.patch.object(run_replay, "worktree", tree):
+            return run_replay.hidden_status(CASES[0], SHA_A, {}), seen
+
+    def test_a_hidden_test_that_does_not_apply_is_ungradable(self):
+        self.assertEqual(self.status(applies=False), ("ungradable", [SHA_A]))
+
+    def test_an_applied_hidden_test_reports_what_it_did_on_that_commit(self):
+        for hidden in ("passed", "failed", "missing"):
+            with self.subTest(hidden):
+                self.assertEqual(self.status(hidden=hidden), (hidden, [SHA_A]))
+
+    def test_the_tool_environment_gives_cargo_its_own_target_folder(self):
+        with mock.patch.dict(os.environ, {"KEEP": "me"}, clear=True):
+            env = run_replay.tool_env()
+            self.assertEqual(env, {"KEEP": "me", "CARGO_TARGET_DIR": os.path.join(REPO, "target", "selfheal-replay")})
+            self.assertNotIn("CARGO_TARGET_DIR", os.environ)
+
+
+class Validate(unittest.TestCase):
+    GOOD_ALL = {(n, w): s for n in range(1, 11) for w, s in (("base", "failed"), ("fix", "passed"))}
+
+    def validate(self, statuses, only=None, cases=None):
+        calls = []
+
+        def fake(case, commit, env, root=None):
+            which = "base" if commit == case["base"] else "fix"
+            calls.append((case["n"], which, env))
+            return statuses[(case["n"], which)]
+
+        with mock.patch.object(run_replay, "hidden_status", fake), mock.patch.object(run_replay, "tool_env", return_value={"E": "1"}), captured() as (out, _):
+            bad = run_replay.validate(cases or CASES[:4], only)
+        return bad, out.getvalue(), calls
+
+    def test_a_case_is_good_only_when_the_test_fails_on_base_and_passes_on_fix(self):
+        statuses = {(1, "base"): "failed", (1, "fix"): "passed", (2, "base"): "failed", (2, "fix"): "failed",
+                    (3, "base"): "passed", (3, "fix"): "passed", (4, "base"): "passed", (4, "fix"): "failed"}
+        bad, out, _ = self.validate(statuses)
+        self.assertEqual(bad, 3)
+        self.assertEqual(out, "case 1: ok (base: failed, fix: passed)\ncase 2: BAD (base: failed, fix: failed)\n"
+                              "case 3: BAD (base: passed, fix: passed)\ncase 4: BAD (base: passed, fix: failed)\n")
+
+    def test_no_bad_cases_is_zero(self):
+        bad, out, _ = self.validate(self.GOOD_ALL)
+        self.assertEqual(bad, 0)
+        self.assertEqual(len(out.splitlines()), 4)
+
+    def test_each_commit_is_tried_base_first_in_the_tool_environment(self):
+        _, _, calls = self.validate(self.GOOD_ALL, cases=CASES[:2])
+        self.assertEqual(calls, [(1, "base", {"E": "1"}), (1, "fix", {"E": "1"}), (2, "base", {"E": "1"}), (2, "fix", {"E": "1"})])
+
+    def test_only_the_named_cases_are_run(self):
+        _, out, calls = self.validate(self.GOOD_ALL, only=[2, 4])
+        self.assertEqual({n for n, _, _ in calls}, {2, 4})
+        self.assertEqual([line.split(":")[0] for line in out.splitlines()], ["case 2", "case 4"])
+
+
+class ReplayReport(unittest.TestCase):
+    def go(self, results, threshold=1, only=None, build=(0, ""), heron=True, record=(0, ""), cases=None):
+        world, queue, cases_given = FakeWorld(), iter(results), []
+
+        def run(argv, cwd=None, env=None, timeout=None):
+            if argv[:2] == ["cargo", "build"]:
+                self.build = (list(argv), cwd)
+                return build
+            if "record-replay" in argv:
+                return record
+            return world(argv, cwd=cwd, env=env, timeout=timeout)
+
+        def case(*args, **kwargs):
+            cases_given.append(args)
+            return next(queue)
+
+        with tempfile.NamedTemporaryFile() as handle:
+            path = handle.name if heron else handle.name + ".missing"
+            with mock.patch.object(run_replay, "HERON", path), mock.patch.object(run_replay, "run_command", run), \
+                    mock.patch.object(run_replay, "hidden_status", return_value="failed"), \
+                    mock.patch.object(run_replay, "tool_env", return_value={"E": "1"}), \
+                    mock.patch.object(run_replay, "replay_case", case), captured() as (out, err):
+                code = run_replay.replay(cases or CASES[:1], threshold, only)
+        self.heron, self.cases_given = path, cases_given
+        return code, out.getvalue(), err.getvalue()
+
+    def test_a_case_is_printed_as_pass_or_ungradable_with_its_verdict(self):
+        _, out, _ = self.go([(True, "auto_eligible", dict(GOOD))])
+        self.assertEqual(out, "case 1: pass (auto_eligible)\nreplay: 1/1\nauto-eligible: 1\n")
+        _, out, _ = self.go([(False, "needs_owner", None)])
+        self.assertEqual(out, "case 1: ungradable (needs_owner)\nreplay: 0/1\nauto-eligible: 0\n")
+
+    def test_a_failed_case_prints_its_outcome_with_sorted_keys(self):
+        outcome = dict(GOOD, suite_passed=False)
+        _, out, _ = self.go([(False, "auto_eligible", outcome)])
+        self.assertEqual(out, "case 1: fail (auto_eligible)\n  outcome: %s\nreplay: 0/1\nauto-eligible: 1\n" % json.dumps(outcome, sort_keys=True))
+        self.assertLess(out.index("hidden_failed_on_base"), out.index("patch_empty"))
+
+    def test_each_case_gets_the_built_heron_the_base_status_and_the_tool_environment(self):
+        self.go([(True, "needs_owner", dict(GOOD))])
+        self.assertEqual(self.cases_given, [(CASES[0], self.heron, "failed", {"E": "1"})])
+
+    def test_heron_is_built_from_the_checkout_with_a_locked_release_build(self):
+        self.go([(True, "needs_owner", dict(GOOD))])
+        self.assertEqual(self.build, (["cargo", "build", "--release", "--locked"], REPO))
+
+    def test_a_build_that_fails_is_reported_with_the_last_2000_characters(self):
+        text = "x" * 2500 + "END"
+        code, out, err = self.go([], build=(101, text), heron=True)
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(err, "run_replay: building heron failed:\n%s\n" % text[-2000:])
+
+    def test_a_build_that_leaves_no_binary_is_a_failure_too(self):
+        code, _, err = self.go([], build=(0, "built nothing"), heron=False)
+        self.assertEqual(code, 1)
+        self.assertEqual(err, "run_replay: building heron failed:\nbuilt nothing\n")
+
+    def test_a_failed_build_with_a_stale_binary_is_still_a_failure(self):
+        code, _, err = self.go([], build=(101, "error"), heron=True)
+        self.assertEqual(code, 1)
+        self.assertIn("building heron failed", err)
+
+    def test_a_result_that_cannot_be_recorded_exits_one_even_above_the_threshold(self):
+        code, out, err = self.go([(True, "auto_eligible", dict(GOOD))], threshold=1, record=(1, " disk full \n"))
+        self.assertEqual(code, 1)
+        self.assertEqual(err, "run_replay: record-replay failed: disk full\n")
+        self.assertIn("replay: 1/1\n", out)
+
+
+class MainDispatch(unittest.TestCase):
+    def main(self, *argv, replay=0, validate=0, threshold=9):
+        with mock.patch.object(run_replay, "replay", return_value=replay) as replay_mock, \
+                mock.patch.object(run_replay, "validate", return_value=validate) as validate_mock, \
+                mock.patch.object(run_replay, "configured_threshold", return_value=threshold) as threshold_mock, \
+                captured() as (out, err):
+            code = run_replay.main(list(argv))
+        return code, replay_mock, validate_mock, threshold_mock, out.getvalue(), err.getvalue()
+
+    def test_the_options_are_all_described_in_help(self):
+        with mock.patch.dict(os.environ, {"COLUMNS": "400"}), captured() as (out, _), self.assertRaises(SystemExit) as caught:
+            run_replay.main(["--help"])
+        self.assertEqual(caught.exception.code, 0)
+        text = out.getvalue()
+        self.assertIn("usage: run_replay.py", text)
+        self.assertIn("The self-heal replay suite (item 20)", text)
+        for words in ("the cases file", "run only this case (repeatable; nothing is recorded)", "cases that must pass",
+                      "check each hidden test fails on base and passes on fix", "check each hidden patch applies to base and fix"):
+            self.assertIn(words, text)
+
+    def test_case_is_repeatable_and_threshold_overrides_the_config(self):
+        code, replay, validate, threshold, _, _ = self.main("--case", "2", "--case", "3", "--threshold", "4", replay=0)
+        self.assertEqual(code, 0)
+        replay.assert_called_once_with(CASES, 4, [2, 3])
+        threshold.assert_not_called()
+        validate.assert_not_called()
+
+    def test_a_threshold_of_zero_is_a_threshold(self):
+        _, replay, _, threshold, _, _ = self.main("--threshold", "0")
+        replay.assert_called_once_with(CASES, 0, None)
+        threshold.assert_not_called()
+
+    def test_without_threshold_the_configured_one_is_used_and_the_replays_result_is_the_exit_code(self):
+        code, replay, _, threshold, _, _ = self.main(replay=1, threshold=7)
+        self.assertEqual(code, 1)
+        replay.assert_called_once_with(CASES, 7, None)
+        threshold.assert_called_once_with()
+        self.assertEqual(self.main(replay=0)[0], 0)
+
+    def test_validate_exits_one_when_any_case_is_bad_and_runs_no_replay(self):
+        code, replay, validate, threshold, _, _ = self.main("--validate", "--case", "3", validate=2)
+        self.assertEqual(code, 1)
+        validate.assert_called_once_with(CASES, [3])
+        replay.assert_not_called()
+        threshold.assert_not_called()
+        self.assertEqual(self.main("--validate", validate=0)[0], 0)
+
+    def test_a_cases_file_that_will_not_load_exits_two_with_the_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "cases.md")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("## case 1\nbase: nothing\n")
+            code, replay, _, _, out, err = self.main("--cases", path)
+            self.assertEqual((code, out), (2, ""))
+            self.assertTrue(err.startswith("run_replay: case 1: expected 5 fields"), err)
+            self.assertEqual(err.count("\n"), 1)
+            code, _, _, _, _, err = self.main("--cases", os.path.join(tmp, "missing.md"))
+        self.assertEqual(code, 2)
+        self.assertTrue(err.startswith("run_replay: ") and "missing.md" in err, err)
+        replay.assert_not_called()
+
+    def test_a_threshold_in_the_config_that_is_not_usable_exits_two(self):
+        with tempfile.TemporaryDirectory() as home:
+            config = os.path.join(home, "config.toml")
+            for text in ('[harness2]\nreplay_threshold = "six"\n', "[harness2\n"):
+                with self.subTest(text):
+                    with open(config, "w", encoding="utf-8") as handle:
+                        handle.write(text)
+                    with mock.patch.dict(os.environ, {"HERON_HOME": home}), mock.patch.object(run_replay, "replay") as replay, captured() as (out, err):
+                        code = run_replay.main([])
+                    self.assertEqual((code, out.getvalue()), (2, ""))
+                    self.assertTrue(err.getvalue().startswith("run_replay: "), err.getvalue())
+                    self.assertEqual(err.getvalue().count("\n"), 1)
+                    replay.assert_not_called()
+
+    def test_the_config_error_names_the_file_and_the_key(self):
+        with tempfile.TemporaryDirectory() as home:
+            config = os.path.join(home, "config.toml")
+            with open(config, "w", encoding="utf-8") as handle:
+                handle.write('[harness2]\nreplay_threshold = "six"\n')
+            with mock.patch.dict(os.environ, {"HERON_HOME": home}), captured() as (_, err):
+                run_replay.main([])
+        self.assertEqual(err.getvalue(), "run_replay: %s: [harness2] replay_threshold must be a whole number\n" % config)
+
+    def test_a_flag_nobody_defined_is_a_usage_error(self):
+        with captured(), self.assertRaises(SystemExit) as caught:
+            run_replay.main(["--nope"])
+        self.assertEqual(caught.exception.code, 2)
+
+
+class DatasetBuilderCommand(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = os.path.join(tmp.name, "genesis_cases.jsonl")
+        patcher = mock.patch.object(build_genesis_cases, "CASES_PATH", self.path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.expected = build_genesis_cases.render(build_genesis_cases.build(CASES))
+
+    def main(self, *argv):
+        with captured() as (out, err):
+            code = build_genesis_cases.main(list(argv))
+        return code, out.getvalue(), err.getvalue()
+
+    def read(self):
+        with open(self.path, "r", encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_with_no_argument_it_writes_the_dataset(self):
+        self.assertEqual(self.main(), (0, "", ""))
+        self.assertEqual(self.read(), self.expected)
+
+    def test_with_no_argument_it_replaces_a_stale_dataset(self):
+        with open(self.path, "w", encoding="utf-8") as handle:
+            handle.write("stale\n")
+        self.assertEqual(self.main()[0], 0)
+        self.assertEqual(self.read(), self.expected)
+
+    def test_check_is_silent_and_writes_nothing_when_the_dataset_is_current(self):
+        with open(self.path, "w", encoding="utf-8") as handle:
+            handle.write(self.expected)
+        os.utime(self.path, (1_000_000, 1_000_000))
+        self.assertEqual(self.main("--check"), (0, "", ""))
+        self.assertEqual(os.stat(self.path).st_mtime, 1_000_000)
+
+    def test_check_exits_one_and_says_so_when_the_dataset_is_stale_and_leaves_it_alone(self):
+        with open(self.path, "w", encoding="utf-8") as handle:
+            handle.write("stale\n")
+        code, out, err = self.main("--check")
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(err, "build_genesis_cases: genesis_cases.jsonl is out of date; run build_genesis_cases.py\n")
+        self.assertEqual(self.read(), "stale\n")
+
+    def test_check_exits_one_when_there_is_no_dataset_and_does_not_create_one(self):
+        code, _, err = self.main("--check")
+        self.assertEqual(code, 1)
+        self.assertIn("is out of date", err)
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_anything_else_is_a_usage_error_and_writes_nothing(self):
+        for argv in (["--bogus"], ["--check", "--check"], ["x"]):
+            with self.subTest(argv):
+                code, out, err = self.main(*argv)
+                self.assertEqual((code, out), (2, ""))
+                self.assertEqual(err, "usage: build_genesis_cases.py [--check]\n")
+                self.assertFalse(os.path.exists(self.path))
+
+
+class VerifierCommand(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = tmp.name
+
+    def write(self, name, value):
+        path = os.path.join(self.root, name)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(value if isinstance(value, str) else json.dumps(value))
+        return path
+
+    def main(self, *argv):
+        with captured() as (out, err):
+            code = rv.main(list(argv))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_fewer_than_two_arguments_is_a_usage_error(self):
+        for argv in ([], ["only-one"]):
+            with self.subTest(argv):
+                self.assertEqual(self.main(*argv), (2, "", "usage: replay_verifier.py <task.json> <completion file>...\n"))
+
+    def test_a_task_and_one_completion_is_enough(self):
+        code, out, err = self.main(self.write("t.json", task()), self.write("c.json", record()))
+        self.assertEqual((code, out, err), (0, '{"pass": true, "score": 1.0, "reward": 1}\n', "replay_verifier: accepted\n"))
+
+    def test_a_rejection_is_exit_zero_with_a_zero_verdict_and_the_reason(self):
+        code, out, err = self.main(self.write("t.json", task()), self.write("c.json", record(**{"pass": False})))
+        self.assertEqual((code, out), (0, '{"pass": false, "score": 0.0, "reward": 0}\n'))
+        self.assertEqual(err, "replay_verifier: rejected: the outcome passes the grade but the record says otherwise\n")
+
+    def test_the_first_completion_that_is_a_file_is_the_one_judged(self):
+        good, bad = self.write("good.json", record()), self.write("bad.json", record(**{"pass": False}))
+        placeholder, the_task = "{completion_file}", self.write("t.json", task())
+        self.assertTrue(json.loads(self.main(the_task, placeholder, good, bad)[1])["pass"])
+        self.assertFalse(json.loads(self.main(the_task, bad, placeholder, good)[1])["pass"])
+
+    def test_no_completion_file_is_exit_two_naming_what_was_given(self):
+        code, out, err = self.main(self.write("t.json", task()), "{completion_file}", "{output_file}")
+        self.assertEqual((code, out), (2, ""))
+        self.assertEqual(err, "replay_verifier: none of ['{completion_file}', '{output_file}'] is a file\n")
+
+    def test_a_task_that_is_unreadable_or_malformed_is_exit_two_with_the_reason(self):
+        completion = self.write("c.json", record())
+        for task_file, reason in ((os.path.join(self.root, "missing.json"), "No such file"), (self.write("bad.json", "not json"), "Expecting value"),
+                                  (self.write("list.json", "[]"), "the task must be a JSON object"),
+                                  (self.write("fix.json", task(fix="x")), "fix must be 40 lowercase hex digits")):
+            with self.subTest(reason):
+                code, out, err = self.main(task_file, completion)
+                self.assertEqual((code, out), (2, ""))
+                self.assertTrue(err.startswith("replay_verifier: malformed task: "), err)
+                self.assertIn(reason, err)
+                self.assertEqual(err.count("\n"), 1)
+
+    def test_load_task_returns_the_normalized_task(self):
+        self.assertEqual(rv.load_task(self.write("t.json", {"id": "x", "context": task()})), task())
+        self.assertEqual(rv.load_task(self.write("u.json", task())), task())
+
+
+class TaskEnvelope(unittest.TestCase):
+    def test_a_replay_task_at_the_top_level_may_carry_genesis_envelope_keys(self):
+        self.assertEqual(rv.normalize_task(dict(task(), id="x", kind="reference-based", source="cases.md")), task())
+
+    def test_a_replay_task_under_context_may_not(self):
+        with self.assertRaises(ValueError) as caught:
+            rv.normalize_task({"context": dict(task(), id="x")})
+        self.assertIn("unknown keys: id", str(caught.exception))
+
+    def test_a_record_whose_pass_is_not_a_boolean_is_named(self):
+        for wrong in ("yes", 1, 0, None):
+            with self.subTest(wrong):
+                with self.assertRaises(rv.jv.Reject) as caught:
+                    rv.check_record(record(**{"pass": wrong}))
+                self.assertIn("pass must be true or false", str(caught.exception))
+                ok, why = small_verdict(record(**{"pass": wrong}))
+                self.assertFalse(ok)
+                self.assertIn("pass must be true or false", why)
+
+    def test_a_task_has_no_pass_field_to_check(self):
+        rv.check_task(task())
+
+
+class ReplayCaseCalls(unittest.TestCase):
+    def test_the_agent_gets_an_hour_and_its_work_is_staged_before_the_diff(self):
+        calls = []
+
+        def run(argv, cwd=None, env=None, timeout=None):
+            calls.append((list(argv), timeout))
+            return FakeWorld()(argv)
+
+        with mock.patch.object(run_replay, "run_command", run), mock.patch.object(run_replay, "worktree", fake_tree):
+            run_replay.replay_case(CASES[0], "/bin/heron", "failed", {})
+        argvs = [" ".join(argv) for argv, _ in calls]
+        add, diff = argvs.index("git -C /tree add -A"), argvs.index("git -C /tree diff --cached --quiet " + CASES[0]["base"])
+        self.assertLess(add, diff)
+        self.assertEqual([t for argv, t in calls if argv[:3] == ["/bin/heron", "selfheal", "replay"]], [3600])
+        self.assertEqual([t for argv, t in calls if argv == ["cargo", "test", "--locked"]], [3600])
 
 
 if __name__ == "__main__":
