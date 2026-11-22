@@ -2084,7 +2084,7 @@
       "claim_token": "f3897ff3c9fa44d5885099709cf0cd0e",
       "claimed_at": "2026-11-22T10:35:37.481851+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T10:38:38.325897+00:00",
+      "last_heartbeat": "2026-11-22T10:39:08.388501+00:00",
       "node_version": 6,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -2116,7 +2116,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: quick_entry",
-    "version": 14,
+    "version": 15,
     "worktree": {
       "base_branch": "skein/F1g__integrate-base",
       "base_commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
@@ -3020,7 +3020,7 @@
       "claim_token": "161ce386a4bd44f7b2da37ff35b42617",
       "claimed_at": "2026-11-22T10:38:14.133449+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:38:44.672650+00:00",
+      "last_heartbeat": "2026-11-22T10:39:14.743061+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -3047,7 +3047,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Fix F3 review findings (core)",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
       "base_commit": "807cdc2aa9e78d3c41fa32e8ab7f34d42ebd17d1",
@@ -4495,15 +4495,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "cf41dbc74f8f430fac258ec03ac16893",
+      "base_branch": "fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd",
+      "claim_token": "9ba62654266e4064961143bbb65f4759",
+      "claimed_at": "2026-11-22T10:39:18.522085+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T10:39:18.522085+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F6a"
@@ -4525,11 +4525,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Fix F6 review findings (app)",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "fa84ccaa5e826fcb51d5e0b7fdd6bca68bfce4cd",
       "branch": null,
       "path": null
     }
