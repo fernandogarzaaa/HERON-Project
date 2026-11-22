@@ -594,3 +594,29 @@ pub fn tools() -> Vec<FnTool> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::Tool;
+
+    /// The four browser tools are what `App` registers when a browser is found: each by its name,
+    /// with the permission tier the spec gives it, and with its output treated as outside content.
+    #[test]
+    fn the_browser_tools_are_offered_with_their_risk_tiers() {
+        let tools = tools();
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert_eq!(names, ["browser_open", "browser_read", "browser_click", "browser_type"]);
+        assert!(tools.iter().all(|t| t.untrusted_output() && t.feature().is_none()), "everything a page says is outside content");
+        let ctx = crate::permissions::test_ctx(false);
+        let risk = |name: &str, args: Value| tools.iter().find(|t| t.name() == name).unwrap().risk(&args, &ctx);
+        // An address the model composed is sent to that site; one already in the conversation is a read.
+        assert_eq!(risk("browser_open", json!({"url": "https://example.com/new"})), Effect::NetworkEgress);
+        ctx.seen_urls.note("the user wrote https://example.com/seen");
+        assert_eq!(risk("browser_open", json!({"url": "https://example.com/seen"})), Effect::NetworkRead);
+        assert_eq!(risk("browser_read", json!({})), Effect::LocalRead);
+        // Pressing something that is not a known link, and typing, act on the site.
+        assert_eq!(risk("browser_click", json!({"id": 424242})), Effect::ExternalWrite);
+        assert_eq!(risk("browser_type", json!({"id": 424242, "text": "hi"})), Effect::ExternalWrite);
+    }
+}

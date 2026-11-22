@@ -242,6 +242,24 @@ mod tests {
         assert_eq!(r[1].url, "https://example.com/page");
     }
 
+    /// `web_search` is a real search, not a stub: asked without a query (or with one that is not
+    /// text) it fails by naming the argument, before anything leaves the computer, and the tool the
+    /// model is offered under that name runs it. A stub that answered with any text would pass for a
+    /// search that found nothing.
+    #[tokio::test]
+    async fn web_search_needs_a_query_and_sends_nothing_without_one() {
+        use crate::tools::Tool;
+        let ctx = crate::permissions::test_ctx(false);
+        let search = tools().into_iter().find(|t| t.name == "web_search").expect("web_search is offered");
+        for args in [json!({}), json!({"limit": 3}), json!({"query": 7}), json!({"query": null})] {
+            let err = search.call(&args, &ctx).await.expect_err(&format!("a search without a text query must fail: {args}"));
+            assert!(err.to_string().contains("missing required string argument 'query'"), "{err}");
+            let err = web_search(&args, &ctx).await.expect_err("the function fails the same way");
+            assert!(err.to_string().contains("'query'"), "{err}");
+        }
+        assert_eq!(search.parameters()["required"], json!(["query"]));
+    }
+
     #[test]
     fn html_becomes_readable_text() {
         let t = html_to_text(b"<html><body><h1>Title</h1><p>Hello <b>world</b></p><script>evil()</script></body></html>");

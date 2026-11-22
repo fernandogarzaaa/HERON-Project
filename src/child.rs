@@ -103,6 +103,23 @@ mod tests {
         assert_eq!(env, vec![("PATH".to_string(), "/usr/bin".to_string()), ("TMPDIR".to_string(), tmp.to_string_lossy().into_owned())]);
     }
 
+    /// `own_var` is Heron's own environment: what is set comes back as it is, and what is not set
+    /// is `None`. It is the reader a real child's environment is built from, so a `None` for every
+    /// key would start every CLI child with no `PATH` and no `HOME`.
+    #[test]
+    fn own_var_reads_heron_own_environment() {
+        // `cargo test` always runs with a PATH.
+        let path = std::env::var("PATH").expect("cargo test runs with a PATH");
+        assert_eq!(own_var("PATH"), Some(path.clone()));
+        assert_eq!(own_var("HERON_TEST_NAME_THAT_IS_NEVER_SET_7f3a"), None);
+        // Through the allowlist: the child gets Heron's PATH, then the private TMPDIR.
+        let tmp = Path::new("/private/var/folders/heron-cli-test");
+        let env = child_env_base(tmp, &own_var);
+        assert_eq!(env.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.clone()), Some(path));
+        assert_eq!(env.last(), Some(&("TMPDIR".to_string(), tmp.to_string_lossy().into_owned())));
+        assert!(env.iter().all(|(k, _)| k == "TMPDIR" || CHILD_ENV_ALLOWED.contains(&k.as_str())), "{env:?}");
+    }
+
     #[test]
     fn private_temp_dir_is_private_and_removed_on_drop() {
         let guard = private_temp_dir().unwrap();
