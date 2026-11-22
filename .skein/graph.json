@@ -168,9 +168,17 @@
         "holder": "agent-3",
         "outcome": "failed",
         "started_at": "2026-11-22T05:58:53.591442+00:00"
+      },
+      {
+        "attempt_id": "6af3bf628bf944deb588d676f307cd29",
+        "ended_at": "2026-11-22T06:49:46.762351+00:00",
+        "error": "backend timed out after 1800.0s (holder=agent-3); see evidence",
+        "holder": "agent-3",
+        "outcome": "timeout",
+        "started_at": "2026-11-22T06:19:44.530066+00:00"
       }
     ],
-    "attempts_used": 0,
+    "attempts_used": 1,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -182,31 +190,25 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "6af3bf628bf944deb588d676f307cd29",
-      "base_branch": "feat/v1-features-base",
-      "claim_token": "7e26cf0c05fd45a488bf5a5083f8c75d",
-      "claimed_at": "2026-11-22T06:19:44.530066+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T06:19:44.530066+00:00",
-      "node_version": 46,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
     "evidence": [
       {
-        "command": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- missing_feature_key_takes_its_default feature_key_round_trips_through_update_config tools_follow_their_key_without_restart off_feature_tools_are_hidden_refused_and_rejected_by_workflows context_app_name_is_sanitised every_content_entry_is_trusted_or_taints chat_context_taints_before_the_model_call chat_context_limits_are_enforced context_never_reaches_learn_or_the_title taint_mark_keeps_the_first_source old_taint_value_still_counts once_only_tools_ignore_star_rules once_only_tools_get_no_conversation_grant once_only_tools_cannot_be_set_to_allow terminal_and_telegram_offer_once_only notices_go_to_the_bus_when_a_client_notifies notices_use_notify_when_no_client_does notify_command_still_runs_when_a_client_notifies",
-        "duration_ms": 338918,
-        "exit_code": 1,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B2_20261122T061225784790_0.log"
-      },
-      {
         "command": "<adapter:claude_build_rust>",
-        "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B2_20261122T061804707687_adapter.log"
+        "exit_code": 124,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B2_20261122T064946750827_adapter.log"
       }
     ],
-    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "handoff_note": "backend timed out after 1800.0s (holder=agent-3); see evidence",
     "id": "B2",
     "integration_for": null,
     "intent": {
@@ -219,12 +221,12 @@
     "rejected_count": 1,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-22T06:51:42.243050+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "Core switches, chat context, taint source, notification owner",
-    "version": 48,
+    "version": 108,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "48aa65c853c6a54666cfd23e0a648044f34ff67d",
