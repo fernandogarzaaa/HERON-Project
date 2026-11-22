@@ -2124,22 +2124,31 @@
     }
   },
   "F1g__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "82790dca45f643fb909de6b0a1d5da37",
+        "ended_at": "2026-11-22T10:33:25.348649+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:33:24.359327+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "82790dca45f643fb909de6b0a1d5da37",
-      "base_branch": "skein/F1g__integrate__integrate-base",
-      "claim_token": "2ebf116ed5b14304bc11fc4e5c8edf00",
-      "claimed_at": "2026-11-22T10:33:24.359327+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-22T10:33:24.359327+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F1c",
@@ -2149,8 +2158,14 @@
       "F1-fix-1",
       "F1-fix-2"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge f6715177fcbe62452e348220ddf8d05db4aafc67 98a07a78b3feeaa3301c2927dea43b1496c87bd5 2940415acadfeac08c0b156d671b488b26b9ac49 27ccfc6b21c41d7a9bd3622b3f13991da2d1cbf4 accf9a06dc36a573cc599c8acaf7a23e6a1ade3e",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['a4e4cd673d35f4b4e224e3649b06c19fdd84558c', 'f6715177fcbe62452e348220ddf8d05db4aafc67', '98a07a78b3feeaa3301c2927dea43b1496c87bd5', '2940415acadfeac08c0b156d671b488b26b9ac49', '27ccfc6b21c41d7a9bd3622b3f13991da2d1cbf4', 'accf9a06dc36a573cc599c8acaf7a23e6a1ade3e'] into skein/F1g__integrate-base.",
     "id": "F1g__integrate",
     "integration_for": "F1g",
     "intent": {
@@ -2162,16 +2177,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "a4e4cd673d35f4b4e224e3649b06c19fdd84558c",
+      "changed_files": [],
+      "commit": "51a193299b1ac68ec9816e580221d423c3a7609f",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of F1g",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/F1g__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "a4e4cd673d35f4b4e224e3649b06c19fdd84558c",
+      "branch": "skein/F1g__integrate-base",
       "path": null
     }
   },
