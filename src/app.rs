@@ -1818,17 +1818,25 @@ impl App {
     /// Background awareness: watch the folder once a minute, and occasionally reflect on what was seen.
     pub async fn observer_loop(self: Arc<Self>) {
         loop {
-            if self.cfg().agent.ambient_context && !self.paused() {
-                let (store, ws, cfg) = (self.store.clone(), self.workspace.clone(), self.cfg());
-                let _ = tokio::task::spawn_blocking(move || crate::ambient::observe(&store, &ws, cfg)).await;
-                crate::sources::sync_due(&self).await;
-                let _ = self.memory.reindex(25).await; // catch up after the embedder changed
-                let _ = self.reflect_if_due().await;
-                self.run_triggers().await;
-                let _ = self.proactive_tick().await;
-            }
+            self.observer_tick().await;
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
+    }
+
+    /// One minute's worth of background awareness.
+    pub(crate) async fn observer_tick(&self) {
+        // Another Heron on this home (the app and a terminal `heron serve`) does this work; doing it
+        // here too would run every trigger and proactive message twice.
+        if !self.cfg().agent.ambient_context || self.paused() || !self.own_background_work() {
+            return;
+        }
+        let (store, ws, cfg) = (self.store.clone(), self.workspace.clone(), self.cfg());
+        let _ = tokio::task::spawn_blocking(move || crate::ambient::observe(&store, &ws, cfg)).await;
+        crate::sources::sync_due(self).await;
+        let _ = self.memory.reindex(25).await; // catch up after the embedder changed
+        let _ = self.reflect_if_due().await;
+        self.run_triggers().await;
+        let _ = self.proactive_tick().await;
     }
 
     /// Turn observations into lasting insights with the fast model. Opt-in, at most every six hours,
@@ -3523,6 +3531,37 @@ mod tests {
         assert!(app.workspace.join("journal/today.md").exists(), "granted: writing files in the folder");
         assert!(!app.workspace.join("hacked.txt").exists(), "not granted: commands");
         assert!(!dir.path().join("escape.txt").exists(), "never granted: writing outside the folder");
+    }
+
+    #[tokio::test]
+    async fn only_the_heron_that_owns_background_work_reflects_and_runs_triggers() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.ambient_context = true;
+        cfg.agent.reflect = true;
+        let insight = || Arc::new(ScriptedLlm::new(vec![Message::assistant("[{\"content\":\"The user is writing chapter 3 of a book\",\"kind\":\"project\"}]")]));
+        let (owner_llm, other_llm) = (insight(), insight());
+        let owner = App::assemble(cfg.clone(), dir.path().join("ws"), Store::in_memory().unwrap(), owner_llm.clone()).await.unwrap();
+        let other = App::assemble(cfg.clone(), dir.path().join("ws"), Store::in_memory().unwrap(), other_llm.clone()).await.unwrap();
+        assert!(owner.own_background_work());
+        for app in [&owner, &other] {
+            crate::risk_notice::accept_current(&app.store).unwrap();
+            for i in 0..20 {
+                std::fs::create_dir_all(app.workspace.join("book/ch3")).unwrap();
+                std::fs::write(app.workspace.join(format!("book/ch3/scene{i}.md")), "x").unwrap();
+            }
+            crate::ambient::observe(&app.store, &app.workspace, app.cfg());
+        }
+        other.observer_tick().await;
+        assert!(other_llm.requests.lock().unwrap().is_empty(), "a second Heron on the same home does the owner's background work too");
+        let mut off = cfg.clone();
+        off.agent.ambient_context = false;
+        *owner.cfg.write().unwrap() = Arc::new(off);
+        owner.observer_tick().await;
+        assert!(owner_llm.requests.lock().unwrap().is_empty(), "with ambient context off, not even the owner does it");
+        *owner.cfg.write().unwrap() = Arc::new(cfg.clone());
+        owner.observer_tick().await;
+        assert_eq!(owner_llm.requests.lock().unwrap().len(), 1, "the owner still does it");
     }
 
     #[tokio::test]
