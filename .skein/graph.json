@@ -4981,15 +4981,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "45b02630b809476fada04583a088d271",
+      "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
+      "claim_token": "b02a02963d7b45f78ca1d9a5d3eb301e",
+      "claimed_at": "2026-11-22T10:41:52.012970+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-22T10:41:52.012970+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "F1g"
@@ -5011,11 +5011,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F7: dictation button, spoken replies",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "51a193299b1ac68ec9816e580221d423c3a7609f",
       "branch": null,
       "path": null
     }
