@@ -7178,7 +7178,16 @@
     }
   },
   "F9g": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "14061df7047249a699b530297c72b301",
+        "ended_at": "2026-11-22T12:27:05.920670+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-22T12:10:41.357285+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -7190,23 +7199,35 @@
     ],
     "change_policy": "strict",
     "claim": {
-      "attempt_id": "14061df7047249a699b530297c72b301",
-      "base_branch": "skein/F9g__integrate-base",
-      "claim_token": "dc2b3627dd024f04ab135894f0c3b6f9",
-      "claimed_at": "2026-11-22T12:10:41.357285+00:00",
-      "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T12:26:54.685962+00:00",
-      "node_version": 7,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-3"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F9a",
       "F9c",
       "F9-fix-1"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash scripts/verify-feature.sh screen_text",
+        "duration_ms": 967460,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F9g_20261122T121057276807_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F9g_20261122T122704742907_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: F9-fix-1's handoff note flags one open item for a real Mac. On newer macOS the window picker may capture without Screen Recording at all (UNVERIFIED in the spec). In that case the fix shows its explanation to owners who didn't need to grant anything. That is not a gate failure.",
     "id": "F9g",
     "integration_for": null,
     "intent": {
@@ -7218,13 +7239,19 @@
     "max_retries": 0,
     "rejected_count": 2,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "14061df7047249a699b530297c72b301",
+      "base_commit": "a7999060f5b42e756de22f56de47d7e440e1b840",
+      "changed_files": [],
+      "commit": "a7999060f5b42e756de22f56de47d7e440e1b840",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "Gate: screen_text",
-    "version": 41,
+    "version": 42,
     "worktree": {
       "base_branch": "skein/F9g__integrate-base",
       "base_commit": "a7999060f5b42e756de22f56de47d7e440e1b840",
