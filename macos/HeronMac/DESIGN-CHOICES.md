@@ -120,3 +120,13 @@
 *   **After a removal the list is read again from `GET /api/nevers`**, whether the `DELETE` worked or not, so the page shows what the core holds (another core may have lifted a rule). A failure of either call shows inline above the list; a rule already gone (404) reads "That item no longer exists." The next removal clears the message.
 *   **A core that can't list "never" rules still lets the rest of Settings load.** The list is its own request, and its failure shows in the section.
 *   **Snapshots use `WindowMinimum.settingsPage` (720 × 500 pt).** The Settings window is a fixed 720 × 560 pt; the tab bar takes the top of it, so the page is shorter. 500 pt is an estimate, a little tighter than the real page, so the check errs toward more overflow.
+
+## Choices F1a made (quick entry, heron-v1-features.md item 14)
+
+*   **`sendMessage` gained a `context: [ChatContext]` argument.** The protocol requirement takes it; a protocol extension keeps the old three-argument call, so existing callers are unchanged. `CoreClient` sends `context: [{kind, app, text}]` only when there is some, so a plain message's body is what it was.
+*   **The panel has its own small model, not the main `ChatStore`.** `QuickEntryModel` holds the field, the chip, the conversation it continues (reused if used within 30 minutes) and the streamed reply. `AppModel.route` feeds it the same events as the other stores. An approval in the panel's conversation shows "Heron needs your OK. Open in Heron to answer." and lands in the menu bar and Inbox as usual; the panel has no approval sheet.
+*   **Attaching text never sends.** Services and the hotkey only fill the chip; `submit()` runs on the owner's Return, and a chip with an empty field can't be sent.
+*   **"Quick entry" is on by default through `UserDefaults.register(defaults:)`,** done at the top of `AppModel.init` before the Features list reads it (QF3). The Settings row shows the hotkey recorder while it is on.
+*   **No default hotkey.** A recorded combo must include ⌘, ⌃ or ⌥; `RegisterEventHotKey` needs no permission. If macOS refuses the combo (another app holds it) the hotkey simply isn't registered.
+*   **The App Intent is deferred to v1.1,** see `APP-INTENTS-CHECK.md`. `ChatContext.Kind.intent` stays as the core's wire value.
+*   **Not run in the build sandbox.** The panel's placement, the Return key in the multi-line field and "Open in Heron" reopening a closed main window were written without a compiler or a screen; check them on a Mac.

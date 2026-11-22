@@ -177,6 +177,7 @@ private struct FeatureRowView: View {
                         Button("Open System Settings") { NSWorkspace.shared.open(pane) }.buttonStyle(HButtonStyle(.secondary))
                     }
                 }
+                if item.row.key == "quick_entry", item.on { HotKeyRecorderView().padding(.top, Spacing.s1) }
             }
             Spacer()
             Toggle(item.row.title, isOn: Binding(get: { item.on }, set: { v in Task { await store.set(item.row, on: v) } }))

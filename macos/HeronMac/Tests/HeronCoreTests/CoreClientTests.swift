@@ -204,7 +204,22 @@ final class CoreClientTests: XCTestCase {
         let sse = "id: 1\ndata: {\"seq\":1,\"session_id\":\"abc\",\"run_id\":\"r\",\"type\":\"session\",\"id\":\"abc\"}\n\n"
         let client = makeClient { _ in .init(200, json: sse, contentType: "text/event-stream") }
         _ = try await client.sendMessage(sessionID: "abc", message: "more", title: nil)
-        XCTAssertEqual(try body(try XCTUnwrap(StubProtocol.seen.first))["session_id"] as? String, "abc")
+        let json = try body(try XCTUnwrap(StubProtocol.seen.first))
+        XCTAssertEqual(json["session_id"] as? String, "abc")
+        XCTAssertNil(json["context"], "no context, no key")
+    }
+
+    func testSendMessageCarriesChatContextAsKindAppText() async throws {
+        let sse = "id: 1\ndata: {\"seq\":1,\"session_id\":\"abc\",\"run_id\":\"r\",\"type\":\"session\",\"id\":\"abc\"}\n\n"
+        let client = makeClient { _ in .init(200, json: sse, contentType: "text/event-stream") }
+        _ = try await client.sendMessage(sessionID: nil, message: "Summarise this", title: nil,
+                                         context: [ChatContext(kind: .selection, app: "Safari", text: "Q3 revenue grew 12%."),
+                                                   ChatContext(kind: .screenText, app: "Preview", text: "page two")])
+        let json = try body(try XCTUnwrap(StubProtocol.seen.first))
+        XCTAssertEqual(json["message"] as? String, "Summarise this")
+        let context = try XCTUnwrap(json["context"] as? [[String: String]])
+        XCTAssertEqual(context, [["kind": "selection", "app": "Safari", "text": "Q3 revenue grew 12%."],
+                                 ["kind": "screen_text", "app": "Preview", "text": "page two"]])
     }
 
     func testQueriesAndPaths() async throws {

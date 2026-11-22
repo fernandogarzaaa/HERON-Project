@@ -15,7 +15,9 @@ public protocol CoreClientProtocol: Sendable {
 
     /// `POST /api/chat`. Returns once the run has started (its `session` event arrived); the run's events
     /// then arrive on `events(since:)`. Throws `CoreError.sessionBusy` (409) or `.riskNoticeNotAccepted` (428).
-    func sendMessage(sessionID: String?, message: String, title: String?) async throws -> ChatStart
+    /// `context` is outside content that came with the message (F1's selection or Shortcuts text, F9's window text);
+    /// the core marks the session tainted when it is not empty. Omitted from the request when empty.
+    func sendMessage(sessionID: String?, message: String, title: String?, context: [ChatContext]) async throws -> ChatStart
     func cancel(sessionID: String) async throws -> Bool                      // POST /api/cancel
     /// `GET /api/events?since=`. One stream of every session's events.
     func events(since: Int?) -> AsyncStream<CoreEvent>
@@ -72,6 +74,38 @@ public protocol CoreClientProtocol: Sendable {
     /// `DELETE /api/nevers {"rule"}`. Throws `CoreError.notFound` (404) for a rule that isn't a "never".
     func removeNever(rule: String) async throws                              // DELETE /api/nevers
     func usage() async throws -> UsageReport                                // GET /api/usage
+}
+
+public extension CoreClientProtocol {
+    /// A message with no attached context.
+    func sendMessage(sessionID: String?, message: String, title: String?) async throws -> ChatStart {
+        try await sendMessage(sessionID: sessionID, message: message, title: title, context: [])
+    }
+}
+
+/// One item of `POST /api/chat`'s `context` array: `{kind, app, text}`. Always outside content.
+public struct ChatContext: Sendable, Equatable {
+    public enum Kind: String, Sendable, Equatable {
+        /// F1: text selected in another app and handed over by Services.
+        case selection
+        /// F1: text passed by the "Ask Heron" App Intent.
+        case intent
+        /// F9: text read from a window the owner picked.
+        case screenText = "screen_text"
+    }
+
+    public var kind: Kind
+    public var app: String
+    public var text: String
+
+    public init(kind: Kind, app: String, text: String) {
+        self.kind = kind
+        self.app = app
+        self.text = text
+    }
+
+    /// The JSON object the core reads.
+    public var json: [String: String] { ["kind": kind.rawValue, "app": app, "text": text] }
 }
 
 /// The `session` event that starts a run.
