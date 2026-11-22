@@ -3585,7 +3585,16 @@
     }
   },
   "F5a": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "d018be27354d47018fc20e2d84bef271",
+        "ended_at": "2026-11-22T10:25:10.002959+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-22T10:21:17.859362+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -3597,21 +3606,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "d018be27354d47018fc20e2d84bef271",
-      "base_branch": "441b55f486289e28f550be7dfdb6f63eeca4f352",
-      "claim_token": "f9bc66098317425ca42b5b80a4f619da",
-      "claimed_at": "2026-11-22T10:21:17.859362+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:24:49.067559+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "F5t"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac | grep -q ShortcutsPickerTests",
+        "duration_ms": 36914,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5a_20261122T102432951347_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/F5a_20261122T102509867669_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: I have not run testteeth or the Rust side.",
     "id": "F5a",
     "integration_for": null,
     "intent": {
@@ -3623,13 +3644,66 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "d018be27354d47018fc20e2d84bef271",
+      "base_commit": "441b55f486289e28f550be7dfdb6f63eeca4f352",
+      "changed_files": [
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeaturesSettings.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/SettingsView.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/ModelDecodingTests.swift",
+        "macos/HeronMac/Sources/HeronCore/ShortcutsClient.swift",
+        "macos/HeronMac/Sources/HeronUI/Features/Shortcuts/ShortcutsPicker.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/ShortcutsClientTests.swift",
+        "macos/HeronMac/Tests/HeronUITests/Features/ShortcutsPickerTests.swift"
+      ],
+      "commit": "271ce07d639562a10b67169cb722d64080194bdf",
+      "diff_stats": {
+        "macos/HeronMac/Sources/HeronCore/ShortcutsClient.swift": {
+          "added": 136,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeatureRows.swift": {
+          "added": 4,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Settings/FeaturesSettings.swift": {
+          "added": 5,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Features/Shortcuts/ShortcutsPicker.swift": {
+          "added": 165,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/AppModel.swift": {
+          "added": 12,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/SettingsView.swift": {
+          "added": 1,
+          "deleted": 1
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/ModelDecodingTests.swift": {
+          "added": 1,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/ShortcutsClientTests.swift": {
+          "added": 86,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronUITests/Features/ShortcutsPickerTests.swift": {
+          "added": 216,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "F5: Shortcuts picker",
-    "version": 10,
+    "version": 11,
     "worktree": {
       "base_branch": "441b55f486289e28f550be7dfdb6f63eeca4f352",
       "base_commit": "441b55f486289e28f550be7dfdb6f63eeca4f352",
