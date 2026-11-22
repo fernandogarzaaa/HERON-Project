@@ -1191,9 +1191,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "Base gate re-run with the B2 review fixes",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/B6r2__integrate-base",
       "branch": null,
       "path": null
     }
