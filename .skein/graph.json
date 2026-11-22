@@ -3640,7 +3640,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "F8: ft8, fake binary, page",
-    "version": 14,
+    "version": 15,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "804c6770f74b2f6aadc773879e7f8fada12cf31e",
