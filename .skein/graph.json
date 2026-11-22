@@ -1513,7 +1513,7 @@
       "claim_token": "213e55c84bb04a27923d8b20436c920a",
       "claimed_at": "2026-11-22T10:30:00.099684+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-22T10:30:00.099684+00:00",
+      "last_heartbeat": "2026-11-22T10:31:00.901729+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -1538,9 +1538,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "in_progress",
     "title": "Fix F1 review findings (app)",
-    "version": 3,
+    "version": 5,
     "worktree": {
       "base_branch": "f6715177fcbe62452e348220ddf8d05db4aafc67",
       "base_commit": "f6715177fcbe62452e348220ddf8d05db4aafc67",
@@ -2419,7 +2419,7 @@
       "claim_token": "1f014c3a96984528ab2ff113b628355d",
       "claimed_at": "2026-11-22T10:20:18.264975+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T10:29:50.231655+00:00",
+      "last_heartbeat": "2026-11-22T10:31:20.744540+00:00",
       "node_version": 7,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -2449,7 +2449,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Gate: ask_reasons",
-    "version": 28,
+    "version": 31,
     "worktree": {
       "base_branch": "skein/F2g__integrate-base",
       "base_commit": "3c77898ef08e77c6e7d89a9ee017ef7849905a5c",
@@ -3578,6 +3578,58 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "F4: integration tests, undo-files fixture",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
+  "F5-fix-1": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "F5a"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "F5-fix-1",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked --lib --bins && cargo test --locked --features desktop --bin heron-desktop && cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib --bins -- terminal_shows_the_full_input_of_a_once_only_tool shortcut_name_starting_with_a_dash_is_refused",
+      "constraints": "The approved spec is docs/designs/heron-v1-features.md (it builds on docs/designs/heron-v1.md); its Non-Goals and the owner's decisions QF1-QF4 are final, and its Known low issues section lists what was knowingly left. Stay inside your blast radius. No edits to Cargo.toml or Cargo.lock and no new crates. Python is standard library only and runs as python3 -I. Never edit eval/core-tasks.md (GF5). No change to the Slint app. You have no git: skein commits your worktree when the check passes. Never weaken, skip or delete a test or threshold to pass; never fake measurement output. Owner decisions that stand: taint blocks grants for shell commands too; only the app can lift a 'never' rule; memory learned from outside content is saved unconfirmed; opencode stays experimental. Every new tool declares its Effect and untrusted_output, and a feature-keyed tool must not be added to mcp.rs SERVED_TOOLS. If the spec is wrong or impossible, stop and say exactly why instead of diverging.",
+      "context": "Spec: docs/designs/heron-v1-features.md, F5 ('Once only', the approval shows the name and input) and 'Processes outside the shell tool' (every argument shape). Q7 paths: change no verdict. Inside your sandbox about 27 unrelated cargo tests fail; run your tests by name.",
+      "goal": "Fix two findings from the independent review of F5 (file:line in today's tree). (1) The terminal approval (src/main.rs ~177-179, TerminalApprover) shows only the first 30 lines of a call's detail, so a tainted run_shortcut input of 30 harmless lines followed by injected text is approved unseen. The spec says the approval shows the shortcut's name and input. For once-only tools (permissions::once_only), print the full detail; leave other tools as they are. Test: terminal_shows_the_full_input_of_a_once_only_tool. (2) A ticked shortcut name starting with '-' reaches /usr/bin/shortcuts as an option (src/tools/shortcuts.rs ~80-82, 123). Reject such names in the allowlist check (refused before the decision function, like an unlisted name) and in POST /api/shortcuts/allowed (400 unknown_shortcut). Test: shortcut_name_starting_with_a_dash_is_refused. Fix nothing else."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "Fix F5 review findings (core)",
     "version": 1,
     "worktree": {
       "base_branch": null,
@@ -5029,7 +5081,7 @@
       "claim_token": "26de304cf52c45d283e714032fca4e60",
       "claimed_at": "2026-11-22T10:19:23.146591+00:00",
       "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T10:29:55.067531+00:00",
+      "last_heartbeat": "2026-11-22T10:30:55.431101+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-1"
@@ -5054,7 +5106,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "F8: draft_email, key",
-    "version": 24,
+    "version": 26,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "b13942e9f6196e1009af8e865292d2efa5bf1466",
