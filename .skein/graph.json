@@ -3428,15 +3428,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "4a0f51e824854b8680117c7bf7f00720",
+      "base_branch": "feat/v1-features-base",
+      "claim_token": "85c6e6fa100c4322b6a5c0960fc08885",
+      "claimed_at": "2026-11-22T09:41:22.320794+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-22T09:41:22.320794+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [],
     "evidence": [],
@@ -3456,11 +3456,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "F8: Email drafts row",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/v1-features-base",
       "branch": null,
       "path": null
     }
