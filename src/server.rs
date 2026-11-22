@@ -225,14 +225,10 @@ pub async fn serve(app: Arc<App>, listener: tokio::net::TcpListener, token: Stri
 /// Heron is to own background work, it takes ownership (and reports what the previous one left
 /// unfinished) now, never in the middle of its own work; the returned flag says whether it does.
 /// And the run records a stopped core left running or waiting end as `cancelled` (F3): no run
-/// outlives its core. Only the serving core does this, never `heron mcp-serve` or a terminal command
-/// opening the same store.
+/// outlives its core. Only the core that owns background work does this, never a second core on the
+/// same home, `heron mcp-serve` or a terminal command opening the same store.
 fn start_core(app: &App) -> bool {
-    let background_owner = app.own_background_work();
-    if let Some(runs) = app.events.runs() {
-        runs.close_unfinished();
-    }
-    background_owner
+    app.start_background_owner()
 }
 
 async fn run_server(app: Arc<App>, listener: tokio::net::TcpListener, router: Router) -> Result<()> {
@@ -2194,6 +2190,29 @@ mod tests {
         let listed = app.events.runs().unwrap().summaries();
         let statuses: std::collections::BTreeMap<&str, &str> = listed["runs"].as_array().unwrap().iter().map(|r| (r["run_id"].as_str().unwrap(), r["status"].as_str().unwrap())).collect();
         assert_eq!(statuses, [("r-done", "done"), ("r-running", "cancelled"), ("r-waiting", "cancelled")].into_iter().collect());
+    }
+
+    #[tokio::test]
+    async fn unfinished_runs_are_not_closed_by_a_second_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let store = Store::in_memory().unwrap();
+        let live = crate::runs::RunRecord { run_id: "r-live".into(), session_id: "s".into(), title: "t".into(), origin: "user".into(), status: "running".into(), started: 1000, ended: None, tool_calls: 0, checkpoints: vec![], audit_ids: vec![] };
+        store.kv_set("run:r-live", &serde_json::to_string(&live).unwrap()).unwrap();
+        let saved = || serde_json::from_str::<crate::runs::RunRecord>(&store.kv_get("run:r-live").unwrap()).unwrap();
+        // Two cores on one home: the first holds the background lock, the second does not.
+        let owner = Arc::new(App::assemble(cfg.clone(), dir.path().join("ws"), store.clone(), scripted(vec![])).await.unwrap());
+        let second = Arc::new(App::assemble(cfg, dir.path().join("ws2"), store.clone(), scripted(vec![])).await.unwrap());
+        assert!(owner.own_background_work());
+        // The second core's start leaves the other's live run alone.
+        assert!(!start_core(&second));
+        assert_eq!((saved().status.as_str(), saved().ended), ("running", None));
+        assert_eq!(second.events.runs().unwrap().summaries()["runs"][0]["status"], "running");
+        // The owner's start is what ends it.
+        assert!(start_core(&owner));
+        assert_eq!(saved().status, "cancelled");
+        assert!(saved().ended.is_some());
     }
 
     #[tokio::test]

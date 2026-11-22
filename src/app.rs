@@ -2220,6 +2220,22 @@ impl App {
         true
     }
 
+    /// What a core does once as it starts, before it starts any run of its own: try to own background
+    /// work (see [`App::own_background_work`]) and, only if it does, end as `cancelled` the run records
+    /// a stopped core left running or waiting (F3). Every Heron on this home opens the same database,
+    /// so a core without the lock must leave them: they may be another process's live runs. Returns
+    /// whether this program owns background work. Call it once, not from a loop: a Heron that takes
+    /// the lock over later has runs of its own by then.
+    pub fn start_background_owner(&self) -> bool {
+        let owner = self.own_background_work();
+        if owner {
+            if let Some(runs) = self.events.runs() {
+                runs.close_unfinished();
+            }
+        }
+        owner
+    }
+
     pub async fn scheduler_loop(self: Arc<Self>) {
         // Fold the write-ahead log into the database now and every six hours: a process that runs for
         // weeks must not let it grow without limit.

@@ -78,8 +78,9 @@ impl RunLog {
 
     /// End, as `cancelled` now, every record that never ended: its run belonged to a core that
     /// stopped, and no process carries a run over a restart. Only the core that serves the app calls
-    /// this, once as it starts and before any run of its own; a process that merely opens the same
-    /// store (`heron mcp-serve`, a terminal command) never does. Returns how many it ended.
+    /// this, once as it starts and before any run of its own, and only when it owns `background.lock`
+    /// (see `App::start_background_owner`); a process that merely opens the same store (`heron
+    /// mcp-serve`, a terminal command, a second core) never does. Returns how many it ended.
     pub fn close_unfinished(&self) -> usize {
         let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         let Cache { records, pending } = &mut *cache;
