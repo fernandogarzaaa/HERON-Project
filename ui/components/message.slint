@@ -20,6 +20,7 @@ import { VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { ActionButton } from "action_button.slint";
 import { ApprovalRow, ApprovalCardView } from "approval_card.slint";
+import { WrapText } from "wrap_text.slint";
 
 // One tool call row. state is "run", "ok", or "err". risk is kept
 // from the server even though the row does not display it.
@@ -81,14 +82,18 @@ component StepRowView inherits TouchArea {
                     animate background { duration: reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
                     animate border-color { duration: reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
                 }
-                Text { text: step.label; font-weight: 600; font-size: 14px; color: Theme.ink; }
-                Text { text: step.summary; font-family: "monospace"; font-size: 12px; color: Theme.muted; wrap: word-wrap; }
+                WrapText { text: step.label; font-weight: 600; font-size: 14px; color: Theme.ink; }
+                WrapText { text: step.summary; font-family: "monospace"; font-size: 12px; color: Theme.muted; }
             }
             if step.expanded || step.state == "err": Rectangle {
                 background: step.state == "err" ? Theme.danger-soft : Theme.surface;
                 border-color: Theme.line; border-width: 1px; border-radius: 6px;
                 animate opacity { duration: reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
-                Text { text: step.preview; font-family: "monospace"; font-size: 12px; color: step.state == "err" ? Theme.danger : Theme.ink; wrap: word-wrap; }
+                // In a layout, so the output takes the box's width and wraps.
+                VerticalLayout {
+                    padding: 8px;
+                    WrapText { text: step.preview; font-family: "monospace"; font-size: 12px; color: step.state == "err" ? Theme.danger : Theme.ink; }
+                }
             }
         }
     }
@@ -137,12 +142,18 @@ export component MessageView inherits VerticalBox {
         triggered() => { think-phase = Math.mod(think-phase + 1, 3); }
     }
 
+    // The text sits in a layout so it takes the bubble's width and wraps.
+    // Placed straight in the Rectangle it kept its one-line width and
+    // ran past both sides of the bubble.
     if msg.role == "user": Rectangle {
         background: Theme.slate-soft;
         border-radius: 12px; border-bottom-right-radius: 3px;
-        StyledText { text: msg.body; default-color: Theme.ink; }
+        VerticalLayout {
+            padding: 12px;
+            StyledText { text: msg.body; default-color: Theme.ink; min-width: 0px; }
+        }
     }
-    if msg.role == "note": Text { text: msg.text; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+    if msg.role == "note": WrapText { text: msg.text; font-size: 13px; color: Theme.muted; }
     if msg.role == "assistant": VerticalBox {
         // The bridge sets body with from_plain_text while streaming
         // and from_markdown at done. Whether StyledText renders fenced
@@ -150,7 +161,7 @@ export component MessageView inherits VerticalBox {
         // Phase 0 spike's open question. Fallback, if it does not: the
         // message delegate splits the reply into segments, text as
         // StyledText and code as monospace Text in a bordered box.
-        StyledText { text: msg.body; default-color: Theme.ink; }
+        StyledText { text: msg.body; default-color: Theme.ink; min-width: 0px; }
         if msg.steps.length > 0: VerticalBox {
             for step in msg.steps: StepRowView { step: step; reduce-motion: reduce-motion; toggled(id) => { root.toggled-step(id); } }
         }
@@ -159,7 +170,7 @@ export component MessageView inherits VerticalBox {
             reduce-motion: reduce-motion;
             answered(id, decision) => { root.answered-approval(id, decision); }
         }
-        for note in msg.notes: Text { text: note; font-size: 13px; color: Theme.muted; wrap: word-wrap; }
+        for note in msg.notes: WrapText { text: note; font-size: 13px; color: Theme.muted; }
         if msg.live: HorizontalBox {
             spacing: 4px;
             Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.muted; opacity: reduce-motion ? 0.6 : think-phase == 0 ? 1 : 0.35; animate opacity { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; } }
@@ -169,7 +180,10 @@ export component MessageView inherits VerticalBox {
         }
         if msg.failure != "": Rectangle {
             background: Theme.danger-soft; border-color: Theme.danger; border-width: 1px; border-radius: 10px;
-            Text { text: "Heron could not finish. " + msg.failure; font-size: 14px; color: Theme.ink; wrap: word-wrap; }
+            VerticalLayout {
+                padding: 12px;
+                WrapText { text: "Heron could not finish. " + msg.failure; font-size: 14px; color: Theme.ink; }
+            }
         }
         if msg.complete: ActionButton {
             label: copied ? "Copied" : "Copy";

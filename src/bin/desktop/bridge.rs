@@ -568,6 +568,7 @@ mod tests {
             let cfg = demo_cfg(dir.path());
             let workspace = cfg.app_workspace();
             let app = Arc::new(App::build(cfg, workspace).await.unwrap());
+            heron::risk_notice::accept_current(&app.store).unwrap();
             let (url, handle) = heron::server::start(app, "127.0.0.1", 0).await.unwrap();
             let origin = url
                 .split('?')

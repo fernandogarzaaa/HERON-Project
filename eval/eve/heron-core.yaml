@@ -1,0 +1,22 @@
+# Read by eval/run_core_tasks.py (the `eve` driver) to build the `eve chat` command line.
+#
+# `eve chat` 0.5.3 has no config-file flag, so this file is not passed to EVE. It holds the
+# values that become `eve chat` flags, in a flat `key: value` form the runner reads with the
+# standard library. `${NAME}` is replaced from the environment the runner sets:
+#   HERON_ADAPTER_PORT  the port eval/eve_adapter.py printed
+#   HERON_TASK_PROMPT   the task's prompt, with {web} already replaced
+#
+# The resulting command is:
+#   eve chat <target> --kind <kind> --persona <persona> --goal <goal> --turns <turns>
+#            --reply-path <reply_path> --body <body> --out <dir> --quiet
+#
+# EVE's HTTP backend posts `body` with {{message}} replaced by what the operator says, and gives
+# up on a reply after 30 seconds (DEFAULT_TIMEOUT_MS in EVE's backends/http.ts; no flag changes
+# it). The adapter keeps waiting for Heron after that, and the runner reads its record.
+target: http://127.0.0.1:${HERON_ADAPTER_PORT}/turn
+body: '{"message": "{{message}}"}'
+reply_path: reply
+kind: assistant
+persona: first-time-user
+turns: 1
+goal: ${HERON_TASK_PROMPT}

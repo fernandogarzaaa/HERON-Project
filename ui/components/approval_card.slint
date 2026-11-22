@@ -12,6 +12,7 @@
 import { VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { ActionButton } from "action_button.slint";
+import { WrapText } from "wrap_text.slint";
 
 // One inline approval card.
 export struct ApprovalRow {
@@ -52,15 +53,28 @@ export component ApprovalCardView inherits VerticalBox {
                 if card.warning != "": Text { text: card.warning; font-size: 14px; font-weight: 600; color: Theme.danger; wrap: word-wrap; }
                 if card.detail != "": Rectangle {
                     background: Theme.surface; border-color: Theme.line; border-width: 1px; border-radius: 6px;
-                    Text { text: card.detail; font-family: "monospace"; font-size: 13px; color: Theme.ink; wrap: word-wrap; }
+                    // In a layout, not straight in the Rectangle: a Text placed
+                    // directly in a Rectangle does not wrap to its width.
+                    VerticalLayout {
+                        padding: 8px;
+                        WrapText { text: card.detail; font-family: "monospace"; font-size: 13px; color: Theme.ink; }
+                    }
                 }
+                // Two rows: four buttons on one row ran past the thread
+                // at the window's minimum width.
                 HorizontalBox {
                     alignment: start;
                     spacing: 8px;
+                    padding: 0px;
                     ActionButton { label: "Allow once"; kind: "primary"; reduce-motion: reduce-motion; clicked => { root.answered(card.id, "once"); } }
+                    ActionButton { label: "Don't allow"; kind: "danger"; reduce-motion: reduce-motion; clicked => { root.answered(card.id, "deny"); } }
+                }
+                if card.can-session || card.can-always: HorizontalBox {
+                    alignment: start;
+                    spacing: 8px;
+                    padding: 0px;
                     if card.can-session: ActionButton { label: card.session-label; kind: "secondary"; reduce-motion: reduce-motion; clicked => { root.answered(card.id, "session"); } }
                     if card.can-always: ActionButton { label: card.always-label; kind: "secondary"; reduce-motion: reduce-motion; clicked => { root.answered(card.id, "always"); } }
-                    ActionButton { label: "Don't allow"; kind: "danger"; reduce-motion: reduce-motion; clicked => { root.answered(card.id, "deny"); } }
                 }
             }
         }

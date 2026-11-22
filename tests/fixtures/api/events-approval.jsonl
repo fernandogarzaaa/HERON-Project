@@ -1,0 +1,18 @@
+{"id":"session-1","run_id":"run-1","seq":1,"session_id":"session-1","type":"session"}
+{"completion":0,"prompt":0,"run_id":"run-1","seq":2,"session_id":"session-1","type":"usage"}
+{"always_rule":"write_file:*","can_always":true,"can_session":true,"detail":"Create plan.md (75 bytes)\n# Plan\n\n1. Connect a real model in Settings\n2. Ask Heron for the real plan","id":"approval-1","risk":"write","run_id":"run-1","seq":3,"session_id":"session-1","summary":"plan.md","tainted":false,"tool":"write_file","type":"approval"}
+{"decision":"once","id":"approval-1","run_id":"run-1","seq":4,"session_id":"session-1","type":"approval_resolved"}
+{"id":"tool-1","name":"write_file","risk":"write","run_id":"run-1","seq":5,"session_id":"session-1","summary":"plan.md","type":"tool_start"}
+{"id":"tool-1","name":"write_file","ok":true,"preview":"wrote 75 bytes to plan.md","run_id":"run-1","seq":6,"session_id":"session-1","type":"tool_end"}
+{"run_id":"run-1","seq":7,"session_id":"session-1","text":"Done. ","type":"text"}
+{"run_id":"run-1","seq":8,"session_id":"session-1","text":"Here ","type":"text"}
+{"run_id":"run-1","seq":9,"session_id":"session-1","text":"is ","type":"text"}
+{"run_id":"run-1","seq":10,"session_id":"session-1","text":"the ","type":"text"}
+{"run_id":"run-1","seq":11,"session_id":"session-1","text":"result:\n\n```\nwrote ","type":"text"}
+{"run_id":"run-1","seq":12,"session_id":"session-1","text":"75 ","type":"text"}
+{"run_id":"run-1","seq":13,"session_id":"session-1","text":"bytes ","type":"text"}
+{"run_id":"run-1","seq":14,"session_id":"session-1","text":"to ","type":"text"}
+{"run_id":"run-1","seq":15,"session_id":"session-1","text":"plan.md\n```","type":"text"}
+{"completion":0,"prompt":0,"run_id":"run-1","seq":16,"session_id":"session-1","type":"usage"}
+{"run_id":"run-1","seq":17,"session_id":"session-1","text":"Done. Here is the result:\n\n```\nwrote 75 bytes to plan.md\n```","title":"Save a plan as plan.md","type":"done"}
+{"run_id":"run-1","seq":18,"session_id":"session-1","type":"run_end"}

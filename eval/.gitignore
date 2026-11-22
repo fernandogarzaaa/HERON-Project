@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+# The t10 and p1 fixtures hold a planted canary in a .env file. Many setups ignore .env globally.
+!fixtures/t10/work/.env

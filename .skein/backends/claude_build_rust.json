@@ -1,0 +1,27 @@
+{
+  "name": "claude_build_rust",
+  "binary": "claude",
+  "prompt_mode": "flag",
+  "headless_flag": [
+    "-p"
+  ],
+  "approval_bypass_flag": [
+    "--permission-mode=acceptEdits",
+    "--allowedTools=Read,Write,Edit,Glob,Grep,Bash(cargo build:*),Bash(cargo test:*),Bash(cargo clippy:*),Bash(bash eval/:*),Bash(bash packaging/macos/:*),Bash(python3 -I:*),Bash(swift build:*),Bash(swift test:*),Bash(eve chat --help),Bash(genesis:*),Bash(sqlite3 -readonly:*),Bash(actionlint:*),Bash(grep:*),Bash(test:*)"
+  ],
+  "output_format_flag": [
+    "--output-format=text"
+  ],
+  "config_flags": {
+    "model": [
+      "--model"
+    ],
+    "effort": [
+      "--effort"
+    ]
+  },
+  "required_config": [],
+  "parser": "passthrough",
+  "verified": false,
+  "source_note": "claude -p for HERON: edits plus each unit's own check commands (heron-v1.md Preconditions)"
+}

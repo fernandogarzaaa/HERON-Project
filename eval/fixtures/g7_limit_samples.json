@@ -1,0 +1,24 @@
+{
+  "about": "Known provider-limit and non-limit error lines for G7's limit classifier (eval/g7.py is_limit, spec 35u). A limit stop is excluded from the G7 score, so every non-limit here must stay a non-limit.",
+  "samples": [
+    {"text": "provider.free-limit: Free usage limit reached", "limit": true},
+    {"text": "Rate-limited, retry later", "limit": true},
+    {"text": "HTTP 429", "limit": true},
+    {"text": "rate_limit_error", "limit": true},
+    {"text": "Too Many Requests", "limit": true},
+    {"text": "insufficient_quota", "limit": true},
+    {"text": "API Error: 529 Overloaded", "limit": true},
+    {"text": "quota exceeded for this key", "limit": true},
+    {"text": "Server is temporarily limiting requests", "limit": true},
+    {"text": "Disk quota exceeded (os error 69)", "limit": false},
+    {"text": "Disc quota exceeded", "limit": false},
+    {"text": "credit balance column missing", "limit": false},
+    {"text": "cannot find type RateLimiter", "limit": false},
+    {"text": "rate_limiter::tests::burst FAILED", "limit": false},
+    {"text": "{\"rate_limits\":{}}", "limit": false},
+    {"text": "request 14290 failed", "limit": false},
+    {"text": "file size limit exceeded", "limit": false},
+    {"text": "the rate of change exceeds the limit", "limit": false},
+    {"text": "usage: heron --limit N", "limit": false}
+  ]
+}

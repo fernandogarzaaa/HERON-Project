@@ -1,2 +1,5 @@
 target/
 dist/
+# skein: agent worktrees and evidence logs are local scratch
+.skein/worktrees/
+.skein/evidence/

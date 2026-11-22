@@ -1,0 +1,28 @@
+{
+  "name": "claude_build_swift",
+  "binary": "claude",
+  "prompt_mode": "flag",
+  "headless_flag": [
+    "-p"
+  ],
+  "approval_bypass_flag": [
+    "--permission-mode=acceptEdits",
+    "--allowedTools=Read,Write,Edit,Glob,Grep,Bash(cargo build:*),Bash(cargo test:*),Bash(cargo clippy:*),Bash(bash eval/:*),Bash(bash packaging/macos/:*),Bash(python3 -I:*),Bash(swift build:*),Bash(swift test:*),Bash(eve chat --help),Bash(genesis:*),Bash(sqlite3 -readonly:*),Bash(actionlint:*),Bash(grep:*),Bash(test:*)",
+    "--settings={\"sandbox\":{\"excludedCommands\":[\"swift build:*\",\"swift test:*\"],\"allowUnsandboxedCommands\":false}}"
+  ],
+  "output_format_flag": [
+    "--output-format=text"
+  ],
+  "config_flags": {
+    "model": [
+      "--model"
+    ],
+    "effort": [
+      "--effort"
+    ]
+  },
+  "required_config": [],
+  "parser": "passthrough",
+  "verified": false,
+  "source_note": "claude -p for HERON macos/** nodes (U4a, U4b, U7): claude_build_rust plus swift build and swift test excluded from the agent sandbox, with the dangerouslyDisableSandbox escape turned off. Owner approved 2026-11-19 in chat. Verified on a trivial package: build and test pass on the first try; a python3 write outside the sandbox fails with and without dangerouslyDisableSandbox."
+}

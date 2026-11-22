@@ -1,0 +1,6 @@
+{
+  "id": "gemini-cli",
+  "paths": [],
+  "unavailable_reason": "Subscription login unavailable: Google login was refused with \"This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products\".",
+  "observed": "2026-11-18, Gemini CLI v0.68.0, by the owner running discover-dirs.sh"
+}

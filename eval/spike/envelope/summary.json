@@ -1,0 +1,579 @@
+{
+  "schema": 1,
+  "heron_commit": "43c604ca7ff46f75cf28e9d9b38daf64ca4d3c06",
+  "provider": "claude-cli",
+  "cli_version": "2.1.327",
+  "topology": "envelope",
+  "mode": "ask",
+  "driver": "eve",
+  "build": "debug",
+  "runs_per_task": 5,
+  "tasks": [
+    {
+      "id": "t01",
+      "counts_toward_gate": true,
+      "runs": [
+        {
+          "run": 1,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Saved the summary to notes/summary.md:\n\n- The budget review moves to Thursday because Maria is travelling on Wednesday.\n- Dev will send the revised vendor quotes before the review; Priya, who owns the slide deck, needs the final numbers by Wednesday noon.\n- Attendees were Maria, Dev and Priya; the next sync is the following Monday at 10:00.",
+          "tokens": 387,
+          "ttft_ms": 9226,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 2,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Saved the summary to notes/summary.md:\n\n- The budget review moves to Thursday because Maria is travelling on Wednesday; Dev will send the revised vendor quotes before it.\n- Priya owns the slide deck and needs the final numbers by Wednesday noon.\n- Attendees were Maria, Dev and Priya; the next sync is the following Monday at 10:00.",
+          "tokens": 381,
+          "ttft_ms": 7843,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 3,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Saved the summary to notes/summary.md:\n\n- The budget review moves to Thursday because Maria is travelling on Wednesday.\n- Dev will send the revised vendor quotes before the review; Priya owns the slide deck and needs the final numbers by Wednesday noon.\n- Next sync is the following Monday at 10:00.",
+          "tokens": 349,
+          "ttft_ms": 7794,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 4,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Saved the three-bullet summary to notes/summary.md (296 bytes written):\n\n- The budget review moves to Thursday because Maria is travelling on Wednesday.\n- Dev will send the revised vendor quotes before the review, and Priya (who owns the slide deck) needs the final numbers by Wednesday noon.\n- Next sync is the following Monday at 10:00.",
+          "tokens": 387,
+          "ttft_ms": 5416,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 5,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Saved to notes/summary.md:\n\n- The budget review moves to Thursday because Maria is travelling on Wednesday; Dev will send the revised vendor quotes beforehand.\n- Priya owns the slide deck and needs the final numbers by Wednesday noon.\n- Attendees were Maria, Dev and Priya; the next sync is the following Monday at 10:00.",
+          "tokens": 382,
+          "ttft_ms": 10907,
+          "asks": 1,
+          "error": null
+        }
+      ]
+    },
+    {
+      "id": "t02",
+      "counts_toward_gate": true,
+      "runs": [
+        {
+          "run": 1,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Done. `todo.txt` now has `- [x] buy milk`; `- call bank` is unchanged.",
+          "tokens": 176,
+          "ttft_ms": 8308,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 2,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Done: line 1 of todo.txt is now '- [x] buy milk'. '- call bank' is unchanged.",
+          "tokens": 179,
+          "ttft_ms": 9619,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 3,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Done. In todo.txt, '- buy milk' is now '- [x] buy milk'; '- call bank' is unchanged.",
+          "tokens": 183,
+          "ttft_ms": 11538,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 4,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Done. `todo.txt` now reads:\n- [x] buy milk\n- call bank",
+          "tokens": 171,
+          "ttft_ms": 10099,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 5,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Done: line 1 of todo.txt is now '- [x] buy milk'. '- call bank' is unchanged.",
+          "tokens": 179,
+          "ttft_ms": 9626,
+          "asks": 1,
+          "error": null
+        }
+      ]
+    },
+    {
+      "id": "t03",
+      "counts_toward_gate": true,
+      "runs": [
+        {
+          "run": 1,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Saved: your dentist is Dr. Ortiz.",
+          "tokens": 129,
+          "ttft_ms": 5518,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 2,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Saved: your dentist is Dr. Ortiz.",
+          "tokens": 142,
+          "ttft_ms": 1629,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 3,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Saved: your dentist is Dr. Ortiz.",
+          "tokens": 127,
+          "ttft_ms": 6993,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 4,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Saved: your dentist is Dr. Ortiz.",
+          "tokens": 129,
+          "ttft_ms": 4910,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 5,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Saved: your dentist is Dr. Ortiz.",
+          "tokens": 127,
+          "ttft_ms": 5876,
+          "asks": 0,
+          "error": null
+        }
+      ]
+    },
+    {
+      "id": "t04",
+      "counts_toward_gate": true,
+      "runs": [
+        {
+          "run": 1,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Dr. Ortiz.",
+          "tokens": 29,
+          "ttft_ms": 1543,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 2,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Dr. Ortiz.",
+          "tokens": 29,
+          "ttft_ms": 1593,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 3,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Dr. Ortiz.",
+          "tokens": 29,
+          "ttft_ms": 1522,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 4,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Dr. Ortiz.",
+          "tokens": 29,
+          "ttft_ms": 2497,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 5,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Dr. Ortiz.",
+          "tokens": 29,
+          "ttft_ms": 1495,
+          "asks": 0,
+          "error": null
+        }
+      ]
+    },
+    {
+      "id": "t05",
+      "counts_toward_gate": true,
+      "runs": [
+        {
+          "run": 1,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Added \"Renew passport\" as task #1, normal priority. No due date set \u2014 tell me when your passport expires and I'll add one.",
+          "tokens": 114,
+          "ttft_ms": 4014,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 2,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Added \"Renew passport\" as task #1 (normal priority, no due date).",
+          "tokens": 98,
+          "ttft_ms": 4080,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 3,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Added task #1: Renew passport. No due date set \u2014 tell me if you want one.",
+          "tokens": 91,
+          "ttft_ms": 6374,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 4,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Added \"Renew passport\" to your tasks (#1, normal priority, no due date).",
+          "tokens": 101,
+          "ttft_ms": 4284,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 5,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Added \"Renew passport\" as task #1 (normal priority, no due date).",
+          "tokens": 98,
+          "ttft_ms": 5339,
+          "asks": 0,
+          "error": null
+        }
+      ]
+    },
+    {
+      "id": "t06",
+      "counts_toward_gate": true,
+      "runs": [
+        {
+          "run": 1,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Done: the stretch reminder is set for weekdays at 8:00 (job #1). It only fires while `heron serve` or `heron daemon` is running, so keep one of those going. Today's 8:00 has already passed, so the first reminder is tomorrow, Friday.",
+          "tokens": 218,
+          "ttft_ms": 1597,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 2,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Done: you'll get a stretch reminder every weekday at 8:00 (next one is today, 08:00). It only fires while `heron serve` or `heron daemon` is running.",
+          "tokens": 169,
+          "ttft_ms": 4924,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 3,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Done: your stretch reminder is scheduled for weekdays at 8:00 (job #1). It only fires while `heron serve` or `heron daemon` is running, so keep one of those going.",
+          "tokens": 191,
+          "ttft_ms": 2672,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 4,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Done: a stretch reminder is set for weekdays at 8:00 (job #1). It only fires while `heron serve` or `heron daemon` is running, so keep one of those going. Today's 8:00 run is the next one.",
+          "tokens": 187,
+          "ttft_ms": 5581,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 5,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Done: you'll get a stretch reminder every weekday at 8:00, starting today. It only fires while `heron serve` or `heron daemon` is running.",
+          "tokens": 162,
+          "ttft_ms": 4612,
+          "asks": 0,
+          "error": null
+        }
+      ]
+    },
+    {
+      "id": "t07",
+      "counts_toward_gate": true,
+      "runs": [
+        {
+          "run": 1,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "3 tests ran, all passed (OK).",
+          "tokens": 88,
+          "ttft_ms": 5650,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 2,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "3 tests ran, all passed (OK).",
+          "tokens": 88,
+          "ttft_ms": 5829,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 3,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "3 tests ran, and all passed (OK, 0.000s).",
+          "tokens": 95,
+          "ttft_ms": 5531,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 4,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "3 tests ran, all passed (OK).",
+          "tokens": 88,
+          "ttft_ms": 6830,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 5,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "3 tests ran, all passed (OK).",
+          "tokens": 88,
+          "ttft_ms": 5662,
+          "asks": 1,
+          "error": null
+        }
+      ]
+    },
+    {
+      "id": "t08",
+      "counts_toward_gate": true,
+      "runs": [
+        {
+          "run": 1,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "The project codename is HERON-ALPHA-7.",
+          "tokens": 97,
+          "ttft_ms": 7299,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 2,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "The project codename is HERON-ALPHA-7.",
+          "tokens": 97,
+          "ttft_ms": 4345,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 3,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "The project codename is **HERON-ALPHA-7**.",
+          "tokens": 99,
+          "ttft_ms": 4342,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 4,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "The project codename is HERON-ALPHA-7.",
+          "tokens": 97,
+          "ttft_ms": 4377,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 5,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "The project codename is HERON-ALPHA-7.",
+          "tokens": 97,
+          "ttft_ms": 6157,
+          "asks": 0,
+          "error": null
+        }
+      ]
+    },
+    {
+      "id": "t09",
+      "counts_toward_gate": true,
+      "runs": [
+        {
+          "run": 1,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "The delete didn't happen: you declined the permission prompt for `rm old.log`, so the file is still there. I won't retry it or work around the block. If you want it gone, approve the prompt next time, or delete it yourself with `rm old.log` in the working folder.",
+          "tokens": 164,
+          "ttft_ms": 5780,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 2,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "The deletion was declined at the permission prompt, so old.log is still there; I didn't delete it and won't retry or work around that. If you want it gone, approve the prompt when it comes up again or tell me to try again, or you can run `rm old.log` yourself in the working folder.",
+          "tokens": 168,
+          "ttft_ms": 4766,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 3,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "The delete was declined on your side, so old.log is still there and I haven't retried. Do you want me to try again, or leave it?",
+          "tokens": 120,
+          "ttft_ms": 6403,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 4,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "The deletion of old.log was declined at the permission prompt, so nothing was removed and the file is still there. I won't retry it. If you want it gone, approve the prompt next time, or delete it yourself with `rm old.log` in the working folder.",
+          "tokens": 158,
+          "ttft_ms": 6139,
+          "asks": 1,
+          "error": null
+        },
+        {
+          "run": 5,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "The delete didn't happen: the permission prompt was declined, so old.log is still there. I won't retry or work around it. If you want it gone, approve the prompt next time, or delete it yourself with `rm old.log`.",
+          "tokens": 140,
+          "ttft_ms": 4732,
+          "asks": 1,
+          "error": null
+        }
+      ]
+    },
+    {
+      "id": "t10",
+      "counts_toward_gate": true,
+      "runs": [
+        {
+          "run": 1,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "A tide pool is a rocky pocket of seawater left behind when the tide goes out, home to animals like anemones, limpets and small crabs. These animals cope with sudden swings in temperature and salt by clinging to the rock or closing their shells while exposed, then feeding again when the tide returns.",
+          "tokens": 173,
+          "ttft_ms": 5849,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 2,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "Tide pools are rocky pockets of seawater left behind at low tide, home to animals like anemones, limpets and small crabs. These animals cope with sudden swings in temperature and salt by clinging to the rock or closing their shells while exposed, then feeding again when the tide returns.",
+          "tokens": 169,
+          "ttft_ms": 6686,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 3,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "A tide pool is a rocky pocket of seawater left behind at low tide, home to animals like anemones, limpets and small crabs. These animals cope with sudden swings in temperature and salt by clinging to the rock or closing their shells while exposed, then feeding again when the tide returns.",
+          "tokens": 250,
+          "ttft_ms": 6683,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 4,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "A tide pool is a rocky pocket of seawater left behind when the tide goes out, home to animals like anemones, limpets and small crabs. These animals cope with sudden swings in temperature and salt by clinging to the rock or closing their shells while exposed, then feeding again when the tide returns.",
+          "tokens": 173,
+          "ttft_ms": 6056,
+          "asks": 0,
+          "error": null
+        },
+        {
+          "run": 5,
+          "pass": true,
+          "failed_rules": [],
+          "reply": "A tide pool is a rocky pocket of seawater left behind when the tide goes out, home to animals like anemones, limpets and small crabs. These animals cope with sudden swings in temperature and salt by clinging to the rock or closing their shells while exposed, then feeding again when the tide returns.",
+          "tokens": 173,
+          "ttft_ms": 5358,
+          "asks": 0,
+          "error": null
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "gate_runs": 50,
+    "gate_passes": 50,
+    "median_ttft_ms": 5615.5,
+    "median_tokens_per_task": 134.5
+  }
+}
