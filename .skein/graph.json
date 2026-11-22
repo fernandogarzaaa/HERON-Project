@@ -177,7 +177,7 @@
       "claim_token": "dbcb456dc06040a0a7426df85addd20d",
       "claimed_at": "2026-11-22T05:58:53.591442+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-22T06:08:55.739569+00:00",
+      "last_heartbeat": "2026-11-22T06:09:55.911705+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -202,7 +202,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "Core switches, chat context, taint source, notification owner",
-    "version": 24,
+    "version": 26,
     "worktree": {
       "base_branch": "feat/v1-features-base",
       "base_commit": "48aa65c853c6a54666cfd23e0a648044f34ff67d",
@@ -263,7 +263,16 @@
     }
   },
   "B3": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "94e9fe02dd25485da83e0bf65f4eac9a",
+        "ended_at": "2026-11-22T06:10:07.263861+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-22T06:09:22.334964+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -275,21 +284,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "94e9fe02dd25485da83e0bf65f4eac9a",
-      "base_branch": "4811cbc906cec5b0151d44094fb391215441c89e",
-      "claim_token": "f6c39a9ae668440dbe35918412e55011",
-      "claimed_at": "2026-11-22T06:09:22.334964+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-22T06:09:22.334964+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "B1"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash -n scripts/verify-feature.sh && grep -q 'eval/features/base.json' scripts/verify-feature.sh && grep -q 'heron-desktop' scripts/verify-feature.sh",
+        "duration_ms": 247,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B3_20261122T061006613177_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/feat-heron-v1-features-3cb124/.skein/evidence/B3_20261122T061006861112_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run the completion check outside the sandbox (`bash -n scripts/verify-feature.sh && \u2026`) to confirm the file parses.",
     "id": "B3",
     "integration_for": null,
     "intent": {
@@ -301,13 +322,26 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "94e9fe02dd25485da83e0bf65f4eac9a",
+      "base_commit": "4811cbc906cec5b0151d44094fb391215441c89e",
+      "changed_files": [
+        "scripts/verify-feature.sh"
+      ],
+      "commit": "9ce066a0ee4a545bd2f3bffb2ec82987154a751f",
+      "diff_stats": {
+        "scripts/verify-feature.sh": {
+          "added": 118,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Feature gate script",
-    "version": 3,
+    "version": 5,
     "worktree": {
       "base_branch": "4811cbc906cec5b0151d44094fb391215441c89e",
       "base_commit": "4811cbc906cec5b0151d44094fb391215441c89e",
