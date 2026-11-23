@@ -2328,8 +2328,10 @@ fn notify_with_command(command: &str, title: &str, body: &str) {
     reap(c.env("HERON_MESSAGE", &message).env("HERON_TITLE", title).spawn());
 }
 
+/// Unit tests run jobs that notify, so in a test build this posts nothing: each one would otherwise
+/// put a real Script Editor banner on the developer's screen, once per test run and per mutant.
 fn notify_with_os(title: &str, body: &str) {
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", not(test)))]
     {
         // Arguments are passed via argv, not interpolated into the script, so job output cannot inject AppleScript.
         reap(
@@ -2338,7 +2340,7 @@ fn notify_with_os(title: &str, body: &str) {
                 .spawn(),
         );
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(any(not(target_os = "macos"), test))]
     let _ = (title, body);
 }
 
