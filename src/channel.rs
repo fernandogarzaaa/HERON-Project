@@ -9,7 +9,7 @@
 //! route through the existing HERON Agent and Approver.
 
 use anyhow::{bail, Context, Result};
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -159,14 +159,95 @@ fn is_busy(err: &anyhow::Error) -> bool {
     )
 }
 
+#[cfg(unix)]
+fn open_private_spool_file(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    // Open the final spool component without following a symlink. Keep the
+    // handle open through SQLite initialization so permissions are applied
+    // to this inode, not to a later pathname replacement.
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create(true).mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    anyhow::ensure!(metadata.is_file(), "The channel spool must be a regular file");
+    anyhow::ensure!(metadata.nlink() == 1, "The channel spool must not be hard-linked");
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn set_private_spool_permissions(file: &std::fs::File) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn open_private_spool_file(path: &Path) -> Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+
+    // Open the final component itself, not a reparse-point target. Omitting
+    // FILE_SHARE_DELETE keeps this directory entry stable while SQLite opens
+    // the same path; read/write sharing remains available to SQLite.
+    let mut options = std::fs::OpenOptions::new();
+    options
+        .read(true)
+        .write(true)
+        .create(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    anyhow::ensure!(metadata.is_file(), "The channel spool must be a regular file");
+
+    let mut info = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
+    let ok = unsafe {
+        GetFileInformationByHandle(file.as_raw_handle() as _, info.as_mut_ptr())
+    };
+    anyhow::ensure!(ok != 0, "Could not inspect the channel spool file handle");
+    let info = unsafe { info.assume_init() };
+    anyhow::ensure!(
+        info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT == 0,
+        "The channel spool must not be a reparse point"
+    );
+    anyhow::ensure!(
+        info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0,
+        "The channel spool must be a regular file"
+    );
+    anyhow::ensure!(
+        info.nNumberOfLinks == 1,
+        "The channel spool must not be hard-linked"
+    );
+    Ok(file)
+}
+
 impl ChannelStore {
     pub fn open(path: &Path) -> Result<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent)?;
+        // SQLite's SQLITE_OPEN_NOFOLLOW also rejects symlinked ancestor
+        // components. Resolve the parent once so ordinary macOS paths such as
+        // /var/folders (a symlink to /private/var/folders) remain usable.
+        // The final component is still opened with O_NOFOLLOW and checked
+        // below, so a symlink swapped in at channels.db is rejected.
+        let parent = std::fs::canonicalize(parent)?;
+        let filename = path
+            .file_name()
+            .context("The channel spool path must include a file name")?;
+        let path = parent.join(filename);
         // Never follow a pre-existing symlink to an arbitrary database or
         // chmod another file through a symlinked channels.db path.
-        match std::fs::symlink_metadata(path) {
+        match std::fs::symlink_metadata(&path) {
             Ok(meta) if meta.file_type().is_symlink() || !meta.is_file() => {
                 bail!("The channel spool path must be a regular file, not a symlink");
             }
@@ -174,27 +255,34 @@ impl ChannelStore {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(err) => return Err(err.into()),
         }
-        // Only the current OS user may inspect the channel spool.
+        // Apply Unix permissions through a no-follow file handle, never by resolving
+        // the pathname again. SQLite's NOFOLLOW flag closes the remaining final-
+        // component symlink window between this preparation and its own open.
         #[cfg(unix)]
-        if !path.exists() {
-            use std::os::unix::fs::OpenOptionsExt;
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create_new(true).mode(0o600);
-            match options.open(path) {
-                Ok(_) => {}
-                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(err) => return Err(err.into()),
-            }
-        }
+        let spool_file = open_private_spool_file(&path)?;
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-        }
+        set_private_spool_permissions(&spool_file)?;
+        #[cfg(windows)]
+        let spool_file = open_private_spool_file(&path)?;
+
         // On Windows, setting up the schema can fail with "database is locked" at once, without
         // waiting on busy_timeout, while another Heron process is committing. Retry it the way
-        // busy_timeout would.
-        retry_while_busy(std::time::Duration::from_secs(5), std::time::Instant::now, std::thread::sleep, || Self::init(Connection::open(path)?))
+        // busy_timeout would. The Windows handle above rejects reparse points and hard links,
+        // and pins the final directory entry while SQLite opens the path.
+        let result = retry_while_busy(
+            std::time::Duration::from_secs(5),
+            std::time::Instant::now,
+            std::thread::sleep,
+            || Self::init(Connection::open_with_flags(
+                &path,
+                OpenFlags::SQLITE_OPEN_READ_WRITE
+                    | OpenFlags::SQLITE_OPEN_CREATE
+                    | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+            )?),
+        );
+        #[cfg(any(unix, windows))]
+        drop(spool_file);
+        result
     }
 
     #[cfg(test)]
@@ -987,6 +1075,62 @@ mod tests {
         let reopened = ChannelStore::open(&db).unwrap();
         assert!(!reopened.accept_inbound(&expected, &inbound("u9"), 101).unwrap());
         assert_eq!(reopened.count_pending().unwrap(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opens_spool_through_a_symlinked_parent_directory() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("real");
+        let alias = temp.path().join("alias");
+        std::fs::create_dir(&real).unwrap();
+        symlink(&real, &alias).unwrap();
+
+        let _store = ChannelStore::open(&alias.join("channels.db")).unwrap();
+        assert!(real.join("channels.db").is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spool_permissions_apply_to_the_open_inode_not_a_replaced_symlink() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("channels.db");
+        let victim = temp.path().join("victim.txt");
+        std::fs::write(&path, b"spool").unwrap();
+        std::fs::write(&victim, b"private").unwrap();
+        std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let file = open_private_spool_file(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        symlink(&victim, &path).unwrap();
+
+        set_private_spool_permissions(&file).unwrap();
+        assert_eq!(
+            std::fs::metadata(&victim).unwrap().permissions().mode() & 0o777,
+            0o644,
+            "replacing the spool pathname must not chmod the symlink target"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_hard_linked_spool_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let victim = temp.path().join("victim.txt");
+        let spool = temp.path().join("channels.db");
+        std::fs::write(&victim, b"not a channel database").unwrap();
+        std::fs::hard_link(&victim, &spool).unwrap();
+
+        assert!(ChannelStore::open(&spool).is_err());
+        assert_eq!(
+            std::fs::read(&victim).unwrap(),
+            b"not a channel database",
+            "a hard-linked spool must be rejected before SQLite can modify its target"
+        );
     }
 
     #[cfg(unix)]
