@@ -746,6 +746,36 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
+    fn a_sandbox_exec_earlier_on_the_childs_path_never_runs() {
+        use std::os::unix::fs::PermissionsExt;
+        let cfg = Config::default();
+        if active(&cfg) != Kind::Seatbelt {
+            return skip_seatbelt_test(&format!("Seatbelt is not in effect here ({})", active(&cfg).name()));
+        }
+        let fake_dir = tempfile::tempdir().unwrap();
+        let ran = fake_dir.path().join("fake-ran");
+        let fake = fake_dir.path().join("sandbox-exec");
+        std::fs::write(&fake, format!("#!/bin/sh\ntouch '{}'\necho fake\n", ran.display())).unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let ws = tempfile::tempdir().unwrap();
+        let ws = dunce::canonicalize(ws.path()).unwrap();
+        let (program, prefix) = wrap(&cfg, &ws, &Profile::Shell { grants: vec![] }).expect("Seatbelt wraps a shell command");
+        // The callers clear the environment and hand the child an allowlisted PATH, and the program
+        // is looked up on that PATH.
+        let out = std::process::Command::new(&program)
+            .args(&prefix)
+            .args(["/bin/echo", "real"])
+            .current_dir(&ws)
+            .env_clear()
+            .env("PATH", format!("{}:/usr/bin:/bin", fake_dir.path().display()))
+            .output()
+            .unwrap();
+        assert!(!ran.exists(), "the sandbox-exec on PATH ran instead of the system one (program {program:?})");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "real\n", "{out:?}");
+    }
+
+    #[test]
     fn shell_grants_come_from_standing_rules_and_this_conversation() {
         let store = crate::store::Store::in_memory().unwrap();
         // A grant must be an absolute path, and `/srv/x` has no drive on Windows, so a Windows fixture
