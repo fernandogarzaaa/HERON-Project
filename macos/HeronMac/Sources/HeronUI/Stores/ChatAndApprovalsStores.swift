@@ -449,7 +449,7 @@ public final class ChatStore {
         case .runEnd:
             endRun()
             Task { await loadSessions() }
-        case .usage, .model, .notice, .learned, .resync:
+        case .usage, .model, .notice, .notification, .learned, .resync:
             break
         }
     }
