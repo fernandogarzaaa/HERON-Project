@@ -38,6 +38,16 @@ public struct CoreEvent: Sendable, Equatable {
     }
 }
 
+extension CoreEvent {
+    /// One of the events that end a run's reply: `done`, `error`, `cancelled` or `run_end`.
+    public var isRunEnding: Bool {
+        switch kind {
+        case .done, .error, .cancelled, .runEnd: true
+        default: false
+        }
+    }
+}
+
 /// Errors the core's routes return that a screen reacts to.
 public enum CoreError: Error, Sendable, Equatable {
     /// `409 session_busy` on `POST /api/chat`.
@@ -47,5 +57,8 @@ public enum CoreError: Error, Sendable, Equatable {
     /// `409` on `POST /api/risk-notice`: the register changed while the screen was open.
     case riskNoticeOutdated
     case notFound
+    /// The core stopped twice within a minute and is not running. The details (exit, last log lines) are for
+    /// the "Heron's core stopped" card's Copy button, not for a screen's text.
+    case coreStopped(details: String)
     case failed(String)
 }

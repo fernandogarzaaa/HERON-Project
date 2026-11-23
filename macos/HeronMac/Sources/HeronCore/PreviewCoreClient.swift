@@ -20,6 +20,10 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     /// Approvals a run is waiting on, as `GET /api/approvals/live` returns them.
     private var liveRequests: [String: ApprovalRequest] = [:]
     private var beforeSendReturns: (@Sendable (String) async -> Void)?
+    private var sendFailure: CoreError?
+    private var cancelFailure: CoreError?
+    private var pinned: Set<String> = []
+    private var archived: Set<String> = []
 
     /// - Parameters:
     ///   - pace: the pause between scripted events. Zero in tests, a little in the running app.
@@ -48,6 +52,28 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     }
 
     public func setSandbox(_ kind: String) { with { $0.sandbox = kind } }
+
+    /// What a core restart does to a conversation mid-reply: the run is gone without a `run_end`, its live
+    /// approvals are gone, what it saved stays (so `session(id:)` reports it `interrupted`), and the event
+    /// stream comes back with `resync`.
+    public func simulateCoreRestart() {
+        let stranded = lock.withLock { () -> [CheckedContinuation<ApprovalDecision, Never>] in
+            for sid in activeRuns { data.sessions[sid]?.detail.interrupted = true }
+            activeRuns.removeAll()
+            liveRequests.removeAll()
+            defer { waiters.removeAll() }
+            return waiters.values.map(\.continuation)
+        }
+        // The scripted runs see they are no longer active and publish nothing more.
+        stranded.forEach { $0.resume(returning: .deny) }
+        publish(nil, nil, .resync(oldest: lock.withLock { seq } + 1))
+    }
+
+    /// Every `sendMessage` throws `error` until it is set back to nil.
+    public func failSends(with error: CoreError?) { lock.withLock { sendFailure = error } }
+
+    /// Every `cancel` throws `error` until it is set back to nil.
+    public func failCancels(with error: CoreError?) { lock.withLock { cancelFailure = error } }
 
     /// Sets what `/api/state` serves as `model` and `model_label` (`servesLabel: false` omits the label, as an older core does).
     public func setModel(_ model: String, label: String?, servesLabel: Bool = true) {
@@ -115,8 +141,35 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
         }
     }
 
-    public func sessions() async throws -> [SessionSummary] {
-        with { d in d.sessions.values.sorted { $0.summary.updatedAt > $1.summary.updatedAt }.map(\.summary) }
+    /// As the core lists them: no empty sessions, pinned first, then the most recent.
+    public func sessions() async throws -> [SessionSummary] { listed(archived: false) }
+
+    public func archivedSessions() async throws -> [SessionSummary] { listed(archived: true) }
+
+    private func listed(archived wanted: Bool) -> [SessionSummary] {
+        lock.withLock {
+            data.sessions.values
+                .filter { $0.summary.messages > 0 && archived.contains($0.summary.id) == wanted }
+                .sorted { $0.summary.updatedAt > $1.summary.updatedAt }
+                .map { s in
+                    var summary = s.summary
+                    summary.pinned = pinned.contains(summary.id)
+                    summary.archived = wanted
+                    return summary
+                }
+                .enumerated().sorted { ($0.element.pinned ? 0 : 1, $0.offset) < ($1.element.pinned ? 0 : 1, $1.offset) }.map(\.element)
+        }
+    }
+
+    public func updateSession(id: String, title: String?, pinned pin: Bool?, archived archive: Bool?) async throws {
+        let name = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let name, name.isEmpty || name.count > 120 { throw CoreError.failed(name.isEmpty ? "A conversation needs a name." : "Keep the name to 120 characters.") }
+        try lock.withLock {
+            guard data.sessions[id] != nil else { throw CoreError.notFound }
+            if let name { data.sessions[id]?.summary.title = name; data.sessions[id]?.detail.title = name }
+            if let pin { if pin { pinned.insert(id) } else { pinned.remove(id) } }
+            if let archive { if archive { archived.insert(id) } else { archived.remove(id) } }
+        }
     }
 
     public func session(id: String) async throws -> SessionDetail {
@@ -131,10 +184,15 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
 
     public func deleteSession(id: String) async throws {
         if lock.withLock({ activeRuns.contains(id) }) { throw CoreError.failed("Stop the running reply before deleting this conversation.") }
-        with { _ = $0.sessions.removeValue(forKey: id) }
+        lock.withLock {
+            data.sessions.removeValue(forKey: id)
+            pinned.remove(id)
+            archived.remove(id)
+        }
     }
 
     public func sendMessage(sessionID: String?, message: String, title: String?) async throws -> ChatStart {
+        if let failure = lock.withLock({ sendFailure }) { throw failure }
         let accepted = with { $0.riskNotice.acceptedVersion == $0.riskNotice.version }
         guard accepted else { throw CoreError.riskNoticeNotAccepted }
         let sid = sessionID ?? "s-\(UUID().uuidString.prefix(8).lowercased())"
@@ -158,12 +216,17 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     }
 
     public func cancel(sessionID: String) async throws -> Bool {
+        if let failure = lock.withLock({ cancelFailure }) { throw failure }
         let wasActive = lock.withLock { activeRuns.contains(sessionID) }
         guard wasActive else { return false }
         // Release a run that waits for an approval, then end it.
         let ids = lock.withLock { Array(waiters.keys) }
         for id in ids where lock.withLock({ waiters[id]?.sid == sessionID }) { resolveWaiter(id, .deny, event: "cancelled") }
-        _ = lock.withLock { activeRuns.remove(sessionID) }
+        // As on the core: the stopped reply is kept unfinished, so the conversation reopens as `interrupted`.
+        lock.withLock {
+            activeRuns.remove(sessionID)
+            data.sessions[sessionID]?.detail.interrupted = true
+        }
         publish(sessionID, nil, .cancelled)
         publish(sessionID, nil, .runEnd)
         return true

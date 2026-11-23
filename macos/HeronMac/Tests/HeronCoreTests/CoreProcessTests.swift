@@ -21,7 +21,8 @@ final class FakeCore {
     let directory: URL
     let script: URL
 
-    enum Behaviour { case exitAtOnce, waitForStdin }
+    /// `exitFirst(n)`: the first `n` runs exit at once, later ones wait for stdin.
+    enum Behaviour { case exitAtOnce, waitForStdin, exitFirst(Int) }
 
     init(_ behaviour: Behaviour) throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("heron-fake-core-\(UUID().uuidString)", isDirectory: true)
@@ -31,6 +32,7 @@ final class FakeCore {
         switch behaviour {
         case .exitAtOnce: tail = "exit 0"
         case .waitForStdin: tail = "cat > /dev/null\necho closed > \"$dir/stdin-closed\""
+        case .exitFirst(let n): tail = "[ $n -le \(n) ] && exit 0\ncat > /dev/null"
         }
         let body = """
         #!/bin/sh
@@ -109,6 +111,21 @@ final class CoreProcessTests: XCTestCase {
         XCTAssertTrue(details.contains("exited with status 0"), details)
         let count = try String(contentsOf: core.directory.appendingPathComponent("count"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertEqual(count, "2", "the core was started exactly twice")
+    }
+
+    /// The details go to the "Heron's core stopped" card and its Copy button: they keep the exit and the log
+    /// lines, never the endpoint line, which carries the token that opens the core's API.
+    func testStoppedDetailsNeverCarryTheEndpointToken() async throws {
+        let core = try FakeCore(.exitAtOnce)
+        let process = CoreProcess(launch: .init(executable: core.script), restartWindow: 60, now: StepClock(step: 0).now)
+        defer { process.stop(grace: 0.2) }
+        let stream = process.statuses()
+        process.start()
+        let seen = try await collect(stream, until: { isStopped($0.last) })
+        guard case .stopped(let details) = seen.last else { return XCTFail("expected stopped") }
+        XCTAssertTrue(details.contains("exited with status 0"), details)
+        XCTAssertFalse(details.contains("token"), details)
+        XCTAssertFalse(details.contains("\"port\""), details)
     }
 
     func testExitsMoreThanTheWindowApartKeepRestarting() async throws {
