@@ -39,7 +39,7 @@ struct RootContent: View {
         Group {
             if !model.hasBootstrapped {
                 StartingView(avatarStyle: model.preferences.avatarStyle)
-            } else if model.needsFirstRun {
+            } else if model.showsSetup {
                 FirstRunView(model: model).frame(minWidth: WindowMinimum.firstRun.width, minHeight: WindowMinimum.firstRun.height)
             } else {
                 MainView(model: model)
@@ -230,6 +230,9 @@ struct SidebarView: View {
     @Environment(\.heronTheme) private var theme
     @Environment(\.openSettings) private var openSettings
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @State private var renaming: SessionSummary?
+    @State private var renameDraft = ""
+    @State private var deleting: SessionSummary?
 
     var body: some View {
         List(selection: Binding(get: { Optional(model.selection) }, set: { if let d = $0 { model.go(d) } })) {
@@ -247,22 +250,71 @@ struct SidebarView: View {
                     .accessibilityLabel(d.title + countLabel(d))
                 }
             }
-            if !model.chat.sessions.isEmpty {
+            if !model.chat.sessions.isEmpty || model.chat.showsArchived {
                 Section {
-                    ForEach(model.chat.sessions.prefix(8)) { s in
-                        Button { Task { await model.openConversation(s.id) } } label: {
-                            Text(s.title.isEmpty ? "New conversation" : s.title).lineLimit(1).foregroundStyle(theme.ink2)
+                    ForEach(model.chat.sessions.prefix(8)) { s in conversationRow(s) }
+                    Button { Task { await model.chat.toggleArchived() } } label: {
+                        Label(model.chat.showsArchived ? "Hide archived" : "Archived",
+                              systemImage: model.chat.showsArchived ? "chevron.down" : "chevron.right")
+                            .font(HeronFont.sub).foregroundStyle(theme.ink3)
+                    }
+                    .buttonStyle(.plain)
+                    if model.chat.showsArchived {
+                        if model.chat.archivedSessions.isEmpty {
+                            Text("Nothing archived").font(HeronFont.sub).foregroundStyle(theme.ink3)
                         }
-                        .buttonStyle(.plain)
+                        ForEach(model.chat.archivedSessions) { s in conversationRow(s) }
+                    }
+                    if let error = model.chat.sessionActionError {
+                        Text(error).font(HeronFont.sub).foregroundStyle(theme.danger).fixedSize(horizontal: false, vertical: true)
                     }
                 } header: { SectionLabel("Conversations") }
             }
+        }
+        .alert("Rename conversation", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $renameDraft)
+            Button("Rename") {
+                if let s = renaming { Task { await model.chat.rename(s.id, to: renameDraft) } }
+                renaming = nil
+            }
+            Button("Cancel", role: .cancel) { renaming = nil }
+        }
+        .confirmationDialog(deleting.map { "Delete “\(Self.title($0))”?" } ?? "Delete conversation?",
+                            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let s = deleting { Task { await model.chat.delete(s.id) } }
+                deleting = nil
+            }
+            Button("Cancel", role: .cancel) { deleting = nil }
+        } message: {
+            Text("This deletes the conversation and everything in it. It can't be undone.")
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .background(reduceTransparency ? AnyShapeStyle(theme.sidebar) : AnyShapeStyle(theme.sidebar.opacity(0.88)))
         .safeAreaInset(edge: .top, spacing: 0) { header }
         .safeAreaInset(edge: .bottom, spacing: 0) { footer }
+    }
+
+    static func title(_ s: SessionSummary) -> String { s.title.isEmpty ? "New conversation" : s.title }
+
+    /// One conversation: click opens it, right-click offers Pin, Rename, Archive and Delete.
+    private func conversationRow(_ s: SessionSummary) -> some View {
+        Button { Task { await model.openConversation(s.id) } } label: {
+            HStack(spacing: Spacing.s1) {
+                if s.pinned { Image(systemName: "pin.fill").font(HeronFont.sub).foregroundStyle(theme.ink3).accessibilityLabel("Pinned") }
+                Text(Self.title(s)).lineLimit(1).foregroundStyle(s.archived ? theme.ink3 : theme.ink2)
+            }
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(s.pinned ? "Unpin" : "Pin") { Task { await model.chat.setPinned(s.id, !s.pinned) } }
+            Button("Rename…") { renameDraft = s.title; renaming = s }
+            Button(s.archived ? "Unarchive" : "Archive") { Task { await model.chat.setArchived(s.id, !s.archived) } }
+            Divider()
+            Button("Delete…", role: .destructive) { deleting = s }
+        }
     }
 
     private var header: some View {
@@ -291,7 +343,7 @@ struct SidebarView: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: Spacing.s2) {
                 Circle().fill(theme.ok).frame(width: 7, height: 7).accessibilityHidden(true)
-                Text(model.state?.model ?? "No model").font(HeronFont.sub).foregroundStyle(theme.ink)
+                Text(model.footerModelName).font(HeronFont.sub).foregroundStyle(theme.ink)
             }
             Text(model.footerLine).font(HeronFont.sub).foregroundStyle(theme.ink3)
         }
