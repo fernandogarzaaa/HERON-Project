@@ -183,6 +183,51 @@ fn set_private_spool_permissions(file: &std::fs::File) -> Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn open_private_spool_file(path: &Path) -> Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+
+    // Open the final component itself, not a reparse-point target. Omitting
+    // FILE_SHARE_DELETE keeps this directory entry stable while SQLite opens
+    // the same path; read/write sharing remains available to SQLite.
+    let mut options = std::fs::OpenOptions::new();
+    options
+        .read(true)
+        .write(true)
+        .create(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    anyhow::ensure!(metadata.is_file(), "The channel spool must be a regular file");
+
+    let mut info = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
+    let ok = unsafe {
+        GetFileInformationByHandle(file.as_raw_handle() as _, info.as_mut_ptr())
+    };
+    anyhow::ensure!(ok != 0, "Could not inspect the channel spool file handle");
+    let info = unsafe { info.assume_init() };
+    anyhow::ensure!(
+        info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT == 0,
+        "The channel spool must not be a reparse point"
+    );
+    anyhow::ensure!(
+        info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0,
+        "The channel spool must be a regular file"
+    );
+    anyhow::ensure!(
+        info.nNumberOfLinks == 1,
+        "The channel spool must not be hard-linked"
+    );
+    Ok(file)
+}
+
 impl ChannelStore {
     pub fn open(path: &Path) -> Result<Self> {
         let parent = path
@@ -217,10 +262,13 @@ impl ChannelStore {
         let spool_file = open_private_spool_file(&path)?;
         #[cfg(unix)]
         set_private_spool_permissions(&spool_file)?;
+        #[cfg(windows)]
+        let spool_file = open_private_spool_file(&path)?;
 
         // On Windows, setting up the schema can fail with "database is locked" at once, without
         // waiting on busy_timeout, while another Heron process is committing. Retry it the way
-        // busy_timeout would. NOFOLLOW also rejects a symlink at SQLite's open boundary.
+        // busy_timeout would. The Windows handle above rejects reparse points and hard links,
+        // and pins the final directory entry while SQLite opens the path.
         let result = retry_while_busy(
             std::time::Duration::from_secs(5),
             std::time::Instant::now,
@@ -232,7 +280,7 @@ impl ChannelStore {
                     | OpenFlags::SQLITE_OPEN_NOFOLLOW,
             )?),
         );
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         drop(spool_file);
         result
     }
@@ -1065,6 +1113,23 @@ mod tests {
             std::fs::metadata(&victim).unwrap().permissions().mode() & 0o777,
             0o644,
             "replacing the spool pathname must not chmod the symlink target"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_hard_linked_spool_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let victim = temp.path().join("victim.txt");
+        let spool = temp.path().join("channels.db");
+        std::fs::write(&victim, b"not a channel database").unwrap();
+        std::fs::hard_link(&victim, &spool).unwrap();
+
+        assert!(ChannelStore::open(&spool).is_err());
+        assert_eq!(
+            std::fs::read(&victim).unwrap(),
+            b"not a channel database",
+            "a hard-linked spool must be rejected before SQLite can modify its target"
         );
     }
 
