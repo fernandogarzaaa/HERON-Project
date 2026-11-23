@@ -132,6 +132,9 @@ public final class AppModel {
     // MARK: Start
 
     public func bootstrap() async {
+        // First, so nothing the core publishes while the screens load is missed: its scheduler runs
+        // due jobs as soon as it starts, and the stream carries only events after it opens.
+        startEvents()
         async let loadedPersona: Void = persona.load()
         do {
             state = try await client.state()
@@ -143,7 +146,6 @@ public final class AppModel {
         await loadedPersona
         hasBootstrapped = true
         if needsFirstRun { await firstRun.load() } else { await loadAll() }
-        startEvents()
     }
 
     /// Starts the setup steps again: from the risk notice, with what the core already holds.

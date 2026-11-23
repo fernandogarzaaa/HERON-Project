@@ -65,4 +65,18 @@ final class NotificationTests: XCTestCase {
         XCTAssertTrue(model.chat.messages.isEmpty)
         XCTAssertEqual(model.avatar.state, .idle)
     }
+
+    func test_aNotificationPublishedWhileTheAppIsStillLoadingIsPosted() async {
+        let poster = RecordingPoster()
+        let client = PreviewCoreClient()
+        client.runBeforeStateReturns { client.publishNotification(title: "Stretch", body: "Time to stand up.") }
+        let model = AppModel(client: client,
+                             preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!),
+                             userFirstName: "Sam", notifier: poster)
+        await model.bootstrap()
+        for _ in 0..<200 where poster.posts.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        model.stopEvents()
+        XCTAssertEqual(poster.posts.map(\.title), ["Stretch"], "the stream was open before the first load")
+        XCTAssertEqual(poster.posts.map(\.body), ["Time to stand up."])
+    }
 }
