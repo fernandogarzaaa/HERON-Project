@@ -249,6 +249,33 @@ final class ScreenStoreTests: XCTestCase {
         let bare = ChatErrorCard.from(message: "x", code: "cli_logged_out", provider: "OpenCode (router)", version: nil)
         XCTAssertEqual(bare.actions, [.modelSettings, .tryAgain])
         XCTAssertFalse(bare.text.contains("claude"))
+        // The hint is shown as words, never offered as a command.
+        let cline = ChatErrorCard.from(message: "x", code: "cli_logged_out", provider: "Cline", version: nil, hint: "cline auth <provider>")
+        XCTAssertEqual(cline.actions, [.modelSettings, .tryAgain])
+        XCTAssertEqual(cline.text, "To sign in: cline auth <provider>. Then send your message again, or pick another model in Settings.")
+    }
+
+    /// The core's recorded signed-out events, decoded and handled as the app does: `login:` survives into the
+    /// card as the command to copy, and a CLI with only a hint gets the Model settings button instead.
+    func testChatKeepsTheLoginOfASignedOutEvent() async throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let text = try String(contentsOf: url.appendingPathComponent("tests/fixtures/api/events-logged-out.jsonl"), encoding: .utf8)
+        let errors = try CoreWire.events(jsonLines: text).filter { if case .error = $0.kind { true } else { false } }
+        XCTAssertEqual(errors.count, 2)
+        var cards: [ChatErrorCard] = []
+        for recorded in errors {
+            let chat = ChatStore(client: try await makeClient())
+            await chat.send("hi")
+            let sid = try XCTUnwrap(chat.currentSessionID)
+            chat.handle(CoreEvent(sessionID: sid, runID: nil, kind: recorded.kind))
+            cards.append(try XCTUnwrap(chat.messages.last?.error))
+            XCTAssertFalse(chat.isRunning)
+        }
+        XCTAssertEqual(cards[0].title, "OpenCode (router) is logged out")
+        XCTAssertEqual(cards[0].actions, [.copyCommand("opencode auth login"), .tryAgain])
+        XCTAssertEqual(cards[1].actions, [.modelSettings, .tryAgain])
+        XCTAssertTrue(cards[1].text.contains("cline auth <provider>"))
     }
 
     /// A failure whose text only mentions signing out, as OpenCode's hint does, is shown as it is.

@@ -404,6 +404,8 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     public func selectProvider(id: String) async throws {
         try with { d in
             guard let p = d.providers.first(where: { $0.id == id }) else { throw CoreError.notFound }
+            // As the core does: a model name belongs to the CLI it was set for.
+            if !p.isActive { d.cliModel = "" }
             for i in d.providers.indices { d.providers[i].isActive = d.providers[i].id == id }
             d.activeModel = p.displayName
         }

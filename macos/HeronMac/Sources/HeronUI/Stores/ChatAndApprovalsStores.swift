@@ -65,12 +65,16 @@ public struct ChatErrorCard: Equatable, Sendable {
 
     /// The card for a failed reply. The core says what failed in `code`; the message text is shown, never
     /// searched, so a hint inside it ("If OpenCode is logged out: …") can't turn into the wrong card.
-    public static func from(message: String, code: String?, provider: String?, version: String?, login: String? = nil) -> ChatErrorCard {
+    /// `login` is only ever a command that runs as is; `hint` says how to sign in, in words.
+    public static func from(message: String, code: String?, provider: String?, version: String?, login: String? = nil, hint: String? = nil) -> ChatErrorCard {
         switch code {
         case "cli_logged_out":
             let cli = provider ?? "The model's CLI"
             guard let login, !login.isEmpty else {
-                return ChatErrorCard(title: "\(cli) is logged out", text: "Sign in to it in Terminal, then send your message again.", actions: [.modelSettings, .tryAgain])
+                let how = hint.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
+                let text = how.map { "To sign in: \($0). Then send your message again, or pick another model in Settings." }
+                    ?? "Sign in to it in Terminal, then send your message again, or pick another model in Settings."
+                return ChatErrorCard(title: "\(cli) is logged out", text: text, actions: [.modelSettings, .tryAgain])
             }
             return ChatErrorCard(title: "\(cli) is logged out",
                                  text: "Run `\(login)` in Terminal, then send your message again.",
@@ -445,8 +449,8 @@ public final class ChatStore {
             endRun()
         case .cancelled:
             endRun()
-        case .error(let message, let code, let provider, let version, let login):
-            let card = ChatErrorCard.from(message: message, code: code, provider: provider, version: version, login: login)
+        case .error(let message, let code, let provider, let version, let login, let hint):
+            let card = ChatErrorCard.from(message: message, code: code, provider: provider, version: version, login: login, hint: hint)
             mutateAssistant { $0.error = card }
             endRun()
             if code == "risk_notice_not_accepted" { needsRiskNotice = true }

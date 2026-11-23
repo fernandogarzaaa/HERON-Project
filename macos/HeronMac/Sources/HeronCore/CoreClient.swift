@@ -153,7 +153,7 @@ public final class CoreClient: CoreClientProtocol, Sendable {
                 guard let event = try? CoreWire.envelope(Data(sse.data.utf8)).event else { continue }
                 switch event.kind {
                 case .session(let id, let runID): return ChatStart(sessionID: id, runID: runID)
-                case .error(let text, _, _, _, _): throw CoreError.failed(text)
+                case .error(let text, _, _, _, _, _): throw CoreError.failed(text)
                 default: continue
                 }
             }

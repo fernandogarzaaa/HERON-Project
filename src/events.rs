@@ -206,7 +206,10 @@ pub fn error_json(e: &anyhow::Error) -> Value {
         if let Some(o) = cause.downcast_ref::<crate::cli_llm::CliLoggedOut>() {
             v["code"] = json!("cli_logged_out");
             v["provider"] = json!(o.name);
-            v["login"] = json!(o.login);
+            v["hint"] = json!(o.hint);
+            if let Some(login) = &o.login {
+                v["login"] = json!(login);
+            }
             break;
         }
         if cause.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some() {
@@ -328,9 +331,14 @@ mod tests {
         let untested: anyhow::Error = crate::cli_llm::CliVersionUntested { id: "codex-cli".into(), found: "9.9.9".into() }.into();
         let v = error_json(&untested.context("the model call failed"));
         assert_eq!((v["code"].as_str(), v["provider"].as_str(), v["version"].as_str()), (Some("cli_version_untested"), Some("codex-cli"), Some("9.9.9")));
-        let out: anyhow::Error = crate::cli_llm::CliLoggedOut { id: "opencode-cli".into(), name: "OpenCode (router)".into(), login: "opencode auth login".into(), said: "401".into() }.into();
+        let out: anyhow::Error = crate::cli_llm::CliLoggedOut::new(&crate::cli_llm::spec_for("opencode-cli").unwrap(), "401".into()).into();
         let v = error_json(&out.context("the model call failed"));
         assert_eq!((v["code"].as_str(), v["provider"].as_str(), v["login"].as_str()), (Some("cli_logged_out"), Some("OpenCode (router)"), Some("opencode auth login")));
+        assert_eq!(v["hint"], "opencode auth login (or configure opencode.json)");
+        // Prose is never sent as a command to copy.
+        let cline: anyhow::Error = crate::cli_llm::CliLoggedOut::new(&crate::cli_llm::spec_for("cline-cli").unwrap(), "401".into()).into();
+        let v = error_json(&cline);
+        assert_eq!((v.get("login"), v["hint"].as_str()), (None, Some("cline auth <provider>")));
         assert_eq!(error_json(&crate::risk_notice::RiskNoticeNotAccepted.into())["code"], "risk_notice_not_accepted");
         assert_eq!(error_json(&crate::permissions::WorkspaceRefused { path: "/x".into() }.into())["code"], "workspace_refused");
         let other = error_json(&anyhow::anyhow!("boom"));

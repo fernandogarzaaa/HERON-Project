@@ -462,7 +462,7 @@ public enum CoreWire {
         case "done": return make(.done(text: o["text"] as? String ?? "", title: o["title"] as? String))
         case "cancelled": return make(.cancelled)
         case "error":
-            return make(.error(message: o["message"] as? String ?? "", code: o["code"] as? String, provider: o["provider"] as? String, version: o["version"] as? String, login: o["login"] as? String))
+            return make(.error(message: o["message"] as? String ?? "", code: o["code"] as? String, provider: o["provider"] as? String, version: o["version"] as? String, login: o["login"] as? String, hint: o["hint"] as? String))
         case "run_end": return make(.runEnd)
         case "resync": return Envelope(seq: nil, event: CoreEvent(seq: 0, kind: .resync(oldest: try int("oldest"))))
         default: return Envelope(seq: seq, event: nil)
