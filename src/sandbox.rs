@@ -10,7 +10,7 @@
 //!   - writes are allowed only in the working folder, temporary folders and a few tool caches (for a
 //!     CLI: only its run folder and its own config folders).
 //!
-//! Linux uses bubblewrap (`bwrap`) for the shell when installed, with today's rules. Windows has no
+//! Linux uses bubblewrap (`/usr/bin/bwrap`) for the shell when installed, with today's rules. Windows has no
 //! equivalent here yet. On macOS a missing sandbox is not a fallback: [`required`] is true, and the
 //! callers refuse to run commands or CLIs without one.
 
@@ -36,11 +36,17 @@ impl Kind {
     }
 }
 
+/// The sandbox programs by absolute path, for the probe and for every wrapped command. A bare name is
+/// looked up on PATH (Heron's own for the probe, the child's for a command), so a program of the same
+/// name earlier on it would run instead.
+const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
+const BWRAP: &str = "/usr/bin/bwrap";
+
 fn probe() -> Kind {
     let ok = |program: &str, args: &[&str]| std::process::Command::new(program).args(args).stdin(std::process::Stdio::null()).output().map(|o| o.status.success()).unwrap_or(false);
-    if cfg!(target_os = "linux") && ok("bwrap", &["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--tmpfs", "/tmp", "true"]) {
+    if cfg!(target_os = "linux") && ok(BWRAP, &["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--tmpfs", "/tmp", "true"]) {
         Kind::Bubblewrap
-    } else if cfg!(target_os = "macos") && ok("sandbox-exec", &["-p", "(version 1)(allow default)", "/usr/bin/true"]) {
+    } else if cfg!(target_os = "macos") && ok(SANDBOX_EXEC, &["-p", "(version 1)(allow default)", "/usr/bin/true"]) {
         Kind::Seatbelt
     } else {
         Kind::None
@@ -449,9 +455,9 @@ pub fn wrap(cfg: &Config, workdir: &Path, profile: &Profile) -> Option<(String, 
                 }
             }
             a.extend(["--chdir".to_string(), s(workdir), "--".to_string()]);
-            Some(("bwrap".to_string(), a))
+            Some((BWRAP.to_string(), a))
         }
-        (Kind::Seatbelt, profile) => Some(("sandbox-exec".to_string(), vec!["-p".to_string(), seatbelt_profile(cfg, &home, workdir, profile)])),
+        (Kind::Seatbelt, profile) => Some((SANDBOX_EXEC.to_string(), vec!["-p".to_string(), seatbelt_profile(cfg, &home, workdir, profile)])),
     }
 }
 
@@ -739,7 +745,7 @@ mod tests {
         let on = Config::default();
         let wrapped = wrap(&on, Path::new("/tmp"), &Profile::Cli { spec: &spec, binary_dir: PathBuf::from("/usr/bin"), extra_read: vec![] });
         match available() {
-            Kind::Seatbelt => assert_eq!(wrapped.unwrap().0, "sandbox-exec"),
+            Kind::Seatbelt => assert_eq!(wrapped.unwrap().0, "/usr/bin/sandbox-exec"),
             Kind::Bubblewrap | Kind::None => assert!(wrapped.is_none(), "a CLI is never wrapped by bubblewrap"),
         }
         assert_eq!(required(), cfg!(target_os = "macos"));
