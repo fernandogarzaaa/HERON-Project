@@ -234,7 +234,227 @@ The build session runs these unsandboxed on the owner's Mac before `skein run` (
 
 ### Prototype results
 
-Pre-S2 writes each check's output here, before `skein run`. Empty until then.
+**Build decisions from these results (2026-11-23):**
+
+*   **PT-E1's escape is fixed in #79 at `59ea52f`.** The `/private/tmp/pymp-*` socket allowance is gone. Shell commands get a short temporary folder of their own (`/private/tmp/heron-<uid>`, mode 700), so Python's multiprocessing keeps its sockets there. The test `sandboxed_shell_cannot_reach_a_local_agent_socket` now also checks that another program's `pymp-*` server can't be reached, and that the command's own forkserver pool still works. It fails with the old allowance. The build continues.
+*   **PT-E2:** no extra hosts. The CA bundles stay readable, so the shell can verify TLS ([§3.2](#32-the-egress-allowlist)), in W6b.
+*   **PT-P2:** the hooks deny is narrowed to entries inside `hooks/` ([§3.1](#31-the-protected-list-and-the-write-check)).
+*   **PT-T1 and OQ1:** the owner's default holds, so W5 is built. A sandboxed install fails today on `~/.rustup/tmp`, but the sandbox can still write into `~/.rustup/toolchains/*/bin`, so W5's check is still needed.
+
+Run 2026-11-23 on the owner's Mac (Darwin 27.2.0, rustup 1.29.2, rustc 1.99.1), unsandboxed, by the build session's prototype agent. Scratch files were kept under `/tmp/claude-501/pt/`.
+
+**Summary.**
+
+*   **PT-E1: FAIL. This stops the build.**
+    *   #79's `/private/tmp/pymp-*` socket allowance lets a sandboxed command drive another process's unauthenticated Python forkserver. It was shown running code outside the sandbox.
+    *   Every §3.2 egress rule itself passed.
+*   **PT-E2: no extra hosts.** Fetches fail today, because the `.pem` secret pattern denies the CA bundles. With a CA read allow, all four fetches pass.
+*   **PT-P1: PASS.** Seatbelt refuses the hard link.
+*   **PT-P2: FAIL as written.** `git init` and `git clone` fail on the `hooks/` deny. With the narrowed deny, they PASS.
+*   **PT-T1:** a sandboxed install already fails, `RUSTUP_AUTO_INSTALL=0` stops the attempt, and the toolchain folders stay writable.
+*   **OQ1:** the default; W5 is built.
+
+**How the profiles were built.**
+
+*   **Base profile, today's code after #79.** `git archive d6bc478` was copied to scratch. A throwaway example, `examples/pt_profile.rs`, printed `heron::sandbox::seatbelt_profile(&Config::default(), <canonical $HOME>, <workdir>, &Profile::Shell { grants: vec![] })`. That is today's code, not a hand copy. The result is `base-real.sb`, 10,501 bytes.
+*   **Egress profile.** `add_egress.py` inserted §3.2's rules after #79's `local_sockets` lines and before `(deny job-creation)`. The result is `egress-real.sb`. These are the rules:
+
+    ```text
+    (deny network-outbound (remote ip "*:*"))
+    (allow network-outbound (remote ip "localhost:*"))
+    (deny network-outbound (remote ip "localhost:7878"))          ; cfg.server.port
+    (deny network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))
+    (deny network-outbound (remote unix-socket (subpath "/var/run/docker.sock")) … ~/.orbstack … ~/.gnupg … 1password … $SSH_AUTH_SOCK, each as written and canonical)
+    (deny network-outbound (remote unix-socket (path-regex #"^/private/tmp/com\.apple\.launchd\.[^/]+/Listeners$")))
+    ```
+
+*   **The same rules in the Rust code.** The rules were also injected into the scratch copy's `seatbelt_profile` through a throwaway env hook. The profile that Rust printed was byte-identical to `egress-real.sb`.
+*   **How commands ran.** Each command ran as `sandbox-exec -f <profile> /bin/sh -c '<cmd>'`, with `TMPDIR` set to Heron's `shell_tmpdir()`. On this Mac that is `/private/var/folders/yf/…/T/heron-shell`, 68 characters.
+*   **Positive control.** `echo CONTROL-OK` succeeded under every profile.
+*   **The proxy.** A throwaway Python CONNECT proxy (`proxy.py`) ran on `127.0.0.1:18443` and `[::1]:18443`. It allowed only `CONNECT <DEFAULT_ALLOW host>:443` and logged every decision.
+
+#### PT-E1: Seatbelt network rules. **FAIL.** The §3.2 rules behave as designed, but #79's `pymp` socket allowance is a sandbox escape. **The build stops on it.**
+
+> **A socket that runs commands for the caller was found. The build stops until the profile denies it (PT-E1, Pre-S2).**
+>
+> *   **The hole.** #79's `local_sockets` allows `(remote unix-socket (path-regex #"^/private/tmp/pymp-[^/]+/"))`. That rule lets a sandboxed command connect to *any* process's Python multiprocessing socket under `/tmp/pymp-*/`.
+> *   **Who puts a socket there.** A Python started without `TMPDIR`, such as a launchd job, puts its multiprocessing sockets there. So does a Python 3.13 or later whose `TMPDIR` is too long for a socket path, through its `/tmp` fallback. Python 3.9 stays in `TMPDIR`.
+> *   **Why that runs code.** Python 3.9 to 3.13's `forkserver` doesn't authenticate its socket. All of these are installed on this Mac: `/usr/bin/python3` 3.9.6, `~/.local/bin/python3.12` and `3.13`, and Homebrew 3.12 and 3.13. Only 3.14 and later add an authkey check.
+> *   **The proof.**
+>     1.  An owner-side forkserver was started: `env -u TMPDIR /opt/homebrew/bin/python3.13 fs_server.py`. It listened on `/tmp/pymp-518vh8o_/sock-be8c959886ad`.
+>     2.  From inside the profile, `fs_client.py` sent the forkserver two pipes and a pickle.
+>     3.  The forked child ran `head -c 27 /etc/ssl/cert.pem > fs-proof.txt` outside the sandbox. The proof file held `# $OpenBSD: cert.pem,v 1.22 ran-outside-sandbox`. The same `head` inside the profile gets `Operation not permitted`.
+>     4.  This reproduced under **both** `base-real.sb` and `egress-real.sb`. So it is a hole in #79 today, not one the egress rules add.
+> *   **A tested fix, for the owner to adopt into §3.2 and `sandbox.rs`.** Give the shell a short `TMPDIR`, such as `/private/tmp/heron-sh-<uid>`, created 0700 and owner-checked. Drop the `pymp` path-regex.
+>     *   With it, the proof gets `PermissionError: [Errno 1] Operation not permitted` and writes no proof file.
+>     *   The command's own multiprocessing still works. `spawn` and `forkserver` Pool plus Manager returned `OK` on Python 3.9.6, 3.13.18 and 3.15.1.
+>     *   Dropping the regex with today's long `TMPDIR` is not enough. Python 3.13 and later then fall back to `/tmp/pymp-*`, because `_SUN_PATH_MAX` is 92 and 68 + 28 ≥ 92, and their own multiprocessing fails with EPERM.
+
+The results for each item follow. B is the base profile, E the egress profile. Exit codes are curl's or Python's.
+
+| Item | Command (in the profile) | B | E | vs. doc |
+|---|---|---|---|---|
+| Direct by name | `curl --noproxy '*' https://example.com` | 200 | rc 6, "Could not resolve host" | PASS |
+| Direct by IP (exercises the IP deny) | `curl --noproxy '*' https://1.1.1.1` | 301 | rc 7, "Couldn't connect to server" | PASS |
+| Direct by IP, Python | `socket.create_connection(('1.1.1.1',443))` | CONNECTED | `PermissionError: [Errno 1]` | PASS |
+| DNS | `python3 -c "…getaddrinfo('example.com', 443)"` | resolves | `gaierror: [Errno 8]` | PASS |
+| Loopback bind+connect, IPv4 | the PT-E1 one-liner on `127.0.0.1` | OK | OK | PASS |
+| Loopback bind+connect, IPv6 | the same on `::1` | OK | OK | PASS |
+| Through the proxy, IPv4 | `curl -x http://127.0.0.1:18443 https://static.crates.io/` | 404 | 404 (TLS completed; proxy log `ALLOW static.crates.io`) | PASS |
+| Through the proxy, IPv6 | `curl -x http://[::1]:18443 https://static.crates.io/` | 404 | 404 | PASS (same as IPv4) |
+| A host off the list | `curl -x http://127.0.0.1:18443 https://example.com/` | rc 56, 403 | rc 56, 403 (`BLOCK host example.com`) | PASS |
+| Per-port deny wins over `localhost:*` | Listeners on 18998 and 18999, with 18999 added to the deny list | — | 18998 `GOT HELLO` on both 127.0.0.1 and ::1; 18999 and 7878 `Errno 1 EPERM` on both | PASS |
+| #79's test under the rules | `HERON_PT_EGRESS_RULES=… HERON_REQUIRE_SEATBELT=1 cargo test --lib sandboxed_shell_cannot_reach_a_local_agent_socket` | ok | ok (`1 passed`) | PASS |
+| Every socket on the Mac | `find /private/tmp /private/var/folders ~/.orbstack ~/.docker ~/.colima -type s`, plus `$SSH_AUTH_SOCK` and `/private/var/run`: 600 sockets. Each connected from the profile; paths over 100 bytes connected relative to their folder. | 592 EPERM; `mDNSResponder` CONNECTED; `syslog` EPROTOTYPE (allowed); 5 stale `/private/tmp/pymp-*` and 1 in `heron-shell` ECONNREFUSED (allowed) | 593 EPERM, `mDNSResponder` now EPERM; the rest the same as B | **FAIL**: `/private/tmp/pymp-*` is outside the working folder and `TMPDIR` but reachable; a live one answered (`LIVE-PYMP`). See the box above. Unsandboxed, 68 of these sockets accept. |
+| Named sockets | OrbStack `docker.sock`, Postgres `.s.PGSQL.5432`, a Claude Code daemon `control.sock`, both launchd `Listeners` (SSH agent) | EPERM | EPERM | PASS |
+| `open https://example.com` | | -10661 (LaunchServices deny), nothing opened | same | PASS |
+| `osascript -e 'open location "https://example.com"'` | | -10661 | same | PASS |
+| `nscurl https://example.com` | | body fetched ("Example Domain") | `Code=1 "Operation not permitted"`, no body | PASS: in-process, so the IP deny covers it; no mach service needed denying |
+
+Other findings:
+
+*   **Anchor's SSH-agent regex points at the wrong folder for this Mac.** It names `/private/tmp/com.apple.launchd.*/Listeners`, but here `$SSH_AUTH_SOCK` is `/private/var/run/com.apple.launchd.fuM9UuI4gk/Listeners`. #79's default unix-socket deny and the explicit `$SSH_AUTH_SOCK` rule still give EPERM. W3 should write the regex for `/private/var/run/` too.
+*   **`/usr/bin/curl` can't verify TLS in today's shell sandbox.** It fails with rc 77, "error setting certificate verify locations: CAfile: /etc/ssl/cert.pem". The secret pattern `^.*\.pem$` denies `/etc/ssl/cert.pem`. The curl rows above use `--cacert <a copy named ca.crt>`. This doesn't affect PT-E1's verdict, but it breaks `curl https://…` in the sandbox today, proxy or not.
+
+**What it changes (Pre-S2).** "PT-E1 fails" means stop phase 2 (W3 and W6b) and revise §3.2. Phase 1 goes on. Here, every §3.2 rule passed. The failing item, and the escape, are in #79's rule that this design reuses. So §3.2 needs one revision before W3 and W6b start: the short-`TMPDIR` and no-`pymp` change above, or another deny the owner prefers. Under PT-E1's own rule, the build stops until the profile denies it. The owner decides whether W1, W2 and W4 may start meanwhile.
+
+#### PT-E2: real fetches through the proxy. **Hosts: PASS, with no extra host needed. Fetches: FAIL as the profile stands**, because the CA bundles are read-denied, today too.
+
+**Setup.**
+
+*   The working folder was `/tmp/claude-501/pt/e2/ws`, with profiles built for it the same way (`base-e2.sb`, `egress-e2.sb`).
+*   `e2run.sh` started a fresh proxy and proxy log for each tool, using only `DEFAULT_ALLOW` as written in §3.2.
+*   It ran the command under `env -i` with Heron's proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, their lower-case forms, and `NO_PROXY=localhost,127.0.0.1,::1`), plus `CARGO_HOME`, `npm_config_cache` and `UV_CACHE_DIR` set to empty scratch folders.
+*   The scratch crate depends on `serde` (with `derive`) and `regex`.
+
+**The finding that blocks the fetches (it is not about hosts).** The secret pattern `^.*\.pem$` in `SEATBELT_SECRET_PATTERNS` denies reads of every CA bundle:
+
+*   `/etc/ssl/cert.pem`, used by cargo's libcurl, git and `/usr/bin/curl`;
+*   pip's `…/pip/_vendor/certifi/cacert.pem`.
+
+So TLS fails before any host matters, under the **base profile too**. Under `base-e2.sb`, with no proxy and an empty `CARGO_HOME`, `cargo fetch` fails with `[77] Problem with the SSL CA cert … CAfile: /etc/ssl/cert.pem`, and `pip download` fails with `PermissionError` in `truststore … load_verify_locations(certifi.where())`.
+
+The variants below add read allows after the secret deny, as the last file rules before `(deny job-creation)`:
+
+*   `egress-e2-ca.sb` adds `(allow file-read* (literal "/private/etc/ssl/cert.pem") (literal "/etc/ssl/cert.pem"))`;
+*   `egress-e2-ca2.sb` also adds `(allow file-read* (regex #"^/opt/homebrew/.*/(cacert|cert)\.pem$"))`.
+
+The owner adopts a fix into `sandbox.rs` (W6b, or a #79 follow-up). It must cover at least `/etc/ssl/cert.pem`, Homebrew's `ca-certificates/cert.pem` (npm needs it) and certifi's `cacert.pem` (pip needs it), as `-ca2` does. `NODE_USE_SYSTEM_CA` is not in `ENV_ALLOWED`, so Heron's shell matches the `env -i` runs here. Pointing `SSL_CERT_FILE` or `CARGO_HTTP_CAINFO` at a non-`.pem` copy also works, but every user would have to set it.
+
+| Command (through the proxy) | `egress-e2.sb` (as designed) | With the CA read allowed | Proxy log | Extra host? |
+|---|---|---|---|---|
+| `cargo fetch`, empty `CARGO_HOME` | rc 101, `[77] … CAfile: /etc/ssl/cert.pem` (after `ALLOW index.crates.io`) | rc 0, 12 crates downloaded (`syn`, `regex-automata`, …) (`-ca`) | `ALLOW index.crates.io`, `ALLOW static.crates.io` | none |
+| `npm view left-pad version name` (Homebrew node 26.13.0) | With a cold cache (`rm -rf` before each run), rc 1, `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, under `egress-e2` and `-ca`, with or without `NODE_USE_SYSTEM_CA=1`. Six `ALLOW registry.npmjs.org` per run: the tunnels opened, and TLS verification failed. Earlier "passes" with a warm cache were npm serving its cache after failed retries, so they are discarded. | rc 0, `1.3.0`, with a cold cache, both ways (`-ca2`, which allows `/opt/homebrew/etc/ca-certificates/cert.pem`). Homebrew node reads that `.pem`, so the `/etc/ssl/cert.pem` literal alone is not enough. | `ALLOW registry.npmjs.org` | none |
+| `uv pip download six` | **not a command in uv 0.13.5** ("unrecognized subcommand 'download'"). Substituted `uv pip install --no-cache --target ./six-uv six`: rc 0, `six==1.17.0` installed (uv uses its own roots) | (not needed) | `ALLOW pypi.org`, `ALLOW files.pythonhosted.org` | none |
+| `python3 -m pip download six` (the nearest real "download"; Homebrew Python 3.15.1) | rc 2, `PermissionError` reading certifi's `cacert.pem` | rc 0, `Saved ./six-pip/six-1.17.0-py2.py3-none-any.whl` (`-ca2`) | `ALLOW pypi.org`, `ALLOW files.pythonhosted.org` | none |
+| `git clone https://github.com/rust-lang/rustlings` | rc 128, `error setting certificate verify locations: CAfile: /etc/ssl/cert.pem` | rc 0, full clone, HEAD `f7b9b3c` (`-ca`) | `ALLOW github.com` | none |
+
+**Extra hosts for `DEFAULT_ALLOW`: none.** No tool logged a BLOCK line, and none failed for want of a host. `codeload.github.com`, the two `githubusercontent.com` hosts and `static.rust-lang.org` were not exercised by these four commands.
+
+**What it changes.**
+
+*   Pre-S1's `DEFAULT_ALLOW` stays exactly §3.2's list.
+*   The CA-bundle deny is new. It is not in §3.2's "What breaks". It breaks CUJ 7 and Harness2's `cargo test --locked` whenever the registry isn't cached already. It needs a design change, such as the read allow above, before W6b's egress tests can pass. The owner decides where: §3.2, or a #79 follow-up.
+*   The final-build re-run of PT-E2 (Verification Plan) should use an empty cache, as it did here. A warm cache hides this failure.
+
+**Profiles for PT-P1 and PT-P2.**
+
+*   **The fake home.** `HOME=/private/tmp/claude-501/pt/p/home pt_profile /private/tmp/claude-501/pt/p/ws` gives `base-fake.sb`, whose `cfg.home` is `<fake home>/.heron`. The working folder is outside the fake home.
+*   **The one adjustment.** Today's profile makes all of `/private/tmp` writable, so a fake home there would be writable. `add_protect.py` therefore inserts `(deny file-write* (subpath "<fake home>"))` right after the writable allow. That stands in for the real home being outside the writable set (`src/sandbox.rs:385-388`).
+*   **The variants:**
+    *   `p-home.sb`: only that deny.
+    *   `p-full.sb`: also §3.1's shell rules, inserted after the writable allow and before the Refused denies, case-insensitive as `seatbelt_regex` makes them:
+        *   the workspace-name regex: `.envrc`, `.mcp.json`, `.gitmodules`, `.ripgreprc`, the rc files, `.claude`, `.vscode`, `.idea`, `.husky`;
+        *   the hooks deny `^<ws>/(.*/)?\.git/(.*/)?hooks(/.*)?$`;
+        *   the `hooks/[^/]+\.sample$` allow.
+    *   `p-narrow.sb`: the same, with the hooks deny narrowed to `^<ws>/(.*/)?\.git/(.*/)?hooks/.+$`.
+*   Each variant carries PT-E2's CA read allow, so `git clone` can verify TLS.
+*   The repository config rule wasn't added for `x`, because the scan can't have seen it.
+*   **Positive control.** `echo CONTROL-OK` passed under each variant. Under each, `echo x >> ~/.zshrc` gave `Operation not permitted` (rc 1).
+
+#### PT-P1: hard links. **PASS. Seatbelt refuses the link.**
+
+```text
+$ HOME=<fake> sandbox-exec -f p-home.sb /bin/sh -c 'ln ~/.zshrc ./z; echo x >> ./z'     # same result under p-full.sb
+ln: ./z: Operation not permitted          (ln-rc=1)
+                                          (append-rc=0: it created a new, unlinked ./z)
+before: ino=2853234249 links=1 content "# fake zshrc"
+after:  ino=2853234249 links=1 content "# fake zshrc"   ./z is ino 2853335541, 2 bytes
+```
+
+*   Seatbelt checks a `link` against the write rules of its source. The target's inode, link count and content were unchanged.
+*   The same holds for a file denied by regex: in the working folder, under `p-full.sb`, `ln .envrc z2` failed with `Operation not permitted`.
+*   `cp -c .envrc z3`, an APFS clone, succeeded. It makes an independent copy, so it isn't a write path into `.envrc`.
+
+**What it changes.** Pre-S2's "PT-P1 shows Seatbelt allows hard links" case does not apply. The Risks row and W7's threat-model text can say Seatbelt refuses a hard link to a write-denied file. The rehash stays as defence in depth, for a link made outside the sandbox before the run.
+
+#### PT-P2: git under the protect rules. **FAIL as §3.1 is written: `git init` fails. PASS with the narrowed deny.**
+
+| Command (in `<ws>`) | `p-home` (no §3.1 rules) | `p-full` (§3.1 as written) | `p-narrow` (entries inside `hooks/`) |
+|---|---|---|---|
+| `git init -q x` | rc 0 | **rc 1**: `…/ws/x/.git/hooks/: Operation not permitted` | rc 0 (the samples are written) |
+| `git -C x commit -q --allow-empty -m x` (`GIT_AUTHOR_*` and `GIT_COMMITTER_*` set, no gitconfig) | rc 0 | rc 128 (no repository) | rc 0 |
+| `git clone -q https://github.com/rust-lang/rustlings` | rc 0, HEAD `f7b9b3c` | **rc 1**: `…/rustlings/.git/hooks/: Operation not permitted` | rc 0, HEAD `f7b9b3c`, 14 sample hooks |
+| `echo x > x/.git/hooks/pre-commit` | rc 0 | (no repository) | **rc 1, `Operation not permitted`**: PASS |
+| `mv x/.git/hooks h` | rc 0 | (no repository) | **rc 0: the rename succeeds**, as PT-P2 predicts |
+
+**Follow-ups run with `p-narrow`:**
+
+*   **The rename bypass is real for a repository made in the same command.** This command printed `HOOK-RAN`:
+
+    ```text
+    git init -q x; mv x/.git/hooks h; printf '#!/bin/sh\necho HOOK-RAN\n' > h/pre-commit; chmod +x h/pre-commit; mv h x/.git/hooks; git -C x commit --allow-empty -m t
+    ```
+
+    Here the hook ran inside the sandbox. A later unsandboxed `git commit` by the owner would run it outside.
+*   **For a repository the scan has seen, one more rule closes the rename.** It is a literal deny on the hooks folder itself, beside the config literal: `(deny file-write* (literal "<ws>/x/.git/hooks") (literal "<ws>/x/.git/config"))`, in canonical `/private/tmp/…` form. A first try with the `/tmp/…` spelling matched nothing.
+*   With that rule:
+    *   `mv x/.git/hooks h2` → `Operation not permitted`;
+    *   `rm -rf x/.git/hooks` → the folder stays, and only `.sample` files go;
+    *   writing `pre-commit` → `Operation not permitted`;
+    *   `git config user.name z` → `could not write config file .git/config: Operation not permitted`;
+    *   `git commit` still → rc 0.
+
+**What it changes (Pre-S2: "PT-P2's `git init` fails").** Before W4 starts, §3.1 narrows the hooks deny to `^<ws>/(.*/)?\.git/(.*/)?hooks/.+$`, keeping the `.sample` allow. This agent may not edit §3.1, so the owner or the build session makes that edit.
+
+*   **Recorded, as PT-P2 asks.** Renaming the hooks folder is then caught only by the rehash, for a repository made in the same command. The rehash reports it as a `new repository` whose hooks are not git's samples.
+*   **Proposed addition for W4.** For each scanned repository, add `(literal <gitdir>/hooks)` (and `<commondir>/hooks`) to the existing config literal deny. That keeps the rename closed for every repository the scan has seen.
+
+#### PT-T1: auto-install. **Recorded. No toolchain was installed, so none was removed.**
+
+**Setup.**
+
+*   The real `HOME` and **today's base profile** were used, since the question is about today. `base-t1.sb` was built by `pt_profile` for `/tmp/claude-501/pt/t1/ws`.
+*   That folder holds `rust-toolchain.toml` with `channel = "1.97.0"`. That channel is not installed: the installed toolchains are `stable-aarch64-apple-darwin` and `1.99.1-aarch64-apple-darwin`.
+*   `cargo` here is Homebrew's rustup proxy, `/opt/homebrew/opt/rustup/bin/cargo`.
+*   **Control.** `echo CONTROL-OK` and `rustup --version` → `rustup 1.29.2 (2026-10-21)`.
+*   **After each step,** `~/.rustup/toolchains`, `downloads` and `tmp` were listed from outside the pin folder.
+
+| # | Command (in the pin folder, in the profile) | Output (trimmed) | rc | Toolchains after |
+|---|---|---|---|---|
+| 1 | `RUSTUP_AUTO_INSTALL=0 cargo --version` | `error: toolchain '1.97.0-aarch64-apple-darwin' is not installed` / `help: run 'rustup toolchain install' to install it` | 1 | unchanged; `downloads` and `tmp` empty |
+| 2 | `cargo --version` | `info: syncing channel updates for 1.97.0-aarch64-apple-darwin` / `error: could not create temp file /Users/inan/.rustup/tmp/_1tx7nn1lyulyt_p_file: Operation not permitted (os error 1)` | 1 | unchanged |
+| 3 | `rustup toolchain install 1.97.0 --profile minimal` | the same `syncing…` then `could not create temp file /Users/inan/.rustup/tmp/…: Operation not permitted` | 1 | unchanged |
+| 4 | `rustup update stable --no-self-update` (in a folder with no pin) | the same error, on `~/.rustup/tmp` | 1 | unchanged |
+| 5 | Write probes | `echo probe > ~/.rustup/toolchains/1.99.1-aarch64-apple-darwin/bin/.pt-t1-probe` → **rc 0, the file was written** (deleted straight after); `touch ~/.rustup/tmp/x` → `Operation not permitted`; `touch ~/.rustup/settings.toml` → `Operation not permitted` | | unchanged |
+
+*   An aside on the tooling. One `rustup toolchain list` was run by mistake inside the pin folder, under Claude Code's own sandbox. It too printed `syncing channel updates for 1.97.0` and then failed silently. So in rustup 1.29.2 even `toolchain list` auto-installs a pinned channel. Nothing was installed.
+
+**PT-T1's three questions:**
+
+1.  **Does rustup 1.29.2 install the channel?** It tries to: `cargo --version` starts "syncing channel updates". In today's sandbox the install fails, because `~/.rustup/tmp` isn't writable. Nothing was installed.
+2.  **Does `RUSTUP_AUTO_INSTALL=0` stop it?** Yes. rustup refuses at once with "is not installed" and touches no network or file.
+3.  **Does a sandboxed `rustup toolchain install` work at all today?** No. Explicit install and `rustup update` both fail on `~/.rustup/tmp`, as OQ1 suspected (`src/sandbox.rs:194`). **But `~/.rustup/toolchains` itself is writable from the sandbox.** A command can still add or replace files in an installed toolchain, which is the risk OD7 and W5 cover.
+
+**OQ1 decision: the default, "OD7 as written, plus three additions". W5 is built.** The owner approved every default on 2026-11-23 (Owner decisions; Open Questions, "every question below is resolved to its default"). That releases W5's manual hold, and Pre-S3 adds W5, W6a, W6b, W7, W8 and verify with the default-option rows and checks (`check-w8.sh default`).
+
+**The evidence, for the record:**
+
+*   OQ1's "the cost may already be paid" is confirmed. A sandboxed install already fails, so the stronger option would cost no features today.
+*   The default is still needed while the stronger option isn't adopted. Row 5 shows a sandboxed command can write into `~/.rustup/toolchains/<name>/bin/`, and W5's hash check and read deny are what catch that.
+*   If the owner later wants the stronger option, PT-T1 shows it is cheap. Its own cost, "a pin that isn't installed fails until the owner installs it", already applies today.
+
+**Also for W5 and W6.** The shell could set `RUSTUP_AUTO_INSTALL=0`, which `env_allowed` doesn't pass today. Then a pin that isn't installed fails at once with rustup's clear message, not with a `~/.rustup/tmp` permission error. This doc doesn't specify it, so the owner decides.
 
 ## Critical User Journeys (CUJs)
 
@@ -682,7 +902,7 @@ The list is compiled constants. Like the Refused list, configuration can't open 
 **The shell sandbox.** `protect::seatbelt_rules(workspace, user_home, heron_homes, &scan, writable) -> (String, Vec<PathBuf>)` returns the rules, and the paths to pass to `refused_ancestors`. `seatbelt_profile`'s `Shell` branch adds them right after the writable allowance (`src/sandbox.rs:387-388`), before the existing Refused and secret denies. Those denies then still win over the one allow below:
 
 *   **Workspace names:** a `(deny file-write* (regex …))` for each name at any depth under the working folder, written as `^<ws>/(.*/)?\.envrc$` or `^<ws>/(.*/)?\.vscode(/.*)?$`. `<ws>` goes through the ported `regex_escape`, so a `+`, `(` or `"` in the path can't change the rule. The rules are case-insensitive through `seatbelt_regex`.
-*   **Hooks at any depth, with no scan needed:** a deny for `^<ws>/(.*/)?\.git/(.*/)?hooks(/.*)?$`, then an allow for `^<ws>/(.*/)?\.git/(.*/)?hooks/[^/]+\.sample$` only. Seatbelt applies the last rule that matches. The allow is limited to that prefix, so it re-opens nothing outside a hooks folder. This also covers repositories made during the run, and `.git/modules/*/hooks`. PT-P2 checks that `git init` and `git clone` still work.
+*   **Hooks at any depth, with no scan needed:** a deny for `^<ws>/(.*/)?\.git/(.*/)?hooks/.+$` (narrowed by PT-P2: denying the `hooks` folder itself made `git init` and `git clone` fail; renaming a hooks folder is then caught only by the after-run rehash, [§3.3](#33-the-after-run-rehash)), then an allow for `^<ws>/(.*/)?\.git/(.*/)?hooks/[^/]+\.sample$` only. Seatbelt applies the last rule that matches. The allow is limited to that prefix, so it re-opens nothing outside a hooks folder. This also covers repositories made during the run, and `.git/modules/*/hooks`. PT-P2 checks that `git init` and `git clone` still work.
 *   **Repository config:** `(deny file-write* (literal …))` for each scanned repository's config files.
 *   **Home paths and Heron's homes:** only those inside a writable folder. The rest are already outside the writable set (`src/sandbox.rs:385-388`), so rules for them would add nothing.
 *   **Renaming a parent:** `refused_ancestors(protected, writable)` (`src/sandbox.rs:255`), reused unchanged. A command then can't rename a parent folder, write under the new name and rename it back. The cost: a folder that holds a repository can't be renamed or deleted from the sandbox.
@@ -701,6 +921,8 @@ The list is compiled constants. Like the Refused list, configuration can't open 
 *   A folder that holds a repository can't be renamed or deleted from the sandbox.
 
 #### 3.2 The egress allowlist
+
+**CA bundles stay readable (PT-E2).** The secret pattern `^.*\.pem$` also denies the public CA bundles, so TLS fails in today's shell sandbox before any host matters. After the secret rules, the shell profile allows reads of `/etc/ssl/cert.pem` and `/private/etc/ssl/cert.pem`, Homebrew's `etc/ca-certificates/cert.pem` and `etc/openssl@3/cert.pem` under `/opt/homebrew` and `/usr/local`, and certifi's bundles (`^.*/certifi/cacert\.pem$`). These are public certificates, not secrets. W6b builds this, with the test `ca_bundles_stay_readable_under_the_secret_rules`.
 
 **The mechanism chosen: a local CONNECT proxy for each command, with Seatbelt allowing only loopback.**
 
@@ -1584,7 +1806,8 @@ This table replaces the scattered lists. W7 copies each row into `docs/engineeri
     shell_write_to_git_hook_is_denied
     own_api_port_is_denied_in_the_profile
     proxy_that_cannot_start_refuses_the_command
-    ```
+    ca_bundles_stay_readable_under_the_secret_rules
+```
 
 **Goals to tests.**
 
