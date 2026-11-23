@@ -3162,7 +3162,7 @@ mod tests {
         for yes in ["authentication failed", "401 unauthorized", "oauth token expired", "not logged in", "auth: token expired", "run opencode auth login", "please log in.", "login_required", "you are logged out", "sign in to continue"] {
             assert!(names_a_sign_in_problem(yes), "{yes}");
         }
-        for no in ["written by the author", "authorize the device", "the authority said no", "failed to read ~/.local/share/opencode/auth.json", "see /login/help", "loginx", "blog in", "design in progress", "author.name"] {
+        for no in ["written by the author", "authorize the device", "the authority said no", "failed to read ~/.local/share/opencode/auth.json", "see /login/help", "check auth.json for the key", "loginx", "blog in", "design in progress", "author.name"] {
             assert!(!names_a_sign_in_problem(no), "{no}");
         }
     }
