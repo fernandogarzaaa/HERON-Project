@@ -9,7 +9,7 @@
 //! route through the existing HERON Agent and Approver.
 
 use anyhow::{bail, Context, Result};
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -159,6 +159,30 @@ fn is_busy(err: &anyhow::Error) -> bool {
     )
 }
 
+#[cfg(unix)]
+fn open_private_spool_file(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    // Resolve the spool path once without following a symlink. Keep the handle
+    // open through SQLite initialization so permissions are applied to this
+    // inode, not to a later pathname replacement.
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create(true).mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    anyhow::ensure!(metadata.is_file(), "The channel spool must be a regular file");
+    anyhow::ensure!(metadata.nlink() == 1, "The channel spool must not be hard-linked");
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn set_private_spool_permissions(file: &std::fs::File) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
 impl ChannelStore {
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
@@ -174,27 +198,31 @@ impl ChannelStore {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(err) => return Err(err.into()),
         }
-        // Only the current OS user may inspect the channel spool.
+        // Apply Unix permissions through a no-follow file handle, never by resolving
+        // the pathname again. SQLite's NOFOLLOW flag closes the remaining symlink
+        // window between this preparation and its own open.
         #[cfg(unix)]
-        if !path.exists() {
-            use std::os::unix::fs::OpenOptionsExt;
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create_new(true).mode(0o600);
-            match options.open(path) {
-                Ok(_) => {}
-                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(err) => return Err(err.into()),
-            }
-        }
+        let spool_file = open_private_spool_file(path)?;
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-        }
+        set_private_spool_permissions(&spool_file)?;
+
         // On Windows, setting up the schema can fail with "database is locked" at once, without
         // waiting on busy_timeout, while another Heron process is committing. Retry it the way
-        // busy_timeout would.
-        retry_while_busy(std::time::Duration::from_secs(5), std::time::Instant::now, std::thread::sleep, || Self::init(Connection::open(path)?))
+        // busy_timeout would. NOFOLLOW also rejects a symlink at SQLite's open boundary.
+        let result = retry_while_busy(
+            std::time::Duration::from_secs(5),
+            std::time::Instant::now,
+            std::thread::sleep,
+            || Self::init(Connection::open_with_flags(
+                path,
+                OpenFlags::SQLITE_OPEN_READ_WRITE
+                    | OpenFlags::SQLITE_OPEN_CREATE
+                    | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+            )?),
+        );
+        #[cfg(unix)]
+        drop(spool_file);
+        result
     }
 
     #[cfg(test)]
@@ -987,6 +1015,30 @@ mod tests {
         let reopened = ChannelStore::open(&db).unwrap();
         assert!(!reopened.accept_inbound(&expected, &inbound("u9"), 101).unwrap());
         assert_eq!(reopened.count_pending().unwrap(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spool_permissions_apply_to_the_open_inode_not_a_replaced_symlink() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("channels.db");
+        let victim = temp.path().join("victim.txt");
+        std::fs::write(&path, b"spool").unwrap();
+        std::fs::write(&victim, b"private").unwrap();
+        std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let file = open_private_spool_file(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        symlink(&victim, &path).unwrap();
+
+        set_private_spool_permissions(&file).unwrap();
+        assert_eq!(
+            std::fs::metadata(&victim).unwrap().permissions().mode() & 0o777,
+            0o644,
+            "replacing the spool pathname must not chmod the symlink target"
+        );
     }
 
     #[cfg(unix)]
