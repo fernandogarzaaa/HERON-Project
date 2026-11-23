@@ -163,9 +163,9 @@ fn is_busy(err: &anyhow::Error) -> bool {
 fn open_private_spool_file(path: &Path) -> Result<std::fs::File> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
-    // Resolve the spool path once without following a symlink. Keep the handle
-    // open through SQLite initialization so permissions are applied to this
-    // inode, not to a later pathname replacement.
+    // Open the final spool component without following a symlink. Keep the
+    // handle open through SQLite initialization so permissions are applied
+    // to this inode, not to a later pathname replacement.
     let mut options = std::fs::OpenOptions::new();
     options.read(true).write(true).create(true).mode(0o600)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
@@ -199,8 +199,8 @@ impl ChannelStore {
             Err(err) => return Err(err.into()),
         }
         // Apply Unix permissions through a no-follow file handle, never by resolving
-        // the pathname again. SQLite's NOFOLLOW flag closes the remaining symlink
-        // window between this preparation and its own open.
+        // the pathname again. SQLite's NOFOLLOW flag closes the remaining final-
+        // component symlink window between this preparation and its own open.
         #[cfg(unix)]
         let spool_file = open_private_spool_file(path)?;
         #[cfg(unix)]
