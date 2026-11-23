@@ -203,6 +203,12 @@ pub fn error_json(e: &anyhow::Error) -> Value {
             v["version"] = json!(u.found);
             break;
         }
+        if let Some(o) = cause.downcast_ref::<crate::cli_llm::CliLoggedOut>() {
+            v["code"] = json!("cli_logged_out");
+            v["provider"] = json!(o.name);
+            v["login"] = json!(o.login);
+            break;
+        }
         if cause.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some() {
             v["code"] = json!("risk_notice_not_accepted");
             break;
@@ -322,6 +328,9 @@ mod tests {
         let untested: anyhow::Error = crate::cli_llm::CliVersionUntested { id: "codex-cli".into(), found: "9.9.9".into() }.into();
         let v = error_json(&untested.context("the model call failed"));
         assert_eq!((v["code"].as_str(), v["provider"].as_str(), v["version"].as_str()), (Some("cli_version_untested"), Some("codex-cli"), Some("9.9.9")));
+        let out: anyhow::Error = crate::cli_llm::CliLoggedOut { id: "opencode-cli".into(), name: "OpenCode (router)".into(), login: "opencode auth login".into(), said: "401".into() }.into();
+        let v = error_json(&out.context("the model call failed"));
+        assert_eq!((v["code"].as_str(), v["provider"].as_str(), v["login"].as_str()), (Some("cli_logged_out"), Some("OpenCode (router)"), Some("opencode auth login")));
         assert_eq!(error_json(&crate::risk_notice::RiskNoticeNotAccepted.into())["code"], "risk_notice_not_accepted");
         assert_eq!(error_json(&crate::permissions::WorkspaceRefused { path: "/x".into() }.into())["code"], "workspace_refused");
         let other = error_json(&anyhow::anyhow!("boom"));

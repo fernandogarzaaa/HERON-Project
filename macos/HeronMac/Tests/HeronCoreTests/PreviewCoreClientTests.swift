@@ -58,7 +58,7 @@ final class PreviewCoreClientTests: XCTestCase {
         let stream = c.events(since: nil)
         _ = try await c.sendMessage(sessionID: nil, message: "please fail", title: nil)
         let events = try await collect(stream)
-        let error = events.compactMap { e -> (String?, String?)? in if case .error(_, let code, _, let version) = e.kind { (code, version) } else { nil } }.first
+        let error = events.compactMap { e -> (String?, String?)? in if case .error(_, let code, _, let version, _) = e.kind { (code, version) } else { nil } }.first
         XCTAssertEqual(error?.0, "cli_version_untested")
         XCTAssertEqual(error?.1, "3.0.1")
         if case .runEnd = events.last?.kind {} else { XCTFail("the last event of every run is run_end") }

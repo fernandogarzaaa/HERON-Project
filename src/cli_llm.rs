@@ -206,6 +206,25 @@ impl std::fmt::Display for CliVersionUntested {
 
 impl std::error::Error for CliVersionUntested {}
 
+/// A CLI provider is signed out. It carries the provider's own name and login command, so the app's
+/// card tells the owner how to sign in to the provider in use, not to another one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CliLoggedOut {
+    pub id: String,
+    pub name: String,
+    pub login: String,
+    /// What the CLI printed, cut short.
+    pub said: String,
+}
+
+impl std::fmt::Display for CliLoggedOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} is logged out: run `{}`, then try again. (CLI said: {})", self.name, self.login, self.said)
+    }
+}
+
+impl std::error::Error for CliLoggedOut {}
+
 /// The kv key that records the one version of a CLI the user accepted.
 pub fn version_ok_key(id: &str) -> String {
     format!("cli_version_ok:{id}")
@@ -1233,7 +1252,8 @@ struct ProviderError {
 /// exceeds the limit", "usage: heron --limit N", `RateLimiter`, `rate_limits`) must never be taken
 /// for a limit. "quota exceeded" right after "disk " or "disc " is a full disk quota, not a limit.
 fn names_a_provider_limit(text: &str) -> bool {
-    const PHRASES: [&str; 22] = [
+    const PHRASES: [&str; 23] = [
+        "insufficient balance",
         "rate limit",
         "rate-limit",
         "rate limited",
@@ -1330,7 +1350,7 @@ impl ProviderError {
     fn class(&self) -> ErrorClass {
         if self.status == Some(401) {
             ErrorClass::LoggedOut
-        } else if self.status == Some(429) || names_a_provider_limit(&format!("{} {}", self.kind, self.message)) {
+        } else if self.status == Some(429) || self.kind.eq_ignore_ascii_case("provider.quota") || names_a_provider_limit(&format!("{} {}", self.kind, self.message)) {
             ErrorClass::Limit
         } else if self.kind.to_lowercase().contains("auth") {
             ErrorClass::LoggedOut
@@ -2407,18 +2427,19 @@ impl CliLlm {
                 // A failed exit is an error even when some text arrived:
                 // a partial reply must not be saved as a successful answer.
                 let logged_out = format!("{} is logged out: run `{}`", self.spec.display_name, self.spec.login_command);
+                let signed_out = || CliLoggedOut { id: self.spec.id.into(), name: self.spec.display_name.into(), login: self.spec.login_command.into(), said: preview.clone() };
                 // claude-cli and codex-cli can say whether they are logged in; ask them.
                 if matches!(self.spec.id, "claude-cli" | "codex-cli") {
                     let probe: &[&str] = if self.spec.id == "claude-cli" { &["auth", "status", "--text"] } else { &["login", "status"] };
                     if let Ok(out) = self.run_contained(&path, probe, 20, &run_dir, sandbox.as_ref()).await {
                         if says_logged_out(self.spec.id, &out) {
-                            bail!("{logged_out}, then try again. (CLI said: {preview})");
+                            return Err(signed_out().into());
                         }
                     }
                 }
-                let limit_msg = |preview: &str| format!("{} refused the request: {}. The subscription's usage window may be exhausted; wait or check the plan.", self.spec.display_name, preview);
+                let limit_msg = |preview: &str| format!("{} refused the request: {}. The subscription's usage window may be exhausted, or the account's credit used up; wait, top up, or pick another model.", self.spec.display_name, preview);
                 match acc.provider_error.as_ref().map(ProviderError::class) {
-                    Some(ErrorClass::LoggedOut) => bail!("{logged_out}, then try again. (CLI said: {preview})"),
+                    Some(ErrorClass::LoggedOut) => return Err(signed_out().into()),
                     Some(ErrorClass::Limit) => bail!("{}", limit_msg(&preview)),
                     _ => {}
                 }
@@ -2428,7 +2449,7 @@ impl CliLlm {
                     || lower.contains("login")
                     || lower.contains("unauthorized")
                 {
-                    bail!("{logged_out}, then try again. (CLI said: {preview})");
+                    return Err(signed_out().into());
                 }
                 // A CLI with no login probe cannot say; the hint goes with the failure.
                 let hint = if parse_login_output(self.spec.id, "").0.is_none() { format!(" If {logged_out}.") } else { String::new() };
@@ -2989,12 +3010,43 @@ mod tests {
     /// A fake `opencode` that prints `event` on stdout and exits 1 with an empty stderr.
     #[cfg(not(windows))]
     async fn opencode_failure_with(event: &str) -> String {
+        opencode_error_with(event).await.to_string()
+    }
+
+    /// The error itself, for checks on its type.
+    #[cfg(not(windows))]
+    async fn opencode_error_with(event: &str) -> anyhow::Error {
         let dir = tempfile::tempdir().unwrap();
         let bin = fake_bin(dir.path(), "opencode", &format!("#!/bin/sh\nprintf '%s\\n' '{event}'\nexit 1\n"));
         let mut cfg = test_cfg(dir.path(), "opencode-cli");
         cfg.llm.cli_command = bin.to_string_lossy().to_string();
         let llm = CliLlm::from_config(std::sync::Arc::new(cfg), None).unwrap();
-        llm.chat(hi(), &|_| {}).await.unwrap_err().to_string()
+        llm.chat(hi(), &|_| {}).await.unwrap_err()
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn a_signed_out_cli_names_its_own_login_command() {
+        let err = opencode_error_with(r#"{"type":"error","error":{"type":"provider.auth","message":"key expired","status":401}}"#).await;
+        let out = err.downcast_ref::<CliLoggedOut>().expect("a typed signed-out error");
+        assert_eq!((out.id.as_str(), out.login.as_str()), ("opencode-cli", "opencode auth login (or configure opencode.json)"));
+        assert!(out.said.contains("provider.auth: key expired"), "{out:?}");
+        let v = crate::events::error_json(&err);
+        assert_eq!((v["code"].as_str(), v["provider"].as_str(), v["login"].as_str()), (Some("cli_logged_out"), Some("OpenCode (router)"), Some("opencode auth login (or configure opencode.json)")));
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn an_empty_balance_is_a_limit_not_a_sign_in_problem() {
+        // What opencode printed on the owner's Mac when its pay-as-you-go credit was empty.
+        let event = r#"{"type":"error","error":{"type":"provider.quota","message":"Insufficient balance. This request is pay-as-you-go, billed to OpenCode Models credits."}}"#;
+        let err = opencode_error_with(event).await;
+        let text = err.to_string();
+        assert!(text.contains("refused the request") && text.contains("credit used up"), "{text}");
+        assert!(!text.contains("logged out") && err.downcast_ref::<CliLoggedOut>().is_none(), "{text}");
+        // The phrase alone, under a neutral type, is a limit too.
+        let text = opencode_failure_with(r#"{"type":"error","error":{"type":"provider.error","message":"Insufficient balance"}}"#).await;
+        assert!(text.contains("refused the request"), "{text}");
     }
 
     #[tokio::test]

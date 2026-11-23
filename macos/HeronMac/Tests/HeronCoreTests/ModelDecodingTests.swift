@@ -334,6 +334,15 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(s.connections, [])
         XCTAssertFalse(s.awareness)
         XCTAssertFalse(s.phoneConnected)
+        XCTAssertEqual(s.cliModel, "", "the fixture's cli_model")
+    }
+
+    func testSettingsReadTheCLIModel() throws {
+        let json = #"{"workspace":"/w","mode":"ask","rule_notices":[],"allow_unattended_subscription":false,"cli_model":"opencode/beam-free"}"#
+        XCTAssertEqual(try CoreWire.settings(Data(json.utf8)).cliModel, "opencode/beam-free")
+        // An older core that doesn't send it: empty, so the CLI chooses.
+        let older = #"{"workspace":"/w","mode":"ask","rule_notices":[],"allow_unattended_subscription":false}"#
+        XCTAssertEqual(try CoreWire.settings(Data(older.utf8)).cliModel, "")
     }
 
     // MARK: Event recordings
@@ -382,6 +391,13 @@ final class ModelDecodingTests: XCTestCase {
         let json = #"{"seq":4,"session_id":"s","run_id":"r","type":"error","message":"m","code":"cli_version_untested","provider":"claude-cli","version":"2.3.0"}"#
         let e = try XCTUnwrap(CoreWire.envelope(Data(json.utf8)).event)
         XCTAssertEqual(e.kind, .error(message: "m", code: "cli_version_untested", provider: "claude-cli", version: "2.3.0"))
+    }
+
+    /// The shape `events::error_json` sends for a signed-out CLI (its Rust test checks the same fields).
+    func testSignedOutErrorEventCarriesTheLoginCommand() throws {
+        let json = #"{"seq":5,"session_id":"s","run_id":"r","type":"error","message":"m","code":"cli_logged_out","provider":"OpenCode (router)","login":"opencode auth login"}"#
+        let e = try XCTUnwrap(CoreWire.envelope(Data(json.utf8)).event)
+        XCTAssertEqual(e.kind, .error(message: "m", code: "cli_logged_out", provider: "OpenCode (router)", version: nil, login: "opencode auth login"))
     }
 
     func testParkedLearnedModelNoticeAndCancelledEvents() throws {

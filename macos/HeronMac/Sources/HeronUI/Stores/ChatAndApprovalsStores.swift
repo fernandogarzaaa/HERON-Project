@@ -63,8 +63,18 @@ public struct ChatErrorCard: Equatable, Sendable {
                                                   text: "It stopped and didn't start again. Your message is kept in the box. Try again, or restart the core from the card at the top of the window.",
                                                   actions: [.tryAgain])
 
-    public static func from(message: String, code: String?, provider: String?, version: String?) -> ChatErrorCard {
+    /// The card for a failed reply. The core says what failed in `code`; the message text is shown, never
+    /// searched, so a hint inside it ("If OpenCode is logged out: …") can't turn into the wrong card.
+    public static func from(message: String, code: String?, provider: String?, version: String?, login: String? = nil) -> ChatErrorCard {
         switch code {
+        case "cli_logged_out":
+            let cli = provider ?? "The model's CLI"
+            guard let login, !login.isEmpty else {
+                return ChatErrorCard(title: "\(cli) is logged out", text: "Sign in to it in Terminal, then send your message again.", actions: [.modelSettings, .tryAgain])
+            }
+            return ChatErrorCard(title: "\(cli) is logged out",
+                                 text: "Run `\(login)` in Terminal, then send your message again.",
+                                 actions: [.copyCommand(login), .tryAgain])
         case "cli_version_untested":
             let v = version ?? "this version", p = provider ?? "the CLI"
             return ChatErrorCard(title: "Untested version \(v) of \(p)",
@@ -82,12 +92,6 @@ public struct ChatErrorCard: Equatable, Sendable {
                                  text: "Your message is kept in the box. Send it when Heron finishes, or stop the current reply.",
                                  actions: [.stopReply])
         default:
-            if message.lowercased().contains("logged out") || message.lowercased().contains("not logged in") {
-                let cli = provider ?? "Claude Code"
-                return ChatErrorCard(title: "\(cli) is logged out",
-                                     text: "Run `claude auth login` in Terminal, then send your message again.",
-                                     actions: [.copyCommand("claude auth login"), .tryAgain])
-            }
             return ChatErrorCard(title: message, text: "Heron stopped this reply.", actions: [.tryAgain])
         }
     }
@@ -441,8 +445,8 @@ public final class ChatStore {
             endRun()
         case .cancelled:
             endRun()
-        case .error(let message, let code, let provider, let version):
-            let card = ChatErrorCard.from(message: message, code: code, provider: provider, version: version)
+        case .error(let message, let code, let provider, let version, let login):
+            let card = ChatErrorCard.from(message: message, code: code, provider: provider, version: version, login: login)
             mutateAssistant { $0.error = card }
             endRun()
             if code == "risk_notice_not_accepted" { needsRiskNotice = true }

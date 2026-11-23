@@ -68,6 +68,7 @@ public protocol CoreClientProtocol: Sendable {
     // Settings
     func settings() async throws -> CoreSettings                             // GET /api/settings
     func setUnattendedSubscription(_ allowed: Bool) async throws             // POST /api/settings
+    func setCLIModel(_ model: String) async throws                           // POST /api/settings
     func setAwareness(_ enabled: Bool) async throws                          // POST /api/awareness
     func grants() async throws -> [Grant]                                    // GET /api/grants
     func revokeGrant(rule: String) async throws                              // DELETE /api/grants

@@ -388,6 +388,15 @@ final class CoreClientTests: XCTestCase {
         XCTAssertEqual(try body(seen[4])["due"] as? String, "2026-11-30")
     }
 
+    func testCLIModelIsSavedAsCliModel() async throws {
+        let client = makeClient { _ in .init(200, json: "{}") }
+        try await client.setCLIModel("opencode/deepseek-v4.1-flash-free")
+        let seen = StubProtocol.seen
+        XCTAssertEqual(seen.map(\.path), ["/api/settings"])
+        XCTAssertEqual(seen[0].method, "POST")
+        XCTAssertEqual(try body(seen[0]) as NSDictionary, ["cli_model": "opencode/deepseek-v4.1-flash-free"] as NSDictionary)
+    }
+
     func testSettingsRoutes() async throws {
         let client = makeClient { _ in .init(200, json: "{}") }
         try await client.selectProvider(id: "codex-cli")

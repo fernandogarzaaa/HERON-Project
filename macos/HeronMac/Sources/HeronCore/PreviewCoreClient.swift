@@ -418,11 +418,12 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
             if let failure = d.settingsFailure { d.settingsFailure = nil; throw failure }
             return CoreSettings(workspace: d.workspace, mode: d.mode, ruleNotices: d.ruleNotices,
                          allowSubscriptionUnattended: d.allowSubscriptionUnattended, connections: d.connections,
-                         awareness: d.awareness, phoneConnected: false)
+                         awareness: d.awareness, phoneConnected: false, cliModel: d.cliModel)
         }
     }
 
     public func setUnattendedSubscription(_ allowed: Bool) async throws { with { $0.allowSubscriptionUnattended = allowed } }
+    public func setCLIModel(_ model: String) async throws { with { $0.cliModel = model } }
     public func setAwareness(_ enabled: Bool) async throws { with { $0.awareness = enabled } }
     public func grants() async throws -> [Grant] { with { $0.grants } }
 

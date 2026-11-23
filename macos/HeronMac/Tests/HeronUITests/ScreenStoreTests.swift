@@ -233,10 +233,30 @@ final class ScreenStoreTests: XCTestCase {
         let folder = ChatErrorCard.from(message: "x", code: "workspace_refused", provider: nil, version: nil)
         XCTAssertEqual(folder.actions, [.chooseFolder])
         XCTAssertTrue(folder.text.contains("holds secrets"))
-        let loggedOut = ChatErrorCard.from(message: "Claude Code is logged out", code: nil, provider: "Claude Code", version: nil)
+        let loggedOut = ChatErrorCard.from(message: "x", code: "cli_logged_out", provider: "Claude Code", version: nil, login: "claude auth login")
         XCTAssertEqual(loggedOut.actions, [.copyCommand("claude auth login"), .tryAgain])
         let other = ChatErrorCard.from(message: "The model timed out", code: nil, provider: nil, version: nil)
         XCTAssertEqual(other.title, "The model timed out", "never a generic 'Something went wrong'")
+    }
+
+    /// The owner picked OpenCode, its credit ran out, and the card told them to run `claude auth login`.
+    func testASignedOutCardUsesTheProviderInUse() {
+        let card = ChatErrorCard.from(message: "x", code: "cli_logged_out", provider: "OpenCode (router)", version: nil, login: "opencode auth login")
+        XCTAssertEqual(card.title, "OpenCode (router) is logged out")
+        XCTAssertEqual(card.text, "Run `opencode auth login` in Terminal, then send your message again.")
+        XCTAssertEqual(card.actions, [.copyCommand("opencode auth login"), .tryAgain])
+        // Without a login command, no command is made up: the card sends the owner to Settings › Model.
+        let bare = ChatErrorCard.from(message: "x", code: "cli_logged_out", provider: "OpenCode (router)", version: nil)
+        XCTAssertEqual(bare.actions, [.modelSettings, .tryAgain])
+        XCTAssertFalse(bare.text.contains("claude"))
+    }
+
+    /// A failure whose text only mentions signing out, as OpenCode's hint does, is shown as it is.
+    func testAMessageThatMentionsLoggedOutIsNotASignInCard() {
+        let message = "OpenCode (router) failed (exit 1): provider.quota: Insufficient balance. If OpenCode (router) is logged out: run `opencode auth login`."
+        let card = ChatErrorCard.from(message: message, code: nil, provider: nil, version: nil)
+        XCTAssertEqual(card.title, message)
+        XCTAssertEqual(card.actions, [.tryAgain])
     }
 
     func testFailingRunShowsTheErrorUnderTheReply() async throws {
@@ -1062,6 +1082,21 @@ final class ScreenStoreTests: XCTestCase {
         client.setSandbox("none")
         await store.load()
         XCTAssertFalse(store.sandboxOn)
+    }
+
+    func testTheCLIModelIsSavedTrimmedAndKeptAfterReload() async throws {
+        let client = try await makeClient()
+        let store = SettingsStore(client: client)
+        await store.load()
+        XCTAssertEqual(store.activeCLIProvider?.id, "claude-cli", "the field belongs to the provider in use")
+        XCTAssertEqual(store.settings?.cliModel, "")
+        await store.setCLIModel("  opencode/deepseek-v4.1-flash-free \n")
+        XCTAssertEqual(store.settings?.cliModel, "opencode/deepseek-v4.1-flash-free")
+        await store.load()
+        XCTAssertEqual(store.settings?.cliModel, "opencode/deepseek-v4.1-flash-free", "saved in the core, not only on screen")
+        await store.setCLIModel("")
+        await store.load()
+        XCTAssertEqual(store.settings?.cliModel, "", "blank hands the choice back to the CLI")
     }
 
     func testProviderRowTextFollowsTheVisualDoc() async throws {

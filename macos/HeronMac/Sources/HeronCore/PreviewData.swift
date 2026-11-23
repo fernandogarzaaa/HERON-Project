@@ -135,6 +135,7 @@ struct PreviewData {
     var connections: [ConnectionInfo] = []
     var usage = UsageReport(days: [], monthTokens: 0)
     var allowSubscriptionUnattended = false
+    var cliModel = ""
     var awareness = true
 
     /// Stands in for `docs/ACCEPTED_RISKS.md`. The real text comes from `GET /api/risk-notice` and is never rewritten.

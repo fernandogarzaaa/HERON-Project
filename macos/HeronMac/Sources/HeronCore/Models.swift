@@ -685,8 +685,10 @@ public struct CoreSettings: Sendable, Equatable {
     public var connections: [ConnectionInfo]
     public var awareness: Bool
     public var phoneConnected: Bool
+    /// `[llm] cli_model`: the model a CLI provider is asked for. Empty lets the CLI pick its own.
+    public var cliModel: String
 
-    public init(workspace: String, mode: PermissionMode, ruleNotices: [RuleNotice], allowSubscriptionUnattended: Bool, connections: [ConnectionInfo], awareness: Bool, phoneConnected: Bool) {
+    public init(workspace: String, mode: PermissionMode, ruleNotices: [RuleNotice], allowSubscriptionUnattended: Bool, connections: [ConnectionInfo], awareness: Bool, phoneConnected: Bool, cliModel: String = "") {
         self.workspace = workspace
         self.mode = mode
         self.ruleNotices = ruleNotices
@@ -694,6 +696,7 @@ public struct CoreSettings: Sendable, Equatable {
         self.connections = connections
         self.awareness = awareness
         self.phoneConnected = phoneConnected
+        self.cliModel = cliModel
     }
 }
 
