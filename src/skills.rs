@@ -229,6 +229,27 @@ fn is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
     }
 }
 
+/// Hard links keep an in-root pathname while aliasing the same inode/file
+/// outside the skills directory. Reject them after opening the file handle;
+/// canonical-path checks cannot distinguish hard links.
+fn has_multiple_links(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        metadata.nlink() > 1
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        metadata.number_of_links() > 1
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = metadata;
+        false
+    }
+}
+
 /// Return metadata for a real skills directory. A symlink/junction is not a
 /// trusted root, even if its target happens to be a directory.
 pub(crate) fn validate_skills_root(dir: &Path) -> anyhow::Result<std::fs::Metadata> {
@@ -320,10 +341,11 @@ pub(crate) fn open_skill_for_write(
             Err(error) => return Err(error),
         }
         let file = std::fs::OpenOptions::new().write(true).create(true).open(path)?;
-        if !file.metadata()?.is_file() {
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || has_multiple_links(&metadata) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "skill target must be a regular file",
+                "skill target must be a regular file without external hard links",
             ));
         }
         file.set_len(0)?;
@@ -434,7 +456,10 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
         let handle = secure_open(dir, folder.as_deref(), filename);
         let Ok(handle) = handle else { continue };
         let Ok(opened) = handle.metadata() else { continue };
-        if !opened.is_file() || opened.len() > MAX_SKILL_BYTES {
+        if !opened.is_file()
+            || opened.len() > MAX_SKILL_BYTES
+            || has_multiple_links(&opened)
+        {
             continue;
         }
         let mut text = String::new();
@@ -597,6 +622,30 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert!(find(dir.path(), "ALPHA").is_some());
         assert!(find(dir.path(), "beta").is_some());
+    }
+
+    #[test]
+    fn rejects_hardlinked_skill_files_for_loading_and_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let private = outside.path().join("private.md");
+        let original = "# private content that must not become a skill";
+        std::fs::write(&private, original).unwrap();
+        let linked = dir.path().join("leaked.md");
+        std::fs::hard_link(&private, &linked)
+            .expect("the test filesystem must support hard links");
+
+        assert!(
+            load_all(dir.path()).is_empty(),
+            "a hard link must not import a file whose canonical path is outside the skills root"
+        );
+
+        let root = validate_skills_root(dir.path()).unwrap();
+        assert!(
+            open_skill_for_write(dir.path(), std::ffi::OsStr::new("leaked.md"), &root).is_err(),
+            "save must not truncate a hard-linked file outside the skills root"
+        );
+        assert_eq!(std::fs::read_to_string(private).unwrap(), original);
     }
 
     #[cfg(unix)]
