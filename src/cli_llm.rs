@@ -3887,6 +3887,24 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn script_interpreter_reads_the_shebang_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = |name: &str, body: &[u8]| {
+            let p = dir.path().join(name);
+            std::fs::write(&p, body).unwrap();
+            p
+        };
+        assert_eq!(script_interpreter(&script("direct", b"#!/bin/sh -e\necho hi\n")), Some(PathBuf::from("/bin/sh")));
+        assert_eq!(script_interpreter(&script("compiled", b"\x7fELF\x02\x01\x01")), None);
+        assert_eq!(script_interpreter(&dir.path().join("missing")), None);
+        // Through env, the interpreter is the first word that is neither a flag nor a VAR=value.
+        let via_env = script_interpreter(&script("env", b"#!/usr/bin/env -S LANG=C sh -e\n")).expect("sh is on PATH");
+        assert!(via_env.is_absolute() && via_env.file_name().unwrap() == "sh", "{via_env:?}");
+        assert_eq!(script_interpreter(&script("env-only-flags", b"#!/usr/bin/env -S LANG=C\n")), None);
+    }
+
+    #[test]
     #[cfg(not(windows))]
     fn resolve_binary_makes_a_relative_path_entry_absolute() {
         // A relative PATH entry used to return a relative path, which chat()
