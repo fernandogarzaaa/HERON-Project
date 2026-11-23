@@ -13,12 +13,12 @@ The owner wants Heron to do everything that Meta's Muse, xAI's Grok Bot, OpenAI'
 
 This doc does three things:
 
-1.  **It designs the two top-priority features in full, ready to build:**
+1.  **It designs three Phase 1 features in full, ready to build:**
     *   **Named agents.** The owner creates several agents, each with a name, its own instructions, tools, permission scope and memory scope, and calls any of them by name: in chat, by voice, and later from messaging channels.
     *   **Live voice.** A spoken conversation with Heron or with a named agent that answers in about a second and can be interrupted mid-sentence.
     *   It also designs **ask rules**: per-action "always ask" rules on the existing rule matcher. Named agents need them for their permission scope, and they are the first half of gap 7. Recipient and amount rules follow in P2.
 2.  **It designs the remaining gaps at feature level, ranked by impact for a personal agent on a Mac.** These are messaging channels, meetings, deliverables, outbound calls, a mobile app and approved checkout. The Muse and Grok Bot extras are covered too: goals with plans, tools the agent writes, the shared computer, a small-business pack, an Instagram connector, and shared bots in Slack, Teams and meetings. For each it says what the user sees, how it fits Heron's local-first design, which macOS or third-party pieces it needs, its safety rules, its running cost and its phase.
-3.  **It lists the owner decisions** this needs, including eight places where it reverses a decision in an approved doc.
+3.  **It lists the owner decisions** this needs, including nine reversals of decisions in approved docs (R1 to R9, one of them partial).
 
 Only Phase 1 (named agents, ask rules, live voice) has a Detailed Implementation Plan and Work units. Every later phase needs a short design delta of its own before it is built, which is how Harness2 handled its Phase 2.
 
@@ -29,7 +29,7 @@ Heron is a local, private agent with a careful safety layer. The four products i
 **Where Heron stands today**, from the code on `main` (commit `c9dd12c`) and the feature branches:
 
 *   **One agent, one identity.** There is one persona file (`src/persona.rs`) and one name (`cfg.agent.name`, `src/config.rs:160`). Persona, memory and skills reach the prompt only for the top-level agent (`src/agent.rs:357-444`, all inside `if self.depth == 0`).
-*   **`delegate` is a helper, not an agent.** It is a clone of the calling agent with half the step budget. It has the same tools, policy, approver, memory and session id (`src/agent.rs:712-742`). Its output comes back as plain text, not marked untrusted. Open PR #75 fixes that.
+*   **`delegate` is a helper, not an agent.** It is a clone of the calling agent with half the step budget. It has the same tools, policy, approver, memory and session id (`src/agent.rs:712-742`). Its output comes back as plain text, not marked untrusted. PR #75, still open, fixes that.
 *   **Memory is one pool.** Memory has no scope. Its only split is confirmed versus unconfirmed (`src/memory.rs:395`).
 *   **No per-agent tools.** The tool list sent to the model is the whole registry plus `delegate`, and nothing filters it per caller (`src/agent.rs:309-315`, `:487`).
 *   **Voice is two pieces, and neither is live.** `feat/v1-voice` (feature F7, unmerged) adds:
@@ -40,7 +40,7 @@ Heron is a local, private agent with a careful safety layer. The four products i
 *   **Telegram is the only channel.** `src/channel.rs` has a `ChannelAdapter` trait and `ChannelKind` values for Slack and WhatsApp, but nothing implements the trait. Telegram uses the channel store directly, and pairing lives in `src/telegram.rs:331-411`.
 *   **No calls, meetings, payments, deliverables or mobile app.**
 
-**The parity matrix.** One row per competitor feature, checked against every line of the owner's scope message. "Phase" is when it lands, and "Owner" is the doc that designs it in detail.
+**The parity matrix.** One row per competitor feature, checked against every line of the owner's scope message. "Gap N" in this doc means row N of this matrix. "Phase" is when it lands, and "Owner doc" is the doc that designs it in detail.
 
 | # | Competitor feature (who has it) | Heron today | Phase | Owner doc |
 |---|---|---|---|---|
@@ -48,27 +48,29 @@ Heron is a local, private agent with a careful safety layer. The four products i
 | 1a | Named agents in chat and by voice (Muse) | none | **P1** | this doc |
 | 1b | Named agents in messaging channels, incl. WhatsApp (Muse) | none | P2 (Slack, Messages), P3 (WhatsApp, Teams) | this doc §4.1, plus a channel delta |
 | 1c | Create, share and import bots (Grok Bot) | none | **P1** (export and import), P3 (bots others can talk to) | this doc |
-| 1e | One agent passing work to another by name | `delegate` (unnamed helper only) | P2 | goals delta |
 | 1d | Bots in Slack, Teams and meetings that other people talk to (Grok Bot) | none | P3 | this doc §4.1, §4.2 |
+| 1e | One agent passing work to another by name | `delegate` (unnamed helper only) | P2 | goals delta |
 | 2 | Live, interruptible voice, about 1 s to first audio (Muse, Grok, GPT-Live) | dictation and spoken replies, unmerged | **P1** | this doc, [§3](#3-live-voice) |
 | 2a | Talk to a named agent by voice, in its own voice | none | **P1** | this doc |
-| 2b | Animated avatar while talking (Muse) | `AvatarStateMachine` and `AvatarView` in the Mac app (idle, thinking, awaiting approval, speaking, error) | **P1** (listening states), P4 (a character) | this doc; later doc |
+| 2b | Animated avatar while talking (Muse) | `AvatarStateMachine` and `AvatarView` in the Mac app (idle, thinking, awaiting approval, speaking, error) | **P1** (listening states), P4 (a character) | this doc; `heron-avatar.md` (P4) |
+| 2c | Replying while the owner is still talking (Muse) | none | P4 | the P4 voice delta |
 | 3 | Outbound calls to businesses, live transcript, Take over, End call (Muse, Grok Bot) | none | P3 | this doc §4.4, plus a calls delta |
 | 4 | Messages, WhatsApp, Slack, Teams with one shared memory (Dots, Grok, Muse) | Telegram | P2, P3 | this doc §4.1 |
 | 5 | Join Meet, Zoom and Teams, take notes, answer in the meeting chat (Grok Bot, Claude Meetings) | none | P3 | this doc §4.2 |
-| 6 | Approved checkout with a one-time card and Face ID (Dots, Duet, Grok, Muse) | none | P2 (hand-off), P4 (agent card) | this doc §4.6 |
-| 7 | Per-action allow, ask, block rules (Dots Custom Rules) | modes, allow rules and "never" rules, matched on `tool:summary` | **P1** (ask rules, per-agent rules), P2 (recipient, domain and amount facts) | this doc, [§2](#2-action-rules) |
+| 6 | Approved checkout with a one-time card and Face ID (Dots, Duet, Grok, Muse) | none | P2 (hand-off), P4 (agent payment card) | this doc §4.6 |
+| 7 | Per-action allow, ask and never rules (Dots calls them Custom Rules) | modes, allow rules and "never" rules, matched on `tool:summary` | **P1** (ask rules, per-agent rules), P2 (recipient, domain and amount facts) | this doc, [§2](#2-action-rules) |
 | 7a | Checks before important actions such as sending email or buying (Muse) | yes, by mode and taint | **P1** (rules), P2 (sending) | this doc |
-| 8 | Editable documents, slides, dashboards (Duet Make, ChatGPT Space, Muse Spaces) | none | P2 | this doc §4.3 |
+| 8 | Editable documents, slides, dashboards (Duet Make, ChatGPT Space) | none | P2 | deliverables delta; this doc §4.3 |
+| 8a | Interactive mini apps the agent builds and keeps refreshed (Muse Spaces) | none | P3 | spaces delta (a sandboxed WebView with scripts but no network, fed only by core-supplied data) |
 | 9 | Mobile app (all four) | none | P4 | `heron-mobile.md` (later) |
 | 10 | Goals with action plans, progress, ideas (Muse) | tasks and schedules | P2 | this doc §5.1; proactive design |
 | 11 | Builds its own tools when a task needs one (Muse) | `save_skill`; Harness2 manifests (approved, unbuilt) | P2 | this doc §5.2; Harness2 §7 |
-| 12 | Shared computer with a full browser that the user can take over (Muse) | `browser_*` tools | P2 or later, set by that design; agents get it as a tool group then | the router and computer-use design |
+| 12 | Shared computer with a full browser that the user can take over (Muse) | `browser_*` tools | P2, as planned by that design; agents get it as a tool group then | the router and computer-use design |
 | 13 | Small-business pack of skills and connectors (Muse) | none | P3 | this doc §5.3 |
 | 14 | Email and calendar connectors (Muse) | Google, Microsoft, Mac Mail and Calendar | done; many accounts in PR #83 | PR #83 |
 | 15 | Instagram connector (Muse) | none | P3 | this doc §5.3 |
 
-**Ranking of gaps 3 to 9.** The brief asks for these by impact for one person on a Mac:
+**Ranking of gaps 3 to 9.** The owner's scope message asks for these ranked by impact for one person on a Mac:
 
 1.  **Messaging channels (gap 4).** This is daily use. The phone is where the owner is when away from the Mac, and Telegram already proves the pattern. Messages and Slack need no server.
 2.  **Action rules (gap 7).** Every outward feature below depends on them. The cheap half, ask rules on the existing matcher, moves into Phase 1, and recipient and amount rules come with the first send tool in P2.
@@ -76,7 +78,7 @@ Heron is a local, private agent with a careful safety layer. The four products i
 4.  **Deliverables (gap 8).** These turn chat answers into files the owner keeps. They are local and cost only model tokens.
 5.  **Outbound calls (gap 3).** These are useful but occasional. They need a paid phone number and carry legal and safety weight.
 6.  **Mobile app (gap 9).** Channels cover most of the phone use first, and the app needs the relay and an Apple Developer account.
-7.  **Approved checkout (gap 6).** This is the highest risk and the least frequent. The hand-off form, where the owner pays, comes early. An agent card comes last.
+7.  **Approved checkout (gap 6).** This is the highest risk and the least frequent. The hand-off form, where the owner pays, comes early. An agent payment card comes last.
 
 ## Definitions
 
@@ -95,10 +97,16 @@ Heron is a local, private agent with a careful safety layer. The four products i
 | Live voice | A spoken session with turn-taking, barge-in and on-device speech recognition and speech ([§3](#3-live-voice)). |
 | Barge-in | The owner speaks while Heron is talking. Heron stops speaking and stops generating. |
 | Soft cancel | A new cooperative stop. The run ends at the next step boundary, and a tool already running finishes ([§3.5](#35-barge-in-and-soft-cancel)). |
-| Action rule | An allow, ask or block rule. In P1 it is a glob on `tool:summary`, the matcher the allow and deny rules already use, plus a new `ask` verdict. P2 adds matches on recipient, domain and amount ([§2](#2-action-rules)). |
-| Relay | A small store-and-forward service in the owner's own Cloudflare account. It takes the webhooks that need a public address and passes them to the Mac, which pulls them ([§6](#6-the-relay)). |
+| Action rule | An allow, ask or never rule. In P1 it is a glob on `tool:summary`, the matcher the allow and deny rules already use, plus a new `ask` verdict. P2 adds matches on recipient, domain and amount ([§2](#2-action-rules)). |
+| Relay | A small store-and-forward service in the owner's own Cloudflare account. It takes the webhooks that need a public address and passes them to the Mac, which pulls them ([§6](#6-the-relay-direction)). |
 | P1 to P4 | The phases in [§10](#10-phases-and-owning-docs). |
-| The v1 owner trial | The owner trial of Heron v1, gate G9 in `heron-v1.md` (PR #69), running 2026-11-22 to 2026-12-05. Not this doc's goal G10. |
+| Design delta | A short design doc that extends an approved design for one phase. It needs its own owner approval before anything in it is built. |
+| F1–F9, B2 | Feature and section ids in `heron-v1-features.md`, for example F7 (spoken replies) and B2 (content entries). |
+| Harness2 | The approved design in `heron-harness2.md`: self-healing, and connector manifests run by a fixed executor (§7). |
+| Thread | One chat conversation, stored as a `sessions` row. A "conversation grant" covers one thread. |
+| Outward action | An action whose effect reaches someone other than the owner: a message, an email, a call, a chat reply in a shared space, a post, a payment. |
+| Agent payment card | A single-use card a payment provider issues for one purchase (P4, §4.6). Not the agent cards in the Agents screen. |
+| The v1 owner trial | The owner trial of Heron v1, gate G9 in `heron-v1.md` (PR #69), running 2026-11-22 to 2026-12-05. This doc's own goals are G1 to G9; "G9" alone in this doc means goal G9 below, and the trial is always called "the v1 owner trial". |
 | Feature key | A switch in `config.toml`'s `[features]` table, from `src/features.rs` on `feat/v1-features-base`. A feature that is off hides its tools from the model and its screens from the app (`GET /api/features`). |
 | Once only | `permissions::once_only`, from `heron-v1-features.md` B2: a call that no rule or grant may cover, so it asks every time and its card offers only **Allow once** and **Deny**. |
 | skein, testteeth, genesis | The owner's build tools: skein runs each Work unit as an agent in its own worktree, done only when its check exits 0; testteeth grades tests by mutation testing; genesis audits a grader before its verdict is trusted (exit 0, TRUSTED). The "model role" column names the model a unit runs on, from the owner's model table. |
@@ -128,11 +136,11 @@ Heron is a local, private agent with a careful safety layer. The four products i
     *   A never rule beats everything, and an ask rule beats modes and allow rules.
     *   No rule weakens the taint check.
     *   Rules matched on recipients, domains and amounts come in P2 with the first send tool.
-*   **G8. Every outward action is approved.** Sending a message, email or chat reply, placing a call and paying each need the owner's approval:
+*   **G8 (P2 and later; each owning delta verifies it). Every outward action to someone other than the owner is approved.** A reply to the owner on a paired channel is not a send ([§8](#8-outward-actions-one-table)). Sending a message, email or chat reply, placing a call and paying each need the owner's approval:
     *   for each item, unless an action rule scoped by recipient allows it;
     *   never by a tool-wide "always";
     *   payments never by voice and never from a channel.
-*   **G10. Nothing is dropped.** Every feature in the parity matrix has a phase and an owning doc.
+*   **G9. Nothing is dropped.** Every feature in the parity matrix has a phase and an owning doc.
 
 ## Non-Goals
 
@@ -155,7 +163,8 @@ Full parity means these approved decisions will change. Approving this doc decid
 
 **Decided by approving this doc**
 
-*   **R4. Recording audio.** Reverses `heron-v1-features.md:148`. **Proposed:** live voice (P1) captures the microphone. Audio is processed on the device and never written to disk. Transcripts are kept as text, like typed messages.
+*   **R4. Recording audio.** Reverses `heron-v1-features.md:148`. **Proposed:** live voice (P1) captures the microphone. Audio is processed on the device and never written to disk. Transcripts are kept as text, like typed messages. The meetings delta (P3) extends this to the meeting app's audio and decides that extension itself.
+*   **R9 (partial). Approving by voice.** Reverses F7's "voice never answers an approval" (`heron-v1-features.md:717`) only if the owner turns PQ2 on. **Proposed:** the switch exists, default off ([PQ2](#open-questions)).
 *   **R1. A native iPhone app.** Reverses the non-goal at `heron-v1-features.md:145`. **Proposed:** it is in parity scope as P4, designed in its own doc, `heron-mobile.md`. Nothing in this doc builds it.
 
 **Direction, decided in the owning delta**
@@ -180,9 +189,8 @@ Full parity means these approved decisions will change. Approving this doc decid
 
     None of them runs Heron's tools. Each is listed with its cost in [§9](#9-running-cost).
 *   **R8. Telegram's mode.** Narrows the accepted risk C35-8 (`docs/channel-gateway.md`), under which a phone turn runs in the desktop's mode. **Proposed:** in the P2 channels delta, every channel gets a mode ceiling, defaulting to `ask`, and Telegram gets the same ceiling. The owner can raise any channel's ceiling in Settings. P1 leaves Telegram as it is: the default agent only, with no `@Name` routing.
-*   **R4, extended (P3).** Meeting notes capture the meeting app's audio as well as the microphone, and are decided in the meetings delta.
 
-### Open Questions
+## Open Questions
 
 Each has a proposed default. The doc is written to the defaults.
 
@@ -195,7 +203,7 @@ Each has a proposed default. The doc is written to the defaults.
 
     The default is 1. Heron suggests 2 when it finds Ollama or LM Studio running. Heron never turns on 3 without the owner's choice.
 *   **PQ2. Approving by voice.** This reverses F7's "voice never answers an approval" (`heron-v1-features.md:717`) for the case below only. **Proposed:** off by default. When on, saying "approve" works only for an ask that is not high risk, not in a tainted session, and not a payment, a send or a call, and only while the card is on screen. Clicking stays the only way for the rest.
-*   **PQ3. A private agent in someone else's thread.** **Proposed:** calling an agent whose memory scope is `private` from a thread that another agent has spoken in opens a new thread for it. Otherwise, what the first agent said would sit in the private agent's context.
+*   **PQ3. Switching agents inside a thread.** Every model call sends the whole thread (`agent.rs:518`), so an agent's earlier replies, which may repeat its own memories, reach whoever is called next. **Proposed:** calling a different agent keeps the same thread only when the new agent can read every pool that the thread's earlier agents write to. Otherwise a new thread opens, with a link back. In practice, switching among `shared`-scope agents stays in one thread, and any switch involving an `own` or `private` agent opens a new one.
 *   **PQ4. Rules an agent may carry.** **Proposed:** an agent's own rules may be never or ask rules, not allow rules. Allow rules are global only, so an agent profile can never loosen anything.
 *   **PQ5. Who may edit agents.** **Proposed:** only the owner may create or change an agent, in the Agents screen. The `propose_agent` tool lets the default agent draft one in chat. Its effect is `Privileged`, so it asks every time and the owner sees the whole profile. Other agents don't get it unless the owner adds it.
 *   **PQ6. Imported agents.** **Proposed:** an imported `.heronagent` file arrives in state `review`, with no tools, mode ceiling `readonly` and memory scope `private`. The owner reads it in a review sheet and clicks **Use this agent**, then grants tools one by one.
@@ -207,7 +215,7 @@ Each has a proposed default. The doc is written to the defaults.
 *   **PQ9. Calls.** A hosted voice-agent platform, or Heron's own voice pipeline over the relay? **Proposed:** hosted for P3, because phone audio needs a public real-time endpoint and telephony-grade turn-taking. The vendor is chosen in the calls delta after a price check ([§4.4](#44-outbound-calls)).
 *   **PQ10. The relay host.** **Proposed:** a Cloudflare Worker in the owner's own account, on the free tier where it fits. It is preferred to a Cloudflare Tunnel, which would expose the Mac's server to the internet.
 *   **PQ11. Meetings.** **Proposed:** local notes first (P3a), at no cost. A meeting bot comes later (P3b). Each meeting the bot joins asks, and each chat message it posts asks.
-*   **PQ12. Checkout.** **Proposed:** a hand-off form first. Heron fills the cart and stops at the payment page, and the owner pays with Apple Pay or their saved card. An agent card from a provider comes in P4, after a provider check.
+*   **PQ12. Checkout.** **Proposed:** a hand-off form first. Heron fills the cart and stops at the payment page, and the owner pays with Apple Pay or their saved card. An agent payment card from a provider comes in P4, after a provider check.
 *   **PQ13. The mobile app.** **Proposed:** a separate doc after P3, because it needs the relay.
 
 **Accounts the owner must create, by phase.** Heron never creates them.
@@ -223,16 +231,16 @@ Each has a proposed default. The doc is written to the defaults.
 | P3 | Telephony number (Twilio) and a voice-agent platform account | per-minute, see §9 |
 | P3 | Meeting-bot service account (P3b only) | per-hour, see §9 |
 | P3 | Meta developer app with Instagram API access, and an Instagram Business or Creator account | free API; app review |
-| P4 | Payment provider for agent cards; Apple Developer Program for the mobile app and push | see §9 |
+| P4 | Payment provider for agent payment cards; Apple Developer Program for the mobile app and push | see §9 |
 
 ## Critical User Journeys (CUJs)
 
 ### CUJ P-1: The owner makes two agents and calls one by name
 
-*   **Given:** Heron P1 is installed, and the owner is in Ask mode.
+*   **Given:** Heron P1 is installed with the `agents` feature on, and the global mode is `ask`.
 *   **When:** the owner opens Agents › New and creates:
     *   **Lux:** "my research assistant: cite sources, be brief", tools `web` and `memory`, memory scope `own`, a British English voice;
-    *   **Mango:** "keeps my home admin: bills, appointments", tools `tasks`, `schedules`, `files` and `memory`, memory scope `own`.
+    *   **Mango:** "keeps my home admin: bills, appointments", tools `tasks`, `files` and `memory`, memory scope `own`.
 
     Then, in chat, the owner types `@Lux what changed in the EU AI Act this month?`
 *   **Then:**
@@ -240,11 +248,11 @@ Each has a proposed default. The doc is written to the defaults.
     2.  Lux's prompt has Lux's instructions and shared plus Lux-own memories. Mango's own memories are absent.
     3.  If the model asks for `shell`, the call is refused: "shell is not one of Lux's tools". The refusal is audited with `agent=lux`.
     4.  The owner's next message without `@` goes to Lux too, because the thread is now Lux's.
-    5.  `@Mango when is the dentist?` hands the thread to Mango. A divider says "Mango joined".
+    5.  `@Mango when is the dentist?` opens a new thread with Mango, because Mango can't read Lux's pool and Lux's replies would otherwise sit in Mango's context ([§1.3](#13-addressing-how-a-message-finds-its-agent)). The old thread stays Lux's.
 
 ### CUJ P-2: Live voice with barge-in
 
-*   **Given:** the owner picked a local or paid fast voice model (PQ1).
+*   **Given:** the `agents` and `live_voice` features are on, Lux exists from CUJ P-1, and the owner picked a local or paid fast voice model (PQ1).
 *   **When:** the owner presses the live voice shortcut they recorded in Settings › Voice (there is no default) and says "Lux, give me three headlines on solar prices." Lux starts speaking the first headline, and the owner says "skip that, just the second one".
 *   **Then:**
     1.  The first audio starts about a second after the owner stops speaking, and the time is logged.
@@ -265,13 +273,25 @@ Each has a proposed default. The doc is written to the defaults.
 
 ### CUJ P-4: An ask rule
 
+*   **Given:** the global mode is `auto`, and the default agent runs the turns.
+
 *   **When:** in Settings › Rules the owner adds two rules:
-    *   "Ask: `shell:*git push*`";
-    *   "Never: `web_fetch:*competitor.com*`".
+    *   Always ask: `shell:*git push*`;
+    *   Never: `web_fetch:*competitor.com*`.
 *   **Then:**
-    *   In Auto mode, a `git push` asks.
-    *   A fetch of `https://competitor.com/pricing` is refused in every mode, and the refusal names the rule.
-    *   A chained command such as `git push && rm -rf build` asks too, because the ask glob `shell:*git push*` matches it.
+    1.  In `auto` mode, a `git push` asks, and its card offers only **Allow once** and **Deny**, even if `git *` was allowed for this conversation earlier.
+    2.  A fetch of `https://competitor.com/pricing` is refused in every mode, and the refusal names the rule. A never rule covers one tool; blocking a site for every tool is PR #84's egress allowlist.
+    3.  A chained command such as `git push && rm -rf build` asks too, because the ask glob `shell:*git push*` matches it.
+
+### CUJ P-7: Importing a shared agent
+
+*   **Given:** the `agents` feature is on, and a friend sent the owner `Planner.heronagent`, which asks for the `web`, `files` and `shell` groups.
+*   **When:** the owner opens Agents › Import and picks the file.
+*   **Then:**
+    1.  Planner appears in state `review`. The review sheet shows its instructions in full, and `web`, `files` and `shell` as unticked boxes.
+    2.  The owner ticks `web` only and clicks **Use this agent**. Planner is now active with ceiling `readonly` and memory scope `private`.
+    3.  `@Planner plan my week` runs in a thread that starts tainted, because the instructions came from someone else. A web search runs; a `web_fetch` to an address Planner composed asks.
+    4.  The owner edits one line of the instructions and saves. New threads with Planner no longer start tainted.
 
 ### CUJ P-5 (P2): Slack DM with an agent
 
@@ -284,11 +304,13 @@ Each has a proposed default. The doc is written to the defaults.
 
 ### CUJ P-6 (P3): A call to a business
 
+*   **Given:** the calls delta is built, the owner has a telephony number and a voice-agent account (PQ9), and the relay runs.
+
 *   **When:** "Call Luigi's and order a large margherita for pickup at 7."
 *   **Then:**
     1.  A call brief card shows the number with where it came from, the goal, what may be shared (first name, callback number), the limits (at most $30, give no card details) and the agent.
     2.  The owner approves, and the call starts.
-    3.  The live transcript streams with **Take over** and **End call** buttons. The callee hears "I'm an AI assistant calling for Sam…" first.
+    3.  The live transcript streams with **Take over** and **End call** buttons. The callee hears "I'm an AI assistant calling for <owner's first name>…" first.
     4.  A summary arrives in the Inbox.
 
 ## Technical Plan (Architecture)
@@ -328,14 +350,14 @@ A new table, `agents`, is added in the next free migration step of `src/store.rs
 
 | Column | Type and rule | Meaning |
 |---|---|---|
-| `id` | `TEXT PRIMARY KEY`, `^[a-z][a-z0-9_-]{1,31}$`; `heron` is reserved | stable key |
-| `name` | 1–32 characters, letters, digits, spaces, `.`, `'` and `-`; unique ignoring case | display name and first call name |
+| `id` | `TEXT PRIMARY KEY`, `^[a-z][a-z0-9_-]{1,31}$`; `heron` is reserved | stable key, never reused: the core makes it from the name's ASCII letters (or `agent` if there are none) plus `-` and 6 random hex digits, for example `lux-3f9a1c`. An archived agent's name is freed, but its id isn't, so a new "Lux" never inherits the old one's memories or grants |
+| `name` | 1–32 characters, letters, digits, spaces, `.`, `'` and `-`; unique after Unicode NFKC folding and case folding, so lookalike names collide | display name and first call name |
 | `call_names` | JSON array, at most 4 items, each following the `name` rule, unique across all agents | extra names it answers to |
 | `instructions` | at most 8,000 characters; `redact_secrets` on save | role, tone, what to do |
 | `avatar` | an emoji or an SF Symbol name, at most 32 characters | shown in chat and in the voice panel |
 | `voice` | an `AVSpeechSynthesisVoice` identifier, or empty for the system default | live voice and spoken replies |
 | `tools` | JSON `{groups: [..], tools: [..], skills: [..], mcp: [..], connectors: [..]}` | the tool set ([§1.2](#12-effective-scope)) |
-| `mode_ceiling` | `readonly`, `ask`, `auto` or `none` | highest mode its turns run in; `none` means no ceiling |
+| `mode_ceiling` | `readonly`, `ask`, `auto` or `unlimited` | highest mode its turns run in; `unlimited` means no ceiling |
 | `rules` | JSON list of `tool:summary` globs, each marked `never` or `ask` (PQ4) | its own extra checks |
 | `memory_scope` | `shared`, `own`, `private` or `none` | [§1.4](#14-memory-scope) |
 | `surfaces` | JSON list; P1 values are `app` and `voice` | where it may be called from; later deltas add channel values |
@@ -355,16 +377,16 @@ Each assistant message's stored JSON gains `"agent": "<id>"`.
 *   `name` is `cfg.agent.name`;
 *   `instructions` is empty, because its character stays in `persona.md` and `update_persona` keeps working;
 *   tools: every tool in the registry, including ones added later (`tools = {"all": true}`);
-*   `mode_ceiling`: `none`;
+*   `mode_ceiling`: `unlimited`;
 *   `memory_scope`: `shared`;
-*   `surfaces`: all;
+*   `surfaces`: `["*"]`;
 *   `provenance`: `owner`.
 
 Heron behaves exactly as today until the owner makes a second agent.
 
 **Rules for the default agent:**
 *   Only `heron` may have `tools = {"all": true}` and `surfaces = ["*"]`. `validate` refuses either for any other agent.
-*   `heron` can't be archived or deleted. The owner may narrow its tools and ceiling in the Agents screen.
+*   `heron` can't be archived (`DELETE` archives). The owner may narrow its tools and ceiling in the Agents screen.
 *   Its name is always `cfg.agent.name`. The core reads the name from the config when it loads the row, and Settings › Heron stays where the name is edited. All existing memories have `agent = NULL`, so they are shared.
 
 **Tool groups.** These are fixed in `src/agents/groups.rs`, so a profile names groups, not a list that falls behind as tools are added:
@@ -374,7 +396,8 @@ Heron behaves exactly as today until the owner makes a second agent.
 | `files` | `read_file`, `write_file`, `edit_file`, `list_dir`, `search_files`, `find_files` |
 | `shell` | `shell` |
 | `web` | `web_fetch`, `web_search` |
-| `memory` | `remember`, `recall`, `recall_unconfirmed`, `forget`, `search_knowledge` |
+| `memory` | `remember`, `recall`, `recall_unconfirmed`, `forget` |
+| `knowledge` | `search_knowledge`, which searches the owner's synced email, calendar and documents. Off by default; the editor says what it reads |
 | `tasks` | `task_add`, `task_list`, `task_update`, `recent_activity` |
 | `schedules` | `schedule_add`, `schedule_list`, `schedule_remove` |
 | `email` | F8's `draft_email` once `feat/v1-email_drafts` merges; empty before then |
@@ -382,22 +405,30 @@ Heron behaves exactly as today until the owner makes a second agent.
 | `browser` | `browser_*` |
 | `skills` | `use_skill`, limited to the profile's `skills` list |
 | `delegate` | `delegate` |
-| `admin` | `save_automation`, `update_persona`, `save_skill`, `propose_agent`, `run_shortcut` |
+| `admin` | `save_automation`, `update_persona`, `save_skill`, `propose_agent`, `run_shortcut`. **Default agent only in P1** |
 
 MCP servers and connectors are named one by one in `mcp` and `connectors`. A new agent made in the Agents screen starts with `web` and `memory`, `mode_ceiling = ask` and `memory_scope = own`.
+
+**Two groups are for the default agent only in P1: `schedules` and `admin`.** A schedule or automation runs later as the default agent, with the full registry and the daemon mode (`app.rs:1543-1553`). If Mango could call `schedule_add`, it would write a job that runs with wider tools than Mango has. `validate` refuses either group for any other agent. Schedules that run as their creating agent come with the P2 goals delta, which adds `schedules.agent`. `tasks` stays grantable, because tasks are the owner's shared list and nothing runs from them.
 
 #### 1.2 Effective scope
 
 For every turn, `agents::effective_scope(global_mode, global_rules, agent, surface) -> Scope` computes one `Scope`. It is a pure function in `src/agents/scope.rs`, so it can be tested without a model.
 
 *   **Tools:** the agent's set, intersected with the registry. Global "nevers" still deny at step 2 of `decide`, unchanged.
-*   **Mode:** the lowest of three: the global mode, the agent's ceiling, and the surface ceiling. In P1 the surface ceilings are `voice` = `ask` and `app` = none. Channel ceilings come in the P2 delta.
+*   **Mode:** the lowest of three: the global mode, the agent's ceiling, and the surface ceiling. In P1 the surface ceilings are `voice` = `ask` and `app` = `unlimited`. Channel ceilings come in the P2 delta.
+*   **A surface is more than a mode.** A mode ceiling alone doesn't make everything ask, because standing allow rules apply in every mode (`permissions.rs:416`), untainted web egress is allowed even in `readonly` (`:433`), and local state writes run unasked in `ask` (`:437`). So the `voice` surface also sets three switches in `Scope`:
+    *   `ignore_allow_rules`: standing allow rules and conversation grants don't apply;
+    *   `ask_state_writes`: `LocalStateWrite` (memories, tasks) asks;
+    *   `ask_egress`: `NetworkEgress` asks; plain `NetworkRead` of a URL the owner said stays allowed.
+
+    A voice turn therefore shows a card for every change and every send. The `app` surface sets none of them.
 *   **Rules:** the global rules plus the agent's own never and ask rules.
 *   **Memory:** the agent's memory scope.
 
 **A `delegate` child keeps its parent's `Scope`.** The child is a clone of the parent agent, so its `Policy`, tool filter and memory handle are the parent's. No P1 code path builds a wider scope for a child.
 
-**Tools are enforced at two points, so hiding them is not the only guard:**
+**Tools are enforced at three points, so hiding them is not the only guard:**
 
 1.  `Agent::tool_schemas` sends the model only the tools in scope. It adds the `delegate` schema only if `delegate` is in scope, as well as below the depth limit.
 2.  `Policy::decide` gains a step 2b, right after the deny rules. A tool not in `scope.tools` returns `Verdict::Deny("<tool> is not one of <name>'s tools")`. This catches a model that names a tool it wasn't offered, and a workflow `tool` step.
@@ -420,7 +451,8 @@ Mode is enforced by building the turn's `Policy` with the effective mode, the wa
 *   **Unaddressed messages** go to the thread's `sessions.agent`, or else to `heron`.
 *   **Switching.** When a message addresses a different agent:
     *   the thread's agent changes, and the app shows a divider: "Lux joined";
-    *   if the new agent is `private` and another agent has already spoken in the thread, a new thread opens instead (PQ3).
+    *   unless the new agent can read every pool the thread's earlier agents write to, a new thread opens instead (PQ3), and the old thread keeps its agent.
+*   **Learning stays with the speaker.** Post-turn learning for a turn reads only the owner's message and the current agent's own reply, never earlier agents' replies, so one agent's facts can't be relearned into another pool.
 *   **Refusals.** If the agent is archived, in `review`, or doesn't list this surface, no model call is made. The core stores the owner's message and a fixed assistant message from `heron`, "Lux isn't available here.", and leaves `sessions.agent` unchanged.
 *   **Unique names.** Names are unique ignoring case, across names and call names, and saving a clash returns `409 name_taken`. Reserved words are refused: `hey`, `all`, `everyone`, and `heron` for any agent except the default.
 
@@ -445,11 +477,13 @@ Mode is enforced by building the turn's `Policy` with the effective mode, the wa
     *   `replaces`, which today reads by raw id.
 *   The same handle is `Agent.memory`, which feeds the prompt (`agent.rs:377-380`) and post-turn learning (`agent.rs:831`). `count_matching`, which `recall` uses to say how many unconfirmed matches exist (`tools/personal.rs:75`), and `is_unconfirmed` (`personal.rs:55`) take the scope too, so a count never reveals another pool.
 *   An id outside the readable pools behaves as if it doesn't exist.
-*   **Writes stay in the agent's write pool.** Updating, superseding and deleting touch only rows in the agent's write pool: the shared pool for a `shared` agent, its own pool for `own` and `private`. So an `own` agent reads shared memories but can't change or `forget` them. When it learns a fact that is a near-duplicate of a shared row, it saves nothing. When it learns one close to another agent's private row, it can't see that row, so it adds a row to its own pool and leaves the other alone.
+*   **Writes stay in the agent's write pool.** Updating, superseding and deleting touch only rows in the agent's write pool: the shared pool for a `shared` agent, its own pool for `own` and `private`. The one exception is the profile rule below, which only adds rows to the shared pool. So an `own` agent reads shared memories but can't change or `forget` them. When it learns a fact that is a near-duplicate of a shared row, it saves nothing. When it learns one close to a row in another agent's pool, it can't see that row, so it adds a row to its own pool and leaves the other alone.
 *   **Scope `none`:** `recall` returns "Memory is off for <name>.", and `remember` and `forget` are refused with the same text.
 *   The store functions without a scope stay, for the Memory screen and the owner's API only. A test lists every call site of the unscoped functions and fails if a tool or the agent loop uses one.
 
-**Who moves memories between pools.** Only the owner, with the Memory screen's agent filter and **Move to shared**. The model never chooses the target pool.
+**Facts about the owner go to the shared pool.** For an `own` agent, a memory of kind `profile` or `preference` ("I moved to Berlin") is written to the shared pool, so Heron and every other agent know it. Other kinds stay in the agent's pool. A `private` agent keeps everything in its own pool. This is the trade-off: the owner's facts follow them across agents, as Alternative B's rejection requires, while an agent's working notes stay with it. The kind is set by Heron's existing learning step, and a tainted turn still saves only unconfirmed outside memories, as today.
+
+**Who moves memories between pools.** Only the owner, with the Memory screen's agent filter and **Move to shared**. The model never chooses the target pool beyond the kind rule above.
 
 **Trust is separate from scope.** Confirmed or unconfirmed, outside or user source: these work as today in every pool.
 
@@ -484,14 +518,17 @@ Skill trust for imports is an existing gap: bodies are trusted, and `declared_to
 #### 1.7 Approvals and audit
 
 *   **Approval cards name the agent.** `ApprovalRequest` gains `agent: {id, name}`, and the card's title is "Lux wants to …".
-*   **The audit row keeps the current chain format.** Its `decision` field gains the suffix ` agent=<id>`, so `verify_audit` is unchanged. A test proves that an audit row written by an agent turn still verifies.
+*   **The audit row names the agent.** The `audit` table gains a nullable `agent` column, and new rows use hash version 3, which covers it, the way version 2 added `provider` and `cli_version` (`store.rs:1312-1321`). `verify_audit` checks each row with its own version's formula, as it does today. The `decision` values are unchanged, so the Slint views that map them (`ui/views.rs:584`, `bin/desktop/models.rs:383`) keep working.
 *   **Grants are per agent.** A conversation grant ("allow for this conversation") is stored under `grants:{session_id}:{agent_id}`, so it covers the agent that received it, not the next agent called in the thread. The default agent keeps today's key, `grants:{session_id}`, so existing grants still work.
+*   **"Always" writes to the live policy.** When the default agent's card gets **Always**, the rule is added to the app's live policy (`app.policy`), not to the turn's copy, so it applies to every later turn. Never and ask rules added in Settings mid-turn apply from the turn's next model step, when the turn re-reads the live rules.
 *   **"Always" only from the default agent.** "Always" adds a global allow rule (`agent.rs:650-664`), which would loosen every agent. So an approval card in another agent's turn offers **Allow once**, **Allow for this conversation** and **Deny**, never **Always**. This keeps PQ4: no agent's turn can loosen a rule.
 
 #### 1.8 Sharing (Grok-style bots)
 
 *   **Export.** Writes a `.heronagent` file: TOML with `name`, `call_names`, `instructions`, `avatar`, `voice`, `tools`, `mode_ceiling`, `memory_scope` and `rules`. It never includes memories, keys, connector secrets or the `id`.
 *   **Import.** Validates the file with the same rules and creates an agent with `provenance = imported` and `state = review`. It starts with no tools, ceiling `readonly` and scope `private` (PQ6).
+*   **Imported instructions are outside content.** Someone else wrote them. Until the owner edits and saves the instructions, or ticks **I trust these instructions** in the editor, every session with an imported agent starts tainted (`ContentEntry::ImportedInstructions`, class Outside), so step 6 of `decide` asks before any change or send.
+*   **Hidden characters are refused.** Import refuses instructions or names that contain zero-width, bidirectional-control or tag characters (Unicode categories Cf and the U+E0000 block), and names the character.
 *   **The review sheet** shows the instructions in full, and the tools the file asked for as unticked boxes.
 *   **Limits.** The file may be at most 32 KB. Unknown keys are refused, not ignored.
 *   **Bots other people talk to,** in Slack, Teams or a meeting, are P3 ([§4.1](#41-messaging-channels), [§4.2](#42-meetings)).
@@ -547,7 +584,7 @@ The app reads both keys from `GET /api/features`.
     *   `400 {"error":"bad_agent","field":"<name>","message":…}` when a field fails `validate`;
     *   `404` for an unknown id;
     *   `409 name_taken`;
-    *   `409 {"error":"default_agent"}` when archiving or deleting `heron`.
+    *   `409 {"error":"default_agent"}` when `DELETE` targets `heron`.
 
 **Rules JSON.** `GET /api/rules` returns `{never: [..], ask: [..], allow: [..]}`. Each entry is `{pattern, agent?: "<id>"}`, and only `never` and `ask` entries may carry `agent`. `PUT /api/rules` takes the same shape and returns it.
 
@@ -560,7 +597,9 @@ The app reads both keys from `GET /api/features`.
 
 **Approvals.** `ApprovalRequest` and its SSE event gain `agent: {id, name}`.
 
-**Cancel.** `POST /api/cancel {session_id, run_id?, soft?: bool, spoken_chars?: int}` returns `{"cancelled": bool}`, the same body as today.
+**Voice warm-up.** `POST /api/voice/warm {agent}` returns `{"ok": true}` once the voice model has answered the one-token request, or `{"ok": false, "error"}` if it couldn't be reached.
+
+**Cancel.** `POST /api/cancel {session_id, run_id?, soft?: bool, spoken_chars?: int}` returns `{"ok": true, "cancelled": bool}`, the same body as today.
 
 **Voice config** (`[voice]` in `config.toml`):
 
@@ -577,9 +616,12 @@ Today the owner has modes, allow rules and "never" rules (deny rules, `permissio
 **P1 adds one verdict, `ask`, to the same store and the same matcher.** It adds no second rule system.
 
 *   **Storage.** `config.toml` gains `permissions.ask`, with a kv mirror kept the same way as the deny rules.
+*   **Every policy gets them.** `Policy::new` gains an `ask` argument, so no policy can be built without the ask rules. Today background runs build their own policies: jobs (`app.rs:1549`, `:1551`), proactive work (`:2034`), social posting (`:3575`) and the MCP server's policies in `src/mcp.rs`. Each passes `self.policy.ask_rules()` the way each already passes `deny_rules()`. The test `every_policy_constructor_gets_ask_rules` fails if a `Policy::new` call outside `permissions.rs` doesn't pass them.
 *   **Matching.** It uses the existing glob on `tool:summary`. "Ask: `shell` when the command contains `git push`" is the rule `shell:*git push*`.
 *   **Where ask rules sit in `decide`:**
-    *   A new step after step 4 (Refused) returns `Verdict::Ask` in every mode, Yolo included, when an ask rule matches. It also marks the call once only, by extending `permissions::once_only(tool)` to `once_only(tool, summary)`, which is true when an ask rule matches. A conversation grant can't satisfy it, because `may_grant_for_conversation` already checks `once_only` (`agent.rs:158` on `feat/v1-features-base`), and its card offers only **Allow once** and **Deny**.
+    *   When an ask rule matches, a new step after step 4 (Refused) returns a new verdict, `Verdict::AskOnce`, in every mode, Yolo included.
+    *   `execute_call` treats `AskOnce` like `Ask` except for two things. It never checks conversation grants for it, so an earlier "allow `git *` for this conversation" can't satisfy it. And its card offers only **Allow once** and **Deny**.
+    *   The global ask rules and the agent's own ask rules (`Scope.rules`) are both checked in `decide`, so per-agent rules can't be missed.
     *   Never rules stay at step 2 and beat everything.
     *   Allow rules stay at step 8, with their existing guard: a rule for one shell command never covers chained, piped or substituted commands (`allow_rule_covers`, `permissions.rs:449-457`).
     *   An allow rule never beats taint (step 6), secrets (step 5) or a high-risk effect.
@@ -632,8 +674,12 @@ It does not reuse F7's dictation path, which hands the microphone to macOS dicta
  SSE text chunks ─▶ SentenceSplitter (F7) ─▶ AVSpeechSynthesizer (agent's voice) ─▶ speaker
 ```
 
-*   **Echo cancellation.** Voice processing on the input node (`setVoiceProcessingEnabled(true)`, macOS 10.15 and later) removes Heron's own speech from the microphone signal. Apple's page doesn't say "echo cancellation" in so many words, so the V1 build checks it with a test recording. That is what makes barge-in work without headphones. If it can't be enabled, or the test shows Heron hearing itself, live voice falls back to half-duplex: barge-in only by key or click, as F7 does. The panel says so.
-*   **Which recogniser.** P1 uses `SFSpeechRecognizer` with `requiresOnDeviceRecognition = true`, which Apple documents as on-device (macOS 10.15 and later), on every macOS version. G6 holds.
+*   **Echo cancellation.** Voice processing on the input node (`setVoiceProcessingEnabled(true)`, macOS 10.15 and later) removes Heron's own speech from the microphone signal. Apple's page doesn't say "echo cancellation" in so many words, so Work unit V1 checks it with a test recording. That is what makes barge-in work without headphones. If it can't be enabled, or the test shows Heron hearing itself, live voice falls back to half-duplex: barge-in only by key or click, as F7 does. The panel says so.
+*   **Which recogniser.** On every supported macOS version, P1 uses `SFSpeechRecognizer` with `requiresOnDeviceRecognition = true`, which Apple documents as on-device (macOS 10.15 and later).
+    *   **Settings:** `addsPunctuation = true`, which supplies the comma that addressing needs, and `contextualStrings` set to every active agent's call names, so invented names like "Lux" are recognised.
+    *   **When on-device recognition isn't available** (`supportsOnDeviceRecognition` is false for the owner's language, or the model isn't downloaded), live voice doesn't start. The panel says why and links to System Settings › Keyboard › Dictation. It never falls back to server recognition, so G6 holds.
+    *   **If the recogniser fails mid-session,** the panel shows "Speech recognition stopped", ends the session, and keeps the transcript so far.
+    *   **Matching is exact.** A misheard name doesn't route; the turn goes to the thread's agent. The panel and the chat show which agent took each turn, so a miss is visible.
     *   It sits behind a small `Transcriber` protocol whose only other implementation is the file-backed test source.
     *   `SpeechAnalyzer` (macOS 26) streams and downloads its model to the Mac, but the pages read don't say recognition stays on the device (UNCONFIRMED). It waits for a later voice delta that confirms this.
 *   **End of speech.** 500 ms of silence by default, adjustable from 300 to 1,200 ms in Settings › Voice. This is the largest fixed cost in the latency budget.
@@ -643,11 +689,25 @@ It does not reuse F7's dictation path, which hands the microphone to macOS dicta
 
 #### 3.4 The model path: what decides latency
 
-The audio side costs about 0.6 s: about 0.5 s of end-of-speech wait, about 0.1 s to finalise the transcript, and under 0.1 s for local speech to start. So the model's time to first sentence decides whether G5 holds.
+The budget runs from the end of the owner's speech to the first audio, and speech starts only when the first sentence is complete:
+
+| Step | Budget | Source |
+|---|---|---|
+| end-of-speech wait | 500 ms (setting) | §3.6 |
+| final transcript after the wait | ≤ 100 ms | estimate, measured by `transcript_final` |
+| core work before the model call (prompt build, memory search) | ≤ 100 ms | estimate, measured; the voice prompt below keeps it small |
+| model: time to the end of the first sentence (≤ 12 words) | ≤ 300 ms | the provider; measured by `first_sentence` |
+| local speech start | ≤ 50 ms | `AVSpeechSynthesizer`, measured by `first_audio` |
+
+The total is 1.05 s at the edges, so G5's p50 of 1.0 s needs the end-of-speech wait at 500 ms or less and a fast model. Every row is measured per turn, so a miss shows which step caused it.
+
+**The voice prompt is slim and cacheable.** On voice turns, the system prompt puts the stable parts first: base instructions, the agent's instructions and the tool schemas, limited to the agent's scope. The minute-resolution clock and the per-query memories (`agent.rs:332-333`, `:380`) go after them, so a provider or local server with prefix caching reuses the stable part. When a voice session starts, the app calls `POST /api/voice/warm {agent}`, which sends that prefix to the voice model with `max_tokens = 1`. That loads a local model and fills a provider's cache.
+
+**If gate G-V fails.** Live voice still ships behind its key, with the measured times shown and G5 marked not met in the PR. The next voice delta then weighs Alternative D (a speech-to-speech API) against a faster local model. With the owner's zero-charge preference, PQ1 choice 2 (a local model) is the likely path, and its time to first sentence on the owner's Mac is the number G-V must measure first.
 
 | Provider path | Fits G5? | Why |
 |---|---|---|
-| HTTP streaming (`llm.rs` `HttpLlm`, any OpenAI-compatible endpoint: a local Ollama or LM Studio, or a paid API) | yes, if first token ≤ 0.4 s | streams text as `Event::Text` today |
+| HTTP streaming (`llm.rs` `HttpLlm`, any OpenAI-compatible endpoint: a local Ollama or LM Studio, or a paid API) | expected, if the first sentence ends within 0.3 s; G-V measures it | streams text as `Event::Text` today |
 | CLI provider (`cli_llm.rs`, 15 providers) | not expected; to be measured | a new CLI process per model call, each starting the official CLI with its own start-up and sign-in checks. Text does stream: the decoded `text` of the JSON envelope is passed on as it arrives (`envelope_text_prefix`, `cli_llm.rs:985-995`). The process start comes before the first token on every turn |
 
 So live voice gets its own model setting, the `[voice]` table in `config.toml` ([§1.10](#110-contracts)), with the three choices in PQ1. When the main provider is a CLI and no voice model is set, live voice still works, but the panel says "Replies start in a few seconds with <CLI name>. Choose a faster voice model in Settings › Voice." The measured times are shown, never claimed.
@@ -678,25 +738,29 @@ Today a run stops only when its tokio task is aborted (`server.rs:645-692`). Abo
     A tool that is already running finishes, and its result is recorded. The run then ends the way a cancelled run ends today: the server publishes `{"type":"cancelled"}` (`server.rs:682`), removes the run from `running`, and skips post-turn learning. `run_turn` returns `Ok(TurnEnd::Cancelled)`.
     *   If the run is waiting in `approver.approve` when the soft cancel arrives, its pending approvals are cleared, as the hard cancel clears them (`server.rs:656-663`), and the wait returns `Deny`.
     *   PR #84's effect journal still covers a hard abort.
-*   **What triggers it.** The voice panel's `VoiceActivity` sees at least 200 ms of speech while Heron is speaking. Speech stops at once (`stopSpeaking(at: .immediate)`, target under 150 ms), and the soft cancel is sent.
-*   **What gets stored.** Only the app knows what was spoken, so the soft cancel carries it: `POST /api/cancel {session_id, run_id, soft: true, spoken_chars}`, where `spoken_chars` is the length, in Unicode scalar values, of the reply text handed to speech so far.
-    *   The core cuts the run's assistant text to that prefix, appends ` [interrupted]`, and stores that. Text that streamed but wasn't spoken is dropped.
+*   **What triggers it.** While Heron is speaking, `VoiceActivity` sees at least 200 ms of speech and the recogniser has a partial transcript of at least two letters. The transcript rule keeps a cough or a door slam from cancelling a run. Speech stops at once (`stopSpeaking(at: .immediate)`, target under 150 ms), and the soft cancel is sent.
+*   **The next utterance waits for the run.** A soft-cancelled run can still be finishing a tool, and `POST /api/chat` returns `409` while the session is busy (`server.rs:527-556`). So the panel queues the owner's finished utterance and sends it when the run's `cancelled` or `done` event arrives. If that takes more than 1.5 s, the agent says "One moment". After 30 s the panel hard-cancels the run and sends the utterance.
+*   **An utterance while a card is waiting** isn't a barge-in, since Heron isn't speaking. If PQ2 is on and the utterance is exactly an approval phrase, it answers the card. Otherwise it soft-cancels the run, which clears the card as Deny, and is queued as above. The panel says "Cancelled the pending request".
+*   **What gets stored.** Only the app knows what was heard, so the soft cancel carries it: `POST /api/cancel {session_id, run_id, soft: true, spoken_chars}`.
+    *   `spoken_chars` counts what speech actually reached, not what was queued. `AVSpeechSynthesizerDelegate`'s `willSpeakRangeOfSpeechString` reports each word as it starts. `SentenceSplitter` keeps, for each sentence it hands over, the range of the original text it came from, before Markdown was removed. So the app maps the last word started back to an offset in the run's original text.
+    *   The offset counts Unicode scalar values across all of the run's assistant text, in order, so a run with several assistant messages (text, a tool call, more text) is cut in the right message. Later messages in the run are dropped.
+    *   The core cuts the text at that offset, appends ` [interrupted]` to the message that was cut, and stores it. Text that streamed but was never spoken is dropped.
     *   If the run already ended before the cancel arrived, the core applies the same cut to that run's last assistant message, found by `run_id`, through a new `Store::truncate_message`.
 
-#### 3.5a Voice parameters
+#### 3.6 Voice parameters
 
-*   **Voice activity.** The noise floor is the median RMS of the first 500 ms after the session starts. Speech starts when the level stays 12 dB above the floor for 120 ms. Speech ends after the end-of-speech silence (500 ms by default). Barge-in needs 200 ms of speech while Heron is speaking.
-*   **Echo check.** When a session starts, Heron speaks "Listening" and measures the microphone level during it. If the level rises more than 6 dB above the floor with voice processing on, Heron is hearing itself, and the session runs half-duplex. The panel says so.
+*   **Voice activity.** The noise floor is the median RMS of the first 500 ms after the session starts, measured before Heron speaks anything. Speech starts when the level stays 12 dB above the floor for 120 ms. Speech ends after the end-of-speech silence (500 ms by default). Barge-in needs 200 ms of speech while Heron is speaking.
+*   **Echo check.** After the noise floor is measured, Heron speaks "Listening" and measures the microphone level during it. If the level rises more than 6 dB above the floor with voice processing on, Heron is hearing itself, and the session runs half-duplex. The panel says so.
 *   **End phrases.** "goodbye" and "stop listening" end the session only as the whole utterance, ignoring case and trailing punctuation.
 *   **Mute** stops passing microphone audio to voice activity and the recogniser. Heron's speech carries on.
 
-#### 3.6 Voice and safety
+#### 3.7 Voice and safety
 
-*   **Content entry.** A new `ContentEntry::VoiceUtterance` (the enum from `heron-v1-features.md`'s B2, on `feat/v1-features-base`) has class **Trusted**: the owner is present and speaking. The microphone can also pick up a television or another person, so voice turns get the surface ceiling `ask` ([§1.2](#12-effective-scope)). In Auto mode a spoken request still asks before writing files or running commands.
+*   **Content entry.** A new `ContentEntry::VoiceUtterance` (the enum from `heron-v1-features.md`'s B2, on `feat/v1-features-base`) has class **Trusted**: the owner is present and speaking. The microphone can also pick up a television or another person, so voice turns get the `voice` surface ([§1.2](#12-effective-scope)): mode `ask`, no standing allow rules or conversation grants, and cards for state writes and egress. In `auto` mode, and with a `shell:*` allow rule, a spoken request still asks before writing anything, running a command or sending anything.
 *   **Approvals while in voice.** The card appears on screen, and the agent says one short line: "It's on screen for you to approve." Approving by speech is off by default (PQ2). A send, a call or a payment is never approved by voice.
 *   **Taint.** A voice turn that reads outside content taints the thread, as a typed turn would. Tainted asks are never approvable by voice, even with PQ2 on.
 
-#### 3.7 Later voice work
+#### 3.8 Later voice work
 
 *   **A later voice delta:** `SpeechAnalyzer`, once confirmed on-device.
 *   **P4:**
@@ -714,7 +778,7 @@ Each part says what the owner sees, how it fits a local-first Mac app, the piece
 #### 4.1 Messaging channels
 
 *   **What the owner sees.** Settings › Channels lists Telegram, Slack, Messages, WhatsApp and Teams, each with a **Pair** button and a mode ceiling. The owner talks to Heron, or to any agent by name, from any of them. Every channel shares Heron's memory under the agent's scope, because they use the same store. A fact learned on WhatsApp is recalled in Slack.
-*   **Decision, as the brief requires: extend `src/channel.rs`.** It already has the right pieces: an authenticated identity, a dedup journal, a durable outbox with leases, and `ChannelKind` values for Slack and WhatsApp. P2:
+*   **Decision, as the owner's scope message requires: extend `src/channel.rs`.** It already has: an authenticated identity, a dedup journal, a durable outbox with leases, and `ChannelKind` values for Slack and WhatsApp. P2:
     *   implements `ChannelAdapter` for real;
     *   moves Telegram's pairing (code, lockout after 5 wrong codes) from `telegram.rs` into `channel.rs`, so every adapter shares it;
     *   adds `ChannelKind::Messages` and `ChannelKind::Teams`;
@@ -735,7 +799,7 @@ Each part says what the owner sees, how it fits a local-first Mac app, the piece
 | Channel | How it connects | Needs a public address? | Phase | Pieces |
 |---|---|---|---|---|
 | Slack | an app in the owner's workspace, Socket Mode (a websocket the Mac opens) | no | P2 | Slack app manifest; app-level and bot tokens in the Keychain |
-| Messages (iMessage) | the owner's self-chat. The Mac app reads that one thread from `~/Library/Messages/chat.db` with one fixed query and sends with Messages automation (R3, PQ8) | no | P2 | Full Disk Access; Automation permission for Messages |
+| Messages (iMessage) | the owner's self-chat. Heron's own replies also arrive in that thread as "from me", so the reader records the id of every message Heron sent and skips those, or it would read its own replies, and any outside text it echoed, as owner messages. The Mac app reads that one thread from `~/Library/Messages/chat.db` with one fixed query and sends with Messages automation (R3, PQ8) | no | P2 | Full Disk Access; Automation permission for Messages |
 | WhatsApp | WhatsApp Business Platform Cloud API, on a dedicated number | yes (webhook) | P3 | the relay; Meta Business account; number |
 | Teams | a bot registered in Azure; the owner's tenant allows the custom app | yes (messaging endpoint) | P3 | the relay; Azure bot registration |
 | Telegram | today's long-poll bot | no | done | moves onto the trait in P2 |
@@ -804,7 +868,8 @@ Each part says what the owner sees, how it fits a local-first Mac app, the piece
     2.  It stops on the payment page, and the owner is shown a card: merchant, items, total.
     3.  The owner pays themselves with Apple Pay or their saved card.
     4.  Heron never types card data. A new rule blocks `browser_type` into fields whose autocomplete type is `cc-*`.
-*   **P4, agent card.**
+    5.  Typing isn't the only way to pay: a click on "Buy now" or on Shop Pay with a saved card completes a purchase. So the checkout delta treats clicks on purchase-confirming controls as payment-class, always asking, and requires that the browser profile Heron drives holds no saved payment methods.
+*   **P4, agent payment card.**
     *   **The card.** A provider issues a single-use or merchant-locked card for the exact amount the owner approved. Approval needs Touch ID on the Mac (LocalAuthentication) or Face ID on the phone.
     *   **Card data.** The card number goes from the provider to the browser form through a fixed filler in the core. It never enters the model's context, the transcript or the audit row; only the last four digits are kept.
     *   **A new effect.** `Effect::Payment` is high risk. It is never granted for a conversation or "always", never approved by voice, and never from a channel. It needs a design delta for the security core.
@@ -875,7 +940,7 @@ WhatsApp, Teams, call platforms, meeting bots and the mobile app all need a publ
 
 *   **What it is.** A Cloudflare Worker that the owner deploys from `relay/` with one command (PQ10). It has three jobs:
     1.  It checks each provider's webhook signature on the raw body, and drops anything that fails.
-    2.  It encrypts the body to the Mac's public key, a sealed box whose key lives in the Mac's Keychain, and stores only that ciphertext for at most 7 days.
+    2.  It encrypts the body to the Mac's public key (a libsodium sealed box). The matching private key never leaves the Mac's Keychain. It stores only that ciphertext, for at most 7 days.
     3.  It answers the Mac's long-poll (`GET /pull`, authenticated with a per-install token), and deletes a message when the Mac acknowledges it.
 *   **What it never does:**
     *   run Heron's tools;
@@ -883,7 +948,7 @@ WhatsApp, Teams, call platforms, meeting bots and the mobile app all need a publ
     *   keep plaintext after the signature check;
     *   accept a message without a valid provider signature.
 *   **Outbound sends** (a WhatsApp reply, a Teams message) go straight from the Mac to the provider's API, not through the relay.
-*   **Content entry:** `RelayEvent` has class Outside, and its sender class is decided by the channel ([§4.1](#41-messaging-channels)).
+*   **Content entry:** `RelayEvent` is Outside unless the channel marks it an owner message; the sender class is decided by the channel ([§4.1](#41-messaging-channels)).
 *   **Phase:** P3, in its own delta, because it is the first network-facing code Heron ships.
 
 ### 7. New content entries
@@ -893,7 +958,8 @@ These extend the trust table in `heron-v1-features.md` (Content entries, B2), wh
 | Variant | Where it comes from | Class | Phase |
 |---|---|---|---|
 | `VoiceUtterance` | final transcript of the owner's speech in live voice | Trusted (surface ceiling `ask`) | P1 |
-| `AgentInstructions` | an agent profile's instructions | Trusted once the owner made or reviewed it; an agent in `review` can't run | P1 |
+| `AgentInstructions` | an agent profile's instructions | Trusted when the owner wrote them; an agent in `review` can't run | P1 |
+| `ImportedInstructions` | an imported agent's instructions, until the owner edits them or marks them trusted | Outside: each session with that agent starts tainted | P1 |
 | `DelegateResult` | a named or unnamed `delegate` child's output | Outside (PR #75) | P1 |
 | `ChannelOwnerMessage` | a message from the paired owner on any channel | Trusted (channel ceiling) | P2 |
 | `ChannelGuestMessage` | a message from anyone else, or a forward | Outside | P2 |
@@ -912,7 +978,7 @@ These extend the trust table in `heron-v1-features.md` (Content entries, B2), wh
 | Place a phone call | P3 | each call, with the brief | rules; emergency, premium or international numbers |
 | Join a meeting as a bot | P3 | each meeting | joining a meeting not on the owner's calendar without the link being typed by the owner |
 | Pay (hand-off) | P2 | the owner pays | Heron typing card fields |
-| Pay (agent card) | P4 | Touch ID or Face ID each time | voice; channels; conversation grants; rules |
+| Pay (agent payment card) | P4 | Touch ID or Face ID each time | voice; channels; conversation grants; rules |
 | Publish to Instagram | P3 | each post shows the final media and caption | "always" |
 
 ### 9. Running cost
@@ -944,10 +1010,12 @@ These are monthly estimates for one owner with moderate use. Prices are from [pr
 | P0 (preconditions) | the same list as the [Preconditions](#preconditions) below: `feat/v1-features-base`, F1, F7, PR #75 and PR #84 | owner merges | existing |
 | **P1** | named agents, ask rules, live voice (button and hotkey), export and import | P0 | **this doc** |
 | P2 | Slack, Messages, Telegram on the trait, channel ceilings (R8), `@Name` on channels; deliverables; goals, with delegating to a named agent and schedules that run as one; runtime draft connectors; hand-off checkout; sending messages and email (R2), with recipient, domain and amount rules | P1; Harness2 graph 1b for draft connectors | five short deltas: channels and sending (with R2, R3, R5, R8 and recipient rules); deliverables; goals (with delegating to a named agent); draft connectors (R6); hand-off checkout |
-| P3 | relay; WhatsApp, Teams; meetings (local, then bot); calls; small-business pack; Instagram; guest-facing agents | P2; owner accounts | five short deltas |
-| P4 | agent card and `Effect::Payment`; mobile app; wake word; avatar; voice in channels | P3 | deltas plus `heron-mobile.md` |
+| P3 | relay; WhatsApp, Teams; meetings (local, then bot); calls; small-business pack; Instagram; guest-facing agents; spaces (row 8a) | P2; owner accounts | five short deltas: relay with WhatsApp and Teams; meetings; calls; small-business pack with Instagram; spaces |
+| P4 | agent payment card and `Effect::Payment`; mobile app; wake word; avatar; voice in channels | P3 | deltas plus `heron-mobile.md` |
 
 The v1 owner trial runs until 2026-12-05. Nothing here merges code before it ends.
+
+--------------------------------------------------------------------------------
 
 ## Alternatives Considered
 
@@ -981,12 +1049,12 @@ The v1 owner trial runs until 2026-12-05. Nothing here merges code before it end
     *   it costs per minute;
     *   its tool calls must still be bridged into `decide`;
     *   it bypasses the agent's own model and instructions path.
-*   **Reason for rejection:** the cascaded on-device pipeline with a fast streaming model meets G5 and keeps audio local. It may return as an opt-in choice 4 in a later voice delta, if the gate shows the cascaded path misses G5.
+*   **Reason for rejection:** the cascaded on-device pipeline is expected to meet G5 with a fast streaming model (budget in [§3.4](#34-the-model-path-what-decides-latency); gate G-V confirms it), and it keeps audio local. It may return as an opt-in choice 4 in a later voice delta, if the gate shows the cascaded path misses G5.
 
 ### Alternative E: Keep F7's dictation path for live voice
 
 *   **Pros:** no microphone permission.
-*   **Cons:** macOS dictation gives no end-of-speech signal, no barge-in and no streaming hook. It also can't be started reliably from a button (marked UNVERIFIED on the branch).
+*   **Cons:** macOS dictation gives no end-of-speech signal, no barge-in and no streaming hook. It also can't be started reliably from a button (marked UNCONFIRMED on the branch).
 *   **Reason for rejection:** it can't meet G5.
 
 ### Alternative F: A Cloudflare Tunnel to the Mac's server instead of a relay
@@ -1001,11 +1069,47 @@ The v1 owner trial runs until 2026-12-05. Nothing here merges code before it end
 *   **Cons:** the dedup, outbox and pairing logic would be duplicated per channel, and `channel.rs` was written to be shared.
 *   **Reason for rejection:** extending `channel.rs` reuses tested code.
 
+### Alternative H: Typed-fact action rules in P1 (recipient, domain, amount)
+
+*   **Pros:** the full Dots-style rule set at once.
+*   **Cons:** no P1 tool reports recipients or amounts, so the facts would have no user, and a second rule store would sit beside the existing one.
+*   **Reason for rejection:** P1 adds only an `ask` verdict on the existing glob matcher. Typed facts come with the first send tool in P2.
+
+### Alternative I: One table or database per memory pool
+
+*   **Pros:** stronger isolation; a pre-P1 build would never see private rows.
+*   **Cons:** search, FTS, vectors, dedupe and supersede would all run across several tables. Shared facts would need copying between them.
+*   **Reason for rejection:** a scope bound into the memory handle, with every query taking it, gives the same isolation inside one process. The downgrade risk is stated and blocked from P1 on ([NFRs](#non-functional-requirements)).
+
+### Alternative J: Hard abort on barge-in (no soft cancel)
+
+*   **Pros:** no new token, and an instant stop.
+*   **Cons:** aborting the task mid-tool can leave a half-done action.
+*   **Reason for rejection:** barge-in happens often, so it must never cut a tool short. The Stop button keeps the hard abort.
+
+### Alternative K: A local Whisper-class recogniser instead of `SFSpeechRecognizer`
+
+*   **Pros:** better accuracy on names, and the same behaviour on every macOS version.
+*   **Cons:** a model of hundreds of MB to ship or download, more CPU use while listening, and a new dependency.
+*   **Reason for rejection:** `SFSpeechRecognizer` is on the Mac already, is on-device, and takes `contextualStrings` for call names. A later voice delta can swap it in behind the `Transcriber` protocol if gate G-V shows misrecognised names.
+
+### Alternative L: Local neural speech instead of system voices
+
+*   **Pros:** voice quality closer to Muse's.
+*   **Cons:** a large model, and start-up time that adds to first audio.
+*   **Reason for rejection:** P1 targets latency first. System voices start in under 50 ms, and the owner's Personal Voice is allowed. A neural voice behind `SpeechSynthesizing` is a P4 option.
+
+### Alternative M: Model-based voice activity detection
+
+*   **Pros:** fewer false starts from noise.
+*   **Cons:** another model, run on every audio frame.
+*   **Reason for rejection:** an energy detector plus the rule that barge-in needs a partial transcript of at least two letters covers coughs and slams. Gate G-V's set includes noisy utterances to check it.
+
 ## Risks & Mitigations
 
 | Risk | Mitigation |
 |---|---|
-| A short or common agent name ("Mango") routes speech by accident | voice needs a comma or "hey" after the name; reserved words are refused; the panel shows which agent took the turn |
+| A short or common agent name ("Mango") routes speech by accident | voice needs a `,` or `:` right after the name, or "hey" before it; reserved words are refused; the panel shows which agent took the turn |
 | The owner gives an agent the `admin` group and it edits other agents | `propose_agent` stays `Privileged` (asks every time); the editor warns when `admin` is ticked |
 | A television says "Heron, delete my files" in live voice | the voice surface ceiling is `ask`; outward and destructive actions show a card; voice approval is off by default |
 | CLI providers can't meet the latency goal | the voice model setting (PQ1); the panel shows measured times; G5 is stated only for HTTP providers |
@@ -1015,6 +1119,8 @@ The v1 owner trial runs until 2026-12-05. Nothing here merges code before it end
 | A guest in Slack injects instructions | guest messages are Outside and taint; guest-facing turns have memory scope `none` and read-only tools |
 | Telephony and AI-call law | calls ask each time, disclose, keep hours, block risky numbers; the calls delta rechecks law |
 | Running costs grow unseen | every paid piece is off until the owner sets it up; the Usage tab gains rows per paid piece in its delta |
+
+--------------------------------------------------------------------------------
 
 ## Non-Functional Requirements
 
@@ -1031,7 +1137,9 @@ The v1 owner trial runs until 2026-12-05. Nothing here merges code before it end
 *   **Rollout and rollback:**
     *   P1 ships behind two feature keys, `agents` and `live_voice`, both default off ([§1.10](#110-contracts));
     *   with agents off, the default agent is the only one and the composer has no picker;
-    *   the migration adds a table and nullable columns only, so an older build ignores them.
+    *   the migration adds a table and nullable columns only;
+    *   **downgrade risk, accepted and stated:** a pre-P1 build ignores `memories.agent`, so after a downgrade, every `own` and `private` memory reaches the default agent. From P1 on, the core refuses to open a database whose data format is newer than it knows, so this can't happen between later builds. The release notes and the Agents screen say: don't install a pre-P1 build while private agents exist;
+    *   **with the `agents` key off:** the default agent still reads only the shared pool, so own and private rows stay hidden. A thread whose `sessions.agent` isn't `heron` opens read-only, and typing in it starts a new thread with the default agent.
 
 ### Additional Resources
 
@@ -1090,7 +1198,7 @@ A1's scope is `src/**`, because it must add `pub mod agents;` to `src/lib.rs` an
     *   `Scope {tools, mode, rules, memory}`.
     *   `effective_scope(global_mode, global_rules, agent, surface) -> Scope`.
     *   `surface_of(Origin) -> Surface`.
-    *   The `Mode` order is `readonly < ask < auto < yolo`. Ceiling `none` means no cap.
+    *   The `Mode` order is `readonly < ask < auto < yolo`. Ceiling `unlimited` means no cap.
 4.  **`src/agents/address.rs`**
     *   `address(text, surface, agents) -> Addressed`, following the rules of [§1.3](#13-addressing-how-a-message-finds-its-agent).
 5.  **`src/agents/share.rs`**
@@ -1099,7 +1207,7 @@ A1's scope is `src/**`, because it must add `pub mod agents;` to `src/lib.rs` an
 6.  **Tests, inline.** Each name is listed in the unit's check:
     *   `scope_never_widens_past_global`
     *   `voice_surface_caps_at_ask`
-    *   `ceiling_none_keeps_global_mode`
+    *   `ceiling_unlimited_keeps_global_mode`
     *   `agent_rules_only_never_or_ask`
     *   `telegram_origin_is_default_agent_only`
     *   `address_needs_leading_at_in_chat`
@@ -1116,7 +1224,10 @@ A1's scope is `src/**`, because it must add `pub mod agents;` to `src/lib.rs` an
 #### Unit A3: wiring in `src/` (Modify)
 
 1.  **`src/store.rs`**
-    *   Step `to_vN` creates `agents`, adds the nullable columns `memories.agent` and `sessions.agent`, and adds an index on `memories(agent)`.
+    *   Step `to_vN` creates `agents`, adds the nullable columns `memories.agent`, `sessions.agent` and `audit.agent`, and adds an index on `memories(agent)`.
+    *   Audit hash version 3, covering `agent`.
+    *   `open` refuses a database whose `user_version` is higher than `STEPS.len()`.
+    *   `truncate_message`.
     *   Agent CRUD.
     *   Every memory query gains a `MemoryScope` argument: search, FTS, vectors, `core`, `list`, `get`, `delete`, the near-duplicate scan and supersede. The unscoped versions stay, renamed `*_unscoped`, for the Memory screen and the owner's routes.
 2.  **`src/memory.rs`**
@@ -1127,7 +1238,8 @@ A1's scope is `src/**`, because it must add `pub mod agents;` to `src/lib.rs` an
     *   Adds `propose_agent` (`Privileged`), which returns the draft profile for the owner's card.
     *   `recall` reports counts through the scoped `count_matching`.
 4.  **`src/permissions.rs`**
-    *   `Policy` gains `scope: Option<Scope>` and an `ask` rule list.
+    *   `Policy` gains `scope: Option<Scope>` and an `ask` rule list. `Policy::new` takes the ask rules, and every caller passes them.
+    *   `Verdict::AskOnce`, and the `voice` surface switches `ignore_allow_rules`, `ask_state_writes` and `ask_egress`.
     *   `decide` gains two steps: step 2b refuses a tool that isn't in scope, and a new step after step 4 asks when an ask rule matches.
     *   `ApprovalRequest` gains `agent`.
 5.  **`src/config.rs`**
@@ -1143,6 +1255,7 @@ A1's scope is `src/**`, because it must add `pub mod agents;` to `src/lib.rs` an
     *   Assistant message JSON gains `agent`.
     *   The audit `decision` gains ` agent=<id>`.
     *   The voice turn gets its system-prompt line.
+    *   `ContentEntry::ImportedInstructions` (class Outside) marks a session with an imported agent tainted at its start.
     *   `ContentEntry::VoiceUtterance` (class Trusted) is added to the enum from `feat/v1-features-base`, and the walk test `every_content_entry_is_trusted_or_taints` covers it. Agent instructions use the existing `PromptSource::Persona`, so no new prompt source is needed. `DelegateResult` is PR #75's.
 7.  **`src/llm.rs`:** builds the voice provider from `[voice] provider` and `model` when set, using the existing `HttpLlm`.
 8.  **`src/app.rs`:** creates the default agent row at start, and looks up the agent for each turn.
@@ -1150,7 +1263,8 @@ A1's scope is `src/**`, because it must add `pub mod agents;` to `src/lib.rs` an
     *   The agents routes of [§1.9](#19-what-the-owner-sees-mac).
     *   `POST /api/chat {agent?, origin?}`. `origin` accepts only `voice`.
     *   `POST /api/cancel {soft}`, with the token kept in `ServerState.running`.
-    *   `GET /api/rules` and `PUT /api/rules`, covering never, ask and allow.
+    *   `GET /api/rules` and `PUT /api/rules`, covering never, ask and allow. `PUT` writes agent-scoped entries and the kv mirror in one database transaction first, then writes `config.toml` through a temporary file and a rename. If the rename fails, it rolls the database back and returns `500`, leaving both stores as they were.
+    *   `POST /api/voice/warm`.
 10. **Tests, inline in each file:**
     *   `tool_outside_scope_denied_at_call`
     *   `schemas_filtered_by_scope`
@@ -1175,6 +1289,21 @@ A1's scope is `src/**`, because it must add `pub mod agents;` to `src/lib.rs` an
     *   `agents_routes_need_token`
     *   `chat_agent_field_beats_text`
     *   `grant_does_not_carry_to_next_agent`
+    *   `every_policy_constructor_gets_ask_rules`
+    *   `ask_once_ignores_conversation_grant`
+    *   `voice_surface_ignores_allow_rules`
+    *   `voice_surface_asks_for_state_writes_and_egress`
+    *   `schedules_and_admin_refused_for_named_agents`
+    *   `switch_to_agent_that_cannot_read_pool_opens_new_thread`
+    *   `learning_reads_only_current_agent_reply`
+    *   `history_of_other_agent_absent_from_request`
+    *   `profile_fact_from_own_agent_goes_to_shared`
+    *   `imported_agent_session_starts_tainted`
+    *   `import_refuses_hidden_characters`
+    *   `agent_id_never_reused`
+    *   `audit_v3_covers_agent`
+    *   `newer_data_format_refused`
+    *   `spoken_chars_cut_spans_messages`
 
 #### Unit A3t: API fixtures in `tests/` (Modify)
 
@@ -1240,6 +1369,8 @@ A1's scope is `src/**`, because it must add `pub mod agents;` to `src/lib.rs` an
     *   `test_timingLineWrittenPerTurn`
     *   `test_agentVoiceUsedForReply`
     *   `test_avatarShowsListeningAndHearing`
+    *   `test_recognitionRequestIsOnDevice`: every request the session builds has `requiresOnDeviceRecognition = true`, and the session refuses to start when `supportsOnDeviceRecognition` is false
+    *   `test_noAudioWrittenToDisk`: a session over the file source leaves no new files in the app's containers except `voice-timing.jsonl`
 
 #### Unit V1p: usage strings in `packaging/macos/` (Modify)
 
@@ -1279,7 +1410,9 @@ A1's scope is `src/**`, because it must add `pub mod agents;` to `src/lib.rs` an
     *   Every surviving mutant in `src/agents/`, the `decide` changes and the scoped memory handle is killed or justified in the PR.
 *   **Evaluator audit, genesis:** `genesis audit-evaluator eval/voice/genesis.yaml --suite code-py` must exit 0 (TRUSTED) before G-V's verdict counts.
     *   `report.py` is P1's only grader. No LLM judge is added.
-*   **Isolation proof:** G3 and G4 are proved by these tests:
+*   **G6 proof:** `test_recognitionRequestIsOnDevice` and `test_noAudioWrittenToDisk` in V1.
+*   **G3 proof:** `scope_never_widens_past_global`, `delegate_child_keeps_parent_scope`, `tool_outside_scope_denied_at_call`, `schedules_and_admin_refused_for_named_agents` and `voice_surface_ignores_allow_rules`.
+*   **Isolation proof:** G4 is proved by these tests, plus `history_of_other_agent_absent_from_request` and `learning_reads_only_current_agent_reply`:
     *   `tool_outside_scope_denied_at_call`;
     *   `planted_private_memory_absent_from_other_agent`;
     *   `dedupe_never_touches_other_pool`;
@@ -1295,11 +1428,11 @@ Phase 1 only. In the check column, `\|` stands for a shell `|`. Units whose scop
 
 | id | what to build | scope | depends on | check | model role |
 |---|---|---|---|---|---|
-| A1 | `src/agents/`: profile, groups, scope, addressing, share (items A1.1–6), plus `pub mod agents;` and `Origin::Voice` | `src/**` | none | `cargo test --locked --lib agents:: && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- scope_never_widens_past_global voice_surface_caps_at_ask ceiling_none_keeps_global_mode agent_rules_only_never_or_ask telegram_origin_is_default_agent_only address_needs_leading_at_in_chat address_ignores_mid_text_mention address_voice_needs_comma_or_hey explicit_agent_beats_text names_unique_ignoring_case_across_call_names reserved_names_refused import_refuses_unknown_keys import_starts_in_review_with_no_tools export_has_no_memories_or_id groups_all_expands_to_registry` | hardest tasks: opus high |
-| A3 | Wiring: store step and scoped memory queries, memory handle, `forget`, `decide` and ask rules, config, agent loop, delegate, soft cancel, voice provider, routes (items A3.1–10) | `src/**` | A1 | `cargo test --locked --lib --bins && cargo clippy --locked --lib --bins -- -D warnings && bash eval/require-tests.sh --lib -- tool_outside_scope_denied_at_call schemas_filtered_by_scope delegate_child_keeps_parent_scope delegate_output_is_untrusted delegate_call_is_audited audit_row_with_agent_verifies planted_private_memory_absent_from_other_agent dedupe_never_touches_other_pool supersede_stays_in_pool forget_refuses_other_pool_id unscoped_memory_fns_not_used_by_tools soft_cancel_finishes_running_tool soft_cancel_stops_before_next_model_call ask_rule_beats_yolo ask_rule_beats_allow_rule allow_rule_never_beats_taint allow_rule_still_skips_compound_shell voice_turn_in_auto_asks_for_shell default_agent_created_once migration_adds_only_nullable_columns agents_routes_need_token chat_agent_field_beats_text grant_does_not_carry_to_next_agent` | hardest tasks: opus high |
+| A1 | `src/agents/`: profile, groups, scope, addressing, share (items A1.1–6), plus `pub mod agents;` and `Origin::Voice` | `src/**` | none | `cargo test --locked --lib agents:: && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- scope_never_widens_past_global voice_surface_caps_at_ask ceiling_unlimited_keeps_global_mode agent_rules_only_never_or_ask telegram_origin_is_default_agent_only address_needs_leading_at_in_chat address_ignores_mid_text_mention address_voice_needs_comma_or_hey explicit_agent_beats_text names_unique_ignoring_case_across_call_names reserved_names_refused import_refuses_unknown_keys import_starts_in_review_with_no_tools export_has_no_memories_or_id groups_all_expands_to_registry` | hardest tasks: opus high |
+| A3 | Wiring: store step and scoped memory queries, memory handle, `forget`, `decide` and ask rules, config, agent loop, delegate, soft cancel, voice provider, routes (items A3.1–10) | `src/**` | A1 | `cargo test --locked --lib --bins && cargo clippy --locked --lib --bins -- -D warnings && bash eval/require-tests.sh --lib -- tool_outside_scope_denied_at_call schemas_filtered_by_scope delegate_child_keeps_parent_scope delegate_output_is_untrusted delegate_call_is_audited audit_row_with_agent_verifies planted_private_memory_absent_from_other_agent dedupe_never_touches_other_pool supersede_stays_in_pool forget_refuses_other_pool_id unscoped_memory_fns_not_used_by_tools soft_cancel_finishes_running_tool soft_cancel_stops_before_next_model_call ask_rule_beats_yolo ask_rule_beats_allow_rule allow_rule_never_beats_taint allow_rule_still_skips_compound_shell voice_turn_in_auto_asks_for_shell default_agent_created_once migration_adds_only_nullable_columns agents_routes_need_token chat_agent_field_beats_text grant_does_not_carry_to_next_agent every_policy_constructor_gets_ask_rules ask_once_ignores_conversation_grant voice_surface_ignores_allow_rules voice_surface_asks_for_state_writes_and_egress schedules_and_admin_refused_for_named_agents switch_to_agent_that_cannot_read_pool_opens_new_thread learning_reads_only_current_agent_reply history_of_other_agent_absent_from_request profile_fact_from_own_agent_goes_to_shared imported_agent_session_starts_tainted import_refuses_hidden_characters agent_id_never_reused audit_v3_covers_agent newer_data_format_refused spoken_chars_cut_spans_messages` | hardest tasks: opus high |
 | A3t | API fixtures and integration tests (unit A3t) | `tests/**` | A3 | `cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_agents_crud_and_import_review api_rules_round_trip && test -s tests/fixtures/api/agents.json && test -s tests/fixtures/api/rules.json` | feature, refactoring: sonnet high |
 | A4 | Mac app: Agents screen, editor, review sheet, picker, `@` completion, Rules section (items A4.1–7) | `macos/**` | A3t | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && test "$(swift test list --package-path macos/HeronMac \| grep -cE 'AgentsTests\|RulesTests')" -ge 8` | feature, refactoring: sonnet high |
-| V1 | Mac app: live voice, avatar states, voice settings, `heron-voice-bench` (items V1.1–8) | `macos/**` | A4 | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && test "$(swift test list --package-path macos/HeronMac \| grep -c 'LiveVoiceTests')" -ge 9` | hardest tasks: opus high |
+| V1 | Mac app: live voice, avatar states, voice settings, `heron-voice-bench` (items V1.1–8) | `macos/**` | A4 | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && test "$(swift test list --package-path macos/HeronMac \| grep -c 'LiveVoiceTests')" -ge 11` | hardest tasks: opus high |
 | V1p | Info.plist usage strings (unit V1p) | `packaging/macos/**` | none | `bash -n packaging/macos/build-app.sh && grep -rq NSMicrophoneUsageDescription packaging/macos && grep -rq NSSpeechRecognitionUsageDescription packaging/macos` | feature, refactoring: sonnet high |
 | V2 | Voice gate: utterances, runner, report, genesis config, tests (unit V2) | `eval/**` | none | `python3 -I -m unittest discover -s eval/tests -t eval -p 'test_voice_report.py' && test "$(ls eval/voice/utterances/*.wav \| wc -l)" -eq 20 && bash eval/voice/run.sh --self-test && genesis audit-evaluator eval/voice/genesis.yaml --suite code-py` | feature, refactoring: sonnet high |
 | A7 | Docs (unit A7) | `docs/**` | A3 | `grep -qx '## Named agents and live voice' docs/engineering/SECURITY_THREAT_MODEL.md && test -s docs/features/agents.md && test -s docs/features/live_voice.md` | judgment and prose: opus high |
