@@ -1,11 +1,11 @@
 # Heron computer use: Heron operates Mac apps for approved tasks
 
 *   **Author:** fernandogarzaaa (drafted with Claude)
-*   **Status:** Draft
-*   **Date:** 2026-11-23
-*   **Read at:** `main` = `c9dd12c`. Line numbers below are from that commit.
+*   **Status:** In Review (resolved, awaiting owner approval)
+*   **Date:** 2026-11-23. Review resolved 2026-11-23; findings and decisions in [the consolidated review report](reviews/heron-computer-use/consolidated_review_report.md).
+*   **Read at:** `main` = `c9dd12c`. Line numbers below are from that commit. `main` has since gained #72, #84 and #85; none of them changes this design, but line numbers in `src/` may have shifted.
 *   **Depends on (not built):**
-    *   [PR #84](https://github.com/fernandogarzaaa/HERON-Project/pull/84), the harness-safety design doc (`heron-harness-safety.md`, not merged): the effect journal (`journal::guarded`, its §1.3) and the loop guard (`RepeatGuard`, its §2). Unit C2 can't finish until W1 and W2 of that doc are on `main`. This doc uses no other part of its journal, so its OQ11 (narrowing the action interface) doesn't affect it.
+    *   [heron-harness-safety.md](heron-harness-safety.md), the harness-safety design (PR #84, on `main`, approved but not built): the effect journal (`journal::guarded`, its §1.3) and the loop guard (`RepeatGuard`, its §2). Unit C2 can't finish until that doc's unit W6a, which wires both into `execute_call`, is built and on `main`. This doc uses no other part of its journal, so its OQ11 (narrowing the action interface) doesn't affect it.
     *   The proactive suggestions and interactive onboarding design, being written in another session. It owns the card UI. This doc defines only what a driving card carries (§7).
 *   **Related (designed, not built):** [heron-harness2.md](heron-harness2.md) §8 (observers, consent records, the lock-screen pause) and §10 (the fence). [heron-v1-features.md](heron-v1-features.md) B2 (`FeatureKey`, `names_for`, `ContentEntry`). Where this doc needs one of those pieces, it builds the small part it needs and says how it lines up (§8).
 *   **Sibling:** [heron-auto-router.md](heron-auto-router.md). Both docs edit the step loop in `src/agent.rs`, so whichever builds second rebases on the other.
@@ -38,7 +38,7 @@ This doc adds **driving**: Heron reads the window of a Mac app, then clicks, typ
 
 *   From [heron-v1.md](heron-v1.md): **`Effect`** (the class every tool call gets from its arguments, `src/permissions.rs:19-51`), **taint** (a session is tainted once untrusted content, such as a web page or a tool's untrusted output, enters it; it stays tainted), the **permission modes** (Read-only, Ask, Auto, Yolo), the **rules** of `Policy::decide` (numbered 1 to 8 in its comments, `src/permissions.rs:364-443`; rule 6 is the taint rule), **Refused** (paths no mode or approval opens), and **Q7** (paths whose pull requests wait for the owner).
 *   From [heron-v1-features.md](heron-v1-features.md), "The extended definition of done": **the eight checks** each feature answers, and **EVE** (the usability test harness). **TCC** is macOS's privacy-permission system (Transparency, Consent and Control).
-*   From [heron-harness-safety.md](https://github.com/fernandogarzaaa/HERON-Project/pull/84): **W1** and **W2** (its work units for the journal and the loop guard), **parking** (an approval nobody answered is saved for later), **Run again** (the button that re-runs an interrupted call), `max_repeats` (4 by default), and the invariants **I1 to I4** (listed in §3).
+*   From [heron-harness-safety.md](heron-harness-safety.md): **W1**, **W2** and **W6a** (its work units for the journal, the loop guard, and wiring both into `execute_call`), **parking** (an approval nobody answered is saved for later), **Run again** (the button that re-runs an interrupted call), `max_repeats` (4 by default), and the invariants **I1 to I4** (listed in §3).
 *   From [heron-harness2.md](heron-harness2.md): **the fence** (files a self-change can't edit without review, its §10), **PT2** (its signing prototype check) and **HQ20** (its observer exclusions).
 *   Build terms: a **work unit** is one row of the Work units table, built by one agent in its own git worktree under the **skein** task runner; its **check** must exit 0. **testteeth** grades tests by mutation testing, and **genesis** audits graders. The **model role** column names the model tier used to build the unit, as in the sibling docs.
 
@@ -71,7 +71,7 @@ This doc adds **driving**: Heron reads the window of a Mac app, then clicks, typ
 
 *   **Driving the web.** Browsers are hard-denied in Phase 1 (CQ4). Web tasks stay with the browser tools (`src/browser.rs:534-591`). Those ask on every click and keystroke once a session is tainted (`src/browser.rs:570`, `:585`), which is the same problem as Problem 2; a permit for the browser tools is a Future Improvement.
 *   **Mail, Messages and other messaging apps in Phase 1** (CQ7). They stay hard-denied, which keeps the Refused-store rule and the "never sends" non-goal. Mail drafts stay with F8's `draft_email`.
-*   **Finder in Phase 1.** It is hard-denied. File work stays with the file tools, which have `classify_path` and checkpoints.
+*   **Finder in Phase 1** (CQ12). It is hard-denied. File work stays with the file tools, which have `classify_path` and checkpoints.
 *   **Unattended driving.** Schedules, automations, Telegram and proactive takeover can't start a permit. A card can propose one (§7), and the owner approves it in the app.
 *   **Screenshots in Phase 1** (CQ3). The model gets observations as text, and step cards are drawn from Accessibility data. So Phase 1 needs no Screen Recording grant. Phase 2, after PT-C2, adds screenshots and that grant, and is its own design delta.
 *   **Drag and double-click.** No CUJ needs them, and a drag in many apps moves or deletes things without any button label to classify.
@@ -85,15 +85,16 @@ Each question has a proposed default. The build uses the default unless the owne
 
 *   **CQ1, a permit is a bounded exception to taint rule 6. Proposed: yes.** Rule 6a (§3) allows `computer_act` and `computer_open_app` calls with effect `ExternalWrite` while the session has a live permit. Rule 6 stands for every other tool. The alternative, asking before every action, keeps rule 6 untouched but means one approval per action: 20 for a 20-step task.
 *   **CQ2, the real desktop. Proposed: Heron drives the owner's own desktop and login session.** Anthropic's guidance for computer use recommends a dedicated virtual machine or container with minimal privileges. A VM or a second macOS user lacks the owner's apps, logins and data, which defeats "true proxy". The mitigations are the permit, the hard-denied apps, the tool lock and the stop controls. This is an accepted risk, and it becomes `## R-2` in `docs/ACCEPTED_RISKS.md` (§9).
-*   **CQ3, no screenshots to the model in Phase 1. Proposed: yes.** Apps that expose too little through Accessibility get "Heron can't drive this app yet". PT-C1 measures how many of the owner's apps that is.
+*   **CQ3, no screenshots and no Screen Recording grant in Phase 1. Proposed: yes.** The brief names screenshots and the Screen Recording permission; Phase 1 has neither. The model gets text observations, and step cards are drawn from Accessibility data, so Phase 1 asks only for Accessibility. Phase 2 adds both, after PT-C2. Apps that expose too little through Accessibility get "Heron can't drive this app yet". PT-C1 measures how many of the owner's apps that is.
 *   **CQ4, browsers. Proposed: hard-denied in Phase 1.** A bundle ID can't tell a bank's site from a news site, and reading a tab's address through Accessibility is different in each browser and can be spoofed by page titles.
 *   **CQ5, where permits and step cards are answered. Proposed: only in the Mac app, enforced by the driver.** Telegram (the phone) can stop a run. It can't approve a permit or a step. Telegram already refuses high-risk and tainted approvals (`src/telegram.rs:292-297`).
-*   **CQ6, the driver is fenced. Proposed: yes.** `macos/HeronMac/Sources/HeronCore/ComputerUse/` and `HeronCore/Desktop/` join Harness2's fence (heron-harness2.md §10) when that is built, so a self-change can't edit them without review.
+*   **CQ6, the driver is fenced. Proposed: yes.** `macos/HeronMac/Sources/HeronCore/ComputerUse/`, `HeronCore/Desktop/` and `Sources/Heron/SystemDesktop.swift` (the file that posts input) join Harness2's fence (heron-harness2.md §10) when that is built, so a self-change can't edit them without review.
 *   **CQ7, Mail, Messages and other messaging apps. Proposed: hard-denied in Phase 1.** The "never sends" non-goal covers every messaging app, so Slack, WhatsApp, Teams, Telegram, Signal and Discord are hard-denied too (§4.4). The owner's brief names "send" among the actions that need approval, which suggests sending is wanted. Allowing Mail and Messages overrides two standing rules: the Refused stores (`src/permissions.rs:889-895`) and heron-v1-features.md's "Heron never sends" non-goal. If the owner lifts this, it needs its own accepted-risk entry, `## R-3`, and every Send stays a step card.
 *   **CQ8, the irreversible word list. Proposed: English, plus words the owner adds in Settings.** A Mac set to another language needs the owner to add that language's words.
 *   **CQ9, actions whose target the driver can't resolve to an element. Proposed: always a step card.** The alternative lets the owner mark an app "coordinate clicks are fine".
 *   **CQ10, permit limits. Proposed: 60 steps and 20 minutes by default, set per permit, at most 200 steps and 60 minutes.** 20 minutes, not 10, because each step is a model call (Non-Functional Requirements, Performance and cost).
 *   **CQ11, typing in shared documents. Proposed: accept, and record it in R-2.** In a shared note, shared reminders list or other collaborative document, typing is sharing with other people. The driver can't tell reliably from Accessibility whether a document is shared. The alternative shows a step card for the first `type` of every permit.
+*   **CQ12, Finder. Proposed: hard-denied in Phase 1.** Finder moves, renames and deletes files that the file tools would check with `classify_path` and protect with checkpoints (`src/permissions.rs:1117`), and a drag in Finder has no label to classify. File work stays with the file tools. The alternative allows Finder with every move, rename and Trash action as a step card.
 
 ## Draft parameters
 
@@ -125,6 +126,7 @@ These run before the build. Each records its output in the build PR.
 *   **PT-C4, the stop shortcut.** Whether a hotkey registered with `RegisterEventHotKey` fires while another app is in front, while the core is stopped with `SIGSTOP`, and while the driver is mid-action. heron-v1-features.md F1 uses the same API and notes it needs no permission. Also measure a stop during a long `type` and during an action on a hung app. **If the shortcut can't be made reliable:** computer use doesn't ship, because G5 is a ship condition.
 *   **PT-C7, do the core's processes get the app's grant? (blocks shipping).** After granting Heron.app Accessibility, check whether each of these can post a `CGEvent` and read another app's Accessibility tree: the core itself; a sandboxed shell command the core runs; the `claude` CLI child; and an MCP server the core starts (MCP servers run outside Seatbelt, `src/mcp.rs:41`). The app starts the core with a plain `Process()` (`CoreProcess.swift:155-167`), and macOS usually treats an app's child processes as covered by the app's grants.
     *   If any of them can, the app starts the core with its responsibility disclaimed (`posix_spawn` with the responsibility-disclaim attribute, in place of `Process()`), so the core and everything it starts are judged on their own, with no grant. PT-C7 is run again with that change.
+    *   A disclaimed core also stops being covered by any grant the app has today. The core's own uses to re-test under that launch: `notify()`'s `osascript` (`src/app.rs:2293`). Mail and Calendar reading already run in the app, not the core (`macos/HeronMac/Sources/HeronUI/Stores/LocalMailAccess.swift`; calendar events are posted to the core, `src/sources.rs:197`), so they don't move.
     *   If no launch mode keeps the grant inside the app, computer use doesn't ship. Any process the core runs could drive the desktop with no permit, no hard-deny list, no step card and no pill.
 *   **PT-C8, step latency** (see Performance and cost).
 *   **PT-C6, grants after an update.** Whether the Accessibility grant survives installing a new release build over the old one. This overlaps Harness2's PT2.
@@ -173,7 +175,7 @@ These run before the build. Each records its output in the build PR.
 
 *   **Given:** a driving run, and the core crashes between a click's journal intent and its outcome.
 *   **When:** the app restarts the core.
-*   **Then:** the app's `PermitBook` drops every permit when the core restarts. Recovery parks one approval for the click in flight, as PR #84 does for any interrupted call (its §1.5). If the owner approves it, it fails with `no_permit`: no permit is live. To carry on, the owner asks again in the chat, which needs a new permit. The click is never replayed.
+*   **Then:** the app's `PermitBook` drops every permit when the core restarts. Recovery parks one approval for the click in flight, as PR #84 does for any interrupted call (its §1.5). If the owner approves it, it is refused: `run_parked` never sets `offers_computer`, so the tool answers "Computer use isn't available in this conversation." To carry on, the owner asks again in the chat, which needs a new permit. The click is never replayed.
 
 ### CUJ 7: A suggestion card
 
@@ -195,7 +197,7 @@ These run before the build. Each records its output in the build PR.
  │   AppPolicy (hard deny, allow list)           │              │ src/computer: permit cache, bridge,     │
  │   StopHotKey (RegisterEventHotKey)            │              │   tools, observation text               │
  │ HeronCore/Desktop: Desktop protocol           │              └─────────────────────────────────────────┘
- │   SystemDesktop (AX, CGEvent, NSWorkspace)     │
+ │ Heron app target: SystemDesktop (AX, CGEvent)│
  │   FakeDesktop (tests, recorded trees)         │
  └──────────────────────────────────────────────┘
 ```
@@ -421,7 +423,7 @@ No setting, permit or approval lets the driver act while one of these is in fron
 ### 5. The journal and the loop guard (PR #84)
 
 *   **Tool entries.** `computer_act` and `computer_open_app` are mutating (`ExternalWrite`), so `execute_call` already wraps them in `journal::guarded` (PR #84 §1.3). Nothing extra is needed for the intent and outcome.
-*   **No action entry and no resumer.** A crash leaves at most the one call in flight with an intent and no outcome. PR #84's recovery parks it as `<summary> was interrupted. Run again?`, and if the owner approves it, it fails with `no_permit`, because the app's `PermitBook` is emptied whenever `CoreProcess` restarts the core. One stray approval that fails safely costs less than an action entry, a resumer and an extension to PR #84's W1.
+*   **No action entry and no resumer.** A crash leaves at most the one call in flight with an intent and no outcome. PR #84's recovery parks it as `<summary> was interrupted. Run again?`, and if the owner approves it, it is refused, because `run_parked` never sets `offers_computer`; even past that, the app's `PermitBook` is emptied whenever `CoreProcess` restarts the core. One stray approval that fails safely costs less than an action entry, a resumer and an extension to PR #84's W1.
 *   **`computer_act` answers at once without a live permit.** It checks the core's permit copy before it sends anything to the app, so a replayed call returns `no_permit` without a round trip.
 *   **The loop guard.** `RepeatGuard.observe(limit, tool, input, ok, output)` (PR #84 §2) already sees every call and fingerprints its output. `computer_act`'s output is the rendered next observation, so a model that flips between two states with the same two observations is stopped after `max_repeats` with no extra hook.
 
@@ -443,7 +445,7 @@ The card UI belongs to the proactive design. A driving card carries:
 *   **Storage.** `suggestions` (`src/store.rs:254-256`) gains two nullable columns in a new schema step: `action` (`"drive"`, or null for today's cards) and `apps` (a JSON array of bundle IDs). `add_suggestion` gains them as optional arguments; `GET /api/suggestions` returns them, and the Swift `Suggestion` model decodes them. The proactive design decides when a card is a drive card; this doc only stores and acts on one.
 *   For a `drive` card, **Do it** calls `POST /api/suggestions/{id}` with `accept`. The core creates a session, marks it tainted (a model wrote the goal), stores it as the suggestion's `session_id`, and returns `{prompt, session_id}` (`src/server.rs:1606-1615`; the Swift `answerSuggestion` returns them instead of `Void`). The app then sends the goal in that session, and the turn is offered the computer tools (§1).
 *   A card that names an app not on the allow list shows `Allow <app> first` instead of **Do it**.
-*   Proactive takeover (`act_on_suggestion`, `src/app.rs:2027-2071`) never drives: the computer tools are not registered for the sessions it runs.
+*   Proactive takeover (`act_on_suggestion`, `src/app.rs:2027-2071`) never drives: its `ToolCtx` has `offers_computer` false, so the computer tools refuse (§1).
 
 ### 8. Settings and consent
 
@@ -581,7 +583,7 @@ These are **estimates, unverified**. PT-C1 and PT-C8 replace them.
 ### Pre-steps (before `skein run`)
 
 1.  Run PT-C1, PT-C3, PT-C4, PT-C6, PT-C7 and PT-C8, and paste their output into the build PR. PT-C2 belongs to Phase 2. If PT-C4 or PT-C7 fails with no fix, stop: computer use doesn't ship.
-2.  Record the owner's answers to CQ1 to CQ11, or note that the defaults stand.
+2.  Record the owner's answers to CQ1 to CQ12, or note that the defaults stand.
 3.  **External prerequisite:** PR #84's W6a is on `main`. W6a is the unit that wires `journal::guarded` into `execute_call` and replaces the repeat check with `RepeatGuard` (its Work units table; it needs W1, W2, W4 and W5). C1, C4, C5 and C6 can be built before that. C2 and C3 wait.
 4.  Commit these pieces on the feature branch first, so every unit stays inside its scope:
     *   `pub mod computer;` in `src/lib.rs`, and an empty `src/computer/mod.rs`;

@@ -1,12 +1,12 @@
 # Heron auto router: Haiku, Sonnet or Opus for each turn
 
 *   **Author:** fernandogarzaaa (drafted with Claude)
-*   **Status:** Draft
-*   **Date:** 2026-11-23
-*   **Read at:** `main` = `c9dd12c`. Line numbers below are from that commit.
+*   **Status:** In Review (resolved, awaiting owner approval)
+*   **Date:** 2026-11-23. Review resolved 2026-11-23; findings and decisions in [the consolidated review report](reviews/heron-auto-router/consolidated_review_report.md).
+*   **Read at:** `main` = `c9dd12c`. Line numbers below are from that commit. `main` has since gained #72 (the Mac app shows the active model in Settings), #84 and #85 (the sidebar can pin a conversation, stored as kv `pinned:{id}`); none of them changes this design, but line numbers in `src/` may have shifted.
 *   **Related:**
-    *   [PR #84](https://github.com/fernandogarzaaa/HERON-Project/pull/84), the harness-safety design doc (`heron-harness-safety.md`, not merged), defines `RepeatGuard`. This doc can use its nudge as an escalation signal, but doesn't need it.
-    *   [PR #72](https://github.com/fernandogarzaaa/HERON-Project/pull/72) (open) makes the Mac app show the active model in Settings.
+    *   [heron-harness-safety.md](heron-harness-safety.md), the harness-safety design (PR #84, on `main`, approved but not built), defines `RepeatGuard`. This doc can use its nudge as an escalation signal, but doesn't need it.
+    *   [PR #72](https://github.com/fernandogarzaaa/HERON-Project/pull/72) (merged) shows the active model in the Mac app's Settings. This doc adds the per-turn model line in the chat.
     *   [heron-computer-use.md](heron-computer-use.md), drafted alongside this doc. Both docs edit the step loop in `src/agent.rs` (around `:522-566`), so whichever builds second rebases on the other.
 
 --------------------------------------------------------------------------------
@@ -30,7 +30,7 @@ The router takes over from the existing `usage::route` (`src/usage.rs:203`): its
 *   A **tier** is `quick`, `standard` or `deep`. A tier is not a model. Each provider maps the three tiers to its own model ids (§1).
 *   A **turn** is one call to `Agent::run_turn` (`src/agent.rs:468`). A **step** is one model call inside that turn. With the `claude-cli` provider, each step is a separate `claude -p` process (`src/cli_llm.rs:247-264`, `--max-turns 1`), so the model can change between steps.
 *   **Escalation** is a move to a higher tier between two steps of the same turn.
-*   A **pin** is the user's choice of one tier for a chat session. It turns the router off for that session.
+*   A **pin** is the user's choice of one tier for a chat session. It turns the router off for that session. It is not the sidebar's conversation pin from #85 (kv `pinned:{id}`); the Mac menu says "Model", never "Pin".
 *   A **typed turn** is a turn whose input the user typed: `POST /api/chat`, the REPL, or a Telegram message from the owner. Schedules, workflow steps, proactive takeover and sub-agents are not typed turns.
 *   A **tool error** is a tool call whose tool ran and failed: it returned an error or timed out. A call the policy or the user refused, a call with unreadable arguments, and a call to an unknown tool are not tool errors.
 *   Steps are counted from 0, as the loop does (`for step in 0..max_steps`, `src/agent.rs:504`). "Step 2" is the third model call.
@@ -61,7 +61,7 @@ On list prices (Anthropic, 2026-11-03), Haiku 5.5 costs $0.10 / $0.50 per millio
 
 ## Goals
 
-*   **G1.** The router's rules pass the gate defined in §5.6, against the five setups that need no new code. If they don't, the wiring (R2 to R4) is not built. Before RQ1 turns the router on by default, the built router passes the same gate in a live run (§5.6).
+*   **G1.** The router's rules pass the gate defined in §5.6, against the five setups that need no new code. If they don't, the wiring (R2 to R5) is not built. Before RQ1 turns the router on by default, the built router passes the same gate in a live run (§5.6).
 *   **G2.** Every turn at depth 0 gets a tier from the router, unless the session is pinned. The router decides from the request and the budget, with no model call.
 *   **G3.** Background chores run on the quick tier. On `claude-cli`, the quick tier is Haiku unless `fast_model` says otherwise.
 *   **G4.** A turn moves up one tier when a fixed signal fires (§3). It moves at most twice and never moves down.
@@ -269,7 +269,7 @@ Before each step after the first, the loop calls `router::escalate(&TierMap, &De
 
 #### 4.2 The event
 
-`Event::Model` gains two fields, `{ name, why, tier, pinned }`, and its JSON form becomes `{"type":"model","name","why","tier","pinned"}` (`src/events.rs:192`). The JSON fields are additive, so the web UI (`assets/index.html:727`) keeps working. The Rust matches in the REPL (`src/main.rs:229`) and the Slint UI (`src/bin/desktop/models.rs:76`) name `{ name, why }` and gain `..`.
+`Event::Model` gains two fields, `{ name, why, tier, pinned }`, and its JSON form becomes `{"type":"model","name","why","tier","pinned"}` (`src/events.rs:192`). The JSON fields are additive, so the web UI (`assets/index.html:727`) keeps working. The Rust matches that name `{ name, why }` gain `..`: the REPL (`src/main.rs:229`) and `tests/integration.rs:651`. The Slint UI has its own event type (`src/bin/desktop/bridge.rs:30-63`) and needs no change.
 
 *   `name` is `TierMap::display(tier)`: the model that runs, not `cfg.llm.model` (Problem 4). `tier` is `"quick"`, `"standard"` or `"deep"`. `pinned` is true when rule 1 chose the tier.
 *   It is sent at step 0 whenever the map is active, and at each escalation.
@@ -301,7 +301,7 @@ Every fixture uses demo data only. Every case is a typed turn in a new, untainte
 
 #### 5.2 The labelling run
 
-`eval/run_core_tasks.py` gains three options that write keys into the config it generates (`config_toml`, `eval/run_core_tasks.py:176-183`): `--cli-model`, `--fast-model` and `--routing`. Environment variables can't be used, because `core_env` strips `HERON_*` (`:186-190`).
+`eval/run_core_tasks.py` gains three options that write keys into the config it generates (`config_toml`, `eval/run_core_tasks.py:176-183`): `--cli-model`, `--fast-model` and `--routing`, plus `--fixtures-root` (Detailed Implementation Plan, item 1). Environment variables can't be used, because `core_env` strips `HERON_*` (`:186-190`).
 
 `eval/router/label.py` runs every case 3 times under each setup below, through `run_core_tasks.py --provider claude-cli`, on today's `main`. No router code is needed.
 
@@ -317,22 +317,23 @@ That is 40 cases × 5 setups × 3 runs = 600 turns (RQ4). In the single-model se
 
 A case's **sufficient tier** is the lowest tier (quick for the Haiku setup, standard for Sonnet, deep for Opus) that passes at least 2 of its 3 runs. A case no tier passes is dropped from the routing metrics and listed.
 
-**Where the numbers come from.** Today a run record has one `tokens` total (`eval/run_core_tasks.py:459-461`, from the last `usage` event, `eval/eve_adapter.py:161-163`) and no wall time. E0 adds two fields to each run record:
+**Where the numbers come from.** Today a run record has one `tokens` total (`eval/run_core_tasks.py:459-461`, from the last `usage` event, `eval/eve_adapter.py:161-163`) and no wall time. E0 adds three optional fields to each run record:
 
-*   `wall_ms`: the time from sending the turn to its `done` event, measured by the runner.
+*   `wall_ms`: the time from sending the turn to its `done` event, measured by the direct driver.
+*   `tier`: the tier named by the run's first `model` event, or null. Only the live run (§5.6) uses it.
 *   `models`: one `{"model", "prompt", "completion"}` per model, read after the run from the `usage` table in that run's own Heron home (`usage(day, model, prompt, completion, calls)`, `src/store.rs:526`), which the runner keeps under `--artifacts`. This gives the per-model split the two-tier baselines need.
 
 **The file formats** (all JSON, committed):
 
-*   `eval/router/labels.json`: `{"cases": {"r01": {"setups": {"haiku": [Run, Run, Run], "sonnet": […], "opus": […], "two_opus": […], "two_sonnet": […]}}, …}, "sufficient": {"r01": "quick"|"standard"|"deep"|null, …}}`, where `Run` is `{"pass": bool, "ttft_ms": int|null, "wall_ms": int, "models": [{"model", "prompt", "completion"}]}`.
+*   `eval/router/labels.json`: `{"cases": {"r01": {"setups": {"haiku": [Run, Run, Run], "sonnet": […], "opus": […], "two_opus": […], "two_sonnet": […]}}, …}, "sufficient": {"r01": "quick"|"standard"|"deep"|null, …}}`, where `Run` is `{"pass": bool, "ttft_ms": int|null, "wall_ms": int, "tier": str|null, "models": [{"model": str, "prompt": int, "completion": int}]}`. The live run adds a sixth setup, `"router"`.
 *   `eval/router/replay.json`: an array `[{"id": "r01", "completion": "{\"tier\": \"quick\"}"}, …]`.
 *   The text the replay routes is each case's `prompt` field from `cases.md`, with `{web}` replaced by `http://fixture.invalid`.
 
 #### 5.3 The replay
 
-The router's rules are a pure function, so they are scored without model calls. Unit R1 includes an ignored test, `router::replay_cases`, run with `cargo test --locked --lib router::replay_cases -- --ignored`. It reads each case's text from `eval/router/cases.md`, runs `decide` with `typed = true`, an untainted session and level Normal, and writes `eval/router/replay.json`: one `{"id", "completion"}` per case, where `completion` is the string `{"tier": "…"}`.
+The router's rules are a pure function, so they are scored without model calls. Unit R1 includes an ignored test, `router::replay::tests::replay_cases`, run with `cargo test --locked --lib router::replay::tests::replay_cases -- --ignored`. It reads each case's text from `eval/router/cases.md`, runs `decide` with `typed = true`, an untainted session and level Normal, and writes `eval/router/replay.json`: one `{"id", "completion"}` per case, where `completion` is the string `{"tier": "…"}`.
 
-`eval/router/score.py` passes each completion and its label to `eval/genesis/router_verifier.py`, the verifier that genesis audits (§5.5). The verifier writes `{"correct": bool, "direction": "exact"|"under"|"over"|"invalid"}`. genesis reads `correct`. `score.py` reads `direction` for the under- and over-routing rates. One parser decides both, so a completion the audit would reject can't count in the metrics.
+`eval/router/score.py` passes each completion and its label to `eval/genesis/router_verifier.py`, the verifier that genesis audits (§5.5). The verifier writes the `{"pass", "score", "reward"}` that every genesis verifier in this repository writes (`eval/genesis/limit_verifier.py`), plus `"direction": "exact"|"under"|"over"|"invalid"`. genesis reads `pass`. `score.py` reads `direction` for the under- and over-routing rates. One parser decides both, so a completion the audit would reject can't count in the metrics.
 
 #### 5.4 The metrics
 
@@ -358,7 +359,7 @@ The baselines are the five setups in §5.2: three single models and two two-tier
 *   its pass rate is at least the highest baseline pass rate minus 3 runs' worth;
 *   for every baseline whose pass rate is at least the router's minus 3 runs' worth, the router's cost per passed task is at most 85% of that baseline's.
 
-The gate is unit G in the Work units table. R2, R3 and R4 depend on it. If it fails, the report names the winning baseline, and the owner's next step is that config change, not this build.
+The gate is unit G in the Work units table. R2 to R5 depend on it. If it fails, the report names the winning baseline, and the owner's next step is that config change, not this build.
 
 **The live run.** After R2, `label.py --setup router` runs every case 3 times on the built router, with escalation, and adds those runs to `labels.json` as setup `router`. `score.py --gate --live` applies the same three conditions to the live runs in place of the replay. RQ1's default-on waits for it. A 3-run tolerance is one case's worth: it absorbs one case flipping from pass to fail between runs, not more.
 
