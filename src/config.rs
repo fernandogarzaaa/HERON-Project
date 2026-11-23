@@ -1,6 +1,6 @@
 //! Configuration: `~/.heron/config.toml` + environment overrides.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -217,6 +217,17 @@ pub struct AgentConfig {
     /// "auto": send short, simple requests to `fast_model` when one is set, and move to the main model
     /// if the request turns out to need real work. "off": always use the main model.
     pub routing: String,
+    /// How many times in a row one block of 1 to 3 calls may repeat with the same results before the
+    /// turn stops. 0 turns the stop off and keeps the nudge. 1 is refused.
+    pub max_repeats: u32,
+    /// "allowlist" (default): a sandboxed command reaches only the hosts in `egress_allow`. "open": no
+    /// network rules beyond the socket rules.
+    pub egress: String,
+    /// Hosts a sandboxed command may reach under `egress = "allowlist"`. Each is an exact host name or
+    /// `*.` followed by at least two labels. A list set here replaces the default.
+    pub egress_allow: Vec<String>,
+    /// Local ports a sandboxed command may not connect to, on top of Heron's own API ports.
+    pub deny_local_ports: Vec<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -327,8 +338,52 @@ impl Default for AgentConfig {
             daily_token_limit: 0,
             monthly_token_limit: 0,
             routing: "auto".into(),
+            max_repeats: 4,
+            egress: "allowlist".into(),
+            egress_allow: crate::egress::DEFAULT_ALLOW.iter().map(|h| h.to_string()).collect(),
+            deny_local_ports: vec![],
         }
     }
+}
+
+impl AgentConfig {
+    /// The loop guard and sandbox-network settings, checked as a whole. The settings API reports the
+    /// same messages.
+    pub fn validate_safety(&self) -> Result<()> {
+        if self.max_repeats == 1 {
+            bail!("max_repeats must be 0 or at least 2.");
+        }
+        if !matches!(self.egress.as_str(), "allowlist" | "open") {
+            bail!("egress must be \"allowlist\" or \"open\".");
+        }
+        for entry in &self.egress_allow {
+            validate_egress_host(entry)?;
+        }
+        if self.deny_local_ports.contains(&0) {
+            bail!("Port 0 can't be denied.");
+        }
+        Ok(())
+    }
+}
+
+/// An egress allowlist entry: an exact host name, or `*.` followed by at least two labels. An IP
+/// address, a port, a URL or an empty entry is not a host name.
+pub fn validate_egress_host(entry: &str) -> Result<()> {
+    let refused = || anyhow::anyhow!("Not a host name: {entry}.");
+    let (wildcard, name) = match entry.strip_prefix("*.") {
+        Some(rest) => (true, rest),
+        None => (false, entry),
+    };
+    if name.is_empty() || name.len() > 253 || name.parse::<std::net::IpAddr>().is_ok() {
+        return Err(refused());
+    }
+    let labels: Vec<&str> = name.split('.').collect();
+    let well_formed = |l: &&str| (1..=63).contains(&l.len()) && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') && !l.starts_with('-') && !l.ends_with('-');
+    let numeric_tail = labels.last().is_some_and(|l| l.bytes().all(|b| b.is_ascii_digit()));
+    if !labels.iter().all(well_formed) || numeric_tail || (wildcard && labels.len() < 2) {
+        return Err(refused());
+    }
+    Ok(())
 }
 
 impl Default for PermissionConfig {
@@ -506,6 +561,7 @@ impl Config {
                     format!("parsing {}", path.display())
                 }
             })?;
+            cfg.agent.validate_safety().with_context(|| format!("checking {}", path.display()))?;
             cfg.loaded_rules = Some(SavedRules { allow: cfg.permissions.allow.clone(), deny: cfg.permissions.deny.clone() });
             cfg
         } else {
@@ -1036,6 +1092,50 @@ mod tests {
         assert_eq!(parsed.llm.model, d.llm.model);
         assert_eq!(parsed.permissions.mode, "ask");
         assert_eq!(parsed.server.port, 7878);
+    }
+
+    #[test]
+    fn agent_safety_settings_are_validated() {
+        let d = AgentConfig::default();
+        assert_eq!((d.max_repeats, d.egress.as_str(), d.deny_local_ports.as_slice()), (4, "allowlist", [].as_slice()));
+        assert_eq!(d.egress_allow, crate::egress::DEFAULT_ALLOW);
+        d.validate_safety().unwrap();
+
+        let with = |edit: fn(&mut AgentConfig)| {
+            let mut a = AgentConfig::default();
+            edit(&mut a);
+            a.validate_safety().map_err(|e| e.to_string())
+        };
+        assert!(with(|a| a.max_repeats = 0).is_ok());
+        assert!(with(|a| a.max_repeats = 2).is_ok());
+        assert_eq!(with(|a| a.max_repeats = 1).unwrap_err(), "max_repeats must be 0 or at least 2.");
+        assert!(with(|a| a.egress = "open".into()).is_ok());
+        assert_eq!(with(|a| a.egress = "closed".into()).unwrap_err(), "egress must be \"allowlist\" or \"open\".");
+        assert_eq!(with(|a| a.egress = String::new()).unwrap_err(), "egress must be \"allowlist\" or \"open\".");
+        assert!(with(|a| a.deny_local_ports = vec![1, 8080, 65535]).is_ok());
+        assert_eq!(with(|a| a.deny_local_ports = vec![8080, 0]).unwrap_err(), "Port 0 can't be denied.");
+        assert!(with(|a| a.egress_allow = vec![]).is_ok());
+
+        for good in ["example.com", "Index.Crates.io", "a-b.example.co.uk", "*.crates.io", "*.a.b", "localhost", "xn--bcher-kva.example"] {
+            validate_egress_host(good).unwrap_or_else(|e| panic!("{good}: {e}"));
+        }
+        for bad in ["", " ", "*", "*.", "*.io", "*.*.io", "10.0.0.1", "::1", "[::1]", "1.2.3", "*.10.0.0.1", "example.com:443", "https://example.com", "example.com/path", "exa mple.com", "example.com.", ".example.com", "a..b", "-a.com", "a-.com", "a_b.com", "*example.com", "ex*.com"] {
+            assert_eq!(validate_egress_host(bad).unwrap_err().to_string(), format!("Not a host name: {bad}."), "{bad:?}");
+        }
+        let long = format!("{}.com", "a".repeat(64));
+        assert!(validate_egress_host(&long).is_err());
+        assert!(with(|a| a.egress_allow = vec!["good.com".into(), "10.0.0.1".into()]).unwrap_err().contains("Not a host name: 10.0.0.1."));
+        for host in crate::egress::DEFAULT_ALLOW {
+            validate_egress_host(host).unwrap();
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("config.toml"), "[agent]\nmax_repeats = 1\n").unwrap();
+        let err = format!("{:#}", Config::read_saved(dir.path()).unwrap_err());
+        assert!(err.contains("max_repeats must be 0 or at least 2."), "{err}");
+        std::fs::write(dir.path().join("config.toml"), "[agent]\nmax_repeats = 0\negress = \"open\"\negress_allow = [\"*.example.com\"]\ndeny_local_ports = [9000]\n").unwrap();
+        let saved = Config::read_saved(dir.path()).unwrap().agent;
+        assert_eq!((saved.max_repeats, saved.egress.as_str(), saved.egress_allow, saved.deny_local_ports), (0, "open", vec!["*.example.com".to_string()], vec![9000]));
     }
 
     #[test]

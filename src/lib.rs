@@ -8,9 +8,11 @@ pub mod cli_llm;
 pub mod config;
 pub mod connectors;
 mod credential_transaction;
+pub mod egress;
 pub mod embed;
 pub mod eval;
 pub mod events;
+pub mod journal;
 pub mod llm;
 pub mod mail;
 pub mod mcp;
@@ -19,6 +21,8 @@ pub mod oauth;
 pub mod permissions;
 pub mod persona;
 pub mod proactivity_events;
+pub mod protect;
+pub mod repeat;
 pub mod risk_notice;
 pub mod sandbox;
 pub mod schedule;
@@ -27,6 +31,7 @@ pub mod skills;
 pub mod sources;
 pub mod store;
 pub mod telegram;
+pub mod toolchain;
 pub mod tools;
 /// Slint view logic: the Chat and Views lane state machines.
 /// These are pure Rust (no Slint dependency) so `cargo test --lib`

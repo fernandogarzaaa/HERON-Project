@@ -2118,7 +2118,7 @@ impl App {
             return false;
         }
         // Anything that was mid-way when the previous owner stopped has an unknown outcome; say so.
-        let _ = self.store.recover_interrupted_approvals();
+        let _ = self.store.recover_interrupted_approvals(&[]);
         let _ = self.store.recover_interrupted_jobs(INTERRUPTED_JOB_NOTICE);
         *held = Some(BackgroundLock(file));
         true
@@ -3498,7 +3498,7 @@ mod tests {
         // One that was mid-way when Heron stopped is reported as unknown, not repeated and not called done.
         let stuck = app.store.park_approval("s", "task_add", "{\"title\":\"send the report\"}", "send the report", "", "state", false, "test").unwrap();
         assert!(app.store.claim_approval(stuck).unwrap());
-        assert_eq!(app.store.recover_interrupted_approvals().unwrap(), 1);
+        assert_eq!(app.store.recover_interrupted_approvals(&[]).unwrap(), 1);
         assert_eq!(app.store.get_approval(stuck).unwrap().status, "unknown");
         assert!(app.run_parked(stuck).await.is_err());
         assert!(!app.store.list_tasks(None).unwrap().iter().any(|t| t.title == "send the report"));

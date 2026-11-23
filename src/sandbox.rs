@@ -208,7 +208,7 @@ fn sbpl_quote(p: &Path) -> String {
 
 /// A path as written and its canonical form when that differs (`/var/...` and `/private/var/...`), so
 /// a rule matches whichever the kernel reports.
-fn both_forms(p: &Path) -> Vec<PathBuf> {
+pub(crate) fn both_forms(p: &Path) -> Vec<PathBuf> {
     let mut v = vec![p.to_path_buf()];
     if let Ok(real) = dunce::canonicalize(p) {
         if real != p {
@@ -221,13 +221,13 @@ fn both_forms(p: &Path) -> Vec<PathBuf> {
 /// The `subpath` filters of one rule: each path as written and canonical, then each of those under its
 /// other macOS name (`/System/Volumes/Data/Users/x` for `/Users/x`, and back), so a rule cannot be
 /// stepped around through the firmlink alias.
-fn subpaths<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> String {
+pub(crate) fn subpaths<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> String {
     filters("subpath", paths)
 }
 
 /// The `literal` filters of one rule, in the same forms as [`subpaths`]: the path itself, never
 /// anything under it.
-fn literals<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> String {
+pub(crate) fn literals<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> String {
     filters("literal", paths)
 }
 
@@ -268,7 +268,7 @@ fn refused_ancestors(refused: &[PathBuf], writable: &[PathBuf]) -> Vec<PathBuf> 
 }
 
 /// The other name of an absolute path on macOS: under `/System/Volumes/Data` or out from under it.
-fn data_volume_alias(p: &Path) -> Option<PathBuf> {
+pub(crate) fn data_volume_alias(p: &Path) -> Option<PathBuf> {
     if let Some(stripped) = crate::permissions::without_data_volume(p) {
         return Some(stripped);
     }

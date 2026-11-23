@@ -61,8 +61,7 @@ fn write_risk(args: &Value, ctx: &ToolCtx) -> Effect {
 }
 
 fn content_hash(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+    crate::util::sha256_hex(bytes)
 }
 
 /// Replace a file in one step: the new content is written beside it and renamed over it, so a crash
