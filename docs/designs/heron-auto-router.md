@@ -21,7 +21,7 @@ The owner asked: "is a complicated task routed through Opus or just Sonnet? I th
 
 The router also moves a turn up a tier partway through when the turn proves hard (§3). It respects the token caps and a new daily Opus allowance (§4.3), shows the chosen model and the reason in the chat, lets the user pin a model for a chat, and works with OpenRouter as well as the Claude CLI.
 
-**The eval runs first.** Five setups need no new code: Haiku, Sonnet or Opus alone, and two two-tier configs of today's router. The eval measures all five against the router's rules before the router is wired in. If one of them wins, the owner gets that config change, and the wiring is not built (§5.6). The build has six units: E0 (the eval), R1 (the rules, with no wiring), G (the gate), then R2 (the core wiring), R3 (API tests) and R4 (the Mac app), which wait for G.
+**The eval runs first.** Five setups need no new code: Haiku, Sonnet or Opus alone, and two two-tier configs of today's router. The eval measures all five against the router's rules before the router is wired in. If one of them wins, the owner gets that config change, and the wiring is not built (§5.6). The build has eight units: E0 (the eval), R1 (the rules, with no wiring), G (the gate), then R2 (the core wiring), R3 (API tests) and R4 (the Mac app), which wait for G, then L (the live run of the built router) and V (verify).
 
 The router replaces the body of the existing `usage::route` (`src/usage.rs:203`). It does not add a second router.
 
@@ -90,8 +90,8 @@ These are the owner's calls. Each has a proposed default, and the build uses the
 *   **RQ3, a floor for tainted sessions. Proposed: the router never starts a tainted session on quick by itself (rule 5).** The owner's quick pin and the Minimal and Spent levels (rules 1 and 3) still route quick. The reason is an assumption, not a measurement: a smaller model may be more likely to follow instructions injected through web pages or email. Nothing in this repository compares injection rates across tiers.
 *   **RQ4, eval spend during heron-v1's G9 owner trial (until 2026-12-05). Proposed: the labelling run (§5.2, 600 turns) waits until after 2026-12-05, or until the owner says go.** At list prices it is about $80, from the §5.7 turn shapes (unverified); on a subscription login it is quota, not dollars. The live run after R2 (§5.6) adds about 120 turns. The gate needs the labels, so the wiring waits too. Everything else in the eval runs without model calls.
 *   **RQ5, the pin. Proposed: per chat session, set from the composer.** The owner asked for an override. A global "always this model" already exists as `routing = "off"` plus `cli_model`, so there is no second global setting.
-*   **RQ7, a daily Opus allowance. Proposed: `[agent] deep_tokens_per_day = 1000000`.** The daily and monthly caps default to 0, meaning no limit (`src/config.rs:327-328`), and with no limit the budget level is always Normal (`src/usage.rs:57-60`). So on an install with no caps, nothing would limit how often the router picks Opus. The allowance is about 13 deep turns of the §5.7 tool-turn shape a day. When it is used up, the router stops choosing deep until the next day; a deep pin still runs. 0 means no allowance limit.
 *   **RQ6, OpenRouter ids. Proposed: no built-in defaults for the HTTP provider.** The owner sets `fast_model`, `model` and the new `deep_model`. OpenRouter's ids for the 5.5 models are not verified in this repository, and a wrong id fails every turn.
+*   **RQ7, a daily Opus allowance. Proposed: `[agent] deep_tokens_per_day = 1000000`.** The daily and monthly caps default to 0, meaning no limit (`src/config.rs:327-328`), and with no limit the budget level is always Normal (`src/usage.rs:57-60`). So on an install with no caps, nothing would limit how often the router picks Opus. The allowance is about 13 deep turns of the §5.7 tool-turn shape a day. When it is used up, the router stops choosing deep until the next day; a deep pin still runs. 0 means no allowance limit.
 
 ## Prototype checks
 
@@ -154,11 +154,11 @@ These run before the labelling run. Each records its output in the eval PR.
    Budget::now ──▶ level        session.model_pin        session.tainted
         │                              │                        │
         ▼                              ▼                        ▼
-   router::decide(&TierMap, &Inputs { text, typed, level, pin, tainted, routing_off })
+   router::decide(&TierMap, &Inputs)      (fields: Detailed Implementation Plan, item 2)
         ──▶ Decision { tier, reason, may_escalate }
         │
         ▼  before each later step
-   router::escalate(&TierMap, &Decision, current, &TurnSignals { step, tool_errors_since_move, nudged, wrote_files, level, deep_left })
+   router::escalate(&TierMap, &Decision, current, &TurnSignals)
         ──▶ Option<(Tier, reason)>        (Event::Model on each change)
         │
         ▼
@@ -194,10 +194,9 @@ A new module, `src/router/`, holds `enum Tier { Quick, Standard, Deep }` and `st
 
 | # | Condition | Tier | Escalates | Reason shown |
 |---|---|---|---|---|
-| 1 | The owner pinned the session | the pin | no | "pinned" |
+| 1 | The owner pinned the session, or this is a `delegate` child | the pin, or the parent's current tier | no | "pinned"; a child's events are dropped |
 | 2 | `routing = "off"`, or the map is inactive | standard | no | none: no event, as today |
 | 3 | Budget level Minimal or Spent | quick | no | "the token allowance is nearly used up" (today's text) |
-| 3a | A `delegate` child | the parent's current tier | no | none: a child's events are dropped |
 | 4 | A typed turn in an untainted session that asks for deep work (below) | deep; standard at Careful or when the Opus allowance is used up | yes | "asks to change code", "asks for a plan", "a long, detailed request" or "a hard reasoning question"; otherwise "Opus is paused while the allowance is low" |
 | 5 | `looks_simple(text)` (`src/usage.rs:188`), and the session is not tainted | quick | yes | "a short question" |
 | 6 | otherwise | standard | yes | "an everyday request" |
@@ -224,14 +223,14 @@ Those turns are routed by rules 5 and 6 only, so their words can't buy an Opus t
 
 **Tainted sessions (RQ3).** Rule 5 doesn't apply, so the router's own choice for a tainted session is standard or higher. Rules 1 and 3 come first and can still give quick.
 
-**Sub-agents.** A `delegate` child (`src/agent.rs:712-735`) runs on its parent's current tier (rule 3a) and is not routed again, because its task text is written by the model. A child of an owner-pinned session gets the pin through rule 1. Otherwise rule 3 still comes first, so a child at Minimal or Spent runs on quick. Its `Event::Model` stays dropped (`src/agent.rs:732`).
+**Sub-agents.** A `delegate` child (`src/agent.rs:712-735`) runs on its parent's current tier (rule 1) and is not routed again, because its task text is written by the model. The parent's tier already reflects its pin and its budget level, which the parent reads again before each step. Its `Event::Model` stays dropped (`src/agent.rs:732`).
 
 ### 3. Moving up mid-turn
 
-Before each step after the first, the loop calls `router::escalate(&TierMap, &Decision, current: Tier, &TurnSignals) -> Option<(Tier, &'static str)>`. It is pure. The loop holds `current`, a move only goes up from `current`, and at most one move happens per step, so each tier boundary can be crossed only once. `TurnSignals { step, tool_errors_since_move, nudged, wrote_files, level }` is filled from data the loop already has:
+Before each step after the first, the loop calls `router::escalate(&TierMap, &Decision, current: Tier, &TurnSignals) -> Option<(Tier, &'static str)>`. It is pure. The loop holds `current`, a move only goes up from `current`, and at most one move happens per step, so each tier boundary can be crossed only once. `TurnSignals` (its fields are in item 2) is filled from data the loop already has:
 
 *   `tool_errors_since_move` counts tool errors (Terms) one per call, since the turn started or since its last move, whichever is later. An error made on quick therefore never counts toward the move to deep.
-*   To count them, `execute_call` (`src/agent.rs:613`) returns its text plus a `CallOutcome`: `Ran`, `ToolFailed` (an `Err` or a timeout from the tool), `Refused` (policy or user), `BadArguments` or `UnknownTool`. Only `ToolFailed` is a tool error. A user who declines two approvals does not move a turn to Opus.
+*   To count them, `execute_call` (`src/agent.rs:613`) returns its text plus `tool_failed: bool`, true only for an `Err` or a timeout from the tool itself (and a non-zero shell exit, below). A user who declines two approvals does not move a turn to Opus.
 
 | From | Signal | To | Reason shown |
 |---|---|---|---|
@@ -241,12 +240,12 @@ Before each step after the first, the loop calls `router::escalate(&TierMap, &De
 | standard | the repeat nudge fired (`src/agent.rs:558-566`; `RepeatGuard`'s nudge once PR #84 is built) | deep | "it was going in circles" |
 | standard | step 8 reached (the ninth model call), and the turn has run `write_file`, `edit_file` or `shell` | deep | "a long change to files" |
 
-*   No escalation when `Decision.may_escalate` is false (rules 1 to 3a).
+*   No escalation when `Decision.may_escalate` is false (rules 1 to 3).
 *   No move to deep unless the budget level is Normal and the Opus allowance has tokens left. The loop reads the budget again before each step (`Budget::now`, one small query), so a long turn that crosses into Careful stops moving up.
 *   No move into an absent tier: if the map has no deep tier, a standard turn never moves, and no event is sent.
-*   **A failing command counts.** The shell returns `Ok` with `[exit code N]` appended when a command fails (`src/tools/shell.rs:124-134`), so `execute_call` reports a non-zero exit as `ToolFailed` too. A failing build or test is the coding case where Opus helps most.
-*   **The delegate tool's own errors:** "maximum delegation depth reached" is `Refused`; a child turn that fails is `ToolFailed`.
-*   **A tier the provider refuses.** If a step on quick or deep fails with a provider-limit or unknown-model error (`names_a_provider_limit`, `src/cli_llm.rs:2435-2436`; HTTP 404 or 429 on the HTTP provider), the loop runs the same step again on standard, marks that tier unavailable for 30 minutes (kv `tier_down:<tier>`), and sends a notice: "Opus isn't available right now, so Heron is using Sonnet." Today such an error ends the turn (`src/agent.rs:529`).
+*   **A failing command counts.** The shell returns `Ok` with `[exit code N]` appended when a command fails (`src/tools/shell.rs:124-134`), so `execute_call` sets `tool_failed` for a non-zero exit too. A failing build or test is the coding case where Opus helps most.
+*   **The delegate tool's own errors:** "maximum delegation depth reached" is not a tool error; a child turn that fails is.
+*   **A tier the provider refuses.** Model fallback stays in the `Llm` layer, where the HTTP provider already has it: `HttpLlm` tries the request's model, then `llm.model` (the standard tier), then `fallback_models` (`src/llm.rs:116-117`, `:376-379`). `CliLlm` gets the same two-step chain: when a step on a model other than the standard one fails with a provider-limit or unknown-model error (`names_a_provider_limit`, `src/cli_llm.rs:2435-2436`), it runs the step once more on the standard model. Today that error ends the turn (`src/agent.rs:529`). Either way, `resp.model` says which model answered. When it differs from the tier's model, the loop sends `Event::Model` with the real name and the reason "Opus wasn't available", so the chat never names a model that didn't run.
 *   Each move sends `Event::Model` with the new model and reason.
 *   **Outside content can cause tool errors**, for example a page that makes every fetch fail. The worst case is one Sonnet-to-Opus move per turn, at Normal budget only.
 *   The prompt cache is per model, so the first step on the new model pays full input price for the whole transcript. PT-R3 measures this.
@@ -280,9 +279,9 @@ Before each step after the first, the loop calls `router::escalate(&TierMap, &De
 *   The daily and monthly caps and the budget levels stay as they are (`src/usage.rs:87-123`). Tokens count the same on every tier (RQ2).
 *   Background chores keep their own ledger, `bg_tokens:YYYY-MM-DD` (`src/app.rs:1889-1910`), and run only at Normal. On Haiku they spend less from the same allowance (150,000 tokens a day by default, `src/config.rs:326`).
 *   Proactive takeover keeps its per-run `token_limit` (`src/app.rs:2046`).
-*   **The Opus allowance (RQ7).** A ledger beside `bg_tokens`: kv `deep_tokens:YYYY-MM-DD`, charged with each deep step's tokens, and checked by rule 4 and by escalation. `[agent] deep_tokens_per_day`, 1,000,000 by default, 0 for no limit. Pinned turns are charged but never stopped by it.
+*   **The Opus allowance (RQ7).** `[agent] deep_tokens_per_day`, 1,000,000 by default, 0 for no limit. No new ledger: Heron already records every call per day and per model (`store.record_usage`, `src/llm.rs:476-479`; `usage_per_model`, `src/store.rs:1670-1675`). `Budget` sums today's rows whose model is the deep tier's id and exposes `deep_left`, which rule 4 and escalation read. Pinned deep turns are recorded in the same rows, so they count, but they are never stopped by it.
 *   Usage is recorded per model already (`src/llm.rs:457-481`, the `usage(day, model, …)` table at `src/store.rs:526`), and the Usage tab lists each row with its model (`SettingsView.swift:315-340`). Once requests carry the tier's model, the tab shows the Haiku, Sonnet and Opus split with no change.
-*   `GET /api/usage`'s `Report.routing` (`src/usage.rs:234`) now means "the map is active and routing is not off". `Report.main_model` (`:251`) becomes the standard tier's display name instead of `cfg.llm.model`, which fixes Problem 4 in the Usage tab. `Report` gains `deep_model`, `deep_today` and `deep_limit`, and `POST /api/usage` accepts it beside `fast_model` (`src/server.rs:1267-1287`).
+*   `GET /api/usage`'s `Report.routing` (`src/usage.rs:234`) now means "the map is active and routing is not off". `Report.main_model` (`:251`) becomes the standard tier's display name instead of `cfg.llm.model`, which fixes Problem 4 in the Usage tab. `Report` gains `deep_model`, and `POST /api/usage` accepts it beside `fast_model` (`src/server.rs:1267-1287`).
 
 ### 5. The eval
 
@@ -301,7 +300,7 @@ Every fixture uses demo data only. Every case is a typed turn in a new, untainte
 
 #### 5.2 The labelling run
 
-`eval/run_core_tasks.py` gains four options that write keys into the config it generates (`config_toml`, `eval/run_core_tasks.py:176-183`): `--cli-model`, `--fast-model`, `--deep-model` and `--routing`. Environment variables can't be used, because `core_env` strips `HERON_*` (`:186-190`).
+`eval/run_core_tasks.py` gains three options that write keys into the config it generates (`config_toml`, `eval/run_core_tasks.py:176-183`): `--cli-model`, `--fast-model` and `--routing`. Environment variables can't be used, because `core_env` strips `HERON_*` (`:186-190`).
 
 `eval/router/label.py` runs every case 3 times under each setup below, through `run_core_tasks.py --provider claude-cli`, on today's `main`. No router code is needed.
 
@@ -418,7 +417,7 @@ These figures are **estimates, unverified**, from list prices and an assumed tur
 |---|---|
 | The word lists under-route or over-route (for example "plan my weekend" going to Opus) | The lists are frozen before labelling; near-miss cases in r11-r30; the gate's under-routing bar; tuning after labelling needs the held-out cases (§5.1) |
 | Outside content causes tool errors to force escalation | Only typed, untainted turns route deep by words (G6); escalation moves at most one tier per boundary, deep only at Normal with allowance left (§3) |
-| The Opus or Haiku tier is refused by the provider (plan limit, unknown model) | The step retries on standard, the tier is skipped for 30 minutes, and a notice says why (§3) |
+| The Opus or Haiku tier is refused by the provider (plan limit, unknown model) | The provider layer falls back to the standard model, as `HttpLlm` already does; `Event::Model` names the model that answered (§3) |
 | Opus use grows with no caps set | The daily Opus allowance (RQ7) |
 | A switch of model loses the prompt cache | One switch per boundary; PT-R3 measures the cost; it is in the live run's numbers |
 | The label runs vary from run to run | 3 runs per setup and case, a 2-of-3 vote, and a tolerance of one case's worth of runs; the live run repeats the gate on the built router |
@@ -427,7 +426,7 @@ These figures are **estimates, unverified**, from list prices and an assumed tur
 
 ## Non-Functional Requirements
 
-*   **Security and privacy.** No new tool, host, process or process argument. Outside content can't route a turn to deep (G6), and tainted sessions get a floor (RQ3).
+*   **Security and privacy.** No new tool, host, process or process argument (the CLI fallback reruns the same argv with the standard model). Outside content can't route a turn to deep (G6), and tainted sessions get a floor (RQ3).
 *   **Performance.** `router::decide` runs word matches, two counts and a length check on one message, with no model call. It should take well under a millisecond; R1's tests don't time it.
 *   **Rollout and rollback.** `routing = "off"` restores "always the main model". On the HTTP provider, leaving `deep_model` empty keeps today's behaviour. On `claude-cli`, `fast_model = "sonnet"` and `deep_model = "sonnet"` together restore today's single model. The schema change adds one nullable column, which older builds ignore.
 
@@ -446,7 +445,7 @@ The checks from heron-v1-features.md, plus its two extra rows (Switch and defaul
 | Approval surfaces | none |
 | Processes | none new. `claude` gets a different `--model` value per tier, from the same fixed argv (`src/cli_llm.rs:247-264`) |
 | TCC | none |
-| Q7 | yes: the schema step in `store.rs` |
+| Q7 | yes: the schema step in `store.rs`, and the fallback to the standard model in `cli_llm.rs` |
 
 --------------------------------------------------------------------------------
 
@@ -472,7 +471,7 @@ The checks from heron-v1-features.md, plus its two extra rows (Switch and defaul
 
 ### Pre-steps
 
-1.  Record the owner's answers to RQ1 to RQ6, or note that the defaults stand.
+1.  Record the owner's answers to RQ1 to RQ7, or note that the defaults stand.
 2.  Commit three small pieces on the feature branch first, so R1 stays inside its scope: `pub mod router;` in `src/lib.rs`, an empty `src/router/mod.rs`, and the `[llm] deep_model` field (empty by default) in `src/config.rs`. Build E0 and R1 (no owner spend). Merge E0.
 3.  Run PT-R1 to PT-R3, then the labelling run (§5.2) on the owner's go (RQ4). Commit `labels.json`.
 4.  Only then start unit G, and R2 to R4 after it.
@@ -483,7 +482,7 @@ The checks from heron-v1-features.md, plus its two extra rows (Switch and defaul
 
 #### 1. `eval/router/`, `eval/genesis/`, `eval/run_core_tasks.py`, `eval/tests/` (Create and Modify, E0)
 
-*   `eval/run_core_tasks.py`: the `wall_ms` and `models` fields in each run record (§5.2), and `--cli-model`, `--fast-model`, `--deep-model` and `--routing`, written by `config_toml` as `cli_model`, `fast_model` and `deep_model` under `[llm]` and `routing` under `[agent]`. Today's core ignores the unknown `deep_model` key: no struct in `src/config.rs` uses `deny_unknown_fields`.
+*   `eval/run_core_tasks.py`: the `wall_ms` and `models` fields in each run record (§5.2), and `--cli-model`, `--fast-model` and `--routing`, written by `config_toml` as `cli_model` and `fast_model` under `[llm]` and `routing` under `[agent]`.
 *   `eval/eve/router.yaml`: the EVE task in the eight-checks table.
 *   `eval/router/cases.md` (40 cases), `eval/router/fixtures/` (demo data), `eval/router/prices.json`, `eval/router/seed-labels.json` (12 rows), `eval/router/label.py` (§5.2), `eval/router/score.py` (§5.3 to §5.6, with `--gate`), `eval/router/README.md`.
 *   `eval/genesis/router.yaml`, `eval/genesis/router_verifier.py`, `eval/genesis/build_router_cases.py` (writes `router-cases.jsonl` from `labels.json`, or from the seed file when there is no `labels.json`), `eval/genesis/router-cases.jsonl`.
@@ -491,15 +490,16 @@ The checks from heron-v1-features.md, plus its two extra rows (Switch and defaul
 
 #### 2. `src/router/mod.rs`, `src/router/rules.rs` (Create, R1)
 
-*   **`mod.rs`:** `enum Tier { Quick, Standard, Deep }` with `as_str` and `parse`; `struct TierMap { quick: Option<String>, standard: String, deep: Option<String> }` with `for_config`, `model(Tier) -> &str`, `display(Tier) -> String`, `is_active() -> bool` and `present() -> Vec<Tier>`; `struct Inputs<'a> { text: &'a str, typed: bool, level: Level, pin: Option<Tier>, parent_tier: Option<Tier>, tainted: bool, routing_off: bool, deep_left: bool, down: &'a [Tier] }`; `struct Decision { tier: Tier, reason: &'static str, may_escalate: bool }`; `fn decide(&TierMap, &Inputs) -> Decision`; `struct TurnSignals { step: usize, tool_errors_since_move: usize, nudged: bool, wrote_files: bool, level: Level, deep_left: bool }`; `fn escalate(&TierMap, &Decision, current: Tier, &TurnSignals) -> Option<(Tier, &'static str)>`.
+*   **`mod.rs`:** `enum Tier { Quick, Standard, Deep }` with `as_str` and `parse`; `struct TierMap { quick: Option<String>, standard: String, deep: Option<String> }` with `for_config`, `model(Tier) -> &str`, `display(Tier) -> String`, `is_active() -> bool` and `present() -> Vec<Tier>`; `struct Inputs<'a> { text: &'a str, typed: bool, level: Level, pin: Option<Tier>, tainted: bool, routing_off: bool, deep_left: bool }`; `struct Decision { tier: Tier, reason: &'static str, may_escalate: bool }`; `fn decide(&TierMap, &Inputs) -> Decision`; `struct TurnSignals { step: usize, tool_errors_since_move: usize, nudged: bool, wrote_files: bool, level: Level, deep_left: bool }`; `fn escalate(&TierMap, &Decision, current: Tier, &TurnSignals) -> Option<(Tier, &'static str)>`.
 *   **`rules.rs`:** `looks_simple` and `HEAVY`, copied from `src/usage.rs` (R2 deletes the old copy); `DEEP_WORDS`; `fn asks_deep(text) -> Option<&'static str>` (returns the reason); `fn count_paths`; `fn count_requirements`. Word-boundary, case-insensitive matching.
-*   **Tests (inline):** `decide_follows_rule_order` (one case per row of §2), `pin_beats_every_budget_level`, `off_beats_spent_budget`, `minimal_and_spent_route_quick_without_escalation`, `careful_caps_deep_at_standard`, `untyped_turn_never_routes_deep_by_words`, `tainted_typed_turn_never_routes_deep_by_words`, `tainted_session_skips_rule_5`, `absent_tier_falls_to_nearest`, `deep_equal_to_standard_is_absent`, `single_model_map_is_inactive`, `escalate_quick_at_step_two`, `escalate_quick_on_tool_error`, `escalate_standard_on_two_errors`, `escalate_standard_on_nudge`, `escalate_standard_on_long_file_turn`, `escalate_crosses_each_boundary_once`, `escalate_skips_deep_below_normal`, `no_escalation_when_pinned`, `deep_words_match_on_word_boundaries`, `bare_plan_is_not_deep`, `delegate_child_yields_to_minimal`, `deep_allowance_used_up_routes_standard`, `escalate_skips_absent_tier`, `escalate_skips_deep_when_allowance_used_up`, `down_tier_is_skipped`, `tier_map_claude_cli_defaults`, `tier_map_http_uses_existing_keys`.
+*   **Tests (inline):** `decide_follows_rule_order` (one case per row of §2), `pin_beats_every_budget_level`, `off_beats_spent_budget`, `minimal_and_spent_route_quick_without_escalation`, `careful_caps_deep_at_standard`, `untyped_turn_never_routes_deep_by_words`, `tainted_typed_turn_never_routes_deep_by_words`, `tainted_session_skips_rule_5`, `absent_tier_falls_to_nearest`, `deep_equal_to_standard_is_absent`, `single_model_map_is_inactive`, `escalate_quick_at_step_two`, `escalate_quick_on_tool_error`, `escalate_standard_on_two_errors`, `escalate_standard_on_nudge`, `escalate_standard_on_long_file_turn`, `escalate_crosses_each_boundary_once`, `escalate_skips_deep_below_normal`, `no_escalation_when_pinned`, `deep_words_match_on_word_boundaries`, `bare_plan_is_not_deep` `deep_allowance_used_up_routes_standard`, `escalate_skips_absent_tier`, `escalate_skips_deep_when_allowance_used_up`, `tier_map_claude_cli_defaults`, `tier_map_http_uses_existing_keys`.
 *   **The replay test:** `#[ignore] fn replay_cases()` (§5.3), reading `eval/router/cases.md` and writing `eval/router/replay.json`.
 
 #### 3. `src/usage.rs` (Modify, R2)
 
 *   `route()`, `Route` and `looks_simple` are deleted: after R2 the agent calls `router::decide` directly, and nothing else calls `route` (its only caller is `src/agent.rs:492`). The test at `:330-339` goes with them; R1's `off_beats_spent_budget` and `minimal_and_spent_route_quick_without_escalation` cover what it pinned.
 *   `Report` gains `deep_model`; `routing` takes the meaning in §4.3.
+*   `Budget` gains `deep_left: bool`, from today's `usage` rows whose model is the deep tier's id and `deep_tokens_per_day` (§4.3). Test: `deep_left_sums_todays_deep_rows`.
 
 #### 4. `src/config.rs` (Modify, R2)
 
@@ -508,18 +508,23 @@ The checks from heron-v1-features.md, plus its two extra rows (Switch and defaul
 *   `Config::fast_model()` changes from `-> &str` to `-> String` and returns `TierMap::for_config(self).model(Tier::Quick).to_string()`. Its six callers take the `String`.
 *   Tests: `deep_model_defaults_empty`, `fast_model_is_haiku_on_claude_cli_when_empty`, `deep_tokens_per_day_defaults_to_one_million`.
 
+#### 4b. `src/cli_llm.rs` (Modify, R2, Q7)
+
+*   In `CliLlm::chat` (`:2236-2244`): when a call whose model isn't the standard tier's model fails with `names_a_provider_limit` or an unknown-model error, run it once more with the standard model, and return that model in `resp.model`.
+*   Test: `cli_falls_back_to_standard_on_limit`, with a fake CLI script (`fake_bin`, `:2554`) that refuses `opus`.
+
 #### 5. `src/agent.rs` (Modify, R2)
 
 *   `run_turn_typed(&self, session, input, sink)`, which sets a `typed` flag for this turn and calls `run_turn`.
 *   `Session` gains `model_pin: Option<Tier>`, filled by `Session::load` from the `sessions` row. At turn start (`:492`): build the `TierMap`, read `session.model_pin` and `session.tainted`, and call `router::decide`.
 *   In the step loop (`:522-528`): replace the `escalate_after` filter with `router::escalate`, fed from counters the loop keeps (tool errors from `execute_call` results, the repeat nudge at `:558-566`, and whether `write_file`, `edit_file` or `shell` ran). Send `Event::Model { name, why, tier, pinned }` at step 0 when the map is active, and on every move.
 *   The closing call (`:580`) uses the current tier's model.
-*   `delegate` (`:712-735`) passes the parent's current tier to the child: `Session::ephemeral` gains a `parent_tier` argument, which feeds rule 3a, and the parent's owner pin, which feeds rule 1.
-*   `execute_call` returns a `CallOutcome` (§3), with a non-zero `[exit code N]` from the shell counted as `ToolFailed`.
-*   The provider-refusal retry on standard and the `tier_down:<tier>` marks (§3).
-*   The `deep_tokens:YYYY-MM-DD` ledger, charged after each deep step (§4.3). The child's `Event::Model` stays dropped by its sink (`:732`).
+*   `delegate` (`:712-735`) passes the parent's current tier to the child: `Session::ephemeral` gains a `fixed_tier` argument, which feeds rule 1.
+*   `execute_call` returns `tool_failed: bool` beside its text (§3), true for a non-zero `[exit code N]` from the shell too.
+*   When `resp.model` differs from the requested model, send `Event::Model` with the real name (§3).
+*   The child's `Event::Model` stays dropped by its sink (`:732`).
 *   `Event::Model` gains `tier: String` and `pinned: bool`.
-*   Tests: `turn_start_sends_model_event_with_real_name`, `escalation_changes_request_model_between_steps` (with `ScriptedLlm`, asserting `req.model` per step), `background_compaction_uses_quick_tier`, `delegate_child_runs_on_parent_tier`, `run_turn_is_untyped_by_default`, `shell_nonzero_exit_is_tool_failed`, `declined_approval_is_not_tool_failed`, `refused_tier_retries_on_standard`, `deep_steps_charge_the_allowance`, `pinned_notice_names_the_pin`.
+*   Tests: `turn_start_sends_model_event_with_real_name`, `escalation_changes_request_model_between_steps` (with `ScriptedLlm`, asserting `req.model` per step), `background_compaction_uses_quick_tier`, `delegate_child_runs_on_parent_tier`, `run_turn_is_untyped_by_default`, `shell_nonzero_exit_is_tool_failed`, `declined_approval_is_not_tool_failed`, `model_event_names_the_model_that_answered`, `pinned_notice_names_the_pin`.
 
 #### 6. `src/events.rs` (Modify, R2)
 
@@ -576,9 +581,9 @@ Units whose scopes share a prefix (`src/**` and `src/router/**`, `eval/**` and `
 | id | what to build | scope | depends on | check | model role |
 |---|---|---|---|---|---|
 | E0 | Eval: harness options, cases, fixtures, label and score scripts, genesis spec and verifier, tests (item 1) | `eval/**` | none | `python3 -I -m unittest discover -s eval/tests -t eval -p 'test_router_eval.py' && test "$(grep -c '^## r[0-9][0-9]: ' eval/router/cases.md)" -eq 40 && genesis audit-evaluator eval/genesis/router.yaml --suite json` | feature, refactoring: sonnet high |
-| R1 | Router module, rules and the replay test (item 2) | `src/router/**` | none | `cargo test --locked --lib router:: && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- decide_follows_rule_order off_beats_spent_budget minimal_and_spent_route_quick_without_escalation careful_caps_deep_at_standard untyped_turn_never_routes_deep_by_words tainted_typed_turn_never_routes_deep_by_words escalate_crosses_each_boundary_once escalate_skips_deep_below_normal escalate_skips_absent_tier bare_plan_is_not_deep delegate_child_yields_to_minimal deep_allowance_used_up_routes_standard tier_map_claude_cli_defaults replay_cases` | feature, refactoring: sonnet high |
+| R1 | Router module, rules and the replay test (item 2) | `src/router/**` | none | `cargo test --locked --lib router:: && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- decide_follows_rule_order off_beats_spent_budget minimal_and_spent_route_quick_without_escalation careful_caps_deep_at_standard untyped_turn_never_routes_deep_by_words tainted_typed_turn_never_routes_deep_by_words escalate_crosses_each_boundary_once escalate_skips_deep_below_normal escalate_skips_absent_tier bare_plan_is_not_deep deep_allowance_used_up_routes_standard tier_map_claude_cli_defaults replay_cases` | feature, refactoring: sonnet high |
 | G | The gate: replay written, gate passes on the committed labels (§5.6) | `eval/router/**` | E0, R1, and a committed `eval/router/labels.json` | `test -s eval/router/labels.json && cargo test --locked --lib router::replay_cases -- --ignored && python3 -I eval/router/score.py --gate` | judgment and prose: opus high |
-| R2 | Wiring: usage, config, agent loop, typed turns, events, store, routes, README (items 3-9, 12) | `src/**` | G | `cargo test --locked --lib --bins && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib --bins -- fast_model_is_haiku_on_claude_cli_when_empty escalation_changes_request_model_between_steps background_calls_request_quick_tier delegate_child_runs_on_parent_tier run_turn_is_untyped_by_default shell_nonzero_exit_is_tool_failed declined_approval_is_not_tool_failed refused_tier_retries_on_standard deep_steps_charge_the_allowance model_event_json_has_tier_and_pinned schema_step_adds_nullable_pin_column session_pin_route_needs_token chat_route_runs_typed_turn` | hardest tasks: opus high |
+| R2 | Wiring: usage, config, agent loop, typed turns, events, store, routes, README (items 3-9, 4b, 12) | `src/**` | G | `cargo test --locked --lib --bins && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib --bins -- fast_model_is_haiku_on_claude_cli_when_empty escalation_changes_request_model_between_steps background_calls_request_quick_tier delegate_child_runs_on_parent_tier run_turn_is_untyped_by_default shell_nonzero_exit_is_tool_failed declined_approval_is_not_tool_failed model_event_names_the_model_that_answered deep_left_sums_todays_deep_rows cli_falls_back_to_standard_on_limit model_event_json_has_tier_and_pinned schema_step_adds_nullable_pin_column session_pin_route_needs_token chat_route_runs_typed_turn` | hardest tasks: opus high |
 | R3 | Integration tests and API fixtures (item 10) | `tests/**` | R2 | `cargo test --locked --test integration && bash eval/require-tests.sh --test integration -- api_session_pin_round_trip api_model_event_carries_tier` | feature, refactoring: sonnet high |
 | R4 | Mac app: model line, composer pin menu (item 11) | `macos/HeronMac/**` | R2 | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && for t in test_modelEventDecodesTierAndPinned test_modelLineShowsNameAndReason test_composerMenuListsPresentTiersOnly test_pinMenuCallsSetModelPin; do swift test list --package-path macos/HeronMac \| grep -q "$t" \|\| exit 1; done` | feature, refactoring: sonnet high |
 | L | The live run: the built router's own runs pass the gate (§5.6) | `eval/router/**` | R2, and the owner's go for about 120 more turns | `test -s eval/router/labels.json && python3 -I eval/router/score.py --gate --live` | judgment and prose: opus high |
