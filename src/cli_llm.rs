@@ -454,17 +454,23 @@ pub fn claude_native_model(model: &str) -> String {
 /// directories, so a backend started with a minimal PATH still finds it. An
 /// explicit command is the user's choice and is never second-guessed.
 pub fn resolve_binary(binary: &str, command_override: &str) -> Option<PathBuf> {
+    resolve_binary_on(&std::env::var_os("PATH").unwrap_or_default(), binary, command_override)
+}
+
+/// [`resolve_binary`] with the PATH value passed in, so a test can search a PATH of its own without
+/// changing the process environment that other tests' children inherit.
+fn resolve_binary_on(path: &std::ffi::OsStr, binary: &str, command_override: &str) -> Option<PathBuf> {
     if !command_override.is_empty() {
         let p = PathBuf::from(command_override);
         if p.is_absolute() {
             return if is_executable(&p) { Some(p) } else { None };
         }
-        return find_on_path(command_override);
+        return find_on_path(path, command_override);
     }
     if binary.is_empty() {
         return None;
     }
-    if let Some(p) = find_on_path(binary) {
+    if let Some(p) = find_on_path(path, binary) {
         return Some(p);
     }
     let home = dirs::home_dir()?;
@@ -531,12 +537,11 @@ fn is_executable(p: &Path) -> bool {
     }
 }
 
-fn find_on_path(name: &str) -> Option<PathBuf> {
-    let path = std::env::var("PATH").unwrap_or_default();
+fn find_on_path(path: &std::ffi::OsStr, name: &str) -> Option<PathBuf> {
     // std::env::split_paths uses the platform separator (`:` on Unix,
     // `;` on Windows). Splitting on `:` by hand breaks Windows paths
     // like `C:\Users\user\bin;C:\Windows`.
-    for dir in std::env::split_paths(&path) {
+    for dir in std::env::split_paths(path) {
         if dir.as_os_str().is_empty() {
             continue;
         }
@@ -2511,7 +2516,7 @@ fn script_interpreter(real: &Path) -> Option<PathBuf> {
     let first = PathBuf::from(words.next()?);
     if first.file_name().is_some_and(|f| f == "env") {
         let name = words.find(|w| !w.starts_with('-') && !w.contains('='))?;
-        find_on_path(name)
+        find_on_path(&std::env::var_os("PATH").unwrap_or_default(), name)
     } else {
         Some(first)
     }
@@ -3887,12 +3892,6 @@ mod tests {
         // A relative PATH entry used to return a relative path, which chat()
         // then resolved against the per-request temp dir and failed to
         // spawn, while the probes still reported the provider installed.
-        struct RestorePath(String);
-        impl Drop for RestorePath {
-            fn drop(&mut self) {
-                std::env::set_var("PATH", &self.0);
-            }
-        }
         fn relative_path(from: &std::path::Path, to: &std::path::Path) -> PathBuf {
             let from: Vec<_> = from.components().collect();
             let to: Vec<_> = to.components().collect();
@@ -3915,16 +3914,16 @@ mod tests {
         let fake = fake_bin(&bin_dir, "mycli", "#!/bin/sh\nexit 0\n");
         let rel = relative_path(&std::env::current_dir().unwrap(), fake.parent().unwrap());
         assert!(!rel.is_absolute(), "the test needs a relative PATH entry");
-        let _guard = RestorePath(std::env::var("PATH").unwrap_or_default());
-        std::env::set_var("PATH", rel.as_os_str());
-        let found = resolve_binary("mycli", "").expect("fake on relative PATH");
+        // The PATH goes in as an argument: setting the process PATH here made other tests' children
+        // (sandbox-exec among them) fail to start while it was swapped.
+        let found = resolve_binary_on(rel.as_os_str(), "mycli", "").expect("fake on relative PATH");
         assert!(found.is_absolute(), "{found:?}");
         assert_eq!(
             std::fs::canonicalize(&found).unwrap(),
             std::fs::canonicalize(&fake).unwrap()
         );
         // A relative command override goes through the same lookup.
-        let via_override = resolve_binary("", "mycli").expect("fake via override");
+        let via_override = resolve_binary_on(rel.as_os_str(), "", "mycli").expect("fake via override");
         assert!(via_override.is_absolute(), "{via_override:?}");
     }
 
