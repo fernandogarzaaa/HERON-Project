@@ -1330,6 +1330,20 @@ impl Store {
         Ok(v)
     }
 
+    /// Return the oldest inbox items after a durable consumer cursor.
+    ///
+    /// Unlike the user-facing inbox view (newest-first), background consumers
+    /// must page forward in ascending ID order so a backlog larger than one
+    /// batch cannot cause older notifications to be skipped.
+    pub fn inbox_after(&self, after_id: i64, limit: usize) -> Result<Vec<InboxItem>> {
+        let db = self.db();
+        let mut st = db.prepare("SELECT id, ts, title, body, read FROM inbox WHERE id>?1 ORDER BY id ASC LIMIT ?2")?;
+        let v = st
+            .query_map(params![after_id, limit as i64], |r| Ok(InboxItem { id: r.get(0)?, ts: r.get(1)?, title: r.get(2)?, body: r.get(3)?, read: r.get::<_, i64>(4)? != 0 }))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(v)
+    }
+
     pub fn mark_inbox_read(&self) -> Result<()> {
         self.db().execute("UPDATE inbox SET read=1 WHERE read=0", [])?;
         Ok(())
@@ -2361,5 +2375,33 @@ mod provider_snapshot_tests {
         assert_eq!(db.knowledge_of("google_email", true, 10).unwrap().len(), 1);
         db.replace_knowledge_snapshot("google_email", &[]).unwrap();
         assert_eq!(db.knowledge_count("google_email"), 0);
+    }
+}
+
+#[cfg(test)]
+mod inbox_cursor_tests {
+    use super::*;
+
+    #[test]
+    fn inbox_cursor_pages_oldest_unforwarded_items_without_skipping_backlog() {
+        let db = Store::in_memory().unwrap();
+        for i in 0..25 {
+            db.add_inbox(&format!("notification {i}"), "body").unwrap();
+        }
+
+        // The UI query intentionally returns the newest 20. A background
+        // consumer instead starts at the oldest ID after its cursor.
+        assert_eq!(db.inbox(false, 20).unwrap()[0].title, "notification 24");
+
+        let first = db.inbox_after(0, 20).unwrap();
+        assert_eq!(first.len(), 20);
+        assert_eq!(first.first().unwrap().title, "notification 0");
+        assert_eq!(first.last().unwrap().title, "notification 19");
+
+        let second = db.inbox_after(first.last().unwrap().id, 20).unwrap();
+        assert_eq!(second.len(), 5);
+        assert_eq!(second.first().unwrap().title, "notification 20");
+        assert_eq!(second.last().unwrap().title, "notification 24");
+        assert!(db.inbox_after(second.last().unwrap().id, 20).unwrap().is_empty());
     }
 }
