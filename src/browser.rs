@@ -590,3 +590,13 @@ pub fn tools() -> Vec<FnTool> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[cfg(unix)]
+    fn is_root_matches_the_effective_user() {
+        let id = std::process::Command::new("/usr/bin/id").arg("-u").output().unwrap();
+        assert_eq!(super::is_root(), String::from_utf8_lossy(&id.stdout).trim() == "0");
+    }
+}
