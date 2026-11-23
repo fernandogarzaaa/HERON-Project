@@ -1270,19 +1270,19 @@ impl App {
         } else if self.native_app.load(Ordering::SeqCst) {
             Delivery::NativeApp
         } else {
-            Delivery::Os
+            Delivery::InboxOnly
         }
     }
 
     /// Best-effort desktop notification: `notify_command` if configured, else a `notification` event
-    /// on the bus when a native app is attached, else the OS default where one exists.
+    /// on the bus when a native app is attached, else nothing beyond the Inbox entry.
     fn notify(&self, cfg: &Config, title: &str, body: &str) {
         match self.delivery(cfg) {
             Delivery::Command => notify_with_command(&cfg.agent.notify_command, title, body),
             Delivery::NativeApp => {
                 self.events.publish("", "", serde_json::json!({"type": "notification", "title": title, "body": preview(body, 180)}));
             }
-            Delivery::Os => notify_with_os(title, body),
+            Delivery::InboxOnly => {}
         }
     }
 
@@ -2307,8 +2307,9 @@ enum Delivery {
     Command,
     /// A `notification` event, shown by the attached native app.
     NativeApp,
-    /// The operating system's own way, where there is one.
-    Os,
+    /// No banner: the Inbox entry the caller already wrote is the notice. Heron never posts through
+    /// `osascript`, because macOS shows those as Script Editor; the Mac app is how Heron notifies.
+    InboxOnly,
 }
 
 fn notify_with_command(command: &str, title: &str, body: &str) {
@@ -2328,21 +2329,6 @@ fn notify_with_command(command: &str, title: &str, body: &str) {
     reap(c.env("HERON_MESSAGE", &message).env("HERON_TITLE", title).spawn());
 }
 
-/// Unit tests run jobs that notify, so in a test build this posts nothing: each one would otherwise
-/// put a real Script Editor banner on the developer's screen, once per test run and per mutant.
-fn notify_with_os(title: &str, body: &str) {
-    #[cfg(all(target_os = "macos", not(test)))]
-    {
-        // Arguments are passed via argv, not interpolated into the script, so job output cannot inject AppleScript.
-        reap(
-            std::process::Command::new("osascript")
-                .args(["-e", "on run argv", "-e", "display notification (item 1 of argv) with title \"Heron\" subtitle (item 2 of argv)", "-e", "end run", &preview(body, 180), title])
-                .spawn(),
-        );
-    }
-    #[cfg(any(not(target_os = "macos"), test))]
-    let _ = (title, body);
-}
 
 /// How sure the model must be before a suggestion is shown, from the user's last answers (true =
 /// accepted). Mostly declined: be pickier. Mostly accepted: speak up more. Under four answers is
@@ -2478,10 +2464,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn without_a_native_app_or_a_command_the_os_way_is_used() {
+    async fn without_a_native_app_or_a_command_only_the_inbox_gets_it() {
         let dir = tempfile::tempdir().unwrap();
         let app = plain_app(dir.path(), vec![]).await;
-        assert_eq!(app.delivery(&app.cfg()), Delivery::Os);
+        assert_eq!(app.delivery(&app.cfg()), Delivery::InboxOnly);
         app.attach_native_app();
         assert_eq!(app.delivery(&app.cfg()), Delivery::NativeApp);
         set_notify_command(&app, "true");
