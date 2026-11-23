@@ -1666,7 +1666,7 @@ impl CliLlm {
         if let Some(dir) = path.parent() {
             add(canonical(dir));
         }
-        if let Some(interpreter) = script_interpreter(&real) {
+        if let Some(interpreter) = script_interpreter(&real, &std::env::var_os("PATH").unwrap_or_default()) {
             if let Some(dir) = canonical(&interpreter).parent() {
                 add(dir.to_path_buf());
             }
@@ -2505,8 +2505,8 @@ fn package_root(real: &Path) -> Option<PathBuf> {
 }
 
 /// The interpreter a script names on its `#!` line, resolved on PATH when the line goes through
-/// `env` (`#!/usr/bin/env node`). `None` for a compiled binary.
-fn script_interpreter(real: &Path) -> Option<PathBuf> {
+/// `env` (`#!/usr/bin/env node`) on the PATH value `path`. `None` for a compiled binary.
+fn script_interpreter(real: &Path, path: &std::ffi::OsStr) -> Option<PathBuf> {
     use std::io::Read;
     let mut head = [0u8; 256];
     let n = std::fs::File::open(real).ok()?.read(&mut head).ok()?;
@@ -2516,7 +2516,7 @@ fn script_interpreter(real: &Path) -> Option<PathBuf> {
     let first = PathBuf::from(words.next()?);
     if first.file_name().is_some_and(|f| f == "env") {
         let name = words.find(|w| !w.starts_with('-') && !w.contains('='))?;
-        find_on_path(&std::env::var_os("PATH").unwrap_or_default(), name)
+        find_on_path(path, name)
     } else {
         Some(first)
     }
@@ -3895,13 +3895,25 @@ mod tests {
             std::fs::write(&p, body).unwrap();
             p
         };
-        assert_eq!(script_interpreter(&script("direct", b"#!/bin/sh -e\necho hi\n")), Some(PathBuf::from("/bin/sh")));
-        assert_eq!(script_interpreter(&script("compiled", b"\x7fELF\x02\x01\x01")), None);
-        assert_eq!(script_interpreter(&dir.path().join("missing")), None);
-        // Through env, the interpreter is the first word that is neither a flag nor a VAR=value.
-        let via_env = script_interpreter(&script("env", b"#!/usr/bin/env -S LANG=C sh -e\n")).expect("sh is on PATH");
-        assert!(via_env.is_absolute() && via_env.file_name().unwrap() == "sh", "{via_env:?}");
-        assert_eq!(script_interpreter(&script("env-only-flags", b"#!/usr/bin/env -S LANG=C\n")), None);
+        let node = fake_bin(dir.path(), "node", "#!/bin/sh\n");
+        let path = node.parent().unwrap().as_os_str();
+        assert_eq!(script_interpreter(&script("direct", b"#!/bin/sh -e\necho hi\n"), path), Some(PathBuf::from("/bin/sh")));
+        assert_eq!(script_interpreter(&script("compiled", b"\x7fELF\x02\x01\x01"), path), None);
+        assert_eq!(script_interpreter(&dir.path().join("missing"), path), None);
+        // Through env, the interpreter is the first word that is neither a flag nor a VAR=value, looked up
+        // on the PATH passed in.
+        let env_line = script("env", b"#!/usr/bin/env -S LANG=C node --flag\n");
+        assert_eq!(script_interpreter(&env_line, path), Some(node.clone()));
+        assert_eq!(script_interpreter(&env_line, std::ffi::OsStr::new("")), None);
+        assert_eq!(script_interpreter(&script("env-only-flags", b"#!/usr/bin/env -S LANG=C\n"), path), None);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn resolve_binary_searches_the_process_path() {
+        let sh = resolve_binary("sh", "").expect("sh is on PATH");
+        assert!(sh.is_absolute() && sh.file_name().unwrap() == "sh", "{sh:?}");
+        assert_eq!(resolve_binary("heron-no-such-binary-on-path", ""), None);
     }
 
     #[test]
