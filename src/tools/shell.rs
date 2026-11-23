@@ -441,9 +441,22 @@ pub(crate) mod tests {
         let out = sh(&ctx, &format!("/usr/bin/nc -U -w 2 {} < /dev/null; echo done", q(&socket))).await;
         assert!(out.contains("done"), "{out}");
         assert!(!out.contains("AGENT-ANSWERED"), "a sandboxed command used a local agent socket: {out}");
+        // Nor another program's multiprocessing server under /tmp/pymp-*: those run what they are sent.
+        let pymp = tempfile::Builder::new().prefix("pymp-").tempdir_in("/private/tmp").unwrap();
+        let server = pymp.path().join("listener-test");
+        let forkserver = std::os::unix::net::UnixListener::bind(&server).unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut conn, _)) = forkserver.accept() {
+                let _ = std::io::Write::write_all(&mut conn, b"FORKSERVER-ANSWERED\n");
+            }
+        });
+        let out = sh(&ctx, &format!("/usr/bin/nc -U -w 2 {} < /dev/null; echo done", q(&server))).await;
+        assert!(!out.contains("FORKSERVER-ANSWERED"), "a sandboxed command reached another program's multiprocessing server: {out}");
         // Its own sockets, in the working folder and in its temporary folder, still work.
         let own = sh(&ctx, "python3 -c \"import os,socket,tempfile\nfor d in ('.', tempfile.gettempdir()):\n  p=os.path.join(d,'own.sock')\n  s=socket.socket(socket.AF_UNIX); s.bind(p); s.listen(1)\n  c=socket.socket(socket.AF_UNIX); c.connect(p); print('OWN-OK'); os.unlink(p)\"").await;
         assert_eq!(own.matches("OWN-OK").count(), 2, "{own}");
+        let mp = sh(&ctx, "python3 -c \"import multiprocessing as m\nif __name__=='__main__':\n  m.set_start_method('forkserver')\n  with m.Pool(1) as p: print('MP-OK', p.apply(abs, (-3,)))\"").await;
+        assert!(mp.contains("MP-OK 3"), "a command's own multiprocessing still works: {mp}");
     }
 
     #[tokio::test]
