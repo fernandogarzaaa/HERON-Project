@@ -124,10 +124,11 @@ fn within_skills_directory(root: &Path, path: &Path) -> bool {
 }
 
 #[cfg(unix)]
-fn secure_open(root: &Path, folder: Option<&std::ffi::OsStr>, filename: &std::ffi::OsStr) -> std::io::Result<std::fs::File> {
+fn secure_open(root: &Path, expected_root: &std::fs::Metadata, folder: Option<&std::ffi::OsStr>, filename: &std::ffi::OsStr) -> std::io::Result<std::fs::File> {
     use std::ffi::CString;
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
 
     let croot = CString::new(root.as_os_str().as_bytes())
         .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
@@ -140,6 +141,15 @@ fn secure_open(root: &Path, folder: Option<&std::ffi::OsStr>, filename: &std::ff
     };
     if root_fd < 0 { return Err(std::io::Error::last_os_error()); }
     let root_file = unsafe { std::fs::File::from_raw_fd(root_fd) };
+    // A real directory can be renamed and replaced after enumeration without
+    // becoming a symlink. Verify that this handle is the exact root we checked.
+    let opened_root = root_file.metadata()?;
+    if opened_root.dev() != expected_root.dev() || opened_root.ino() != expected_root.ino() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "skills directory changed while loading",
+        ));
+    }
 
     let nested = if let Some(folder) = folder {
         let cname = CString::new(folder.as_bytes())
@@ -163,7 +173,7 @@ fn secure_open(root: &Path, folder: Option<&std::ffi::OsStr>, filename: &std::ff
 }
 
 #[cfg(not(unix))]
-fn secure_open(root: &Path, folder: Option<&std::ffi::OsStr>, filename: &std::ffi::OsStr) -> std::io::Result<std::fs::File> {
+fn secure_open(root: &Path, _expected_root: &std::fs::Metadata, folder: Option<&std::ffi::OsStr>, filename: &std::ffi::OsStr) -> std::io::Result<std::fs::File> {
     let path = match folder {
         Some(dir) => root.join(dir).join(filename),
         None => root.join(filename),
@@ -272,9 +282,9 @@ pub(crate) fn validate_skills_root(dir: &Path) -> anyhow::Result<std::fs::Metada
     Ok(metadata)
 }
 
-/// Open a skill for replacement relative to the validated directory. Unix
-/// pins the directory identity and uses openat/O_NOFOLLOW so replacing the
-/// root path with a symlink between validation and open cannot redirect a save.
+/// Open a skill relative to the validated directory. Unix pins the expected
+/// root identity and uses openat/O_NOFOLLOW so replacing the directory after
+/// enumeration cannot redirect a load into a different directory.
 pub(crate) fn open_skill_for_write(
     dir: &Path,
     filename: &std::ffi::OsStr,
@@ -464,7 +474,7 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
         } else {
             top_level_name.as_os_str()
         };
-        let handle = secure_open(dir, folder.as_deref(), filename);
+        let handle = secure_open(dir, &root_metadata, folder.as_deref(), filename);
         let Ok(handle) = handle else { continue };
         let Ok(opened) = handle.metadata() else { continue };
         if !opened.is_file()
@@ -494,6 +504,29 @@ pub fn find(dir: &Path, name: &str) -> Option<Skill> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn secure_open_rejects_a_replaced_skills_root() {
+        use std::ffi::OsStr;
+
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("skills");
+        let original = parent.path().join("skills-original");
+        let replacement = parent.path().join("replacement");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(&replacement).unwrap();
+        std::fs::write(replacement.join("secret.md"), "# Replacement instructions").unwrap();
+        let expected_root = std::fs::symlink_metadata(&root).unwrap();
+
+        // Simulate a rename-and-replace after load_all has validated/enumerated the root.
+        std::fs::rename(&root, &original).unwrap();
+        std::fs::rename(&replacement, &root).unwrap();
+        assert!(
+            secure_open(&root, &expected_root, None, OsStr::new("secret.md")).is_err(),
+            "a different real directory must not replace the enumerated root"
+        );
+    }
 
     #[cfg(unix)]
     #[test]
