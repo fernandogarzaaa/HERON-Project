@@ -255,7 +255,7 @@ async fn start(cfg: &Config) -> Result<Live> {
 
 #[cfg(unix)]
 fn is_root() -> bool {
-    std::process::Command::new("id").arg("-u").output().map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0").unwrap_or(false)
+    unsafe { libc::geteuid() == 0 }
 }
 
 async fn attach(conn: Arc<Conn>, child: Option<tokio::process::Child>) -> Result<Live> {
