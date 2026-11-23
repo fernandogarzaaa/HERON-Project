@@ -137,9 +137,33 @@ pub fn begin(provider: Provider, client_id: &str, redirect_uri: &str) -> Result<
     Ok((state, Pending {provider, client_id: client_id.to_string(), redirect_uri: redirect_uri.to_string(), verifier, issued_at: Instant::now()}, url))
 }
 
+/// Google's desktop-app client secret, bundled at compile time like the client ID. Google documents it as
+/// not confidential for installed apps ("the client cannot keep the client_secret confidential") and its
+/// token endpoint can still ask for it with PKCE, so it is sent when the build has one. Never user-entered.
+fn bundled_google_secret() -> Option<&'static str> {
+    option_env!("HERON_GOOGLE_OAUTH_CLIENT_SECRET").filter(|s| !s.is_empty())
+}
+
+/// The secret goes only to Google's token endpoint, and only with the bundled client ID it belongs to:
+/// a user's own client ID has its own secret (or none), so the bundled one is never sent with it.
+fn token_secret(provider: Provider, client_id: &str, bundled_id: Option<&str>, secret: Option<&'static str>) -> Option<&'static str> {
+    (provider == Provider::Google && bundled_id == Some(client_id)).then_some(secret).flatten()
+}
+
+/// Form fields for the token endpoint, plus `client_secret` when `token_secret` says so.
+fn token_fields<'a>(provider: Provider, fields: &[(&'a str, &'a str)], bundled_id: Option<&str>, secret: Option<&'static str>) -> Vec<(&'a str, &'a str)> {
+    let mut out = fields.to_vec();
+    let client_id = fields.iter().find(|(k, _)| *k == "client_id").map(|(_, v)| *v).unwrap_or_default();
+    if let Some(secret) = token_secret(provider, client_id, bundled_id, secret) {
+        out.push(("client_secret", secret));
+    }
+    out
+}
+
 async fn redeem(provider: Provider, fields: &[(&str, &str)]) -> Result<Value> {
     let http = oauth_http()?;
-    let reply = http.post(provider.token_url()).form(fields).send().await
+    let fields = token_fields(provider, fields, option_env!("HERON_GOOGLE_OAUTH_CLIENT_ID"), bundled_google_secret());
+    let reply = http.post(provider.token_url()).form(&fields).send().await
         .context("OAuth token exchange could not reach the provider")?;
     if !reply.status().is_success() {
         bail!("OAuth token exchange was rejected by the provider (HTTP {}). Check the app registration, redirect URI and account permissions.", reply.status().as_u16());
@@ -180,6 +204,20 @@ fn account_subject(client_id: &str, token: &Value) -> Result<String> {
     }
     claims["sub"].as_str().filter(|sub| !sub.is_empty() && sub.len() <= 255)
         .map(str::to_string).ok_or_else(unreadable)
+}
+
+/// The address to show for the connected account (not secret): the ID token's `email`, or Microsoft's
+/// `preferred_username`. It is a label only; which account is connected is decided by `sub`.
+fn account_label(token: &Value) -> Option<String> {
+    let payload = token.get("id_token").and_then(Value::as_str).and_then(|jwt| jwt.split('.').nth(1))?;
+    let claims: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?).ok()?;
+    ["email", "preferred_username"].iter().filter_map(|k| claims[*k].as_str())
+        .map(str::trim).find(|s| !s.is_empty() && s.len() <= 254 && !s.chars().any(char::is_control)).map(str::to_string)
+}
+
+/// The label shown beside Disconnect, if one was recorded.
+pub fn account_name(cfg: &Config, provider: Provider) -> Option<String> {
+    cfg.secret(&provider.secret_key("account_label")).filter(|s| !s.is_empty())
 }
 
 #[derive(Debug, PartialEq)]
@@ -226,6 +264,10 @@ fn install(cfg: &Config, provider: Provider, client_id: &str, token: &Value) -> 
     let _guard = SOURCE_WRITES.lock().unwrap_or_else(|e| e.into_inner());
     let stored = cfg.secret(&provider.secret_key("account_subject"));
     let admitted = admit(provider.connected(cfg), stored.as_deref(), &subject)?;
+    // A label for the Settings row; failing to save it never fails the sign-in.
+    if let Some(label) = account_label(token) {
+        let _ = cfg.store_secret(&provider.secret_key("account_label"), &label);
+    }
     let client_key = provider.secret_key("client_id");
     let previous_client = cfg.secret(&client_key);
     cfg.store_secret(&client_key, client_id)?;
@@ -305,7 +347,7 @@ pub fn disconnect(app: &App, provider: Provider) -> Result<(usize, usize)> {
     }
     // Neither is secret, and the next connection replaces both. With the token gone, a failure
     // here leaves nothing that can sync.
-    for leftover in ["account_epoch", "account_subject", "client_id"] {
+    for leftover in ["account_epoch", "account_subject", "client_id", "account_label"] {
         if let Err(err) = cfg.store_secret(&provider.secret_key(leftover), "") {
             eprintln!("HERON OAuth: {} disconnected, but its {leftover} could not be cleared: {err:#}", provider.name());
         }
@@ -445,6 +487,60 @@ pub async fn sync(app: &App, provider: Provider) -> Result<(usize, usize)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_bundled_google_secret_goes_only_to_google_with_the_bundled_client_id() {
+        let fields = [("client_id", "bundled.apps.example"), ("code", "c"), ("grant_type", "authorization_code")];
+        let with = |p, bundled: Option<&str>, secret| token_fields(p, &fields, bundled, secret);
+        fn has_secret<'a>(v: &[(&'a str, &'a str)]) -> Option<&'a str> {
+            v.iter().find(|(k, _)| *k == "client_secret").map(|(_, s)| *s)
+        }
+        assert_eq!(has_secret(&with(Provider::Google, Some("bundled.apps.example"), Some("not-confidential"))), Some("not-confidential"));
+        assert_eq!(has_secret(&with(Provider::Google, Some("bundled.apps.example"), None)), None, "no secret in the build, none sent");
+        assert_eq!(has_secret(&with(Provider::Google, Some("someone-else.apps.example"), Some("not-confidential"))), None, "a user's own client ID never gets the bundled secret");
+        assert_eq!(has_secret(&with(Provider::Google, None, Some("not-confidential"))), None);
+        assert_eq!(has_secret(&with(Provider::Microsoft, Some("bundled.apps.example"), Some("not-confidential"))), None, "Microsoft public clients send no secret");
+        assert_eq!(with(Provider::Google, Some("bundled.apps.example"), Some("s")).len(), fields.len() + 1, "the other fields are kept");
+    }
+
+    /// Entra "Mobile and desktop" registration: authorization code + PKCE (S256), a localhost redirect whose port
+    /// Entra ignores, no client secret anywhere (consent URL and token request).
+    #[test]
+    fn microsoft_signs_in_as_a_public_client_with_pkce_and_no_secret() {
+        let (_, pending, url) = begin(Provider::Microsoft, "entra-app-id", "http://localhost:51234/oauth/callback/microsoft").unwrap();
+        assert_eq!(url.host_str(), Some("login.microsoftonline.com"));
+        assert!(url.path().starts_with("/common/"), "multi-tenant plus personal accounts");
+        let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(q["code_challenge_method"], "S256");
+        assert_eq!(q["code_challenge"], challenge(&pending.verifier));
+        assert_eq!(q["redirect_uri"], "http://localhost:51234/oauth/callback/microsoft");
+        assert!(!q.contains_key("client_secret"));
+        for scope in ["offline_access", "Mail.Read", "Calendars.Read"] { assert!(q["scope"].contains(scope), "{scope}"); }
+        // The token request proves the same verifier and carries no secret, even if a Google secret is bundled.
+        let fields = [("client_id", "entra-app-id"), ("code", "c"), ("code_verifier", pending.verifier.as_str()),
+                      ("redirect_uri", pending.redirect_uri.as_str()), ("grant_type", "authorization_code")];
+        let sent = token_fields(Provider::Microsoft, &fields, Some("entra-app-id"), Some("google-secret"));
+        assert_eq!(sent.len(), fields.len());
+        assert!(sent.iter().all(|(k, _)| *k != "client_secret"));
+    }
+
+    #[test]
+    fn the_account_label_is_the_email_claim_or_the_microsoft_username() {
+        let token = |claims: Value| serde_json::json!({"id_token": id_token(claims)});
+        assert_eq!(account_label(&token(serde_json::json!({"sub": "1", "email": "sam@example.com"}))), Some("sam@example.com".into()));
+        assert_eq!(account_label(&token(serde_json::json!({"sub": "1", "preferred_username": "sam@contoso.example"}))), Some("sam@contoso.example".into()));
+        assert_eq!(account_label(&token(serde_json::json!({"sub": "1"}))), None);
+        assert_eq!(account_label(&token(serde_json::json!({"email": "a\nb@example.com", "preferred_username": "ok@example.com"}))), Some("ok@example.com".into()), "a label with control characters is skipped");
+        assert_eq!(account_label(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn a_refresh_request_carries_the_secret_the_same_way() {
+        let fields = [("client_id", "bundled.apps.example"), ("refresh_token", "r"), ("grant_type", "refresh_token")];
+        let out = token_fields(Provider::Google, &fields, Some("bundled.apps.example"), Some("s"));
+        assert!(out.contains(&("client_secret", "s")));
+    }
+
     use super::*;
 
     fn id_token(claims: Value) -> String {

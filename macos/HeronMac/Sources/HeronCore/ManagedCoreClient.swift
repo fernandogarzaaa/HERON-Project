@@ -141,5 +141,11 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
     public func revokeGrant(rule: String) async throws { try await current().revokeGrant(rule: rule) }
     public func nevers() async throws -> [NeverRule] { try await current().nevers() }
     public func removeNever(rule: String) async throws { try await current().removeNever(rule: rule) }
+    public func connectSource(_ source: SourceConnection) async throws { try await current().connectSource(source) }
+    public func disconnectSource(id: String) async throws { try await current().disconnectSource(id: id) }
+    public func oauthAccounts() async throws -> [OAuthAccount] { try await current().oauthAccounts() }
+    public func startOAuth(provider: OAuthProviderID) async throws -> URL { try await current().startOAuth(provider: provider) }
+    public func syncOAuth(provider: OAuthProviderID) async throws { try await current().syncOAuth(provider: provider) }
+    public func disconnectOAuth(provider: OAuthProviderID) async throws { try await current().disconnectOAuth(provider: provider) }
     public func usage() async throws -> UsageReport { try await current().usage() }
 }

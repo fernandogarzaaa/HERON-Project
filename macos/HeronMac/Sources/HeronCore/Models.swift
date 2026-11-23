@@ -47,6 +47,9 @@ public struct CoreState: Sendable, Equatable {
     public var name: String
     public var version: String
     public var model: String
+    /// What the sidebar footer names: the CLI provider's short name ("Claude Code") when one is active, else the model.
+    /// Nil from a core that predates `model_label`; use `modelDisplayName`.
+    public var modelLabel: String?
     public var mode: PermissionMode
     public var workspace: String
     public var paused: Bool
@@ -62,10 +65,16 @@ public struct CoreState: Sendable, Equatable {
     /// On macOS the sandbox is on when the core reports anything but `none`.
     public var sandboxOn: Bool { sandbox != "none" }
 
-    public init(name: String, version: String, model: String, mode: PermissionMode, workspace: String,
+    /// `modelLabel` when the core serves a non-empty one, else the model name.
+    public var modelDisplayName: String {
+        if let label = modelLabel?.trimmingCharacters(in: .whitespaces), !label.isEmpty { return label }
+        return model
+    }
+
+    public init(name: String, version: String, model: String, modelLabel: String? = nil, mode: PermissionMode, workspace: String,
                 paused: Bool, waiting: Int, unread: Int, memories: Int, onboarded: Bool,
                 riskNoticeAccepted: Bool, sandbox: String, hasKey: Bool) {
-        self.name = name; self.version = version; self.model = model; self.mode = mode
+        self.name = name; self.version = version; self.model = model; self.modelLabel = modelLabel; self.mode = mode
         self.workspace = workspace; self.paused = paused; self.waiting = waiting; self.unread = unread
         self.memories = memories; self.onboarded = onboarded; self.riskNoticeAccepted = riskNoticeAccepted
         self.sandbox = sandbox; self.hasKey = hasKey
@@ -539,6 +548,111 @@ public struct RuleNotice: Sendable, Equatable, Identifiable {
     public init(rule: String, notice: String) {
         self.rule = rule
         self.notice = notice
+    }
+}
+
+/// One request to connect a place Heron learns from (`POST /api/sources/{name}`, heron-v1.md §3). The email
+/// password is carried by this value only for the one request: the core proves the sign-in and stores it itself.
+public enum SourceConnection: Sendable, Equatable, CustomStringConvertible {
+    case documents(path: String)
+    /// A calendar's private ICS link.
+    case calendar(url: String)
+    case email(host: String, username: String, password: String, port: Int?, tls: Bool?)
+    /// Scans this Mac (the apps and files Heron may read).
+    case computer
+    /// Events the app read from the Mac's Calendar app (EventKit); each sync replaces the last.
+    case localCalendar(events: [LocalCalendarEvent])
+    /// Inbox messages the app read from the Mac's Mail app (Apple Events); each sync replaces the last.
+    case localMail(messages: [LocalMailMessage])
+
+    /// iCloud Mail is the `email` IMAP source with iCloud's server filled in: imap.mail.me.com, port 993, TLS,
+    /// and the full address as the username. The app-specific password goes to the core once, as any IMAP password does.
+    public static let iCloudMailHost = "imap.mail.me.com"
+
+    public static func iCloudMail(address: String, password: String) -> SourceConnection {
+        .email(host: iCloudMailHost, username: address, password: password, port: 993, tls: true)
+    }
+
+    /// The `{name}` in the route, and the id of the matching `ConnectionInfo`.
+    public var sourceID: String {
+        switch self {
+        case .documents: "documents"
+        case .calendar: "calendar"
+        case .email: "email"
+        case .computer: "computer"
+        case .localCalendar: "calendar_local"
+        case .localMail: "mail_local"
+        }
+    }
+
+    /// Never prints the password.
+    public var description: String {
+        switch self {
+        case .email(let host, let username, _, _, _): "email(\(username)@\(host), password hidden)"
+        case .localCalendar(let events): "calendar_local(\(events.count) events)"
+        case .localMail(let messages): "mail_local(\(messages.count) messages)"
+        default: sourceID
+        }
+    }
+}
+
+/// "1 item", "2 items": the count with its noun in the right number.
+public func countPhrase(_ count: Int, _ singular: String, _ plural: String? = nil) -> String {
+    "\(count) \(count == 1 ? singular : (plural ?? singular + "s"))"
+}
+
+/// One event read from the Mac's Calendar app, as `POST /api/sources/calendar_local` takes it.
+public struct LocalCalendarEvent: Sendable, Equatable {
+    public var uid: String
+    public var title: String
+    /// Unix seconds.
+    public var start: Int
+    public var end: Int?
+    public var allDay: Bool
+    public var location: String
+
+    public init(uid: String, title: String, start: Int, end: Int? = nil, allDay: Bool = false, location: String = "") {
+        self.uid = uid; self.title = title; self.start = start; self.end = end; self.allDay = allDay; self.location = location
+    }
+}
+
+/// One inbox message read from the Mac's Mail app, as `POST /api/sources/mail_local` takes it.
+public struct LocalMailMessage: Sendable, Equatable {
+    /// The Message-ID header: stable, and the same message in two accounts is one.
+    public var id: String
+    public var from: String
+    public var subject: String
+    /// Unix seconds.
+    public var date: Int
+    /// The Mail account it arrived in.
+    public var account: String
+    /// Plain text, truncated.
+    public var body: String
+
+    public init(id: String, from: String = "", subject: String = "", date: Int, account: String = "", body: String = "") {
+        self.id = id; self.from = from; self.subject = subject; self.date = date; self.account = account; self.body = body
+    }
+}
+
+/// The accounts one sign-in can connect (`/api/oauth/{provider}`): each gives Email and Calendar, read-only.
+public enum OAuthProviderID: String, CaseIterable, Sendable, Identifiable {
+    case google, microsoft
+    public var id: String { rawValue }
+    public var displayName: String { self == .google ? "Google" : "Microsoft" }
+}
+
+/// One provider in `GET /api/oauth`.
+public struct OAuthAccount: Sendable, Equatable, Identifiable {
+    public var provider: OAuthProviderID
+    public var connected: Bool
+    /// False when this build has no OAuth client for the provider: the sign-in button stays off.
+    public var clientConfigured: Bool
+    /// The signed-in address, when the core recorded one.
+    public var account: String?
+    public var id: String { provider.rawValue }
+
+    public init(provider: OAuthProviderID, connected: Bool, clientConfigured: Bool, account: String? = nil) {
+        self.provider = provider; self.connected = connected; self.clientConfigured = clientConfigured; self.account = account
     }
 }
 
