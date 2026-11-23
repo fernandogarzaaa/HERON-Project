@@ -39,7 +39,7 @@ struct RootContent: View {
         Group {
             if !model.hasBootstrapped {
                 StartingView(avatarStyle: model.preferences.avatarStyle)
-            } else if model.needsFirstRun {
+            } else if model.showsSetup {
                 FirstRunView(model: model).frame(minWidth: WindowMinimum.firstRun.width, minHeight: WindowMinimum.firstRun.height)
             } else {
                 MainView(model: model)
@@ -343,7 +343,7 @@ struct SidebarView: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: Spacing.s2) {
                 Circle().fill(theme.ok).frame(width: 7, height: 7).accessibilityHidden(true)
-                Text(model.state?.model ?? "No model").font(HeronFont.sub).foregroundStyle(theme.ink)
+                Text(model.footerModelName).font(HeronFont.sub).foregroundStyle(theme.ink)
             }
             Text(model.footerLine).font(HeronFont.sub).foregroundStyle(theme.ink3)
         }

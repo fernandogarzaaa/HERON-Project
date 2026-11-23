@@ -276,12 +276,21 @@ async fn get_state(State(st): S) -> ApiResult {
     let unread = st.app.store.inbox(true, 100)?.len();
     let usage = st.app.usage.lock().unwrap().clone();
     Ok(Json(json!({
-        "name": cfg.agent.name, "version": env!("CARGO_PKG_VERSION"), "model": cfg.llm.model, "mode": st.app.policy.mode().name(),
+        "name": cfg.agent.name, "version": env!("CARGO_PKG_VERSION"), "model": cfg.llm.model, "model_label": model_label(&cfg), "mode": st.app.policy.mode().name(),
         "workspace": st.app.workspace.display().to_string(), "has_key": cfg.api_key().is_some() || is_local(&cfg.llm.base_url) || crate::llm::is_demo(&cfg), "demo": crate::llm::is_demo(&cfg),
         "memories": st.app.store.memory_count(), "unread": unread, "paused": st.app.paused(), "waiting": st.app.store.pending_approvals()?.len(), "onboarded": st.app.store.kv_get("onboarded").is_some(), "suggestions": st.app.store.list_suggestions(true, 50)?.len(), "mcp": st.app.mcp_status, "usage": usage,
         "tools": st.app.tools.names().len(), "os": std::env::consts::OS, "sandbox": crate::sandbox::active(&cfg).name(),
         "risk_notice_accepted": crate::risk_notice::accepted(&st.app.store), "risk_notice_required": crate::risk_notice::required(),
     })))
+}
+
+/// What the app shows as "the model": the CLI provider's short name ("Claude Code") when a CLI
+/// provider is in use, since `llm.model` is then unused, and the model name otherwise.
+fn model_label(cfg: &Config) -> String {
+    match crate::cli_llm::spec_for(&cfg.llm.provider) {
+        Some(spec) => spec.display_name.split(" (").next().unwrap_or(spec.display_name).to_string(),
+        None => cfg.llm.model.clone(),
+    }
 }
 
 fn is_local(base_url: &str) -> bool {
@@ -1422,6 +1431,7 @@ async fn get_oauth_status(State(st): S) -> ApiResult {
                 crate::oauth::Provider::Google => option_env!("HERON_GOOGLE_OAUTH_CLIENT_ID").is_some(),
                 crate::oauth::Provider::Microsoft => option_env!("HERON_MICROSOFT_OAUTH_CLIENT_ID").is_some(),
             },
+            "account": if p.connected(&cfg) { crate::oauth::account_name(&cfg, *p) } else { None },
             "read_only": true
         })).collect();
     Ok(Json(json!({"providers": providers})))
@@ -1553,8 +1563,14 @@ async fn get_sources(State(st): S) -> ApiResult {
         "about": {"saved": learned("onboarding"), "indexed": store.knowledge_count("about"), "learned": learned("about")},
         "computer": {"connected": store.knowledge_count("computer") > 0, "indexed": store.knowledge_count("computer"), "learned": learned("computer")},
         "documents": {"connected": !cfg.sources.folders.is_empty(), "folders": cfg.sources.folders, "indexed": store.knowledge_count("documents"), "learned": learned("documents")},
-        "calendar": {"connected": !hosts.is_empty() || google || microsoft, "hosts": hosts, "indexed": store.knowledge_count("calendar") + oauth_calendar_count, "learned": learned("calendar")},
-        "email": {"connected": cfg.sources.email.is_some() || google || microsoft, "address": cfg.sources.email.as_ref().map(|e| e.username.clone()), "indexed": store.knowledge_count("email") + oauth_email_count, "learned": learned("email")},
+        "calendar": {"connected": !hosts.is_empty() || google || microsoft, "hosts": hosts, "indexed": store.knowledge_count("calendar") + oauth_calendar_count, "learned": learned("calendar"),
+            // The link-based calendar on its own: Google/Microsoft accounts are separate sources with their own state.
+            "ics_connected": !hosts.is_empty(), "ics_indexed": store.knowledge_count("calendar")},
+        "calendar_local": {"connected": store.kv_get("calendar_local").is_some(), "indexed": store.knowledge_count("calendar_local"), "learned": learned("calendar_local")},
+        "email": {"connected": cfg.sources.email.is_some() || google || microsoft, "address": cfg.sources.email.as_ref().map(|e| e.username.clone()), "indexed": store.knowledge_count("email") + oauth_email_count, "learned": learned("email"),
+            // The password-based mailbox (iCloud, or any IMAP server) on its own, independent of the Google/Microsoft accounts.
+            "imap_connected": cfg.sources.email.is_some(), "imap_host": cfg.sources.email.as_ref().map(|e| e.host.clone()), "imap_indexed": store.knowledge_count("email")},
+        "mail_local": {"connected": store.kv_get("mail_local").is_some(), "indexed": store.knowledge_count("mail_local"), "learned": learned("mail_local")},
         "oauth": {"google": google, "microsoft": microsoft},
     })))
 }
@@ -1617,6 +1633,18 @@ async fn connect_source(State(st): S, Path(name): Path<String>, Json(b): Json<Va
             app.update_config(ConfigChange::edit(|c| c.sources.email = Some(email)))?;
             json!({"indexed": crate::sources::sync_email(app).await?})
         }
+        // Events the Mac app read with EventKit. Outside content, like every calendar source.
+        "calendar_local" => {
+            let events: Vec<crate::sources::LocalEvent> = serde_json::from_value(b.get("events").cloned().unwrap_or(Value::Null))
+                .map_err(|_| bad("The calendar events were not in the expected format."))?;
+            json!({"indexed": crate::sources::sync_calendar_local(app, events)?})
+        }
+        // Messages the Mac app read from the Mail app over Apple Events. Outside content, like every email source.
+        "mail_local" => {
+            let mail: Vec<crate::sources::LocalMail> = serde_json::from_value(b.get("messages").cloned().unwrap_or(Value::Null))
+                .map_err(|_| bad("The messages were not in the expected format."))?;
+            json!({"indexed": crate::sources::sync_mail_local(app, mail)?})
+        }
         _ => return Err(ApiError(StatusCode::NOT_FOUND, "Unknown source.".into())),
     };
     Ok(Json(result))
@@ -1640,12 +1668,9 @@ async fn disconnect_source(State(st): S, Path(name): Path<String>) -> ApiResult 
         return Err(bad("Disconnect Google or Microsoft under Settings > Google and Microsoft accounts to remove its data."));
     }
     let cfg = st.app.cfg();
-    // OAuth consent covers both mail and calendar. Do not silently claim that
-    // clicking a legacy source's Disconnect button revoked an OAuth account.
-    if (name == "email" || name == "calendar") &&
-        (crate::oauth::Provider::Google.connected(&cfg) || crate::oauth::Provider::Microsoft.connected(&cfg)) {
-        return Err(bad("An OAuth account is still connected. Disconnect Google or Microsoft under Settings > Google and Microsoft accounts first."));
-    }
+    // The password-based mailbox and the link-based calendar are their own sources. Disconnecting them touches only
+    // what they hold ("email" and "calendar" rows), never a signed-in Google or Microsoft account, which has
+    // its own Disconnect and its own sources (google_email, microsoft_calendar, ...).
     match name.as_str() {
         "email" => cfg.store_secret("email_password", "")?,
         "calendar" => cfg.store_secret("calendar_links", "")?,
@@ -1657,6 +1682,9 @@ async fn disconnect_source(State(st): S, Path(name): Path<String>) -> ApiResult 
         "documents" => c.sources.folders.clear(),
         _ => {}
     }))?;
+    if name == "calendar_local" || name == "mail_local" {
+        st.app.store.kv_delete(&name)?;
+    }
     let items = st.app.store.clear_knowledge(&name)?;
     let memories = st.app.store.delete_memories_by_source(&name)?;
     Ok(Json(json!({"removed_items": items, "removed_memories": memories})))
@@ -1745,6 +1773,123 @@ mod tests {
         let served = router(app.clone(), "test-token".into());
         tokio::spawn(async move { axum::serve(Pipes(incoming), served).await });
         Harness { dir, app, connect }
+    }
+
+    #[tokio::test]
+    async fn mac_mail_connects_shows_and_disconnects_without_touching_other_mailboxes() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        assert_eq!(h.json("GET", "/sources", Value::Null).await["mail_local"]["connected"], false);
+        let now = crate::util::now_ts();
+        h.app.store.upsert_knowledge("google_email", "g1", "Invoice from Acme", "Please pay", now).unwrap();
+        let sent = json!({"messages": [
+            {"id": "<a@x>", "from": "Dana <d@example.com>", "subject": "Invoice", "date": now, "account": "iCloud", "body": "Please pay"},
+            {"id": "<a@x>", "from": "Dana <d@example.com>", "subject": "Invoice", "date": now, "account": "Outlook", "body": "Please pay"}]});
+        assert_eq!(h.json("POST", "/sources/mail_local", sent).await["indexed"], 1, "one message in two accounts is one");
+        let after = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!((after["mail_local"]["connected"].clone(), after["mail_local"]["indexed"].clone()), (json!(true), json!(1)));
+        assert_eq!(after["email"]["imap_connected"], false, "it is not the IMAP mailbox");
+        // Untrusted: facts learned from it start unconfirmed, same as google_email.
+        assert!(crate::memory::OUTSIDE_SOURCES.contains(&"mail_local") && crate::memory::OUTSIDE_SOURCES.contains(&"google_email"));
+        assert_eq!(h.send("POST", "/sources/mail_local", json!({"messages": "nope"})).await.status, 400);
+        assert_eq!(h.send("POST", "/sources/mail_local", json!({})).await.status, 400, "no messages key is not a sync");
+        let gone = h.json("DELETE", "/sources/mail_local", Value::Null).await;
+        assert_eq!(gone["removed_items"], 1);
+        let end = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(end["mail_local"]["connected"], false);
+        assert_eq!(h.app.store.knowledge_count("mail_local"), 0);
+        assert_eq!(h.app.store.knowledge_count("google_email"), 1);
+    }
+
+    #[tokio::test]
+    async fn mac_calendar_events_connect_show_and_disconnect() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let before = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(before["calendar_local"]["connected"], false);
+        let soon = crate::util::now_ts() + 3600;
+        let sent = json!({"events": [{"uid": "e1", "title": "Dentist", "start": soon, "end": soon + 1800, "all_day": false, "location": "Main St"}]});
+        assert_eq!(h.json("POST", "/sources/calendar_local", sent).await["indexed"], 1);
+        let after = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(after["calendar_local"]["connected"], true);
+        assert_eq!(after["calendar_local"]["indexed"], 1);
+        // Outside content: its learned facts start unconfirmed (OUTSIDE_SOURCES), and the events are never in the prompt.
+        assert!(crate::memory::OUTSIDE_SOURCES.contains(&"calendar_local"));
+        let bad_shape = h.send("POST", "/sources/calendar_local", json!({"events": "nope"})).await;
+        assert_eq!(bad_shape.status, 400);
+        assert_eq!(h.send("POST", "/sources/calendar_local", json!({})).await.status, 400, "no events key is not a sync");
+        let gone = h.json("DELETE", "/sources/calendar_local", Value::Null).await;
+        assert_eq!(gone["removed_items"], 1);
+        let end = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(end["calendar_local"]["connected"], false);
+        assert_eq!(h.app.store.knowledge_count("calendar_local"), 0);
+    }
+
+    /// A signed-in Google account and a password-based mailbox side by side: connecting the second is
+    /// not refused, each reports its own state, they are searched together, and each disconnects alone.
+    #[tokio::test]
+    async fn password_mailbox_and_oauth_account_coexist_with_independent_state() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let cfg = (*h.app.cfg()).clone();
+        let _forget = (ForgetSecret(cfg.clone(), "oauth_google_refresh_token"), ForgetSecret(cfg.clone(), "email_password"));
+        cfg.store_secret("oauth_google_refresh_token", "refresh").unwrap();
+        let now = crate::util::now_ts();
+        h.app.store.upsert_knowledge("google_email", "g1", "Invoice from Acme", "Please pay the Acme invoice", now).unwrap();
+        h.app.store.upsert_knowledge("google_calendar", "g2", "Acme review", "When: soon", now + 60).unwrap();
+        let before = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(before["email"]["connected"], true, "the combined flag still counts the account");
+        assert_eq!(before["email"]["imap_connected"], false, "but the password mailbox is not connected");
+        assert_eq!(before["calendar"]["ics_connected"], false);
+        assert_eq!(before["oauth"]["google"], true);
+
+        // Connecting the mailbox is not refused because Google is connected.
+        assert_eq!(connect_mail_while(&h, async {}).await, 200);
+        let both = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(both["email"]["imap_connected"], true);
+        assert_eq!(both["email"]["imap_host"], "127.0.0.1");
+        assert_eq!(both["oauth"]["google"], true, "Google is untouched");
+        h.app.store.upsert_knowledge("email", "m1", "Invoice from Beta", "Please pay the Beta invoice", now).unwrap();
+        // Both mailboxes are read together.
+        let found = crate::sources::search(&h.app.store, "invoice", Some("email"), 10).unwrap();
+        assert!(found.contains("[google_email] Invoice from Acme") && found.contains("[email] Invoice from Beta"), "{found}");
+        assert!(crate::sources::search(&h.app.store, "invoice", None, 10).unwrap().contains("Acme"));
+
+        // Disconnecting the mailbox leaves the Google account, its data and its connection.
+        assert_eq!(h.send("DELETE", "/sources/email", Value::Null).await.status, 200, "no longer refused because an account is connected");
+        let after = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(after["email"]["imap_connected"], false);
+        assert_eq!(after["oauth"]["google"], true);
+        assert_eq!(h.app.store.knowledge_count("email"), 0);
+        assert_eq!(h.app.store.knowledge_count("google_email"), 1);
+        assert_eq!(h.app.store.knowledge_count("google_calendar"), 1);
+        // The link calendar is just as independent of the account calendars.
+        h.app.store.upsert_knowledge("calendar", "c1", "Dentist", "When: soon", now + 120).unwrap();
+        assert_eq!(h.send("DELETE", "/sources/calendar", Value::Null).await.status, 200);
+        assert_eq!(h.app.store.knowledge_count("calendar"), 0);
+        assert_eq!(h.app.store.knowledge_count("google_calendar"), 1);
+    }
+
+    #[test]
+    fn model_label_names_the_cli_provider_or_the_model() {
+        let mut cfg = Config::default();
+        cfg.llm.model = "gpt-4o".into();
+        assert_eq!(model_label(&cfg), "gpt-4o", "the default http provider shows its model");
+        cfg.llm.provider = "claude-cli".into();
+        assert_eq!(model_label(&cfg), "Claude Code", "a CLI provider shows its short name, not llm.model");
+        cfg.llm.provider = "codex-cli".into();
+        assert_eq!(model_label(&cfg), "Codex");
+        cfg.llm.provider = "custom-cli".into();
+        assert_eq!(model_label(&cfg), "Custom CLI", "a name with no suffix is kept whole");
+    }
+
+    #[tokio::test]
+    async fn state_serves_the_model_label() {
+        let h = harness(scripted(vec![]), true, |c| {
+            c.llm.model = "gpt-4o".into();
+            c.llm.provider = "claude-cli".into();
+        })
+        .await;
+        let state = h.json("GET", "/state", Value::Null).await;
+        assert_eq!(state["model"], "gpt-4o");
+        assert_eq!(state["model_label"], "Claude Code");
     }
 
     fn scripted(answers: Vec<Message>) -> Arc<dyn Llm> {

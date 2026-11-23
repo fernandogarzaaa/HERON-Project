@@ -34,12 +34,12 @@ public enum CoreWire {
 
     public static func state(_ data: Data) throws -> CoreState {
         struct DTO: Decodable {
-            var name: String; var version: String; var model: String; var mode: String; var workspace: String
+            var name: String; var version: String; var model: String; var modelLabel: String?; var mode: String; var workspace: String
             var paused: Bool; var waiting: Int; var unread: Int; var memories: Int; var onboarded: Bool
             var riskNoticeAccepted: Bool; var sandbox: String; var hasKey: Bool
         }
         let d = try decode(DTO.self, data)
-        return CoreState(name: d.name, version: d.version, model: d.model, mode: try mode(d.mode), workspace: d.workspace,
+        return CoreState(name: d.name, version: d.version, model: d.model, modelLabel: d.modelLabel, mode: try mode(d.mode), workspace: d.workspace,
                          paused: d.paused, waiting: d.waiting, unread: d.unread, memories: d.memories, onboarded: d.onboarded,
                          riskNoticeAccepted: d.riskNoticeAccepted, sandbox: d.sandbox, hasKey: d.hasKey)
     }
@@ -336,19 +336,53 @@ public enum CoreWire {
     /// `GET /api/sources` as rows: one per place Heron can learn from.
     static func connections(_ data: Data) -> [ConnectionInfo] {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [] }
-        func row(_ key: String, _ name: String, detail: (([String: Any]) -> String)? = nil) -> ConnectionInfo? {
+        /// `own` names the keys of the source's own state. The core's `connected` and `indexed` for Email and Calendar also
+        /// count signed-in Google and Microsoft accounts, which are rows of their own, so these rows read the independent
+        /// keys when the core serves them (an older core doesn't, and its combined values are used).
+        func row(_ key: String, _ name: String, own: (connected: String, indexed: String)? = nil,
+                 detail: (([String: Any]) -> String)? = nil) -> ConnectionInfo? {
             guard let entry = object[key] as? [String: Any] else { return nil }
-            let connected = entry["connected"] as? Bool ?? false
-            let indexed = entry["indexed"] as? Int ?? 0
-            let text = connected ? (detail?(entry) ?? "\(indexed) items indexed") : "Not connected"
+            let connected = own.flatMap { entry[$0.connected] as? Bool } ?? entry["connected"] as? Bool ?? false
+            let indexed = own.flatMap { entry[$0.indexed] as? Int } ?? entry["indexed"] as? Int ?? 0
+            let text = connected ? (detail?(entry) ?? "\(countPhrase(indexed, "item")) indexed") : "Not connected"
             return ConnectionInfo(id: key, name: name, connected: connected, detail: text)
         }
         return [
-            row("calendar", "Calendar"),
-            row("email", "Email") { ($0["address"] as? String) ?? "\($0["indexed"] as? Int ?? 0) messages indexed" },
-            row("documents", "Documents") { "\(($0["folders"] as? [String])?.count ?? 0) folders, \($0["indexed"] as? Int ?? 0) files indexed" },
+            row("calendar", "Calendar link", own: ("ics_connected", "ics_indexed")),
+            row("email", "iCloud Mail", own: ("imap_connected", "imap_indexed")) { entry in
+                (entry["address"] as? String) ?? "\(countPhrase(entry["imap_indexed"] as? Int ?? entry["indexed"] as? Int ?? 0, "message")) indexed"
+            }.map { mail in
+                // The name follows the server: iCloud's, or whatever IMAP server the user set up under "Other ways to connect".
+                guard let host = (object["email"] as? [String: Any])?["imap_host"] as? String, mail.connected,
+                      host != SourceConnection.iCloudMailHost else { return mail }
+                var other = mail
+                other.name = "Mailbox (\(host))"
+                return other
+            },
+            row("documents", "Documents") { "\(countPhrase(($0["folders"] as? [String])?.count ?? 0, "folder")), \(countPhrase($0["indexed"] as? Int ?? 0, "file")) indexed" },
             row("computer", "This Mac"),
+            row("calendar_local", "Mac Calendar") { "\(countPhrase($0["indexed"] as? Int ?? 0, "event")) indexed" },
+            row("mail_local", "Mac Mail") { "\(countPhrase($0["indexed"] as? Int ?? 0, "message")) indexed" },
         ].compactMap { $0 }
+    }
+
+    /// `GET /api/oauth`: one entry per provider the app knows. An unknown provider is skipped.
+    public static func oauthAccounts(_ data: Data) throws -> [OAuthAccount] {
+        struct Entry: Decodable { var provider: String; var connected: Bool; var clientConfigured: Bool; var account: String? }
+        struct DTO: Decodable { var providers: [Entry] }
+        return try decode(DTO.self, data).providers.compactMap { e in
+            OAuthProviderID(rawValue: e.provider).map { OAuthAccount(provider: $0, connected: e.connected, clientConfigured: e.clientConfigured, account: e.account) }
+        }
+    }
+
+    /// `POST /api/oauth/{provider}/start`: the consent page to open in the system browser. Only https is accepted.
+    public static func oauthStart(_ data: Data) throws -> URL {
+        struct DTO: Decodable { var authorizationUrl: String }
+        let d = try decode(DTO.self, data)
+        guard let url = URL(string: d.authorizationUrl), url.scheme == "https", url.host != nil else {
+            throw CoreError.failed("The core sent a sign-in address Heron won't open.")
+        }
+        return url
     }
 
     // MARK: Usage

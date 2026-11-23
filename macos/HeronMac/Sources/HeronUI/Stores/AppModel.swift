@@ -56,6 +56,11 @@ public final class AppModel {
     /// True until the first bootstrap says the user is onboarded.
     public private(set) var needsFirstRun = true
     public private(set) var hasBootstrapped = false
+    /// "Run setup again" (Settings › General): the setup steps show over the main window for someone already onboarded.
+    /// The core's `onboarded` flag is not touched, so quitting mid-way leaves nothing half-reset.
+    public private(set) var isRerunningSetup = false
+    /// Whether the setup steps are on screen, for a first run or a re-run.
+    public var showsSetup: Bool { needsFirstRun || isRerunningSetup }
     /// After an update raised the risk register's version: the notice shows again as a sheet.
     public var showsRiskNoticeSheet = false
     public var coreStatus: CoreStatus = .running
@@ -107,6 +112,9 @@ public final class AppModel {
         }
     }
 
+    /// The sidebar footer's model name: the CLI provider's short name when one is active, else the model.
+    public var footerModelName: String { state?.modelDisplayName ?? "No model" }
+
     /// "Sandbox on · Ask first", from `/api/state`.
     public var footerLine: String {
         let mode = state?.mode.title ?? PermissionMode.ask.title
@@ -131,9 +139,27 @@ public final class AppModel {
         startEvents()
     }
 
+    /// Starts the setup steps again: from the risk notice, with what the core already holds.
+    public func runSetupAgain() async {
+        firstRun.restart()
+        isRerunningSetup = true
+        await firstRun.load()
+        await refreshState()
+        // Already accepted: the box starts ticked, and "Accept and continue" just moves on.
+        firstRun.accepted = state?.riskNoticeAccepted ?? false
+        await settings.reloadConnections()
+    }
+
+    /// Leaves a re-run without finishing it.
+    public func cancelSetupAgain() {
+        isRerunningSetup = false
+        firstRun.restart()
+    }
+
     public func finishFirstRun() async {
         await firstRun.finish(persona: persona)
         needsFirstRun = false
+        isRerunningSetup = false
         if firstRun.wantsAPIKey { settingsTab = .model }
         selection = .today
         await refreshState()
@@ -149,6 +175,8 @@ public final class AppModel {
         async let e: Void = tasks.load()
         async let f: Void = schedules.load()
         _ = await (a, b, c, d, e, f)
+        await settings.refreshLocalCalendarIfConnected()
+        await settings.refreshLocalMailIfConnected()
     }
 
     public func refreshState() async {

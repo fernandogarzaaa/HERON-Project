@@ -95,6 +95,10 @@ struct PreviewData {
     var sandbox = "seatbelt"
     var workspace = "~/Work"
     var activeModel = "Claude Code"
+    /// What `/api/state` serves as `model_label`; the active model when unset.
+    var modelLabel: String?
+    /// False plays a core from before `model_label` existed.
+    var servesModelLabel = true
     var persona = Persona(name: "Heron", text: "Warm, brief and practical.", isDefault: true, maxCharacters: 2000)
     var riskNotice = RiskNotice(version: 3, text: PreviewData.riskText, acceptedVersion: nil)
     var events: [CalendarEvent] = []
@@ -110,6 +114,23 @@ struct PreviewData {
     var nevers: [NeverRule] = []
     /// When set, the next `removeNever` throws it (a test hook), so a screen can show a failed removal.
     var neverRemovalFailure: CoreError?
+    /// When set, the next `connectSource` or `disconnectSource` throws it (a test hook).
+    var sourceFailure: CoreError?
+    var settingsFailure: CoreError?
+    /// `GET /api/oauth`. Both providers are signed out and configured in the sample.
+    var oauth: [OAuthAccount] = [
+        OAuthAccount(provider: .google, connected: false, clientConfigured: true),
+        OAuthAccount(provider: .microsoft, connected: false, clientConfigured: true),
+    ]
+    /// The provider whose sign-in is under way and how many polls until the "browser" finishes it (nil: never).
+    var pendingOAuth: OAuthProviderID?
+    var oauthPollsLeft: Int?
+    var oauthAddress = "sam@example.com"
+    var oauthStartFailure: CoreError?
+    var oauthSyncFailure: CoreError?
+    var oauthSyncs: [OAuthProviderID] = []
+    /// Every `connectSource` request, in order (a test hook).
+    var sourceRequests: [SourceConnection] = []
     var ruleNotices: [RuleNotice] = []
     var connections: [ConnectionInfo] = []
     var usage = UsageReport(days: [], monthTokens: 0)
@@ -212,9 +233,12 @@ struct PreviewData {
             RuleNotice(rule: "read_file:*", notice: "From your settings file. It no longer opens reads outside your working folder. Add a folder above instead."),
         ]
         d.connections = [
-            ConnectionInfo(id: "email", name: "Email", connected: true, detail: "sam@northwind.example"),
-            ConnectionInfo(id: "calendar", name: "Calendar", connected: true, detail: "3 events today"),
+            ConnectionInfo(id: "email", name: "iCloud Mail", connected: true, detail: "sam@northwind.example"),
+            ConnectionInfo(id: "calendar", name: "Calendar link", connected: true, detail: "3 events today"),
             ConnectionInfo(id: "documents", name: "Documents", connected: false, detail: "Not connected"),
+            ConnectionInfo(id: "computer", name: "This Mac", connected: false, detail: "Not connected"),
+            ConnectionInfo(id: "calendar_local", name: "Mac Calendar", connected: false, detail: "Not connected"),
+            ConnectionInfo(id: "mail_local", name: "Mac Mail", connected: false, detail: "Not connected"),
         ]
         d.usage = UsageReport(days: [
             UsageDay(day: "2026-11-18", model: "Claude Code", promptTokens: 18_400, completionTokens: 3_100),
