@@ -350,6 +350,21 @@ pub fn git_config_files(cfg: &Config, home: &Path, workdir: &Path) -> Vec<PathBu
 /// The temporary folder shell commands get as `TMPDIR`: their own, so the sockets they make there
 /// work while other programs' sockets in the user's temporary folder stay out of reach.
 pub fn shell_tmpdir() -> PathBuf {
+    // On macOS the user's temporary folder is too long for a socket address, so Python's
+    // multiprocessing would fall back to `/tmp`, where other programs' sockets are. A short folder
+    // of the user's own keeps those sockets in reach of the command and nothing else.
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let uid = unsafe { libc::getuid() };
+        let dir = PathBuf::from(format!("/private/tmp/heron-{uid}"));
+        let _ = std::fs::create_dir(&dir);
+        if let Ok(meta) = std::fs::symlink_metadata(&dir) {
+            if meta.is_dir() && meta.uid() == uid && std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).is_ok() {
+                return dir;
+            }
+        }
+    }
     let dir = std::env::temp_dir().join("heron-shell");
     let _ = std::fs::create_dir_all(&dir);
     dunce::canonicalize(&dir).unwrap_or(dir)
@@ -358,11 +373,12 @@ pub fn shell_tmpdir() -> PathBuf {
 /// Local sockets act with the owner's keys without any key file being read (ssh-agent, gpg-agent,
 /// Docker, tmux, password managers). A command may reach only name lookup, the system log, and
 /// sockets in the working folder or its own temporary folder (Python's multiprocessing puts its
-/// own under `/tmp/pymp-*`, as the temporary folder's path is too long for a socket address).
+/// own there too: see `shell_tmpdir`). Never `/tmp/pymp-*`: other programs' multiprocessing servers
+/// listen there and run what they are sent.
 fn local_sockets(workdir: &Path) -> String {
     let own: String = [workdir.to_path_buf(), shell_tmpdir()].iter().map(|d| format!(" (remote unix-socket (subpath \"{}\"))", d.display())).collect();
     format!(
-        "(deny network-outbound (remote unix-socket))\n(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")) (remote unix-socket (path-literal \"/private/var/run/syslog\")) (remote unix-socket (path-regex #\"^/private/tmp/pymp-[^/]+/\")){own})\n"
+        "(deny network-outbound (remote unix-socket))\n(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")) (remote unix-socket (path-literal \"/private/var/run/syslog\")){own})\n"
     )
 }
 
