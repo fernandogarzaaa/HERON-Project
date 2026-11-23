@@ -230,23 +230,34 @@ fn is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
 }
 
 /// Hard links keep an in-root pathname while aliasing the same inode/file
-/// outside the skills directory. Reject them after opening the file handle;
+/// outside the skills directory. Query link count from the opened handle;
 /// canonical-path checks cannot distinguish hard links.
-fn has_multiple_links(metadata: &std::fs::Metadata) -> bool {
+fn has_multiple_links(file: &std::fs::File) -> std::io::Result<bool> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        metadata.nlink() > 1
+        Ok(file.metadata()?.nlink() > 1)
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
-        metadata.number_of_links() > 1
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        };
+        let mut information = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+        let succeeded = unsafe {
+            GetFileInformationByHandle(file.as_raw_handle() as _, information.as_mut_ptr())
+        };
+        if succeeded == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let information = unsafe { information.assume_init() };
+        Ok(information.nNumberOfLinks > 1)
     }
     #[cfg(not(any(unix, windows)))]
     {
-        let _ = metadata;
-        false
+        let _ = file;
+        Ok(false)
     }
 }
 
@@ -313,7 +324,7 @@ pub(crate) fn open_skill_for_write(
         }
         let file = unsafe { std::fs::File::from_raw_fd(fd) };
         let metadata = file.metadata()?;
-        if !metadata.is_file() || metadata.nlink() > 1 {
+        if !metadata.is_file() || has_multiple_links(&file)? {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "skill target must be a regular file without external hard links",
@@ -342,7 +353,7 @@ pub(crate) fn open_skill_for_write(
         }
         let file = std::fs::OpenOptions::new().write(true).create(true).open(path)?;
         let metadata = file.metadata()?;
-        if !metadata.is_file() || has_multiple_links(&metadata) {
+        if !metadata.is_file() || has_multiple_links(&file)? {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "skill target must be a regular file without external hard links",
@@ -458,7 +469,7 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
         let Ok(opened) = handle.metadata() else { continue };
         if !opened.is_file()
             || opened.len() > MAX_SKILL_BYTES
-            || has_multiple_links(&opened)
+            || has_multiple_links(&handle).unwrap_or(true)
         {
             continue;
         }
