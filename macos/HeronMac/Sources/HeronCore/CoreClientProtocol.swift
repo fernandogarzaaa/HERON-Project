@@ -71,6 +71,20 @@ public protocol CoreClientProtocol: Sendable {
     func nevers() async throws -> [NeverRule]                                // GET /api/nevers
     /// `DELETE /api/nevers {"rule"}`. Throws `CoreError.notFound` (404) for a rule that isn't a "never".
     func removeNever(rule: String) async throws                              // DELETE /api/nevers
+    /// `POST /api/sources/{name}`. Returns once the core has proved the sign-in (email) or finished the first sync;
+    /// throws `CoreError.failed` with the core's user-facing sentence ("Heron could not find that folder…").
+    func connectSource(_ source: SourceConnection) async throws
+    /// `DELETE /api/sources/{name}`: disconnects and forgets what came from it.
+    func disconnectSource(id: String) async throws
+    /// `GET /api/oauth`: Google and Microsoft, whether each is connected and whether this build can sign in to it.
+    func oauthAccounts() async throws -> [OAuthAccount]
+    /// `POST /api/oauth/{provider}/start`: the consent URL to open in the system browser. The core finishes the
+    /// sign-in itself when the browser reaches its loopback callback; the app polls `oauthAccounts()` for it.
+    func startOAuth(provider: OAuthProviderID) async throws -> URL
+    /// `POST /api/oauth/{provider}/sync`: reads the account's mail and calendar now.
+    func syncOAuth(provider: OAuthProviderID) async throws
+    /// `DELETE /api/oauth/{provider}`: signs out and forgets what came from the account.
+    func disconnectOAuth(provider: OAuthProviderID) async throws
     func usage() async throws -> UsageReport                                // GET /api/usage
 }
 
