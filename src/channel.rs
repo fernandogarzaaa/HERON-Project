@@ -185,12 +185,24 @@ fn set_private_spool_permissions(file: &std::fs::File) -> Result<()> {
 
 impl ChannelStore {
     pub fn open(path: &Path) -> Result<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent)?;
+        // SQLite's SQLITE_OPEN_NOFOLLOW also rejects symlinked ancestor
+        // components. Resolve the parent once so ordinary macOS paths such as
+        // /var/folders (a symlink to /private/var/folders) remain usable.
+        // The final component is still opened with O_NOFOLLOW and checked
+        // below, so a symlink swapped in at channels.db is rejected.
+        let parent = std::fs::canonicalize(parent)?;
+        let filename = path
+            .file_name()
+            .context("The channel spool path must include a file name")?;
+        let path = parent.join(filename);
         // Never follow a pre-existing symlink to an arbitrary database or
         // chmod another file through a symlinked channels.db path.
-        match std::fs::symlink_metadata(path) {
+        match std::fs::symlink_metadata(&path) {
             Ok(meta) if meta.file_type().is_symlink() || !meta.is_file() => {
                 bail!("The channel spool path must be a regular file, not a symlink");
             }
@@ -1015,6 +1027,21 @@ mod tests {
         let reopened = ChannelStore::open(&db).unwrap();
         assert!(!reopened.accept_inbound(&expected, &inbound("u9"), 101).unwrap());
         assert_eq!(reopened.count_pending().unwrap(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opens_spool_through_a_symlinked_parent_directory() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("real");
+        let alias = temp.path().join("alias");
+        std::fs::create_dir(&real).unwrap();
+        symlink(&real, &alias).unwrap();
+
+        let _store = ChannelStore::open(&alias.join("channels.db")).unwrap();
+        assert!(real.join("channels.db").is_file());
     }
 
     #[cfg(unix)]
