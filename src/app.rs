@@ -1280,7 +1280,7 @@ impl App {
         match self.delivery(cfg) {
             Delivery::Command => notify_with_command(&cfg.agent.notify_command, title, body),
             Delivery::NativeApp => {
-                self.events.publish("", "", serde_json::json!({"type": "notification", "title": title, "body": preview(body, 180)}));
+                self.events.publish("", "", serde_json::json!({"type": "notification", "title": title, "body": notification_body(body)}));
             }
             Delivery::InboxOnly => {}
         }
@@ -2312,6 +2312,15 @@ enum Delivery {
     InboxOnly,
 }
 
+/// Longest `body` a `notification` event carries, counting the "…" that marks a cut.
+const NOTIFICATION_BODY_CHARS: usize = 180;
+
+/// The body on one line, cut so that with its "…" it is at most [`NOTIFICATION_BODY_CHARS`].
+fn notification_body(body: &str) -> String {
+    let whole = preview(body, NOTIFICATION_BODY_CHARS);
+    if whole.chars().count() <= NOTIFICATION_BODY_CHARS { whole } else { preview(body, NOTIFICATION_BODY_CHARS - 1) }
+}
+
 fn notify_with_command(command: &str, title: &str, body: &str) {
     let message = format!("{title}: {}", preview(body, 180));
     #[cfg(windows)]
@@ -2403,9 +2412,70 @@ mod tests {
         let e = &events[0];
         assert_eq!(e.kind(), "notification");
         assert_eq!(e.json["title"], "Morning brief");
-        assert_eq!(e.json["body"], preview(&body, 180));
-        assert!(e.json["body"].as_str().unwrap().chars().count() < body.chars().count());
+        let sent = e.json["body"].as_str().unwrap();
+        assert_eq!(sent.chars().count(), 180, "the cut body, its \"…\" included, fills the limit exactly");
+        assert!(sent.ends_with('…'));
+        assert!(body.starts_with(sent.trim_end_matches('…')));
         assert_eq!((e.session_id.as_str(), e.run_id.as_str()), ("", ""));
+    }
+
+    #[test]
+    fn a_notification_body_is_at_most_180_characters_with_its_ellipsis() {
+        let exactly = "a".repeat(180);
+        assert_eq!(notification_body(&exactly), exactly, "a body that fits is not cut");
+        let over = "b".repeat(181);
+        let cut = notification_body(&over);
+        assert_eq!(cut.chars().count(), 180);
+        assert_eq!(cut, format!("{}…", "b".repeat(179)));
+        assert_eq!(notification_body("two\n  lines"), "two lines");
+    }
+
+    /// The `notification` events on the bus, as (title, body).
+    async fn notifications(bus: &mut crate::events::Subscription) -> Vec<(String, String)> {
+        drain(bus).await.iter().filter(|e| e.kind() == "notification").map(|e| (e.json["title"].as_str().unwrap().to_string(), e.json["body"].as_str().unwrap().to_string())).collect()
+    }
+
+    #[tokio::test]
+    async fn an_automation_notice_reaches_the_attached_app_under_its_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        app.attach_native_app();
+        let mut bus = app.events.subscribe(Some(0));
+        let id = app.store.add_schedule("tickets", "", "automation", 1, "").unwrap();
+        app.store.set_schedule_workflow(id, &json!([{"id": "tell", "do": "notify", "title": "Tickets", "text": "Still sold out."}, {"id": "plain", "do": "notify", "text": "No title."}]).to_string()).unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        assert_eq!(notifications(&mut bus).await, vec![("Tickets".to_string(), "Still sold out.".to_string()), ("tickets".to_string(), "No title.".to_string())]);
+    }
+
+    #[tokio::test]
+    async fn a_failed_automation_tells_the_attached_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        app.attach_native_app();
+        let mut bus = app.events.subscribe(Some(0));
+        let id = app.store.add_schedule("broken job", "", "automation", 1, "").unwrap();
+        app.store.set_schedule_workflow(id, "{ this is not a valid automation").unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        let notes = notifications(&mut bus).await;
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert_eq!(notes[0].0, "broken job");
+        assert!(notes[0].1.starts_with("This automation did not finish:"), "{notes:?}");
+    }
+
+    #[tokio::test]
+    async fn work_done_on_takeover_tells_the_attached_app_and_a_prepared_draft_does_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![Message::assistant("Drafted the reply."), Message::assistant("Filed the receipts.")]).await;
+        app.attach_native_app();
+        let mut bus = app.events.subscribe(Some(0));
+        let prepared = app.store.add_suggestion("Draft a reply", "", "draft it").unwrap();
+        app.act_on_suggestion(prepared, false).await;
+        assert_eq!(app.store.get_suggestion(prepared).unwrap().status, "prepared");
+        assert!(notifications(&mut bus).await.is_empty(), "a prepared draft waits in the app; it is not announced");
+        let done = app.store.add_suggestion("File receipts", "", "file them").unwrap();
+        app.act_on_suggestion(done, true).await;
+        assert_eq!(app.store.get_suggestion(done).unwrap().status, "done");
+        assert_eq!(notifications(&mut bus).await, vec![("File receipts".to_string(), "Filed the receipts.".to_string())]);
     }
 
     #[tokio::test]
@@ -2468,6 +2538,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let app = plain_app(dir.path(), vec![]).await;
         assert_eq!(app.delivery(&app.cfg()), Delivery::InboxOnly);
+        let mut bus = app.events.subscribe(Some(0));
+        app.notify(&app.cfg(), "Digest", "All done.");
+        let published = drain(&mut bus).await;
+        assert!(published.is_empty(), "nothing goes on the bus without an app to show it: {published:?}");
         app.attach_native_app();
         assert_eq!(app.delivery(&app.cfg()), Delivery::NativeApp);
         set_notify_command(&app, "true");

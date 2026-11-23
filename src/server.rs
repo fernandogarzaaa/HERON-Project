@@ -245,6 +245,13 @@ pub async fn start(app: Arc<App>, bind: &str, port: u16) -> Result<(String, toki
     Ok((started.url, started.task))
 }
 
+/// The Mac app's core (`heron serve --print-endpoint`): loopback, a free port, and the app attached
+/// before the scheduler starts, so the owner's notifications go to the app from the first job on.
+pub async fn start_native_endpoint(app: Arc<App>) -> Result<Started> {
+    app.attach_native_app();
+    start_endpoint(app, "127.0.0.1", 0).await
+}
+
 /// Bind and start serving in the background. Loopback-only checking follows the address bound.
 pub async fn start_endpoint(app: Arc<App>, bind: &str, port: u16) -> Result<Started> {
     let listener = match tokio::net::TcpListener::bind((bind, port)).await {
@@ -4124,6 +4131,49 @@ mod tests {
         assert_eq!(std::fs::read_to_string(h.app.workspace.join("later.txt")).unwrap(), "carried out");
         assert!(h.app.store.pending_approvals().unwrap().is_empty());
         assert_eq!(h.send("POST", &approve, json!({"action": "approve"})).await.status, 400, "and only once");
+    }
+
+    /// Start a core on a fresh home with one notify-only automation already due, and return the
+    /// `notification` events its first scheduler tick put on the bus, and the Inbox titles.
+    async fn first_tick_notifications(native: bool) -> (Vec<Value>, Vec<String>) {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), scripted(vec![])).await.unwrap());
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        let id = app.store.add_schedule("digest", "", "automation", 1, "").unwrap();
+        app.store.set_schedule_workflow(id, &json!([{"id": "tell", "do": "notify", "text": "All done."}]).to_string()).unwrap();
+        let mut bus = app.events.subscribe(Some(0));
+        let started = if native { start_native_endpoint(app.clone()).await.unwrap() } else { start_endpoint(app.clone(), "127.0.0.1", 0).await.unwrap() };
+        let mut inbox = vec![];
+        for _ in 0..100 {
+            inbox = app.store.inbox(true, 10).unwrap().into_iter().map(|m| m.title).collect();
+            if !inbox.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let mut notes = vec![];
+        while let Ok(Some(crate::events::Item::Event(e))) = tokio::time::timeout(Duration::from_millis(150), bus.next()).await {
+            if e.kind() == "notification" {
+                notes.push(e.json.clone());
+            }
+        }
+        started.task.abort();
+        (notes, inbox)
+    }
+
+    #[tokio::test]
+    async fn the_mac_apps_core_sends_notifications_to_the_app_from_the_first_tick() {
+        let (notes, inbox) = first_tick_notifications(true).await;
+        assert_eq!(inbox, vec!["digest".to_string()]);
+        assert_eq!(notes, vec![json!({"type": "notification", "title": "digest", "body": "All done."})]);
+    }
+
+    #[tokio::test]
+    async fn plain_serve_has_no_app_attached_so_notifications_stay_in_the_inbox() {
+        let (notes, inbox) = first_tick_notifications(false).await;
+        assert_eq!(inbox, vec!["digest".to_string()], "the job ran and its notice is in the Inbox");
+        assert!(notes.is_empty(), "{notes:?}");
     }
 
     #[tokio::test]

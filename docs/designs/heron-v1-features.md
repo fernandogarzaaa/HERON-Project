@@ -361,13 +361,15 @@ B2 adds `enum ContentEntry` to `src/agent.rs`, with one variant per way content 
 
 #### Notifications have one owner (F3, F6)
 
-*   **Today.** The core posts desktop notifications itself, through the free function `notify(cfg, title, body)` in `app.rs`, for scheduled jobs, automations and suggestions. It runs `notify_command` when one is configured, and `osascript` otherwise.
+*   **Before the first step.** The core posted desktop notifications itself, through the free function `notify(cfg, title, body)` in `app.rs`, for scheduled jobs, automations and suggestions. It ran `notify_command` when one was configured, and `osascript` otherwise.
 *   **The change.** B2 turns `notify` into an `App` method that also takes the notice's source (`schedule`, `automation` or `suggestion`), its `session_id` and its `run_id`.
     *   B2 also counts open `GET /api/events` streams that were opened with `?notify=1`.
     *   While that count is above zero, the method publishes a bus event, `notification {title, body, source}`, instead of calling `osascript`. The bus envelope's `session_id` and `run_id` are set when the notice belongs to a run, and are `null` otherwise.
     *   A configured `notify_command` still runs.
     *   At zero, only the inbox records the notice (no `osascript`).
 *   **First step, shipped.** Until B2 counts `?notify=1` streams, `heron serve --print-endpoint` (the Mac app's core) marks the core as having a native app attached (`App::attach_native_app`). `App::notify` then picks one way out: a configured `notify_command`, else a `notification {title, body}` event with empty `session_id` and `run_id` (no `source` yet), else no banner at all: the inbox entry is the notice. The `osascript` fallback is gone, because macOS shows those banners as Script Editor and the unit tests fired them on every run. The Mac app posts each event through `UserNotifications`, so macOS shows Heron as the sender. B2 replaces the flag with the stream count and adds `source` and the run ids.
+    *   **The trade-off.** A core with no Mac app attached (`heron daemon`, plain `heron serve`, the CLI) shows no banner unless `notify_command` is set. Its notices are in the inbox only.
+    *   **Open window.** The scheduler runs due jobs as soon as the core starts, and the event stream carries only events after it opens. The Mac app opens the stream before it loads anything, but a notice published before that connection exists still reaches only the inbox.
 *   **A lost notice is accepted.** A notice raised while the stream is dropping may reach nobody. This is accepted, because the inbox records every notice.
 *   **The app.** It posts each `notification` event, whether or not its window is frontmost. It never posts its own "finished" notice for a run whose origin is `schedule`, `automation` or `proactive`, because those already send one.
 
