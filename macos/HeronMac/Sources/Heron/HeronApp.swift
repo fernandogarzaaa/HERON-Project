@@ -33,8 +33,12 @@ final class Runtime {
                 switch status {
                 case .starting: model.coreStatus = .starting
                 case .running: model.coreStatus = .running
-                case .restarted: model.coreStatus = .restarted; model.dismissedRestartBanner = false
-                case .stopped(let details): model.coreStatus = .stopped(details: details)
+                case .restarted:
+                    model.coreStatus = .restarted; model.dismissedRestartBanner = false
+                    model.chat.coreWentAway()
+                case .stopped(let details):
+                    model.coreStatus = .stopped(details: details)
+                    model.chat.coreWentAway()
                 }
             }
         }
