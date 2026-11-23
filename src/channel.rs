@@ -214,7 +214,7 @@ impl ChannelStore {
         // the pathname again. SQLite's NOFOLLOW flag closes the remaining final-
         // component symlink window between this preparation and its own open.
         #[cfg(unix)]
-        let spool_file = open_private_spool_file(path)?;
+        let spool_file = open_private_spool_file(&path)?;
         #[cfg(unix)]
         set_private_spool_permissions(&spool_file)?;
 
@@ -226,7 +226,7 @@ impl ChannelStore {
             std::time::Instant::now,
             std::thread::sleep,
             || Self::init(Connection::open_with_flags(
-                path,
+                &path,
                 OpenFlags::SQLITE_OPEN_READ_WRITE
                     | OpenFlags::SQLITE_OPEN_CREATE
                     | OpenFlags::SQLITE_OPEN_NOFOLLOW,
