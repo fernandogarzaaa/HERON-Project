@@ -1121,7 +1121,15 @@ mod tests {
             ).unwrap();
             assert_eq!(remaining, 0, "expired terminal outbound history should be pruned");
         }
-        assert_ne!(store.enqueue(&identity, None, "delayed reply", "delayed-key", after_expiry).unwrap(), old_id);
+        let replacement_id = store.enqueue(&identity, None, "delayed reply", "delayed-key", after_expiry).unwrap();
+        let (status, terminal_at, queued_at): (String, Option<i64>, i64) = store.db.lock().unwrap().query_row(
+            "SELECT status, terminal_at, queued_at FROM channel_outbox WHERE id=?1",
+            [replacement_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        ).unwrap();
+        assert_eq!(status, "pending");
+        assert_eq!(terminal_at, None);
+        assert_eq!(queued_at, after_expiry);
+        let _ = old_id; // SQLite may reuse the deleted highest ROWID.
     }
 
     #[test]
