@@ -159,7 +159,7 @@ impl Bot {
             let chat = match msg.identity.chat_id.parse::<i64>() {
                 Ok(chat) => chat,
                 Err(_) => {
-                    let _ = self.spool.fail(msg.id, &msg.identity, &msg.lease);
+                    let _ = self.spool.fail(msg.id, &msg.identity, &msg.lease, crate::util::now_ts());
                     continue;
                 }
             };
@@ -171,7 +171,7 @@ impl Bot {
             // Provider errors may echo the bot URL, which embeds its token: never log them.
             let outcome = match self.send_message(chat, &msg.text).await {
                 Delivery::Sent(remote_id) => {
-                    if let Err(err) = self.spool.delivered(msg.id, &msg.identity, &msg.lease, remote_id.as_deref()) {
+                    if let Err(err) = self.spool.delivered(msg.id, &msg.identity, &msg.lease, remote_id.as_deref(), crate::util::now_ts()) {
                         eprintln!("HERON Telegram: reply acknowledgement failed: {err}");
                         break;
                     }
@@ -185,7 +185,7 @@ impl Bot {
                 }
                 Delivery::Refused => {
                     eprintln!("HERON Telegram: Telegram refused a reply; it will not be retried.");
-                    self.spool.fail(msg.id, &msg.identity, &msg.lease)
+                    self.spool.fail(msg.id, &msg.identity, &msg.lease, crate::util::now_ts())
                 }
             };
             if matches!(outcome, Ok(RetryOutcome::GaveUp)) {
@@ -704,7 +704,7 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
     }
     // An accepted turn left unfinished by a crash may have performed a tool
     // action before stopping. Do not re-execute it automatically.
-    if let Ok(count) = bot.spool.mark_interrupted(ChannelKind::Telegram, &bot.account_id) {
+    if let Ok(count) = bot.spool.mark_interrupted(ChannelKind::Telegram, &bot.account_id, crate::util::now_ts()) {
         if count > 0 {
             if let Some(chat) = paired_chat(&app) {
                 bot.send(chat, &format!("{count} prior request(s) may have been interrupted. Please resend anything still needed.")).await;
@@ -758,6 +758,7 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
                                     let _ = bot.spool.complete_inbound(
                                         &identity,
                                         &event.provider_message_id,
+                                        crate::util::now_ts(),
                                     );
                                 }
                                 Ok(false) => {}
