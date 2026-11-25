@@ -264,15 +264,19 @@ impl ChannelStore {
                 tx.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} INTEGER"))?;
             }
         }
-        // Existing terminal rows predate terminal_at. Preserve their current age;
-        // newly completed work records the actual transition time below.
+        // Legacy rows have no reliable terminal-transition timestamp. Use migration
+        // time so every pre-existing dedupe key receives a full retention window;
+        // this conservatively keeps some already-expired rows for one extra window.
+        let migration_time = crate::util::now_ts();
         tx.execute(
-            "UPDATE channel_inbox SET terminal_at=received_at
-             WHERE terminal_at IS NULL AND status IN ('done','interrupted')", [],
+            "UPDATE channel_inbox SET terminal_at=?1
+             WHERE terminal_at IS NULL AND status IN ('done','interrupted')",
+            [migration_time],
         )?;
         tx.execute(
-            "UPDATE channel_outbox SET terminal_at=queued_at
-             WHERE terminal_at IS NULL AND status IN ('sent','failed')", [],
+            "UPDATE channel_outbox SET terminal_at=?1
+             WHERE terminal_at IS NULL AND status IN ('sent','failed')",
+            [migration_time],
         )?;
         tx.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_channel_inbox_terminal_at ON channel_inbox(status, terminal_at);
@@ -316,9 +320,28 @@ impl ChannelStore {
              WHERE status IN ('done','interrupted') AND terminal_at < ?1",
             [cutoff],
         )?;
+        // Keep every chunk of a logical reply until the whole reply is terminal
+        // and its newest terminal transition is outside the retention window.
+        // COALESCE matches fail_message() and supports rows from older schemas.
         tx.execute(
             "DELETE FROM channel_outbox
-             WHERE status IN ('sent','failed') AND terminal_at < ?1",
+             WHERE status IN ('sent','failed') AND terminal_at < ?1
+               AND NOT EXISTS (
+                 SELECT 1 FROM channel_outbox active
+                 WHERE active.kind=channel_outbox.kind
+                   AND active.account_id=channel_outbox.account_id
+                   AND COALESCE(active.message_key,active.idempotency_key)
+                       = COALESCE(channel_outbox.message_key,channel_outbox.idempotency_key)
+                   AND active.status IN ('pending','leased')
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM channel_outbox retained
+                 WHERE retained.kind=channel_outbox.kind
+                   AND retained.account_id=channel_outbox.account_id
+                   AND COALESCE(retained.message_key,retained.idempotency_key)
+                       = COALESCE(channel_outbox.message_key,channel_outbox.idempotency_key)
+                   AND (retained.terminal_at IS NULL OR retained.terminal_at >= ?1)
+               )",
             [cutoff],
         )?;
         Ok(())
@@ -1130,6 +1153,91 @@ mod tests {
         assert_eq!(terminal_at, None);
         assert_eq!(queued_at, after_expiry);
         let _ = old_id; // SQLite may reuse the deleted highest ROWID.
+    }
+
+    #[test]
+    fn legacy_terminal_rows_get_a_full_retention_window_after_migration() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("channels.db");
+        let identity = owner();
+        let recent_completion = crate::util::now_ts() - 5;
+        let old_admission = recent_completion - TERMINAL_HISTORY_RETENTION_SECS - 10;
+        let outbound_id;
+        {
+            let store = ChannelStore::open(&path).unwrap();
+            store.accept_inbound(&identity, &inbound("legacy-inbound"), old_admission).unwrap();
+            store.complete_inbound(&identity, "legacy-inbound", recent_completion).unwrap();
+            outbound_id = store.enqueue(&identity, None, "legacy reply", "legacy-outbound", old_admission).unwrap();
+            let claim = store.due(ChannelKind::Telegram, "bot-1", recent_completion, 1).unwrap().remove(0);
+            store.delivered(outbound_id, &identity, &claim.lease, Some("legacy-remote"), recent_completion).unwrap();
+        }
+        // Simulate the schema immediately before terminal_at was introduced.
+        Connection::open(&path).unwrap().execute_batch(
+            "DROP INDEX IF EXISTS idx_channel_inbox_terminal_at;
+             DROP INDEX IF EXISTS idx_channel_outbox_terminal_at;
+             ALTER TABLE channel_inbox DROP COLUMN terminal_at;
+             ALTER TABLE channel_outbox DROP COLUMN terminal_at;"
+        ).unwrap();
+
+        let migration_started = crate::util::now_ts();
+        let migrated = ChannelStore::open(&path).unwrap();
+        let (inbound_terminal, outbound_terminal): (i64, i64) = {
+            let db = migrated.db.lock().unwrap();
+            let inbound_terminal = db.query_row(
+                "SELECT terminal_at FROM channel_inbox WHERE provider_message_id='legacy-inbound'",
+                [], |row| row.get(0)
+            ).unwrap();
+            let outbound_terminal = db.query_row(
+                "SELECT terminal_at FROM channel_outbox WHERE id=?1",
+                [outbound_id], |row| row.get(0)
+            ).unwrap();
+            (inbound_terminal, outbound_terminal)
+        };
+        assert!(inbound_terminal >= migration_started);
+        assert!(outbound_terminal >= migration_started);
+
+        let after_migration = crate::util::now_ts() + 1;
+        assert!(!migrated.accept_inbound(&identity, &inbound("legacy-inbound"), after_migration).unwrap(),
+            "the migrated provider ID must still deduplicate");
+        assert_eq!(
+            migrated.enqueue(&identity, None, "legacy reply", "legacy-outbound", after_migration).unwrap(),
+            outbound_id,
+            "the migrated idempotency key must still deduplicate"
+        );
+    }
+
+    #[test]
+    fn terminal_outbox_chunks_are_pruned_only_as_a_complete_expired_group() {
+        let store = ChannelStore::in_memory().unwrap();
+        let identity = owner();
+        let admitted_at = 200_000_000;
+        let after_head_expiry = admitted_at + TERMINAL_HISTORY_RETENTION_SECS + 10;
+        let ids = store.enqueue_parts(
+            &identity, None, &["head".into(), "tail".into()], "logical-reply", admitted_at
+        ).unwrap();
+        let head = store.due(ChannelKind::Telegram, "bot-1", admitted_at, 1).unwrap().remove(0);
+        assert_eq!(head.id, ids[0]);
+        store.delivered(ids[0], &identity, &head.lease, Some("head-remote"), admitted_at).unwrap();
+
+        // The head is older than retention, but the tail is still active. A write
+        // must not prune part of the logical reply or let a retry reinsert its head.
+        store.accept_inbound(&identity, &inbound("trigger-retention"), after_head_expiry).unwrap();
+        let replay = store.enqueue_parts(
+            &identity, None, &["head".into(), "tail".into()], "logical-reply", after_head_expiry
+        ).unwrap();
+        assert_eq!(replay, ids, "retry must reuse both original chunk rows");
+        let tail = store.due(ChannelKind::Telegram, "bot-1", after_head_expiry, 10).unwrap();
+        assert_eq!(tail.len(), 1);
+        assert_eq!(tail[0].id, ids[1], "the existing tail must remain next; no new head may be inserted");
+        store.delivered(ids[1], &identity, &tail[0].lease, Some("tail-remote"), after_head_expiry).unwrap();
+
+        let after_group_expiry = after_head_expiry + TERMINAL_HISTORY_RETENTION_SECS + 1;
+        store.accept_inbound(&identity, &inbound("trigger-group-expiry"), after_group_expiry).unwrap();
+        let remaining: i64 = store.db.lock().unwrap().query_row(
+            "SELECT COUNT(*) FROM channel_outbox WHERE message_key='logical-reply'",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(remaining, 0, "all chunks should be pruned after the entire logical reply expires");
     }
 
     #[test]
