@@ -607,14 +607,14 @@ impl ChannelStore {
     /// One-time migration safety: old gateway builds put approval questions
     /// into the persistent spool. They are never valid after a process restart;
     /// discard them before forwarding any queued outgoing messages.
-    pub fn discard_stale_approval_prompts(&self, kind: ChannelKind, account: &str) -> Result<usize> {
+    pub fn discard_stale_approval_prompts(&self, kind: ChannelKind, account: &str, now: i64) -> Result<usize> {
         check_id(account)?;
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.execute(
-            "UPDATE channel_outbox SET status='failed',text=''
-             WHERE kind=?1 AND account_id=?2 AND status IN ('pending','leased')
+            "UPDATE channel_outbox SET status='failed',text='',terminal_at=?1
+             WHERE kind=?2 AND account_id=?3 AND status IN ('pending','leased')
                AND text LIKE 'Heron wants permission (%'",
-            params![kind.name(), account],
+            params![now, kind.name(), account],
         )?)
     }
 
@@ -1021,7 +1021,11 @@ mod tests {
         let sent = spool.enqueue(&owner, None, "Heron wants permission (write_file):\\nReply yes or no.",
             "old-approval", 100).unwrap();
         let ordinary = spool.enqueue(&owner, None, "Ordinary notification", "safe-notice", 100).unwrap();
-        assert_eq!(spool.discard_stale_approval_prompts(ChannelKind::Telegram, "bot-1").unwrap(), 1);
+        assert_eq!(spool.discard_stale_approval_prompts(ChannelKind::Telegram, "bot-1", 101).unwrap(), 1);
+        let terminal_at: Option<i64> = spool.db.lock().unwrap().query_row(
+            "SELECT terminal_at FROM channel_outbox WHERE id=?1", [sent], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(terminal_at, Some(101));
         let due = spool.due(ChannelKind::Telegram, "bot-1", 100, 4).unwrap();
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].id, ordinary);
