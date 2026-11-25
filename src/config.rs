@@ -645,7 +645,8 @@ impl crate::credential_transaction::CredentialStore for NativeCredential<'_> {
  // reach one HERON_HOME through different path spellings. Keep this namespace
  // stable for the Telegram credential only; OAuth and legacy model-key entries
  // retain their existing path-scoped names. Read/delete also recognize the old
- // raw-path key so an upgrade does not strand a previously stored bot token.
+ // raw-path key during explicit replacement/deletion. Ordinary reads use only
+// the canonical key so two aliases cannot select divergent bot credentials.
  #[cfg(any(target_os = "macos", windows, test))]
  fn vault_entry_key_for_path(home: &std::path::Path, name: &str) -> String {
      let mut h: u64 = 0xcbf29ce484222325;
@@ -688,13 +689,10 @@ mod vault {
             .and_then(|key| keyring::Entry::new("Heron", &key).ok())
     }
     pub fn get(home: &Path, name: &str) -> Option<String> {
-        let current = entry(home, name)?;
-        match current.get_password() {
-            Ok(value) => Some(value).filter(|v| !v.is_empty()),
-            Err(keyring::Error::NoEntry) => legacy_entry(home, name)?
-                .get_password().ok().filter(|v| !v.is_empty()),
-            Err(_) => None,
-        }
+        // Never start a gateway from an alias-specific legacy token. It may
+        // differ from another alias's old entry; explicit replacement can
+        // migrate the current alias through get_checked below.
+        entry(home, name)?.get_password().ok().filter(|v| !v.is_empty())
     }
     pub fn set(home: &Path, name: &str, value: &str) -> bool {
         // Legacy model keys may fall back to an owner-only file.
