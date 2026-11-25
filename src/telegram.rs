@@ -44,30 +44,6 @@ struct Bot {
     dispatch_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
-/// A durable inbound update stays accepted while its detached agent turn is running.
-/// If that task is aborted or the process exits, startup can mark it interrupted and
-/// notify the owner instead of silently treating a merely-started turn as complete.
-#[derive(Clone)]
-struct InboundReceipt {
-    spool: ChannelStore,
-    identity: ChannelIdentity,
-    provider_message_id: String,
-}
-
-impl InboundReceipt {
-    fn complete(self) {
-        if let Err(err) = self.spool.complete_inbound(&self.identity, &self.provider_message_id) {
-            eprintln!("HERON Telegram: cannot complete incoming message: {err}");
-        }
-    }
-}
-
-fn complete_inbound_receipt(receipt: Option<InboundReceipt>) {
-    if let Some(receipt) = receipt {
-        receipt.complete();
-    }
-}
-
 impl Bot {
     async fn call(&self, method: &str, body: Value) -> Result<Value> {
         let resp = self.client.post(format!("{}/{method}", self.base)).json(&body).send().await?;
@@ -486,18 +462,6 @@ fn turn_input(store: &crate::store::Store, session: &Session, text: &str, forwar
 }
 
 async fn handle_message(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i64, text: String, forwarded: bool) {
-    handle_message_with_receipt(app, bot, shared, chat, text, forwarded, None).await;
-}
-
-async fn handle_message_with_receipt(
-    app: &Arc<App>,
-    bot: &Bot,
-    shared: &Arc<Shared>,
-    chat: i64,
-    text: String,
-    forwarded: bool,
-    mut receipt: Option<InboundReceipt>,
-) {
     // A forwarded message is never a command or an answer to a question: only the owner's own
     // words are.
     let lower = if forwarded { String::new() } else { text.trim().to_lowercase() };
@@ -506,14 +470,12 @@ async fn handle_message_with_receipt(
     if lower == "/stop" {
         let stopped = stop_reply(app, shared).await;
         bot.send(chat, if stopped { "Stopped." } else { "Nothing is running." }).await;
-        complete_inbound_receipt(receipt.take());
         return;
     }
     if lower == "/pause" {
         app.set_paused(true);
         stop_reply(app, shared).await;
         bot.send(chat, "Paused. Heron will start nothing on its own (reminders, triggers, suggestions) until you send /resume.").await;
-        complete_inbound_receipt(receipt.take());
         return;
     }
     // A late response to a prior prompt must not approve whichever action
@@ -537,14 +499,9 @@ async fn handle_message_with_receipt(
         }
     };
     match reply {
-        Some(Ok((tx, allow))) => {
-            let _ = tx.send(allow);
-            complete_inbound_receipt(receipt.take());
-            return;
-        }
+        Some(Ok((tx, allow))) => { let _ = tx.send(allow); return; }
         Some(Err(())) => {
             bot.send(chat, "An approval is pending. Reply using the exact yes/no code displayed in the permission question, or send /stop.").await;
-            complete_inbound_receipt(receipt.take());
             return;
         }
         None => {}
@@ -553,18 +510,15 @@ async fn handle_message_with_receipt(
         "/new" => {
             let _ = session_for(app, true);
             bot.send(chat, "Started a new conversation.").await;
-            complete_inbound_receipt(receipt.take());
             return;
         }
         "/resume" => {
             app.set_paused(false);
             bot.send(chat, "Resumed.").await;
-            complete_inbound_receipt(receipt.take());
             return;
         }
         "/start" | "/help" => {
             bot.send(chat, "This is your Heron. Send a message to ask for something. /new starts a fresh conversation, /stop halts a running reply, /pause stops everything Heron does on its own, /resume turns it back on.").await;
-            complete_inbound_receipt(receipt.take());
             return;
         }
         _ => {}
@@ -578,7 +532,7 @@ async fn handle_message_with_receipt(
         } else {
             match session_for(app, false) {
                 Ok(session) => {
-                    *running = Some(start_reply(app, bot, shared, chat, session, text, forwarded, receipt.take()));
+                    *running = Some(start_reply(app, bot, shared, chat, session, text, forwarded));
                     return;
                 }
                 Err(e) => Some(e),
@@ -587,25 +541,14 @@ async fn handle_message_with_receipt(
     };
     if let Some(e) = failed {
         bot.send(chat, &format!("Heron could not finish: {e:#}")).await;
-        complete_inbound_receipt(receipt.take());
         return;
     }
     bot.send(chat, "Still working on your last message. Send /stop to halt it.").await;
-    complete_inbound_receipt(receipt.take());
 }
 
 /// Start a phone turn as its own task. It is a run on the bus like every other: `session` first,
 /// `run_end` last, whether it finishes or is stopped.
-fn start_reply(
-    app: &Arc<App>,
-    bot: &Bot,
-    shared: &Arc<Shared>,
-    chat: i64,
-    mut session: Session,
-    text: String,
-    forwarded: bool,
-    receipt: Option<InboundReceipt>,
-) -> Running {
+fn start_reply(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i64, mut session: Session, text: String, forwarded: bool) -> Running {
     let n = shared.next_run.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let (sid, run_id) = (session.id.clone(), crate::events::new_run_id());
     app.publish_run_start(&sid, &run_id);
@@ -632,18 +575,11 @@ fn start_reply(
             }
         }
         app.publish_run_end(&sid, &run_id);
-        // Complete the inbound journal only after the reply is durably queued.
-        // If the detached task is aborted, or queueing fails, leave the row accepted
-        // so startup recovery can tell the owner that the turn may be incomplete.
-        let queued = match outcome {
-            Ok(t) if t.trim().is_empty() => bot.queue(chat, "(done)").await,
-            Ok(t) => bot.queue(chat, &t).await,
-            Err(e) if e.chain().any(|c| c.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some()) => bot.queue(chat, RISK_NOTICE_REPLY).await,
-            Err(e) => bot.queue(chat, &format!("Heron could not finish: {e:#}")).await,
-        };
-        match queued {
-            Ok(()) => complete_inbound_receipt(receipt),
-            Err(err) => eprintln!("HERON Telegram: reply was not durably queued; inbound message remains accepted: {err:#}"),
+        match outcome {
+            Ok(t) if t.trim().is_empty() => bot.send(chat, "(done)").await,
+            Ok(t) => bot.send(chat, &t).await,
+            Err(e) if e.chain().any(|c| c.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some()) => bot.send(chat, RISK_NOTICE_REPLY).await,
+            Err(e) => bot.send(chat, &format!("Heron could not finish: {e:#}")).await,
         }
     });
     Running { n, session_id, run_id: bus_run, handle: task.abort_handle(), done }
@@ -818,14 +754,11 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
                                 crate::util::now_ts(),
                             ) {
                                 Ok(true) => {
-                                    let receipt = InboundReceipt {
-                                        spool: bot.spool.clone(),
-                                        identity: identity.clone(),
-                                        provider_message_id: event.provider_message_id.clone(),
-                                    };
-                                    handle_message_with_receipt(
-                                        &app, &bot, &shared, chat, t, forwarded, Some(receipt),
-                                    ).await;
+                                    handle_message(&app, &bot, &shared, chat, t, forwarded).await;
+                                    let _ = bot.spool.complete_inbound(
+                                        &identity,
+                                        &event.provider_message_id,
+                                    );
                                 }
                                 Ok(false) => {}
                                 Err(err) => {
@@ -1192,70 +1125,6 @@ mod tests {
             self.0.store(true, std::sync::atomic::Ordering::SeqCst);
             std::future::pending().await
         }
-    }
-
-    #[tokio::test]
-    async fn interrupted_detached_turn_keeps_its_inbound_journal_row_accepted() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
-        cfg.agent.auto_memory = false;
-        cfg.ensure_home().unwrap();
-        let entered = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let app = Arc::new(App::assemble(
-            cfg,
-            dir.path().join("ws"),
-            Store::in_memory().unwrap(),
-            Arc::new(Waits(entered.clone())),
-        ).await.unwrap());
-        crate::risk_notice::accept_current(&app.store).unwrap();
-        app.store.kv_set("telegram_chat", "42").unwrap();
-        let bot = Bot {
-            client: reqwest::Client::new(),
-            base: "http://127.0.0.1:1/botOFFLINE".into(),
-            app: app.clone(),
-            account_id: "inbound-recovery-bot".into(),
-            pairing_epoch: pairing_epoch(&app),
-            spool: ChannelStore::open(&app.cfg().home.join("channels.db")).unwrap(),
-            dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
-        };
-        let identity = bot.identity(42);
-        let event = InboundMessage {
-            identity: identity.clone(),
-            provider_message_id: "interrupted-update".into(),
-            thread_id: None,
-            text: "summarize my notes".into(),
-        };
-        bot.spool.accept_inbound(&identity, &event, crate::util::now_ts()).unwrap();
-        let receipt = InboundReceipt {
-            spool: bot.spool.clone(),
-            identity,
-            provider_message_id: event.provider_message_id,
-        };
-        let shared = Arc::<Shared>::default();
-
-        handle_message_with_receipt(
-            &app,
-            &bot,
-            &shared,
-            42,
-            "summarize my notes".into(),
-            false,
-            Some(receipt),
-        ).await;
-        until("the detached turn reaches the model", || entered.load(std::sync::atomic::Ordering::SeqCst)).await;
-        assert!(shared.running.lock().unwrap().is_some());
-
-        assert!(stop_reply(&app, &shared).await, "the detached turn should be stopped");
-        assert_eq!(
-            bot.spool.mark_interrupted(ChannelKind::Telegram, &bot.account_id).unwrap(),
-            1,
-            "an aborted detached turn must remain discoverable by startup recovery",
-        );
-        assert_eq!(
-            bot.spool.mark_interrupted(ChannelKind::Telegram, &bot.account_id).unwrap(),
-            0,
-            "the same interrupted row must not be reported twice",
-        );
     }
 
     #[tokio::test]
