@@ -697,7 +697,7 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
     // Old builds could persist approval questions. No prior process still
     // holds those pending approvals, so never deliver them after restart.
     if let Err(err) = bot.spool.discard_stale_approval_prompts(
-        ChannelKind::Telegram, &bot.account_id
+        ChannelKind::Telegram, &bot.account_id, crate::util::now_ts()
     ) {
         eprintln!("HERON Telegram: could not clear obsolete approval prompts: {err}");
         return;
