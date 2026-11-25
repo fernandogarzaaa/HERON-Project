@@ -1079,6 +1079,14 @@ mod tests {
         let old_id = store.enqueue(&identity, None, "delayed reply", "delayed-key", admitted_at).unwrap();
         let claim = store.due(ChannelKind::Telegram, "bot-1", terminal_at, 1).unwrap().remove(0);
         store.delivered(old_id, &identity, &claim.lease, Some("remote-delayed"), terminal_at).unwrap();
+        {
+            let db = store.db.lock().unwrap();
+            let state: (String, Option<i64>) = db.query_row(
+                "SELECT status, terminal_at FROM channel_outbox WHERE id=?1",
+                [old_id], |row| Ok((row.get(0)?, row.get(1)?))
+            ).unwrap();
+            assert_eq!(state, ("sent".into(), Some(terminal_at)));
+        }
 
         // Admission was older than 30 days, but completion/delivery happened now.
         // Both terminal dedupe keys must survive for a full 30 days after that transition.
@@ -1102,6 +1110,13 @@ mod tests {
         let after_expiry = terminal_at + TERMINAL_HISTORY_RETENTION_SECS + 1;
         assert!(store.accept_inbound(&identity, &inbound("after-expiry"), after_expiry).unwrap());
         assert!(store.accept_inbound(&identity, &inbound("long-running"), after_expiry).unwrap());
+        {
+            let db = store.db.lock().unwrap();
+            let remaining: i64 = db.query_row(
+                "SELECT COUNT(*) FROM channel_outbox WHERE id=?1", [old_id], |row| row.get(0)
+            ).unwrap();
+            assert_eq!(remaining, 0, "expired terminal outbound history should be pruned");
+        }
         assert_ne!(store.enqueue(&identity, None, "delayed reply", "delayed-key", after_expiry).unwrap(), old_id);
     }
 
