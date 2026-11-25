@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+// Serialize read-modify-write operations on the legacy secrets file.
+static LEGACY_SECRETS_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -353,6 +356,30 @@ impl Config {
         self.home.join("secrets.json")
     }
 
+    /// Lock every cross-process read-modify-write of secrets.json. Keep this
+    /// owner-only lock file in place: unlinking a locked inode can split the
+    /// lock domain between processes sharing the same HERON_HOME.
+    fn lock_legacy_secrets_file(&self) -> Result<std::fs::File> {
+        self.ensure_home()?;
+        let home = std::fs::canonicalize(&self.home)?;
+        let path = home.join("secrets-json-write.lock");
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).write(true).create(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let file = options.open(&path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        file.lock().with_context(|| format!("could not lock {}", path.display()))?;
+        Ok(file)
+    }
+
     /// The fallback secrets file. A file that is there but cannot be read or understood is an error,
     /// never "no secrets": treating it as empty would let the next save wipe every other key in it.
     fn read_file_secrets(&self) -> Result<serde_json::Map<String, serde_json::Value>> {
@@ -415,9 +442,9 @@ impl Config {
 
     /// Save (or with an empty value, remove) a secret.
     pub fn store_secret(&self, name: &str, value: &str) -> Result<()> {
-        // One writer at a time: two saves must not each read the file and then overwrite the other's key.
-        static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _one_at_a_time = WRITING.lock().unwrap_or_else(|e| e.into_inner());
+        // Serialize both same-process and cross-process read-modify-write operations.
+        let _one_at_a_time = LEGACY_SECRETS_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _file_lock = self.lock_legacy_secrets_file()?;
         self.ensure_home()?;
         let value = value.trim();
         let mut file = self.read_file_secrets()?;
@@ -432,6 +459,20 @@ impl Config {
         self.write_file_secrets(&file)
     }
 
+    /// Remove only the legacy plaintext copy of a secret, without touching
+    /// the native credential vault. Call this before deleting the vault item
+    /// so a failed file cleanup cannot leave a stale plaintext credential.
+    pub fn clear_legacy_secret(&self, name: &str) -> Result<()> {
+        let _one_at_a_time = LEGACY_SECRETS_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _file_lock = self.lock_legacy_secrets_file()?;
+        self.ensure_home()?;
+        let mut file = self.read_file_secrets()?;
+        if file.remove(name).is_some() {
+            self.write_file_secrets(&file)?;
+        }
+        Ok(())
+    }
+
     /// Where secrets are kept on this computer, for display.
     pub fn secret_storage(&self) -> &'static str {
         vault::NAME
@@ -444,9 +485,11 @@ impl Config {
     /// on Linux, until a native Secret Service or encrypted vault backend is
     /// implemented, storing a new connector API key is refused.
     pub fn store_vault_only_secret(&self, name: &str, value: &str) -> Result<()> {
+        let _one_at_a_time = LEGACY_SECRETS_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         if !cfg!(any(target_os = "macos", windows)) {
             anyhow::bail!("Secure connector vault is not available on this OS. A native Secret Service or encrypted vault must be configured first.");
         }
+        let _file_lock = self.lock_legacy_secrets_file()?;
         self.ensure_home()?;
         // Inspect the legacy store BEFORE writing to Keychain/Credential
         // Manager. A damaged file must never turn a failed API response into
@@ -597,6 +640,41 @@ impl crate::credential_transaction::CredentialStore for NativeCredential<'_> {
 
 /// The operating system's credential store. Entries are namespaced by the Heron folder so that
 /// separate profiles (and tests) never see each other's secrets.
+
+ // Telegram's transition lock and SQLite state are shared by processes that may
+ // reach one HERON_HOME through different path spellings. Keep this namespace
+ // stable for the Telegram credential only; OAuth and legacy model-key entries
+ // retain their existing path-scoped names. Read/delete also recognize the old
+ // raw-path key during explicit replacement/deletion. Ordinary reads use only
+// the canonical key so two aliases cannot select divergent bot credentials.
+ #[cfg(any(target_os = "macos", windows, test))]
+ fn vault_entry_key_for_path(home: &std::path::Path, name: &str) -> String {
+     let mut h: u64 = 0xcbf29ce484222325;
+     for b in home.to_string_lossy().as_bytes() {
+         h = (h ^ *b as u64).wrapping_mul(0x100000001b3);
+     }
+     format!("{name}@{h:x}")
+ }
+
+ #[cfg(any(target_os = "macos", windows, test))]
+ fn vault_entry_key(home: &std::path::Path, name: &str) -> String {
+     let identity = if name == "telegram_token" {
+         std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf())
+     } else {
+         home.to_path_buf()
+     };
+     vault_entry_key_for_path(&identity, name)
+ }
+
+ #[cfg(any(target_os = "macos", windows, test))]
+ fn legacy_vault_entry_key(home: &std::path::Path, name: &str) -> Option<String> {
+     if name != "telegram_token" {
+         return None;
+     }
+     let canonical = std::fs::canonicalize(home).ok()?;
+     (canonical.as_path() != home).then(|| vault_entry_key_for_path(home, name))
+ }
+
 #[cfg(any(target_os = "macos", windows))]
 mod vault {
     use std::path::Path;
@@ -604,13 +682,16 @@ mod vault {
     pub const NAME: &str = if cfg!(windows) { "Windows Credential Manager" } else { "macOS Keychain" };
 
     fn entry(home: &Path, name: &str) -> Option<keyring::Entry> {
-        let mut h: u64 = 0xcbf29ce484222325;
-        for b in home.to_string_lossy().as_bytes() {
-            h = (h ^ *b as u64).wrapping_mul(0x100000001b3);
-        }
-        keyring::Entry::new("Heron", &format!("{name}@{h:x}")).ok()
+        keyring::Entry::new("Heron", &super::vault_entry_key(home, name)).ok()
+    }
+    fn legacy_entry(home: &Path, name: &str) -> Option<keyring::Entry> {
+        super::legacy_vault_entry_key(home, name)
+            .and_then(|key| keyring::Entry::new("Heron", &key).ok())
     }
     pub fn get(home: &Path, name: &str) -> Option<String> {
+        // Never start a gateway from an alias-specific legacy token. It may
+        // differ from another alias's old entry; explicit replacement can
+        // migrate the current alias through get_checked below.
         entry(home, name)?.get_password().ok().filter(|v| !v.is_empty())
     }
     pub fn set(home: &Path, name: &str, value: &str) -> bool {
@@ -621,7 +702,14 @@ mod vault {
         let e = entry(home, name).ok_or_else(|| "OS vault entry cannot be opened".to_string())?;
         match e.get_password() {
             Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
-            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(keyring::Error::NoEntry) => match legacy_entry(home, name) {
+                Some(legacy) => match legacy.get_password() {
+                    Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
+                    Err(keyring::Error::NoEntry) => Ok(None),
+                    Err(error) => Err(error.to_string()),
+                },
+                None => Ok(None),
+            },
             Err(error) => Err(error.to_string()),
         }
     }
@@ -632,15 +720,27 @@ mod vault {
         if saved != value {
             return Err("OS credential read-back did not match the attempted value.".into());
         }
+        if let Some(legacy) = legacy_entry(home, name) {
+            match legacy.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => {}
+                Err(error) => return Err(format!("legacy OS credential cleanup rejected: {error}")),
+            }
+        }
         Ok(())
     }
-    pub fn delete(home: &Path, name: &str) -> Result<(), String> {
-        match entry(home, name).map(|e| e.delete_credential()) {
-            // Nothing saved under that name is what the caller wanted anyway.
+    fn delete_entry(entry: Option<keyring::Entry>) -> Result<(), String> {
+        match entry.map(|e| e.delete_credential()) {
             Some(Ok(())) | Some(Err(keyring::Error::NoEntry)) => Ok(()),
             None => Err("OS vault entry cannot be opened".into()),
-            Some(Err(e)) => Err(e.to_string()),
+            Some(Err(error)) => Err(error.to_string()),
         }
+    }
+    pub fn delete(home: &Path, name: &str) -> Result<(), String> {
+        delete_entry(entry(home, name))?;
+        if let Some(legacy) = legacy_entry(home, name) {
+            delete_entry(Some(legacy))?;
+        }
+        Ok(())
     }
 }
 
@@ -751,6 +851,36 @@ mod tests {
         assert!(second.as_deref() == Some("disposable-replacement"));
         assert!(absent);
         assert_eq!(std::fs::read(cfg.home.join("secrets.json")).unwrap(), b"{broken");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn telegram_vault_identity_is_shared_by_real_and_symlinked_home_paths() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let alias = dir.path().join("home-alias");
+        std::fs::create_dir(&home).unwrap();
+        // macOS temporary directories may be reached through /var -> /private/var.
+        // Use the canonical real path so this tests the explicit symlink alias,
+        // not an OS-level alias in the temporary-directory prefix.
+        let home = std::fs::canonicalize(&home).unwrap();
+        symlink(&home, &alias).unwrap();
+
+        assert_eq!(
+            vault_entry_key(&home, "telegram_token"),
+            vault_entry_key(&alias, "telegram_token"),
+            "Telegram credentials must share the same native-vault identity across home aliases"
+        );
+        let legacy_alias_key = legacy_vault_entry_key(&alias, "telegram_token").unwrap();
+        assert_ne!(legacy_alias_key, vault_entry_key(&alias, "telegram_token"));
+        assert!(legacy_vault_entry_key(&home, "telegram_token").is_none());
+        assert_ne!(
+            vault_entry_key(&home, "oauth_google_refresh_token"),
+            vault_entry_key(&alias, "oauth_google_refresh_token"),
+            "this Telegram-only fix must not rewrite OAuth vault namespaces"
+        );
     }
 
     #[test]
@@ -882,5 +1012,126 @@ mod tests {
             None => std::env::remove_var("HERON_API_KEY"),
         }
         assert_eq!(got.as_deref(), Some("sk-configured"));
+    }
+}
+
+
+#[cfg(test)]
+mod legacy_secret_cleanup_tests {
+    use super::*;
+
+    #[test]
+    fn clear_legacy_secret_removes_only_the_requested_file_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().to_path_buf();
+        std::fs::create_dir_all(&cfg.home).unwrap();
+        std::fs::write(
+            cfg.secrets_path(),
+            serde_json::json!({
+                "telegram_token": "legacy-token",
+                "other_secret": "keep-me"
+            }).to_string(),
+        ).unwrap();
+
+        cfg.clear_legacy_secret("telegram_token").unwrap();
+
+        let remaining = cfg.read_file_secrets().unwrap();
+        assert!(!remaining.contains_key("telegram_token"));
+        assert_eq!(remaining.get("other_secret").and_then(|v| v.as_str()), Some("keep-me"));
+    }
+
+    #[test]
+    fn clear_legacy_secret_fails_closed_on_a_damaged_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().to_path_buf();
+        std::fs::create_dir_all(&cfg.home).unwrap();
+        let path = cfg.secrets_path();
+        std::fs::write(&path, "{damaged").unwrap();
+
+        assert!(cfg.clear_legacy_secret("telegram_token").is_err());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "{damaged");
+    }
+
+    #[test]
+    fn legacy_secret_lock_child_process() {
+        let (Ok(home), Ok(action)) = (
+            std::env::var("HERON_LEGACY_SECRET_LOCK_TEST_HOME"),
+            std::env::var("HERON_LEGACY_SECRET_LOCK_TEST_ACTION"),
+        ) else {
+            return;
+        };
+        let mut cfg = Config::default();
+        cfg.home = PathBuf::from(home);
+        std::fs::write(cfg.home.join(format!("{action}-started")), b"started").unwrap();
+        match action.as_str() {
+            "store" => cfg.store_secret("email_password", "replacement").unwrap(),
+            "clear" => cfg.clear_legacy_secret("telegram_token").unwrap(),
+            _ => panic!("unknown child action: {action}"),
+        }
+        std::fs::write(cfg.home.join(format!("{action}-complete")), b"done").unwrap();
+    }
+
+    fn assert_secret_writer_waits_for_process_lock(cfg: &Config, action: &str) {
+        let lock = cfg.lock_legacy_secrets_file().unwrap();
+        let started = cfg.home.join(format!("{action}-started"));
+        let completed = cfg.home.join(format!("{action}-complete"));
+        let executable = std::env::current_exe().unwrap();
+        let mut child = std::process::Command::new(executable)
+            .args([
+                "--exact",
+                "config::legacy_secret_cleanup_tests::legacy_secret_lock_child_process",
+                "--nocapture",
+            ])
+            .env("HERON_LEGACY_SECRET_LOCK_TEST_HOME", &cfg.home)
+            .env("HERON_LEGACY_SECRET_LOCK_TEST_ACTION", action)
+            .spawn()
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !started.exists() {
+            if let Some(status) = child.try_wait().unwrap() {
+                panic!("secret writer child exited before attempting the lock: {status}");
+            }
+            assert!(std::time::Instant::now() < deadline, "secret writer child did not start");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "{action} must wait while another process owns the secrets-file lock"
+        );
+
+        drop(lock);
+        let status = child.wait().unwrap();
+        assert!(status.success(), "secret writer child failed: {status}");
+        assert!(completed.exists(), "child did not complete {action}");
+    }
+
+    #[test]
+    fn secrets_json_writers_are_serialized_across_processes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().to_path_buf();
+        cfg.ensure_home().unwrap();
+        std::fs::write(
+            cfg.secrets_path(),
+            serde_json::json!({
+                "telegram_token": "legacy-token",
+                "email_password": "old-password",
+                "other_secret": "keep-me"
+            }).to_string(),
+        ).unwrap();
+
+        // Exercise both kinds of writer while a different process owns the
+        // lock. Without the OS lock these children would complete immediately.
+        assert_secret_writer_waits_for_process_lock(&cfg, "store");
+        assert_secret_writer_waits_for_process_lock(&cfg, "clear");
+
+        let remaining = cfg.read_file_secrets().unwrap();
+        assert!(!remaining.contains_key("telegram_token"));
+        assert_eq!(cfg.secret("email_password").as_deref(), Some("replacement"));
+        assert_eq!(remaining.get("other_secret").and_then(|v| v.as_str()), Some("keep-me"));
     }
 }

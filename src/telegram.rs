@@ -346,6 +346,48 @@ fn rotate_pairing_epoch(app: &App) -> String {
     epoch
 }
 
+/// Keep Telegram's update cursor separate for each bot credential. A token
+/// replacement must never let the new bot inherit another bot's update IDs.
+fn token_account_id(token: &str) -> String {
+    format!("{:x}", Sha256::digest(token.as_bytes()))
+}
+
+fn offset_key(account_id: &str) -> String {
+    format!("telegram_offset_{account_id}")
+}
+
+fn read_offset(store: &crate::store::Store, account_id: &str) -> i64 {
+    let key = offset_key(account_id);
+    if let Some(value) = store.kv_get(&key) {
+        return value.parse().unwrap_or(0);
+    }
+    // One-time migration for installations that only have the original
+    // single-bot cursor. Replacement tokens are initialized explicitly to 0
+    // before their credential is published.
+    let legacy = store.kv_get("telegram_offset")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    let _ = store.kv_set(&key, &legacy.to_string());
+    legacy
+}
+
+pub(crate) fn initialize_offset_for_token(
+    store: &crate::store::Store,
+    token: &str,
+) -> Result<()> {
+    let key = offset_key(&token_account_id(token));
+    if store.kv_get(&key).is_none() {
+        store.kv_set(&key, "0")?;
+    }
+    Ok(())
+}
+
+/// Preflight the replacement bot's cursor before stopping or revoking the current pairing.
+/// A failed cursor write must leave the existing owner/session and gateway intact.
+pub(crate) fn preflight_token_replacement(app: &App, token: &str) -> Result<()> {
+    initialize_offset_for_token(&app.store, token)
+}
+
 /// The code, for showing in the app. Looking at it there is what re-opens pairing after too many
 /// wrong guesses: only someone at the computer can do that.
 pub fn show_pairing_code(app: &App) -> String {
@@ -387,7 +429,7 @@ pub(crate) fn purge_token_spool(app: &App, token: &str) {
     }
 }
 
-pub fn unpair(app: &App) {
+pub fn unpair(app: &App) -> Result<()> {
     let token = app.cfg().secret("telegram_token");
     // Revoke the pairing before purging. Detached turns check this state
     // after their durable enqueue, so no old-epoch write can race in behind
@@ -398,7 +440,7 @@ pub fn unpair(app: &App) {
     // epoch, or an old queued reply could become valid after re-pairing.
     let epoch = uuid::Uuid::new_v4().simple().to_string();
     let code = new_code();
-    if let Err(err) = app.store.kv_set_many(&[
+    app.store.kv_set_many(&[
         ("telegram_session", ""),
         // Preserve the update cursor for the *same bot*: replaying old owner
         // commands on re-pairing can re-run non-idempotent tool actions.
@@ -408,13 +450,11 @@ pub fn unpair(app: &App) {
         ("telegram_pairing_epoch", epoch.as_str()),
         ("telegram_wrong", "0"),
         ("telegram_locked", ""),
-    ]) {
-        eprintln!("HERON Telegram: could not commit pairing revocation: {err}");
-        return;
-    }
+    ])?;
     if let Some(token) = token {
         purge_token_spool(app, &token);
     }
+    Ok(())
 }
 
 fn session_for(app: &App, fresh: bool) -> Result<Session> {
@@ -549,26 +589,51 @@ async fn forward_inbox(app: &App, bot: &Bot, chat: i64) {
 /// home reads it, so a gateway in another process notices that its token was revoked and stops.
 const GENERATION_KEY: &str = "telegram_generation";
 
-pub fn bump_generation(app: &App) {
-    let _ = app.store.kv_set(GENERATION_KEY, &uuid::Uuid::new_v4().simple().to_string());
+pub fn bump_generation(app: &App) -> Result<()> {
+    app.store.kv_set(GENERATION_KEY, &uuid::Uuid::new_v4().simple().to_string())?;
+    Ok(())
+}
+
+fn token_matches_configuration(app: &App, token: &str, enforce: bool) -> bool {
+    !enforce || app.cfg().secret("telegram_token").as_deref() == Some(token)
 }
 
 fn generation(app: &App) -> String {
     app.store.kv_get(GENERATION_KEY).unwrap_or_default()
 }
 
-/// One gateway per Heron home, across processes: two readers of one bot split its updates and
-/// race the spool. Waits for the current holder to stop, and gives up if the token changes first.
-async fn take_gateway_lock(app: &App, started: &str) -> Option<std::fs::File> {
-    let cfg = app.cfg();
+/// Open the shared gateway lock using the canonical home identity. HERON_HOME is
+/// preserved as supplied, so symlink/relative aliases must not create independent pollers.
+fn open_gateway_lock(home: &std::path::Path) -> Result<std::fs::File> {
+    std::fs::create_dir_all(home)?;
+    let canonical_home = std::fs::canonicalize(home)?;
+    let path = canonical_home.join("telegram.lock");
     let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(false);
+    opts.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    let file = match cfg.ensure_home().and_then(|_| Ok(opts.open(cfg.home.join("telegram.lock"))?)) {
+    Ok(opts.open(path)?)
+}
+
+/// One gateway per Heron home, across processes: two readers of one bot split its updates and
+/// race the spool. Waits for the current holder to stop, and gives up if the token changes first.
+async fn take_gateway_lock(
+    app: &App,
+    started: &str,
+    token: &str,
+    enforce_token_match: bool,
+) -> Option<std::fs::File> {
+    // A gateway can be spawned with a captured token and not be polled until
+    // after another process has replaced that token. Reject stale snapshots
+    // before opening or acquiring the shared gateway lock.
+    if generation(app) != started || !token_matches_configuration(app, token, enforce_token_match) {
+        return None;
+    }
+    let cfg = app.cfg();
+    let file = match cfg.ensure_home().and_then(|_| open_gateway_lock(&cfg.home)) {
         Ok(file) => file,
         Err(err) => {
             eprintln!("HERON Telegram: gateway disabled because its lock file cannot open: {err}");
@@ -578,14 +643,21 @@ async fn take_gateway_lock(app: &App, started: &str) -> Option<std::fs::File> {
     let mut told = false;
     loop {
         match file.try_lock() {
-            Ok(()) => return Some(file),
+            Ok(()) => {
+                // The generation may change between the pre-lock check and
+                // acquiring the lock. Drop the lock rather than run stale credentials.
+                if generation(app) != started || !token_matches_configuration(app, token, enforce_token_match) {
+                    return None;
+                }
+                return Some(file);
+            }
             Err(std::fs::TryLockError::WouldBlock) => {}
             Err(std::fs::TryLockError::Error(err)) => {
                 eprintln!("HERON Telegram: gateway disabled because its lock cannot be taken: {err}");
                 return None;
             }
         }
-        if generation(app) != started {
+        if generation(app) != started || !token_matches_configuration(app, token, enforce_token_match) {
             return None;
         }
         if !told {
@@ -614,9 +686,27 @@ pub async fn verify_token(api_base: &str, token: &str) -> std::result::Result<()
     Err(format!("Telegram could not check the token right now (HTTP {}). Try again in a moment.", status.as_u16()))
 }
 
-pub async fn run(app: Arc<App>, api_base: String, token: String) {
+pub fn run(
+    app: Arc<App>,
+    api_base: String,
+    token: String,
+) -> impl std::future::Future<Output = ()> + Send + 'static {
+    // Capture synchronously when the caller constructs the future, not when
+    // Tokio first polls it. The token may already have been read by the caller.
     let started = generation(&app);
-    let Some(_gateway_lock) = take_gateway_lock(&app, &started).await else { return };
+    async move {
+        run_with_generation(app, api_base, token, started, true).await;
+    }
+}
+
+async fn run_with_generation(
+    app: Arc<App>,
+    api_base: String,
+    token: String,
+    started: String,
+    enforce_token_match: bool,
+) {
+    let Some(_gateway_lock) = take_gateway_lock(&app, &started, &token, enforce_token_match).await else { return };
     let spool = match ChannelStore::open(&app.cfg().home.join("channels.db")) {
         Ok(spool) => spool,
         Err(err) => {
@@ -628,7 +718,7 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
         client: reqwest::Client::builder().timeout(Duration::from_secs(40)).build().expect("http client"),
         base: format!("{}/bot{token}", api_base.trim_end_matches('/')),
         app: app.clone(),
-        account_id: format!("{:x}", Sha256::digest(token.as_bytes())),
+        account_id: token_account_id(&token),
         pairing_epoch: pairing_epoch(&app),
         spool,
         dispatch_lock: Arc::new(tokio::sync::Mutex::new(())),
@@ -682,10 +772,11 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
     }));
-    let mut offset: i64 = app.store.kv_get("telegram_offset").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let offset_key = offset_key(&bot.account_id);
+    let mut offset = read_offset(&app.store, &bot.account_id);
     let poll_secs = if api_base.contains("127.0.0.1") { 0 } else { 25 };
     loop {
-        if generation(&app) != started {
+        if generation(&app) != started || !token_matches_configuration(&app, &token, enforce_token_match) {
             eprintln!("HERON Telegram: the bot token changed; this gateway stopped.");
             return;
         }
@@ -697,11 +788,15 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
             }
         };
         // A long poll can return after the token was replaced: those messages were sent to the old bot.
-        if generation(&app) != started {
+        if generation(&app) != started || !token_matches_configuration(&app, &token, enforce_token_match) {
             eprintln!("HERON Telegram: the bot token changed; this gateway stopped.");
             return;
         }
         for u in updates.as_array().cloned().unwrap_or_default() {
+            if generation(&app) != started || !token_matches_configuration(&app, &token, enforce_token_match) {
+                eprintln!("HERON Telegram: the bot token changed; this gateway stopped.");
+                return;
+            }
             let Some(update_id) = u["update_id"].as_i64().filter(|id| *id > 0) else {
                 continue;
             };
@@ -769,6 +864,8 @@ pub async fn run(app: Arc<App>, api_base: String, token: String) {
                 }
             }
             offset = next_offset;
+            let _ = app.store.kv_set(&offset_key, &offset.to_string());
+            // Keep the legacy single-bot cursor current for downgrade compatibility.
             let _ = app.store.kv_set("telegram_offset", &offset.to_string());
         }
         if let Some(chat) = paired_chat(&app) {
@@ -791,9 +888,13 @@ pub fn spawn_if_configured(app: &Arc<App>) -> bool {
         // credential source. User must reconnect through the verified vault.
         return false;
     }
+    // Snapshot the generation before reading the credential. If replacement
+    // starts after this point, its generation bump fences this task even if
+    // Tokio does not poll the spawned future until much later.
+    let started = generation(app);
     match cfg.secret("telegram_token") {
         Some(token) => {
-            let task = tokio::spawn(run(app.clone(), cfg.telegram.api_base.clone(), token));
+            let task = tokio::spawn(run_with_generation(app.clone(), cfg.telegram.api_base.clone(), token, started, true));
             *app.telegram_task.lock().unwrap() = Some(task.abort_handle());
             true
         }
@@ -814,6 +915,28 @@ mod tests {
     use crate::config::Config;
     use crate::llm::ScriptedLlm;
     use crate::store::Store;
+
+    #[cfg(unix)]
+    #[test]
+    fn gateway_lock_uses_canonical_home_for_symlink_aliases() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let alias = dir.path().join("home-alias");
+        std::fs::create_dir_all(&home).unwrap();
+        symlink(&home, &alias).unwrap();
+
+        let held = open_gateway_lock(&home).unwrap();
+        held.try_lock().expect("the primary gateway must acquire its lock");
+        let contender = open_gateway_lock(&alias).unwrap();
+        assert!(
+            matches!(contender.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
+            "a symlink alias must not start a second Telegram poller"
+        );
+        drop(held);
+        assert!(contender.try_lock().is_ok(), "the shared gateway lock should be released");
+    }
 
     #[test]
     fn splits_telegram_replies_by_utf16_not_unicode_scalar_count() {
@@ -849,6 +972,17 @@ mod tests {
             Store::open(&root.join("home/heron.db")).unwrap(),
             Arc::new(ScriptedLlm::new(vec![])),
         ).await.unwrap())
+    }
+
+    fn run_test(
+        app: Arc<App>,
+        api_base: String,
+        token: String,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let started = generation(&app);
+        async move {
+            run_with_generation(app, api_base, token, started, false).await;
+        }
     }
 
     async fn until(what: &str, check: impl Fn() -> bool) {
@@ -920,6 +1054,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn production_gateway_stops_when_configured_token_changes_without_generation_bump() {
+        let (base, paths) = mock_telegram(|_| (200, json!({"ok": true, "result": []}))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = heron_process(dir.path()).await;
+        app.cfg().store_secret("telegram_token", "NEW-TOKEN").unwrap();
+        let started = generation(&app);
+
+        let gateway = tokio::spawn(run_with_generation(
+            app.clone(), base, "OLD-TOKEN".into(), started, true,
+        ));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert!(gateway.is_finished(), "a gateway with a superseded credential must exit");
+        assert!(
+            !paths.lock().unwrap().iter().any(|path| path.ends_with("/getUpdates")),
+            "a superseded credential must not poll Telegram even if generation persistence failed"
+        );
+    }
+
+    #[tokio::test]
+    async fn bump_generation_reports_sqlite_write_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = heron_process(dir.path()).await;
+        app.store.execute_batch_for_test(
+            "CREATE TRIGGER reject_telegram_generation BEFORE INSERT ON kv
+             WHEN NEW.k = 'telegram_generation'
+             BEGIN SELECT RAISE(ABORT, 'injected generation write failure'); END;",
+        );
+
+        assert!(bump_generation(&app).is_err());
+    }
+
+    #[tokio::test]
+    async fn gateway_spawned_before_replacement_cannot_adopt_the_new_generation() {
+        let (base, paths) = mock_telegram(|_| (200, json!({"ok": true, "result": []}))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = heron_process(dir.path()).await;
+
+        // Model spawn_if_configured capturing the old credential and generation,
+        // followed by a replacement bump before Tokio first polls the task.
+        let stale_future = run_test(app.clone(), base, "OLD-TOKEN".into());
+        // run() captures the generation synchronously. Do not schedule the
+        // future until after the replacement bump: this deterministically
+        // exercises the delayed-first-poll window.
+        bump_generation(&app).unwrap();
+        let stale_gateway = tokio::spawn(stale_future);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert!(stale_gateway.is_finished(), "a stale gateway must exit before polling");
+        assert!(
+            !paths.lock().unwrap().iter().any(|path| path.ends_with("/getUpdates")),
+            "a gateway holding a replaced token must never start polling"
+        );
+    }
+
+    #[tokio::test]
     async fn legacy_unscoped_outbox_rows_are_discarded_on_gateway_start() {
         let (base, paths) = mock_telegram_with_send_delay(Duration::ZERO, false).await;
         let dir = tempfile::tempdir().unwrap();
@@ -934,7 +1124,7 @@ mod tests {
         };
         spool.enqueue_parts(&identity, None, &["legacy reply".to_string()], "legacy-reply", crate::util::now_ts()).unwrap();
 
-        let gateway = tokio::spawn(run(app, base, token.into()));
+        let gateway = tokio::spawn(run_test(app, base, token.into()));
         until("legacy outbox purge", || spool.count_pending().unwrap() == 0).await;
         assert!(
             !paths.lock().unwrap().iter().any(|path| path.ends_with("/sendMessage")),
@@ -953,7 +1143,7 @@ mod tests {
         let old_epoch = pairing_epoch(&app);
         let new_epoch = rotate_pairing_epoch(&app);
 
-        let gateway = tokio::spawn(run(app.clone(), base, token.into()));
+        let gateway = tokio::spawn(run_test(app.clone(), base, token.into()));
         tokio::time::sleep(Duration::from_millis(600)).await;
         assert!(
             !paths.lock().unwrap().iter().any(|path| path.ends_with("/sendMessage")),
@@ -975,7 +1165,7 @@ mod tests {
         let app = paired_heron(dir.path()).await;
         queue_test_replies(&app, "OUTBOX-POLL-FAIL", 1);
 
-        let gateway = tokio::spawn(run(app, base, "OUTBOX-POLL-FAIL".into()));
+        let gateway = tokio::spawn(run_test(app, base, "OUTBOX-POLL-FAIL".into()));
         until("queued reply delivery while getUpdates is failing", || {
             paths.lock().unwrap().iter().any(|path| path.ends_with("/sendMessage"))
         }).await;
@@ -989,7 +1179,7 @@ mod tests {
         let app = paired_heron(dir.path()).await;
         queue_test_replies(&app, "OUTBOX-SLOW-SEND", 3);
 
-        let gateway = tokio::spawn(run(app, base, "OUTBOX-SLOW-SEND".into()));
+        let gateway = tokio::spawn(run_test(app, base, "OUTBOX-SLOW-SEND".into()));
         let count = |suffix: &str| paths.lock().unwrap().iter()
             .filter(|path| path.ends_with(suffix)).count();
         until("first slow outbound send", || count("/sendMessage") > 0).await;
@@ -1044,16 +1234,16 @@ mod tests {
         let daemon = heron_process(dir.path()).await;
         let serve = heron_process(dir.path()).await;
 
-        let old = tokio::spawn(run(daemon.clone(), base.clone(), "OLD".into()));
+        let old = tokio::spawn(run_test(daemon.clone(), base.clone(), "OLD".into()));
         until("the first gateway polls", || polls("OLD") > 0).await;
-        let second = tokio::spawn(run(serve.clone(), base.clone(), "SECOND".into()));
+        let second = tokio::spawn(run_test(serve.clone(), base.clone(), "SECOND".into()));
         tokio::time::sleep(Duration::from_millis(600)).await;
         assert_eq!(polls("SECOND"), 0, "a second gateway polled while the first was running");
         second.abort();
 
         // What set_telegram does in the other process when the owner pastes a new token.
-        bump_generation(&serve);
-        let new = tokio::spawn(run(serve.clone(), base.clone(), "NEW".into()));
+        bump_generation(&serve).unwrap();
+        let new = tokio::spawn(run_test(serve.clone(), base.clone(), "NEW".into()));
         until("the old gateway stops", || old.is_finished()).await;
         until("the new gateway takes over", || polls("NEW") > 0).await;
         let after = polls("OLD");
@@ -1109,7 +1299,7 @@ mod tests {
         assert!(bot.is_current_owner(42));
         // Simulate disconnect/replacement after the turn started but before
         // the LLM requested tool permission.
-        unpair(&app);
+        unpair(&app).unwrap();
         assert!(!bot.is_current_owner(42));
         let shared = Arc::<Shared>::default();
         let approver = TelegramApprover { bot, chat: 42, shared: shared.clone() };
@@ -1140,6 +1330,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unpair_reports_transaction_failure_without_partially_revoking_pairing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        let app = App::assemble(
+            cfg,
+            dir.path().join("ws"),
+            Store::in_memory().unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap();
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        app.store.kv_set("telegram_session", "session-before-unpair").unwrap();
+        app.store.kv_set("telegram_pairing_epoch", "old-epoch").unwrap();
+        app.store.execute_batch_for_test(
+            "CREATE TRIGGER reject_pairing_epoch BEFORE INSERT ON kv
+             WHEN NEW.k = 'telegram_pairing_epoch'
+             BEGIN SELECT RAISE(ABORT, 'injected revocation failure'); END;",
+        );
+
+        assert!(unpair(&app).is_err(), "a failed revocation must be reported to the caller");
+        assert_eq!(app.store.kv_get("telegram_chat").as_deref(), Some("42"));
+        assert_eq!(app.store.kv_get("telegram_session").as_deref(), Some("session-before-unpair"));
+        assert_eq!(pairing_epoch(&app), "old-epoch");
+    }
+
+    #[tokio::test]
+    async fn cursor_initialization_failure_does_not_revoke_current_pairing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.home = dir.path().join("home");
+        let app = App::assemble(
+            cfg,
+            dir.path().join("ws"),
+            Store::in_memory().unwrap(),
+            Arc::new(ScriptedLlm::new(vec![])),
+        ).await.unwrap();
+        app.store.kv_set("telegram_chat", "42").unwrap();
+        app.store.kv_set("telegram_session", "session-before-replacement").unwrap();
+        app.store.kv_set("telegram_pairing_epoch", "old-epoch").unwrap();
+        app.store.execute_batch_for_test(
+            "CREATE TRIGGER reject_new_telegram_cursor BEFORE INSERT ON kv
+             WHEN NEW.k LIKE 'telegram_offset_%'
+             BEGIN SELECT RAISE(ABORT, 'injected cursor initialization failure'); END;",
+        );
+
+        assert!(preflight_token_replacement(&app, "NEW-TOKEN").is_err());
+        assert_eq!(app.store.kv_get("telegram_chat").as_deref(), Some("42"));
+        assert_eq!(
+            app.store.kv_get("telegram_session").as_deref(),
+            Some("session-before-replacement")
+        );
+        assert_eq!(pairing_epoch(&app), "old-epoch");
+    }
+
+    #[test]
+    fn telegram_update_cursors_are_scoped_to_the_bot_token() {
+        let store = Store::in_memory().unwrap();
+        store.kv_set("telegram_offset", "982").unwrap();
+
+        let old_account = token_account_id("OLD-TOKEN");
+        assert_eq!(read_offset(&store, &old_account), 982);
+
+        initialize_offset_for_token(&store, "NEW-TOKEN").unwrap();
+        let new_account = token_account_id("NEW-TOKEN");
+        assert_eq!(read_offset(&store, &new_account), 0);
+        assert_eq!(read_offset(&store, &old_account), 982);
+    }
+
+    #[tokio::test]
     async fn unpair_does_not_replay_old_updates_for_the_same_bot() {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = Config::default();
@@ -1154,7 +1413,7 @@ mod tests {
         app.store.kv_set("telegram_chat", "42").unwrap();
         app.store.kv_set("telegram_session", "abc").unwrap();
         app.store.kv_set("telegram_pairing_epoch", "old-epoch").unwrap();
-        unpair(&app);
+        unpair(&app).unwrap();
         assert_eq!(app.store.kv_get("telegram_offset").as_deref(), Some("982"));
         assert_eq!(app.store.kv_get("telegram_session").as_deref(), Some(""));
         assert!(paired_chat(&app).is_none());

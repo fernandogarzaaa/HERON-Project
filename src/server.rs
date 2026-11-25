@@ -26,6 +26,46 @@ const INDEX_HTML: &str = include_str!("../assets/index.html");
 
 // A stalled HTTP client must not accumulate unbounded streaming events.
 const CHAT_EVENT_CAPACITY: usize = 128;
+// Credential replacement and removal must be one serialized transition. The
+// Tokio mutex covers handlers in this process; the home-scoped file lock below
+// also serializes separate `heron serve` processes sharing the same HERON_HOME.
+// Keep the lock file in place: unlinking a locked inode can let another process
+// lock a new inode while the first process still holds the old one.
+static TELEGRAM_CREDENTIAL_TRANSITION: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
+
+fn open_telegram_credential_transition_lock(home: std::path::PathBuf) -> Result<std::fs::File> {
+    std::fs::create_dir_all(&home)?;
+    let home = std::fs::canonicalize(home)?;
+    let path = home.join("telegram-credential-transition.lock");
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    // File locks are released by the OS when this handle is dropped or the
+    // process exits. This is deliberately blocking and is only called via
+    // spawn_blocking from an async request handler.
+    file.lock()?;
+    Ok(file)
+}
+
+async fn acquire_telegram_credential_transition_lock(
+    home: std::path::PathBuf,
+) -> Result<std::fs::File> {
+    Ok(tokio::task::spawn_blocking(move || {
+        open_telegram_credential_transition_lock(home)
+    }).await??)
+}
+
 type Tx = mpsc::Sender<Value>;
 
 pub struct ServerState {
@@ -1029,28 +1069,57 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
     if !valid {
         return Err(bad("That does not look like a bot token. Create a bot with @BotFather in Telegram and paste the token it gives you."));
     }
+    // Serialize the complete credential transition, including verification,
+    // so a concurrent DELETE cannot remove a token installed by this POST.
+    let _transition = TELEGRAM_CREDENTIAL_TRANSITION.lock().await;
     let cfg = st.app.cfg();
+    cfg.ensure_home()?;
+    let _interprocess_transition =
+        acquire_telegram_credential_transition_lock(cfg.home.clone()).await?;
     let old_token = cfg.secret("telegram_token");
+    let replacing = old_token.as_deref() != Some(token);
     // A wrong or revoked token would otherwise unpair the phone and leave a gateway that never connects.
-    if old_token.as_deref() != Some(token) {
+    if replacing {
         crate::telegram::verify_token(&cfg.telegram.api_base, token).await.map_err(|msg| bad(&msg))?;
     }
     if !cfg!(any(target_os = "macos", windows)) {
         return Err(ApiError(StatusCode::NOT_IMPLEMENTED,
             "Telegram bot credentials require a verified native vault; Linux is not yet supported.".into()));
     }
-    // Install first or fail without changing the previous pairing/task.
-    // No plaintext-file fallback is permitted for bot credentials.
-    cfg.store_vault_only_secret("telegram_token", token)?;
-    if old_token.as_deref() != Some(token) {
+    if replacing {
+        // Cursor initialization is a safe preflight. If SQLite cannot persist
+        // it, preserve the current pairing and leave the running gateway alone.
+        crate::telegram::preflight_token_replacement(&st.app, token)?;
         crate::telegram::stop(&st.app);
         // A gateway in another Heron process sharing this home stops on its next poll.
-        crate::telegram::bump_generation(&st.app);
-        if let Some(old) = &old_token {
-            crate::telegram::purge_token_spool(&st.app, old);
+        if let Err(err) = crate::telegram::bump_generation(&st.app) {
+            crate::telegram::spawn_if_configured(&st.app);
+            return Err(err.into());
         }
-        crate::telegram::unpair(&st.app);
-        let _ = st.app.store.kv_set("telegram_offset", "0");
+        // The durable pairing revocation must commit before the credential can change.
+        // If it fails, leave the old token/pairing intact and restart the old gateway.
+        if let Err(err) = crate::telegram::unpair(&st.app) {
+            crate::telegram::spawn_if_configured(&st.app);
+            return Err(err.into());
+        }
+        // No plaintext-file fallback is permitted for bot credentials.
+        if let Err(err) = cfg.store_vault_only_secret("telegram_token", token) {
+            // The old credential remains the configured identity if installation fails.
+            crate::telegram::spawn_if_configured(&st.app);
+            return Err(err.into());
+        }
+        // A second process may have started with the old token after the first
+        // generation bump but before the vault write. Fence that gateway too.
+        if let Err(err) = crate::telegram::bump_generation(&st.app) {
+            // The new credential is already installed. Start it, while production
+            // gateways independently verify their captured token against the vault;
+            // stale processes therefore exit even if the generation write failed.
+            crate::telegram::spawn_if_configured(&st.app);
+            return Err(err.into());
+        }
+    } else {
+        // Re-saving the same verified token does not revoke the existing pairing.
+        cfg.store_vault_only_secret("telegram_token", token)?;
     }
     // Restarts the connection, so a replaced token is the one in use and there is only ever one reader.
     crate::telegram::spawn_if_configured(&st.app);
@@ -1058,15 +1127,39 @@ async fn set_telegram(State(st): S, Json(b): Json<Value>) -> ApiResult {
 }
 
 async fn remove_telegram(State(st): S) -> ApiResult {
-    crate::telegram::stop(&st.app);
-    crate::telegram::bump_generation(&st.app);
-    // Revocation must purge the account's channel spool before erasing
-    // the bot token that identifies its records.
-    crate::telegram::unpair(&st.app);
+    let _transition = TELEGRAM_CREDENTIAL_TRANSITION.lock().await;
     let cfg = st.app.cfg();
-    cfg.delete_vault_only_secret("telegram_token")?;
-    // Clear any legacy fallback that may predate the secure connector vault.
-    cfg.store_secret("telegram_token", "")?;
+    cfg.ensure_home()?;
+    let _interprocess_transition =
+        acquire_telegram_credential_transition_lock(cfg.home.clone()).await?;
+    crate::telegram::stop(&st.app);
+    if let Err(err) = crate::telegram::bump_generation(&st.app) {
+        crate::telegram::spawn_if_configured(&st.app);
+        return Err(err.into());
+    }
+    // Revocation must commit before the token is erased. On failure, preserve the
+    // configured credential and restart the previous (still-paired) gateway.
+    if let Err(err) = crate::telegram::unpair(&st.app) {
+        crate::telegram::spawn_if_configured(&st.app);
+        return Err(err.into());
+    }
+    // Remove the legacy plaintext copy first. If the file is damaged or cannot
+    // be rewritten, retain the native credential so the gateway can recover.
+    if let Err(err) = cfg.clear_legacy_secret("telegram_token") {
+        crate::telegram::spawn_if_configured(&st.app);
+        return Err(err.into());
+    }
+    if let Err(err) = cfg.delete_vault_only_secret("telegram_token") {
+        crate::telegram::spawn_if_configured(&st.app);
+        return Err(err.into());
+    }
+    // Invalidate a gateway that may have captured the old credential between
+    // the initial stop signal and successful vault/fallback removal.
+    if let Err(err) = crate::telegram::bump_generation(&st.app) {
+        // The vault item is gone. Stale gateways also verify the configured
+        // token on every poll and will stop even if this final fence cannot persist.
+        return Err(err.into());
+    }
     Ok(Json(json!({"configured": false, "paired": false})))
 }
 
@@ -1427,5 +1520,81 @@ mod stream_backpressure_tests {
             tx.try_send(json!({"type":"text","text":"late"})),
             Err(mpsc::error::TrySendError::Closed(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn telegram_credential_set_and_remove_transitions_are_serialized() {
+        let first = TELEGRAM_CREDENTIAL_TRANSITION.lock().await;
+        let (started_tx, started_rx) = oneshot::channel();
+        let second = tokio::spawn(async move {
+            let _ = started_tx.send(());
+            let _second = TELEGRAM_CREDENTIAL_TRANSITION.lock().await;
+        });
+        started_rx.await.unwrap();
+        tokio::task::yield_now().await;
+        assert!(!second.is_finished(), "a second credential mutation overlapped the first");
+        drop(first);
+        second.await.unwrap();
+    }
+
+    #[test]
+    fn telegram_credential_transition_lock_child_process() {
+        let Ok(home) = std::env::var("HERON_TELEGRAM_LOCK_TEST_HOME") else {
+            return;
+        };
+        let home = std::path::PathBuf::from(home);
+        let _lock = open_telegram_credential_transition_lock(home.clone()).unwrap();
+        std::fs::write(home.join("child-ready"), b"ready").unwrap();
+        let release = home.join("child-release");
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !release.exists() {
+            assert!(std::time::Instant::now() < deadline, "parent did not release the child lock");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[tokio::test]
+    async fn telegram_credential_file_lock_serializes_separate_processes() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_path_buf();
+        let ready = home.join("child-ready");
+        let release = home.join("child-release");
+        let executable = std::env::current_exe().unwrap();
+        let mut child = std::process::Command::new(executable)
+            .args([
+                "--exact",
+                "server::stream_backpressure_tests::telegram_credential_transition_lock_child_process",
+                "--nocapture",
+            ])
+            .env("HERON_TELEGRAM_LOCK_TEST_HOME", &home)
+            .spawn()
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !ready.exists() {
+            if let Some(status) = child.try_wait().unwrap() {
+                panic!("lock child exited before acquiring the lock: {status}");
+            }
+            assert!(std::time::Instant::now() < deadline, "lock child did not acquire the lock");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let contender = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(home.join("telegram-credential-transition.lock"))
+            .unwrap();
+        assert!(matches!(
+            contender.try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ), "a second process must not acquire the home-scoped credential lock");
+
+        std::fs::write(release, b"release").unwrap();
+        let status = tokio::task::spawn_blocking(move || child.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(status.success(), "lock child failed: {status}");
+        assert!(contender.try_lock().is_ok(), "the OS must release the lock when the child exits");
     }
 }

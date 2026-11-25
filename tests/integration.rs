@@ -429,6 +429,10 @@ async fn telegram_gateway_pairs_one_chat_ignores_strangers_and_asks_before_actin
     cfg.home = dir.path().join("home");
     cfg.agent.auto_memory = false;
     cfg.agent.ambient_context = false;
+    // The public gateway runner now verifies its token against configuration.
+    // Keep this synthetic transport fixture self-contained in its temporary home;
+    // production startup still requires the native credential vault.
+    cfg.store_secret("telegram_token", "TESTTOKEN").unwrap();
     let llm = Arc::new(ScriptedLlm::new(vec![ScriptedLlm::tool_call("write_file", json!({"path": "phone.txt", "content": "from my phone"})), Message::assistant("Saved it."), ScriptedLlm::tool_call("write_file", json!({"path": "second.txt", "content": "never written"})), Message::assistant("This reply must never be sent.")]));
     let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm.clone()).await.unwrap());
     let code = heron::telegram::pairing_code(&app);
