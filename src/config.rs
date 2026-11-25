@@ -640,6 +640,40 @@ impl crate::credential_transaction::CredentialStore for NativeCredential<'_> {
 
 /// The operating system's credential store. Entries are namespaced by the Heron folder so that
 /// separate profiles (and tests) never see each other's secrets.
+
+ // Telegram's transition lock and SQLite state are shared by processes that may
+ // reach one HERON_HOME through different path spellings. Keep this namespace
+ // stable for the Telegram credential only; OAuth and legacy model-key entries
+ // retain their existing path-scoped names. Read/delete also recognize the old
+ // raw-path key so an upgrade does not strand a previously stored bot token.
+ #[cfg(any(target_os = "macos", windows, test))]
+ fn vault_entry_key_for_path(home: &std::path::Path, name: &str) -> String {
+     let mut h: u64 = 0xcbf29ce484222325;
+     for b in home.to_string_lossy().as_bytes() {
+         h = (h ^ *b as u64).wrapping_mul(0x100000001b3);
+     }
+     format!("{name}@{h:x}")
+ }
+
+ #[cfg(any(target_os = "macos", windows, test))]
+ fn vault_entry_key(home: &std::path::Path, name: &str) -> String {
+     let identity = if name == "telegram_token" {
+         std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf())
+     } else {
+         home.to_path_buf()
+     };
+     vault_entry_key_for_path(&identity, name)
+ }
+
+ #[cfg(any(target_os = "macos", windows, test))]
+ fn legacy_vault_entry_key(home: &std::path::Path, name: &str) -> Option<String> {
+     if name != "telegram_token" {
+         return None;
+     }
+     let canonical = std::fs::canonicalize(home).ok()?;
+     (canonical.as_path() != home).then(|| vault_entry_key_for_path(home, name))
+ }
+
 #[cfg(any(target_os = "macos", windows))]
 mod vault {
     use std::path::Path;
@@ -647,14 +681,20 @@ mod vault {
     pub const NAME: &str = if cfg!(windows) { "Windows Credential Manager" } else { "macOS Keychain" };
 
     fn entry(home: &Path, name: &str) -> Option<keyring::Entry> {
-        let mut h: u64 = 0xcbf29ce484222325;
-        for b in home.to_string_lossy().as_bytes() {
-            h = (h ^ *b as u64).wrapping_mul(0x100000001b3);
-        }
-        keyring::Entry::new("Heron", &format!("{name}@{h:x}")).ok()
+        keyring::Entry::new("Heron", &super::vault_entry_key(home, name)).ok()
+    }
+    fn legacy_entry(home: &Path, name: &str) -> Option<keyring::Entry> {
+        super::legacy_vault_entry_key(home, name)
+            .and_then(|key| keyring::Entry::new("Heron", &key).ok())
     }
     pub fn get(home: &Path, name: &str) -> Option<String> {
-        entry(home, name)?.get_password().ok().filter(|v| !v.is_empty())
+        let current = entry(home, name)?;
+        match current.get_password() {
+            Ok(value) => Some(value).filter(|v| !v.is_empty()),
+            Err(keyring::Error::NoEntry) => legacy_entry(home, name)?
+                .get_password().ok().filter(|v| !v.is_empty()),
+            Err(_) => None,
+        }
     }
     pub fn set(home: &Path, name: &str, value: &str) -> bool {
         // Legacy model keys may fall back to an owner-only file.
@@ -664,7 +704,14 @@ mod vault {
         let e = entry(home, name).ok_or_else(|| "OS vault entry cannot be opened".to_string())?;
         match e.get_password() {
             Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
-            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(keyring::Error::NoEntry) => match legacy_entry(home, name) {
+                Some(legacy) => match legacy.get_password() {
+                    Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
+                    Err(keyring::Error::NoEntry) => Ok(None),
+                    Err(error) => Err(error.to_string()),
+                },
+                None => Ok(None),
+            },
             Err(error) => Err(error.to_string()),
         }
     }
@@ -675,15 +722,27 @@ mod vault {
         if saved != value {
             return Err("OS credential read-back did not match the attempted value.".into());
         }
+        if let Some(legacy) = legacy_entry(home, name) {
+            match legacy.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => {}
+                Err(error) => return Err(format!("legacy OS credential cleanup rejected: {error}")),
+            }
+        }
         Ok(())
     }
-    pub fn delete(home: &Path, name: &str) -> Result<(), String> {
-        match entry(home, name).map(|e| e.delete_credential()) {
-            // Nothing saved under that name is what the caller wanted anyway.
+    fn delete_entry(entry: Option<keyring::Entry>) -> Result<(), String> {
+        match entry.map(|e| e.delete_credential()) {
             Some(Ok(())) | Some(Err(keyring::Error::NoEntry)) => Ok(()),
             None => Err("OS vault entry cannot be opened".into()),
-            Some(Err(e)) => Err(e.to_string()),
+            Some(Err(error)) => Err(error.to_string()),
         }
+    }
+    pub fn delete(home: &Path, name: &str) -> Result<(), String> {
+        delete_entry(entry(home, name))?;
+        if let Some(legacy) = legacy_entry(home, name) {
+            delete_entry(Some(legacy))?;
+        }
+        Ok(())
     }
 }
 
@@ -794,6 +853,32 @@ mod tests {
         assert!(second.as_deref() == Some("disposable-replacement"));
         assert!(absent);
         assert_eq!(std::fs::read(cfg.home.join("secrets.json")).unwrap(), b"{broken");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn telegram_vault_identity_is_shared_by_real_and_symlinked_home_paths() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let alias = dir.path().join("home-alias");
+        std::fs::create_dir(&home).unwrap();
+        symlink(&home, &alias).unwrap();
+
+        assert_eq!(
+            vault_entry_key(&home, "telegram_token"),
+            vault_entry_key(&alias, "telegram_token"),
+            "Telegram credentials must share the same native-vault identity across home aliases"
+        );
+        let legacy_alias_key = legacy_vault_entry_key(&alias, "telegram_token").unwrap();
+        assert_ne!(legacy_alias_key, vault_entry_key(&alias, "telegram_token"));
+        assert!(legacy_vault_entry_key(&home, "telegram_token").is_none());
+        assert_ne!(
+            vault_entry_key(&home, "oauth_google_refresh_token"),
+            vault_entry_key(&alias, "oauth_google_refresh_token"),
+            "this Telegram-only fix must not rewrite OAuth vault namespaces"
+        );
     }
 
     #[test]
