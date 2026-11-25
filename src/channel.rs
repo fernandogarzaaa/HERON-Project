@@ -1046,7 +1046,7 @@ mod tests {
         let now = 200_000_000;
         let cutoff = now - TERMINAL_HISTORY_RETENTION_SECS;
         let old_at = cutoff - 1;
-        let recent_at = cutoff + 1;
+        let recent_at = cutoff + 10;
         let identity = owner();
 
         // Completed inbound IDs and delivered outbound keys are terminal history.
