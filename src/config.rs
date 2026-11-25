@@ -862,6 +862,10 @@ mod tests {
         let home = dir.path().join("home");
         let alias = dir.path().join("home-alias");
         std::fs::create_dir(&home).unwrap();
+        // macOS temporary directories may be reached through /var -> /private/var.
+        // Use the canonical real path so this tests the explicit symlink alias,
+        // not an OS-level alias in the temporary-directory prefix.
+        let home = std::fs::canonicalize(&home).unwrap();
         symlink(&home, &alias).unwrap();
 
         assert_eq!(
