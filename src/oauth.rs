@@ -218,8 +218,15 @@ fn account_subject(provider: Provider, client_id: &str, token: &Value) -> Result
     let now = Utc::now().timestamp();
     let exp = claims.get("exp").and_then(Value::as_i64).ok_or_else(unreadable)?;
     let iat = claims.get("iat").and_then(Value::as_i64).ok_or_else(unreadable)?;
-    if exp <= now || exp <= iat || iat > now.saturating_add(300) {
-        bail!("The provider returned an expired or invalid ID token. Connect again.");
+    let nbf = claims.get("nbf")
+        .map(|value| value.as_i64().ok_or_else(unreadable))
+        .transpose()?;
+    if exp <= now
+        || exp <= iat
+        || iat > now.saturating_add(300)
+        || nbf.is_some_and(|not_before| not_before > now.saturating_add(60) || not_before >= exp)
+    {
+        bail!("The provider returned an expired, not-yet-valid, or invalid ID token. Connect again.");
     }
 
     claims["sub"].as_str().filter(|sub| !sub.is_empty() && sub.len() <= 255)
@@ -549,6 +556,22 @@ mod tests {
         let mut future_issued = valid_claims(Provider::Google, "app", "user-1");
         future_issued["iat"] = serde_json::json!(Utc::now().timestamp() + 301);
         assert!(account_subject(Provider::Google, "app", &token(future_issued)).is_err());
+
+        let mut not_yet_valid = valid_claims(Provider::Microsoft, "app", "user-2");
+        not_yet_valid["nbf"] = serde_json::json!(Utc::now().timestamp() + 61);
+        assert!(account_subject(Provider::Microsoft, "app", &token(not_yet_valid))
+            .unwrap_err().to_string().contains("not-yet-valid"));
+
+        let mut malformed_not_before = valid_claims(Provider::Microsoft, "app", "user-2");
+        malformed_not_before["nbf"] = serde_json::json!("tomorrow");
+        assert!(account_subject(Provider::Microsoft, "app", &token(malformed_not_before)).is_err());
+
+        let mut valid_not_before = valid_claims(Provider::Microsoft, "app", "user-2");
+        valid_not_before["nbf"] = serde_json::json!(Utc::now().timestamp() - 1);
+        assert_eq!(
+            account_subject(Provider::Microsoft, "app", &token(valid_not_before)).unwrap(),
+            "user-2"
+        );
 
         let long = "x".repeat(256);
         for bad in [
