@@ -450,7 +450,16 @@
     }
   },
   "HS-W6a": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "67edf00e469b4871b8869ab8a11765de",
+        "ended_at": "2026-11-26T23:01:14.657157+00:00",
+        "error": "backend timed out after 1800.0s (holder=agent-2); see evidence",
+        "holder": "agent-2",
+        "outcome": "timeout",
+        "started_at": "2026-11-26T22:31:13.650709+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -462,15 +471,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "67edf00e469b4871b8869ab8a11765de",
-      "base_branch": "skein/HS-W6a__integrate-base",
-      "claim_token": "805f423d6362422c9afeb312a86298d5",
-      "claimed_at": "2026-11-26T22:31:13.650709+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-26T22:31:13.650709+00:00",
-      "node_version": 2,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "HS-W1",
@@ -478,8 +487,14 @@
       "HS-W4",
       "HS-W5"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 124,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W6a_20261126T230114635611_adapter.log"
+      }
+    ],
+    "handoff_note": "backend timed out after 1800.0s (holder=agent-2); see evidence",
     "id": "HS-W6a",
     "integration_for": null,
     "intent": {
@@ -492,12 +507,12 @@
     "rejected_count": 0,
     "removed": false,
     "result": null,
-    "retry_at": null,
+    "retry_at": "2026-11-26T23:02:28.047786+00:00",
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "unclaimed",
     "title": "W6a: Phase 1 wiring: `maintain` prune, `RunFrame`, `execute_call` journal, OQ9 gate a",
-    "version": 4,
+    "version": 64,
     "worktree": {
       "base_branch": "skein/HS-W6a__integrate-base",
       "base_commit": "1a174ada29d4db9fb7e65a4ca3779d6215977f3b",
