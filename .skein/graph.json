@@ -461,6 +461,60 @@
       "path": null
     }
   },
+  "HS-verify": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "HS-W6b",
+      "HS-W7",
+      "HS-W8"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "HS-verify",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo build --locked --features desktop --bins && cargo clippy --locked --all-targets -- -D warnings && swift test --package-path macos/HeronMac && testteeth run --base main --fail-under 70",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row verify, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Full suites, the desktop build, lint, and the test-quality gate on the branch; adds tests for surviving mutants. Supervisor"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "verify: Full suites, the desktop build, lint, and the test-quality gate on the branch; a",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {
