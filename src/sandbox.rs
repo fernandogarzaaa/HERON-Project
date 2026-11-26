@@ -128,6 +128,27 @@ pub const SEATBELT_SECRET_PATTERNS: &[&str] = &[
     r"^.*/(login data|login data for account|cookies|web data)(-journal)?$",
 ];
 
+/// Public CA bundles. The `.pem` secret pattern would deny them, and without them TLS fails before any
+/// host matters: curl, git and cargo read `/etc/ssl/cert.pem`, npm Homebrew's, and pip certifi's.
+pub const CA_BUNDLES: &[&str] = &[
+    "/etc/ssl/cert.pem",
+    "/private/etc/ssl/cert.pem",
+    "/opt/homebrew/etc/ca-certificates/cert.pem",
+    "/opt/homebrew/etc/openssl@3/cert.pem",
+    "/usr/local/etc/ca-certificates/cert.pem",
+    "/usr/local/etc/openssl@3/cert.pem",
+];
+
+/// certifi's bundle, wherever a Python environment keeps it.
+pub const CERTIFI_BUNDLE: &str = r"^.*/certifi/cacert\.pem$";
+
+/// The read allow for [`CA_BUNDLES`] and [`CERTIFI_BUNDLE`], placed after the secret rules so it wins
+/// over `.pem`. Reads only: the bundles stay write-denied.
+fn ca_bundles() -> String {
+    let paths: Vec<PathBuf> = CA_BUNDLES.iter().map(PathBuf::from).collect();
+    format!("(allow file-read*{} (regex #\"{CERTIFI_BUNDLE}\"))\n", literals(&paths))
+}
+
 /// Folders under the home folder that builds, package managers and git need to read. Kept in step with
 /// `docs/cli-providers.md`. A folder is added only when the build check
 /// (`build_and_git_still_work_under_deny_default_reads`) needs it.
@@ -393,8 +414,10 @@ fn local_sockets(workdir: &Path) -> String {
 
 /// The Seatbelt profile for one command or CLI. Seatbelt applies the last rule that matches, so the
 /// order is the design: deny reads under the user roots, allow metadata everywhere, allow the readable
-/// set, deny writes except the writable set, then deny Refused paths and secrets again (writes too,
-/// so nothing is renamed out of its rule), and last, launching anything outside the sandbox.
+/// set, deny writes except the writable set, deny protected paths inside it (shell only), then deny
+/// Refused paths and secrets again (writes too, so nothing is renamed out of its rule), reopen the
+/// public CA bundles for reading, the socket and network rules, and last, launching anything outside
+/// the sandbox.
 pub fn seatbelt_profile(cfg: &Config, home: &Path, workdir: &Path, profile: &Profile) -> String {
     let roots = crate::permissions::ReadRoots::of(cfg);
     let mut p = String::from("(version 1)\n(allow default)\n");
@@ -410,7 +433,7 @@ pub fn seatbelt_profile(cfg: &Config, home: &Path, workdir: &Path, profile: &Pro
     };
     let launch = format!("{JOB_CREATION}\n{LAUNCH_SERVICES}\n");
     match profile {
-        Profile::Shell { grants, toolchain, .. } => {
+        Profile::Shell { grants, protect, egress, toolchain } => {
             let mut readable = vec![workdir.to_path_buf()];
             readable.extend(grants.iter().filter_map(|g| match g {
                 ReadGrant::Folder(f) => Some(f.clone()),
@@ -430,12 +453,19 @@ pub fn seatbelt_profile(cfg: &Config, home: &Path, workdir: &Path, profile: &Pro
             let mut writable = vec![PathBuf::from("/private/tmp"), PathBuf::from("/private/var/folders"), PathBuf::from("/dev"), workdir.to_path_buf()];
             writable.extend(writable_extras(home));
             p.push_str(&format!("(allow file-write*{})\n", subpaths(&writable)));
+            let (protect_rules, protected) = crate::protect::seatbelt_rules(workdir, home, &crate::permissions::heron_homes(cfg), protect, &writable);
+            p.push_str(&protect_rules);
             p.push_str(&format!("(deny file-read* file-write*{})\n", subpaths(roots.refused_paths())));
             p.push_str(&ancestors(roots.refused_paths(), &writable));
             p.push_str(&secrets());
+            p.push_str(&ancestors(&protected, &writable));
+            p.push_str(&ca_bundles());
             let names: Vec<String> = KEYCHAIN_SERVICES.iter().map(|n| format!(" (global-name \"{n}\")")).collect();
             p.push_str(&format!("(deny mach-lookup{})\n", names.concat()));
             p.push_str(&local_sockets(workdir));
+            if let Some(egress) = egress {
+                p.push_str(&crate::egress::seatbelt_rules(&egress.deny_ports, home));
+            }
             p.push_str(&crate::toolchain::seatbelt_denies(toolchain, home));
             p.push_str(&launch);
         }
@@ -667,7 +697,7 @@ mod tests {
         let write = at(&format!("(allow file-write* (subpath \"/private/tmp\") (subpath \"/private/var/folders\") (subpath \"/dev\") (subpath \"{h}/project-profile-test\")"));
         let refused = at(&format!("(deny file-read* file-write* (subpath \"{h}/.heron-profile-test\")"));
         let secrets = at("(deny file-read* (regex #\"");
-        let secret_writes = at("(deny file-write* (regex #\"");
+        let secret_writes = secrets + profile[secrets..].find("(deny file-write* (regex #\"").expect("secret writes");
         let keychain = at("(deny mach-lookup (global-name \"com.apple.SecurityServer\")");
         let launch = at(LAUNCH_SERVICES);
         assert!(
@@ -705,7 +735,7 @@ mod tests {
         let write = at("(allow file-write* (subpath \"/dev\") (subpath \"/private/var/folders/xy/T/heron-cli-1\") (subpath \"/System/Volumes/Data/dev\")");
         let refused = at(&format!("(deny file-read* file-write* (subpath \"{h}/.heron-profile-test\")"));
         let secrets = at("(deny file-read* (regex #\"");
-        let secret_writes = at("(deny file-write* (regex #\"");
+        let secret_writes = secrets + profile[secrets..].find("(deny file-write* (regex #\"").expect("secret writes");
         let own = at(&format!("(allow file-read* file-write* (subpath \"{h}/.codex\")"));
         let launch = at(LAUNCH_SERVICES);
         assert!(write < refused && refused < secrets && secrets < secret_writes && secret_writes < own && own < launch, "{profile}");
@@ -888,12 +918,12 @@ mod tests {
         let cli = seatbelt_profile(&cfg, &home, &run, &Profile::Cli { spec: &codex, binary_dir: PathBuf::from("/usr/local/bin"), extra_read: vec![] });
         let w = ws.display().to_string();
         for profile in [&shell, &cli] {
-            let line = |start: &str| profile.lines().find(|l| l.starts_with(start)).unwrap_or_else(|| panic!("{start} missing from:\n{profile}")).to_string();
-            let secret_writes = line("(deny file-write* (regex #\"");
+            let line = |start: &str, has: &str| profile.lines().find(|l| l.starts_with(start) && l.contains(has)).unwrap_or_else(|| panic!("{start} with {has} missing from:\n{profile}")).to_string();
+            let secret_writes = line("(deny file-write* (regex #\"", &seatbelt_regex(SEATBELT_SECRET_PATTERNS[0]));
             for pattern in SEATBELT_SECRET_PATTERNS.iter().chain(SEATBELT_SECRET_FOLDERS) {
                 assert!(secret_writes.contains(&format!("(regex #\"{}\")", seatbelt_regex(pattern))), "{pattern} is not write-denied: {secret_writes}");
             }
-            let ancestors = line("(deny file-write* (literal");
+            let ancestors = line("(deny file-write* (literal", &format!("(literal \"{w}/a/b\")"));
             for a in [format!("{w}/a/b"), format!("{w}/a"), w.clone(), format!("{w}/data")] {
                 assert!(ancestors.contains(&format!("(literal \"{a}\")")), "{a} can be renamed: {ancestors}");
             }
@@ -908,5 +938,81 @@ mod tests {
         for p in ["/u/p/.config/new.txt", "/u/p/.config/gh/new.txt", "/u/p/.configs", "/u/p/x.config", "/u/.local/bin"] {
             assert!(!folder(p), "{p}: new files inside the folders stay writable");
         }
+    }
+
+    fn shell_with(cfg: &Config, home: &Path, ws: &Path, protect: crate::protect::Scan, egress: Option<EgressRules>) -> String {
+        seatbelt_profile(cfg, home, ws, &Profile::Shell { grants: vec![], protect, egress, toolchain: Default::default() })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shell_profile_denies_protected_writes_after_the_writable_allowance() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dunce::canonicalize(dir.path()).unwrap().join("project");
+        std::fs::create_dir_all(ws.join("app/.git/hooks")).unwrap();
+        std::fs::write(ws.join("app/.git/config"), "[core]\n").unwrap();
+        let home = PathBuf::from("/Users/someone");
+        let cfg = Config { home: home.join(".heron"), ..Default::default() };
+        let scan = crate::protect::scan(&ws);
+        assert_eq!(scan.repos.len(), 1);
+        let profile = shell_with(&cfg, &home, &ws, scan, None);
+        let at = |needle: &str| profile.find(needle).unwrap_or_else(|| panic!("{needle} missing from:\n{profile}"));
+        let w = ws.display().to_string();
+        let write = at(&format!("(allow file-write* (subpath \"/private/tmp\") (subpath \"/private/var/folders\") (subpath \"/dev\") (subpath \"{w}\")"));
+        let names = at(&format!(" (regex #\"{}\")", seatbelt_regex(&format!("^{}/(.*/)?\\.envrc$", crate::protect::regex_escape(&w)))));
+        let hooks = at(&seatbelt_regex(r"(.*/)?\.git/(.*/)?hooks/.+$"));
+        let samples = at(&seatbelt_regex(r"(.*/)?\.git/(.*/)?hooks/[^/]+\.sample$"));
+        let config = at(&format!("(literal \"{w}/app/.git/config\")"));
+        let refused = at("(deny file-read* file-write* (subpath");
+        let secrets = at("(deny file-read* (regex #\"");
+        let after_secrets = &profile[secrets..];
+        let repo_ancestors = secrets + after_secrets.find(&format!("(literal \"{w}/app\")")).unwrap_or_else(|| panic!("no rename deny over the repository:\n{profile}"));
+        let launch = at(JOB_CREATION);
+        assert!(write < names && names < hooks && hooks < samples && samples < config && config < refused && refused < secrets && secrets < repo_ancestors && repo_ancestors < launch, "{profile}");
+        let line_of = |i: usize| profile[..i].rfind('\n').map_or(0, |n| n + 1);
+        assert!(profile[line_of(repo_ancestors)..].starts_with("(deny file-write* (literal"), "{profile}");
+        assert!(profile[line_of(samples)..].starts_with("(allow file-write*"), "only git's samples are allowed back: {profile}");
+        let no_repo = shell_with(&cfg, &home, &ws, Default::default(), None);
+        assert!(!no_repo.contains(&format!("(literal \"{w}/app/.git/config\")")), "the config literal comes from the scan: {no_repo}");
+    }
+
+    #[test]
+    fn egress_off_leaves_network_rules_out() {
+        let home = PathBuf::from("/Users/someone");
+        let ws = home.join("project-egress-test");
+        let cfg = Config { home: home.join(".heron"), ..Default::default() };
+        let open = shell_with(&cfg, &home, &ws, Default::default(), None);
+        for rule in ["(remote ip", "/private/var/run/mDNSResponder\")))", ".orbstack"] {
+            assert!(!open.contains(rule), "{rule} with egress off:\n{open}");
+        }
+        assert!(open.contains("(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\"))"), "#79's socket rules stay: {open}");
+        let filtered = shell_with(&cfg, &home, &ws, Default::default(), Some(EgressRules { deny_ports: vec![7878, 9000] }));
+        for rule in [
+            "(deny network-outbound (remote ip \"*:*\"))",
+            "(allow network-outbound (remote ip \"localhost:*\"))",
+            "(deny network-outbound (remote ip \"localhost:7878\"))",
+            "(deny network-outbound (remote ip \"localhost:9000\"))",
+            "(deny network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))",
+        ] {
+            assert!(filtered.contains(rule), "{rule} missing:\n{filtered}");
+        }
+    }
+
+    #[test]
+    fn egress_rules_come_after_local_socket_rules() {
+        let home = PathBuf::from("/Users/someone");
+        let cfg = Config { home: home.join(".heron"), ..Default::default() };
+        let profile = shell_with(&cfg, &home, &home.join("project-egress-test"), Default::default(), Some(EgressRules { deny_ports: vec![7878] }));
+        let at = |needle: &str| profile.find(needle).unwrap_or_else(|| panic!("{needle} missing from:\n{profile}"));
+        let own_sockets = at("(deny network-outbound (remote unix-socket))\n");
+        let resolver_allowed = at("(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\"))");
+        let ip_deny = at("(deny network-outbound (remote ip \"*:*\"))");
+        let loopback = at("(allow network-outbound (remote ip \"localhost:*\"))");
+        let api_port = at("(deny network-outbound (remote ip \"localhost:7878\"))");
+        let resolver_denied = at("(deny network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))");
+        let docker = at("(deny network-outbound (remote unix-socket (subpath \"/var/run/docker.sock\")))");
+        let launch = at(JOB_CREATION);
+        assert!(own_sockets < resolver_allowed && resolver_allowed < ip_deny && ip_deny < loopback && loopback < api_port && api_port < resolver_denied && resolver_denied < docker && docker < launch, "{profile}");
+        assert!(profile.ends_with(&format!("{JOB_CREATION}\n{LAUNCH_SERVICES}\n")), "{profile}");
     }
 }

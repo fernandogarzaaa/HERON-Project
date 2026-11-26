@@ -4606,6 +4606,48 @@ mod tests {
         assert!(now[0].starts_with(&format!("job:{id}:")) && now[0] == now[1], "{now:?}");
     }
 
+    fn with_plant_tool(app: &mut App) {
+        let mut tools = ToolRegistry::builtin();
+        tools.register(crate::agent::tests::plant_tool());
+        app.tools = Arc::new(tools);
+    }
+
+    fn assert_planted_report(app: &App, session: &str) {
+        let notice = crate::agent::tests::planted_notice(&app.workspace);
+        let inbox: Vec<_> = app.store.inbox(false, 50).unwrap().into_iter().filter(|i| i.title == "Protected files changed").collect();
+        assert_eq!(inbox.len(), 1, "{inbox:?}");
+        assert_eq!(inbox[0].body, notice);
+        let rows = crate::agent::tests::protect_rows(&app.store);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!((rows[0].session_id.as_str(), rows[0].decision.as_str()), (session, crate::agent::PROTECTED_CHANGED));
+    }
+
+    #[tokio::test]
+    async fn protected_change_in_an_automation_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = plain_app(dir.path(), vec![]).await;
+        with_plant_tool(&mut app);
+        let id = app.store.add_schedule("plant", "", "", 1, "").unwrap();
+        app.store.set_schedule_workflow(id, &json!([{"id": "a", "do": "tool", "tool": "plant", "args": {}}]).to_string()).unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        assert!(app.workspace.join(".envrc").exists(), "the step ran");
+        let session: String = app.store.with_conn(|c| Ok(c.query_row("SELECT session_id FROM effects WHERE name='plant'", [], |r| r.get(0))?)).unwrap();
+        assert_planted_report(&app, &session);
+    }
+
+    #[tokio::test]
+    async fn protected_change_in_run_parked_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = plain_app(dir.path(), vec![]).await;
+        with_plant_tool(&mut app);
+        let session = Session::create(&app.store, "chat").unwrap();
+        let id = app.store.park_approval(&session.id, "plant", "{}", "plant", "", "state", false, "a job").unwrap();
+        app.run_parked(id).await.unwrap();
+        assert!(app.workspace.join(".envrc").exists());
+        assert_eq!(app.store.get_approval(id).unwrap().status, "approved");
+        assert_planted_report(&app, &session.id);
+    }
+
     #[tokio::test]
     async fn ask_again_rerun_rechecks_current_policy() {
         let dir = tempfile::tempdir().unwrap();

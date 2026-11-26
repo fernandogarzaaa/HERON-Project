@@ -54,11 +54,18 @@ struct FrameState {
     snapshot: Option<Taken>,
 }
 
-#[allow(dead_code)]
+#[derive(Clone)]
 struct Taken {
     snapshot: crate::protect::Snapshot,
     user_home: PathBuf,
     heron_homes: Vec<PathBuf>,
+}
+
+impl Taken {
+    /// A fresh snapshot compared with this one. It reads every protected file, so it runs on a blocking thread.
+    fn changes(&self, workspace: &Path) -> Vec<crate::protect::ProtectedChange> {
+        self.snapshot.diff(&crate::protect::Snapshot::take(workspace, &self.user_home, &self.heron_homes))
+    }
 }
 
 tokio::task_local! {
@@ -76,6 +83,24 @@ pub fn current_run() -> Option<Arc<RunFrame>> {
 
 /// The audit decision of a run that ended before its protected files were checked again.
 pub const REHASH_SKIPPED: &str = "protect-rehash-skipped";
+
+/// The audit decision of a run during which protected files changed.
+pub const PROTECTED_CHANGED: &str = "protected-path-changed";
+
+/// What a run that changed protected files leaves behind: the notice when someone is watching, an
+/// inbox entry and an audit row. Paths only, never contents.
+fn report_changes(store: &Store, session: &str, changes: &[crate::protect::ProtectedChange], sink: Option<&EventSink>) {
+    if changes.is_empty() {
+        return;
+    }
+    let text = crate::protect::report_text(changes);
+    if let Some(sink) = sink {
+        sink(Event::Notice(text.clone()));
+    }
+    let _ = store.add_inbox("Protected files changed", &text);
+    let paths: Vec<String> = changes.iter().map(|c| c.path.display().to_string()).collect();
+    store.audit(session, "protect", &paths.join(", "), PROTECTED_CHANGED, "");
+}
 
 impl RunFrame {
     pub fn new(run_id: String, workspace: PathBuf, store: Store, sink: EventSink) -> RunFrame {
@@ -95,7 +120,7 @@ impl RunFrame {
                 return;
             }
         }
-        let user_home = dirs::home_dir().unwrap_or_default();
+        let user_home = crate::toolchain::user_home();
         let heron_homes = crate::permissions::heron_homes(cfg);
         let (ws, home, homes) = (self.workspace.clone(), user_home.clone(), heron_homes.clone());
         let Ok(snapshot) = tokio::task::spawn_blocking(move || crate::protect::Snapshot::take(&ws, &home, &homes)).await else { return };
@@ -109,30 +134,43 @@ impl RunFrame {
         self.state().snapshot.is_some()
     }
 
-    #[allow(dead_code)]
-    fn notice(&self, text: String) {
-        (self.sink)(Event::Notice(text));
+    /// The snapshot to compare against and the session to blame, once a mutating call has run.
+    fn taken(&self) -> Option<(Taken, String)> {
+        let st = self.state();
+        st.snapshot.clone().map(|t| (t, st.session_id.clone().unwrap_or_default()))
     }
 
-    /// The frame was dropped before its work finished.
-    fn end_dropped(&self) {
-        let stopped = std::thread::panicking() || crate::journal::cancel_requested(&self.run_id);
-        if stopped && tokio::runtime::Handle::try_current().is_ok() {
-            return;
-        }
-        let session = {
-            let st = self.state();
-            if st.snapshot.is_none() {
-                return;
-            }
-            st.session_id.clone().unwrap_or_default()
-        };
+    fn record_skipped(&self, session: &str) {
         let folder = self.workspace.display().to_string();
-        self.store.audit(&session, "protect", &folder, REHASH_SKIPPED, "");
+        self.store.audit(session, "protect", &folder, REHASH_SKIPPED, "");
         let _ = self.store.add_inbox(
             "Protected files not checked",
             &format!("Heron stopped before it checked protected files after a run in {folder}. Check them before you next use this folder."),
         );
+    }
+
+    /// The work finished: compare, and tell the run's viewer too.
+    async fn end_finished(&self) {
+        let Some((taken, session)) = self.taken() else { return };
+        let ws = self.workspace.clone();
+        match tokio::task::spawn_blocking(move || taken.changes(&ws)).await {
+            Ok(changes) => report_changes(&self.store, &session, &changes, Some(&self.sink)),
+            Err(_) => self.record_skipped(&session),
+        }
+    }
+
+    /// The frame was dropped before its work finished. After a Stop or a panic the comparison is
+    /// handed to a blocking thread and not awaited, and the run has ended for its viewer, so no
+    /// notice. Any other drop may be the runtime shutting down, where a blocking task may never run.
+    fn end_dropped(&self) {
+        let Some((taken, session)) = self.taken() else { return };
+        let stopped = std::thread::panicking() || crate::journal::cancel_requested(&self.run_id);
+        if let (true, Ok(handle)) = (stopped, tokio::runtime::Handle::try_current()) {
+            let (store, ws) = (self.store.clone(), self.workspace.clone());
+            drop(handle.spawn_blocking(move || report_changes(&store, &session, &taken.changes(&ws), None)));
+            return;
+        }
+        self.record_skipped(&session);
     }
 }
 
@@ -154,7 +192,7 @@ impl<F> Drop for FrameEnd<F> {
 }
 
 /// Run `fut` inside `frame`. When a frame is already set, `fut` runs inside that one, and `frame`
-/// is dropped unused.
+/// is dropped unused. When the work ends, the protected files are compared with the run's snapshot.
 pub async fn in_run<F: std::future::Future>(frame: RunFrame, fut: F) -> F::Output {
     if current_run().is_some() {
         return fut.await;
@@ -163,6 +201,8 @@ pub async fn in_run<F: std::future::Future>(frame: RunFrame, fut: F) -> F::Outpu
     let mut end = FrameEnd { frame: frame.clone(), fut: Some(Box::pin(fut)), finished: false };
     let out = RUN.scope(frame, std::future::poll_fn(|cx| end.fut.as_mut().expect("polled after it finished").as_mut().poll(cx))).await;
     end.fut = None;
+    let frame = end.frame.clone();
+    frame.end_finished().await;
     end.finished = true;
     out
 }
@@ -1085,7 +1125,7 @@ impl Agent {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::llm::{FunctionCall, ScriptedLlm};
     use crate::permissions::{AllowAll, DenyAll, Mode};
@@ -2479,5 +2519,92 @@ mod tests {
         assert_eq!(inbox.len(), 1);
         assert_eq!(inbox[0].body, format!("Heron stopped before it checked protected files after a run in {}. Check them before you next use this folder.", ws.path().display()));
         assert!(!crate::journal::cancel_requested("turn:shutdown"));
+    }
+
+    /// A tool that writes `.envrc` in the working folder, which is what Seatbelt and the file tools
+    /// stop and the after-run comparison catches.
+    pub(crate) fn plant_tool() -> Arc<dyn crate::tools::Tool> {
+        Arc::new(crate::tools::FnTool {
+            name: "plant",
+            description: "Writes .envrc.",
+            parameters: json!({"type": "object", "properties": {}}),
+            summary: |_| "plant".into(),
+            risk: |_, _| Effect::LocalStateWrite,
+            detail: None,
+            untrusted: false,
+            target: None,
+            run: |_, ctx| Box::pin(async move { Ok(std::fs::write(ctx.workspace.join(".envrc"), "export PLANTED=1").map(|_| "planted".to_string())?) }),
+        })
+    }
+
+    pub(crate) fn planted_notice(ws: &Path) -> String {
+        format!("Protected files changed while Heron was working: {} (new). If you didn't change them, check them before you next use this folder.", ws.join(".envrc").display())
+    }
+
+    pub(crate) fn protect_rows(store: &Store) -> Vec<crate::store::AuditEntry> {
+        store.audit_log(100).unwrap().into_iter().filter(|r| r.tool == "protect").collect()
+    }
+
+    #[tokio::test]
+    async fn protected_change_during_turn_is_reported_once() {
+        let ws = tempfile::tempdir().unwrap();
+        let plant = || ScriptedLlm::tool_call("plant", json!({}));
+        let llm = ScriptedLlm::new(vec![plant(), plant(), Message::assistant("done"), ScriptedLlm::tool_call("task_add", json!({"title": "t"})), Message::assistant("again")]);
+        let (mut agent, _) = agent_with(llm, Mode::Auto, Arc::new(DenyAll), ws.path());
+        let mut tools = ToolRegistry::builtin();
+        tools.register(plant_tool());
+        agent.tools = Arc::new(tools);
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let (sink, events) = recording_sink();
+        agent.run_turn(&mut s, "plant it", &sink).await.unwrap();
+        assert!(agent.workspace.join(".envrc").exists());
+        assert_eq!(notices(&events), vec![planted_notice(&agent.workspace)]);
+        let inbox = agent.store.inbox(false, 10).unwrap();
+        assert_eq!(inbox.len(), 1);
+        assert_eq!((inbox[0].title.as_str(), inbox[0].body.clone()), ("Protected files changed", planted_notice(&agent.workspace)));
+        let rows = protect_rows(&agent.store);
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].session_id.as_str(), rows[0].decision.as_str()), (s.id.as_str(), PROTECTED_CHANGED));
+        assert_eq!(rows[0].args, agent.workspace.join(".envrc").display().to_string());
+        agent.run_turn(&mut s, "once more", &sink).await.unwrap();
+        assert_eq!(notices(&events).len(), 1, "a later run compares against its own snapshot");
+        assert_eq!(agent.store.inbox(false, 10).unwrap().len(), 1);
+        assert_eq!(protect_rows(&agent.store).len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stopped_run_rehashes_without_a_notice() {
+        let ws = tempfile::tempdir().unwrap();
+        let workspace = dunce::canonicalize(ws.path()).unwrap();
+        let store = Store::in_memory().unwrap();
+        let cfg = Config { home: workspace.join(".heron-home"), ..Default::default() };
+        let (sink, events) = recording_sink();
+        let run_id = "turn:stopped-rehash".to_string();
+        let frame = RunFrame::new(run_id.clone(), workspace.clone(), store.clone(), sink);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let planted = workspace.clone();
+        let task = tokio::spawn(in_run(frame, async move {
+            current_run().unwrap().before_mutating_call("s-stopped", &cfg).await;
+            std::fs::write(planted.join(".envrc"), "export PLANTED=1").unwrap();
+            tx.send(()).unwrap();
+            std::future::pending::<()>().await
+        }));
+        rx.await.unwrap();
+        crate::journal::request_cancel(&run_id);
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while protect_rows(&store).is_empty() {
+            assert!(std::time::Instant::now() < deadline, "the stopped run was never compared");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let rows = protect_rows(&store);
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].session_id.as_str(), rows[0].decision.as_str()), ("s-stopped", PROTECTED_CHANGED));
+        let inbox = store.inbox(false, 10).unwrap();
+        assert_eq!(inbox.len(), 1);
+        assert_eq!(inbox[0].body, planted_notice(&workspace));
+        assert!(notices(&events).is_empty(), "the run ended for its viewer");
+        assert!(!crate::journal::cancel_requested(&run_id));
     }
 }
