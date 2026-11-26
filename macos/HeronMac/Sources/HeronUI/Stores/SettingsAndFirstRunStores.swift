@@ -109,6 +109,14 @@ public final class SettingsStore {
     @ObservationIgnored private let sleep: (@Sendable (Duration) async throws -> Void)?
     @ObservationIgnored private var signInTask: Task<Void, Never>?
     public private(set) var usage: UsageReport?
+    /// Whether the Rust toolchain a sandboxed command reaches is still the one the owner trusted (`GET /api/toolchain`).
+    public private(set) var toolchain: ToolchainStatus?
+    /// Why the toolchain could not be read or trusted, in the core's words, shown inline in Settings › Permissions › Sandbox.
+    public private(set) var toolchainError: String?
+    public private(set) var isTrustingToolchain = false
+    /// Why the last egress or port change was refused, shown inline beside the lists.
+    public private(set) var sandboxError: String?
+    public private(set) var isChangingSandbox = false
     public private(set) var loadState: LoadState = .idle
     public private(set) var error: String?
 
@@ -139,6 +147,95 @@ public final class SettingsStore {
         if let accounts = try? await client.oauthAccounts() { oauthAccounts = accounts }
         // Its own request: a core that can't list "never" rules still lets the rest of Settings load.
         do { nevers = try await client.nevers(); neverError = nil } catch { neverError = describe(error) }
+        await loadToolchain()
+    }
+
+    // MARK: Sandbox (egress, denied ports, toolchain)
+
+    /// Its own request, like the "never" list: a core without the route still lets the rest of Settings load.
+    public func loadToolchain() async {
+        do { toolchain = try await client.toolchain(); toolchainError = nil } catch { toolchainError = describe(error) }
+    }
+
+    /// "Trust the Rust toolchain as it is now". Sends the `since` the screen showed. If the core refuses because the toolchain
+    /// changed again, the page shows its sentence and the newer change.
+    public func trustToolchain() async {
+        guard let shown = toolchain, shown.state == .changed, !isTrustingToolchain else { return }
+        isTrustingToolchain = true
+        defer { isTrustingToolchain = false }
+        toolchainError = nil
+        do {
+            toolchain = try await client.trustToolchain(since: shown.since)
+        } catch {
+            toolchainError = describe(error)
+            if let fresh = try? await client.toolchain() { toolchain = fresh }
+        }
+    }
+
+    public func setEgress(_ mode: String) async {
+        guard let current = settings, current.egress != mode else { return }
+        await applySandbox(egress: mode)
+    }
+
+    /// Adds one host (`github.com`, or `*.github.com`) to the list. The core checks the name; its sentence shows if it refuses.
+    @discardableResult
+    public func addEgressHost(_ text: String) async -> Bool {
+        let host = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let current = settings, !host.isEmpty else { return false }
+        if current.egressAllow.contains(where: { $0.caseInsensitiveCompare(host) == .orderedSame }) {
+            sandboxError = "\(host) is already on the list."
+            return false
+        }
+        return await applySandbox(hosts: current.egressAllow + [host])
+    }
+
+    public func removeEgressHost(_ host: String) async {
+        guard let current = settings else { return }
+        await applySandbox(hosts: current.egressAllow.filter { $0 != host })
+    }
+
+    @discardableResult
+    public func addDeniedPort(_ text: String) async -> Bool {
+        guard let current = settings else { return false }
+        guard let port = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)), (1...65535).contains(port) else {
+            sandboxError = "Enter a port from 1 to 65535."
+            return false
+        }
+        if current.denyLocalPorts.contains(port) {
+            sandboxError = "Port \(port) is already on the list."
+            return false
+        }
+        return await applySandbox(denyPorts: current.denyLocalPorts + [port])
+    }
+
+    public func removeDeniedPort(_ port: Int) async {
+        guard let current = settings else { return }
+        await applySandbox(denyPorts: current.denyLocalPorts.filter { $0 != port })
+    }
+
+    /// Sends the sandbox values together, changing only the ones given, then reads the settings again so the page shows
+    /// what the core holds. If that read fails, the page keeps the values the core just accepted.
+    @discardableResult
+    private func applySandbox(egress: String? = nil, hosts: [String]? = nil, denyPorts: [Int]? = nil) async -> Bool {
+        guard let current = settings, !isChangingSandbox else { return false }
+        isChangingSandbox = true
+        defer { isChangingSandbox = false }
+        sandboxError = nil
+        let sent = (egress: egress ?? current.egress, hosts: hosts ?? current.egressAllow, denyPorts: denyPorts ?? current.denyLocalPorts)
+        do {
+            try await client.setSandbox(egress: sent.egress, hosts: sent.hosts, denyPorts: sent.denyPorts, maxRepeats: current.maxRepeats)
+        } catch {
+            sandboxError = describe(error)
+            return false
+        }
+        if let fresh = try? await client.settings() {
+            settings = fresh
+        } else {
+            settings?.egress = sent.egress
+            settings?.egressAllow = sent.hosts
+            settings?.denyLocalPorts = sent.denyPorts
+        }
+        return true
     }
 
     public func revoke(_ grant: Grant) async {
