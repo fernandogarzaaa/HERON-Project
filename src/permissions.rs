@@ -185,6 +185,18 @@ pub struct Policy {
 /// The four tools that read files. Their "always" answer is a folder grant, never the whole tool.
 pub const READ_TOOLS: [&str; 4] = ["read_file", "list_dir", "search_files", "find_files"];
 
+/// The tools that classify a path for writing.
+pub const WRITE_TOOLS: [&str; 2] = ["write_file", "edit_file"];
+
+/// The model's text for a Refused verdict: the protected-file message for a file tool's write to a
+/// protected path, and `reason` otherwise.
+pub fn refused_text(tool: &str, args: &serde_json::Value, ctx: &ToolCtx, reason: String) -> String {
+    if !WRITE_TOOLS.contains(&tool) {
+        return reason;
+    }
+    crate::tools::fs::write_refusal(args, ctx).map_or(reason, |r| r.message())
+}
+
 /// Rules that used to cover reads anywhere and no longer open reads outside the working folder.
 const TOOL_WIDE_READ_RULES: [&str; 6] = ["read_file:*", "list_dir:*", "search_files:*", "find_files:*", "*", "*:*"];
 
@@ -499,6 +511,9 @@ pub enum Approval {
 #[async_trait]
 pub trait Approver: Send + Sync {
     async fn approve(&self, req: &ApprovalRequest) -> Approval;
+    /// Whether an answer comes from a person, now. Only such an answer may run a call whose
+    /// interrupted copy waits in Approvals.
+    fn live(&self) -> bool;
 }
 
 /// Non-interactive contexts (scheduled jobs): anything that would need a human is declined.
@@ -507,6 +522,9 @@ pub struct DenyAll;
 impl Approver for DenyAll {
     async fn approve(&self, _req: &ApprovalRequest) -> Approval {
         Approval::Deny(Some("no human is available to approve this (unattended run)".into()))
+    }
+    fn live(&self) -> bool {
+        false
     }
 }
 
@@ -530,6 +548,9 @@ impl Approver for ParkingApprover {
             Err(_) => "no human is available to approve this (unattended run)".into(),
         }))
     }
+    fn live(&self) -> bool {
+        false
+    }
 }
 
 pub struct AllowAll;
@@ -537,6 +558,9 @@ pub struct AllowAll;
 impl Approver for AllowAll {
     async fn approve(&self, _req: &ApprovalRequest) -> Approval {
         Approval::Once
+    }
+    fn live(&self) -> bool {
+        false
     }
 }
 
@@ -1140,8 +1164,32 @@ fn with_canonical(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 ///
 /// A path that can't be resolved to where it really is (see [`unresolvable`]) is `Refused`, for reads
 /// and writes: what it names can't be judged, so it fails closed.
+/// Heron's homes as the protected list names them: the configured one and the default one, once
+/// each when they are the same.
+pub fn heron_homes(cfg: &Config) -> Vec<PathBuf> {
+    let mut homes = vec![cfg.home.clone()];
+    let default = crate::config::default_home();
+    if !homes.contains(&default) {
+        homes.push(default);
+    }
+    homes
+}
+
+/// The protected-file refusal for writing `path`, checked on the path as given, its canonical form
+/// and the data-volume alias of each.
+pub fn protected_write(path: &Path, workspace: &Path, cfg: &Config) -> Option<crate::protect::Refusal> {
+    let user_home = dirs::home_dir().unwrap_or_default();
+    let homes = heron_homes(cfg);
+    let forms = [path.to_path_buf(), canonical_existing(path)];
+    let aliases: Vec<PathBuf> = forms.iter().filter_map(|p| without_data_volume(p)).collect();
+    forms.iter().chain(&aliases).find_map(|p| crate::protect::refusal_for(p, workspace, &user_home, &homes)).map(|r| crate::protect::Refusal { path: path.to_path_buf(), label: r.label })
+}
+
 pub fn classify_path(path: &Path, workspace: &Path, cfg: &Config, write: bool) -> Effect {
     if unresolvable(path) {
+        return Effect::Refused;
+    }
+    if write && protected_write(path, workspace, cfg).is_some() {
         return Effect::Refused;
     }
     let roots = ReadRoots::of(cfg);
@@ -2135,5 +2183,97 @@ mod tests {
         let other = Config { home: abs("/srv/heron-b"), ..Default::default() };
         assert!(ReadRoots::of(&other).refused(&abs("/srv/heron-b/x")).is_some());
         assert!(ReadRoots::of(&other).refused(&abs("/srv/heron-a/x")).is_none());
+    }
+
+    /// A tool context in a fresh working folder of its own.
+    fn folder_ctx() -> (tempfile::TempDir, ToolCtx) {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dunce::canonicalize(dir.path()).unwrap();
+        let mut ctx = test_ctx(false);
+        ctx.workspace = ws.clone();
+        ctx.cfg = Arc::new(Config { home: ws.join(".heron-home"), ..Default::default() });
+        (dir, ctx)
+    }
+
+    fn write_effect(ctx: &ToolCtx, tool: &str, path: &str) -> Effect {
+        let args = serde_json::json!({"path": path, "content": "x", "old": "a", "new": "b"});
+        crate::tools::ToolRegistry::builtin().get(tool).unwrap().risk(&args, ctx)
+    }
+
+    fn decide_write(ctx: &ToolCtx, mode: Mode, path: &str) -> Verdict {
+        let effect = write_effect(ctx, "write_file", path);
+        Policy::new(mode, &["write_file:*".to_string(), "*".to_string()], &[]).decide(&Call { tool: "write_file", summary: path, effect, read_target: None }, ctx)
+    }
+
+    #[test]
+    fn git_hook_write_is_refused_in_every_mode() {
+        let (_dir, ctx) = folder_ctx();
+        std::fs::create_dir_all(ctx.workspace.join(".git/hooks")).unwrap();
+        for tool in WRITE_TOOLS {
+            assert_eq!(write_effect(&ctx, tool, ".git/hooks/pre-commit"), Effect::Refused, "{tool}");
+        }
+        for mode in [Mode::ReadOnly, Mode::Ask, Mode::Auto, Mode::Yolo] {
+            assert!(matches!(decide_write(&ctx, mode, ".git/hooks/pre-commit"), Verdict::Deny(_)), "{mode:?}: a rule opened a git hook");
+        }
+        assert_eq!(write_effect(&ctx, "write_file", "src/main.rs"), Effect::WorkspaceWrite, "an ordinary file stays writable");
+        assert_eq!(decide_write(&ctx, Mode::Auto, "src/main.rs"), Verdict::Allow);
+    }
+
+    #[test]
+    fn envrc_in_a_subfolder_is_refused() {
+        let (_dir, ctx) = folder_ctx();
+        assert_eq!(write_effect(&ctx, "write_file", "apps/web/.envrc"), Effect::Refused);
+        assert_eq!(write_effect(&ctx, "edit_file", "apps/web/.envrc"), Effect::Refused);
+        assert_eq!(write_effect(&ctx, "write_file", "apps/web/envrc.example"), Effect::WorkspaceWrite);
+    }
+
+    #[test]
+    fn zshrc_write_is_refused_not_asked() {
+        let (_dir, ctx) = folder_ctx();
+        assert_eq!(write_effect(&ctx, "write_file", "~/.zshrc"), Effect::Refused);
+        for mode in [Mode::Ask, Mode::Yolo] {
+            assert!(matches!(decide_write(&ctx, mode, "~/.zshrc"), Verdict::Deny(_)), "{mode:?}");
+        }
+        assert_eq!(write_effect(&ctx, "write_file", "~/notes-outside.txt"), Effect::Privileged, "another file outside the folder still asks");
+    }
+
+    #[test]
+    fn write_through_a_git_component_is_refused() {
+        let (_dir, ctx) = folder_ctx();
+        for path in ["vendor/lib/.git/objects/ab/cdef", ".git/modules/sub/hooks/post-checkout", "plain/.git/info/attributes"] {
+            assert_eq!(write_effect(&ctx, "write_file", path), Effect::Refused, "{path}");
+        }
+        #[cfg(unix)]
+        {
+            std::fs::create_dir_all(ctx.workspace.join("real/.git/hooks")).unwrap();
+            std::os::unix::fs::symlink(ctx.workspace.join("real/.git/hooks"), ctx.workspace.join("hooks-link")).unwrap();
+            assert_eq!(write_effect(&ctx, "write_file", "hooks-link/pre-push"), Effect::Refused, "through a link, the canonical form is checked");
+        }
+        assert_eq!(write_effect(&ctx, "write_file", "docs/git-notes.md"), Effect::WorkspaceWrite);
+    }
+
+    #[test]
+    fn refusal_names_the_protected_category() {
+        let (_dir, ctx) = folder_ctx();
+        let args = |p: &str| serde_json::json!({"path": p, "content": "x"});
+        assert_eq!(
+            refused_text("write_file", &args(".git/hooks/pre-commit"), &ctx, "generic".into()),
+            "Refused: .git/hooks/pre-commit is a protected file (a git hook, which runs code later). Heron's file tools can't change it in any mode."
+        );
+        assert!(refused_text("edit_file", &args(".git/config"), &ctx, "generic".into()).contains("(a repository's git config, which runs code later)"));
+        assert!(refused_text("write_file", &args("~/.zshrc"), &ctx, "generic".into()).contains("(a shell startup file, which runs code later)"));
+        assert!(refused_text("write_file", &args(".vscode/settings.json"), &ctx, "generic".into()).contains("(an editor or agent settings folder,"));
+        assert_eq!(refused_text("read_file", &args(".git/hooks/pre-commit"), &ctx, "generic".into()), "generic", "only the writing file tools get the message");
+        assert_eq!(refused_text("write_file", &args(".heron-home/notes.txt"), &ctx, "generic".into()), "generic", "a Refused write for another reason keeps its text");
+    }
+
+    #[test]
+    fn protected_read_is_unchanged() {
+        let (_dir, ctx) = folder_ctx();
+        for path in [".git/hooks/pre-commit", ".vscode/settings.json", "apps/.husky/pre-commit"] {
+            let p = ctx.workspace.join(path);
+            assert_eq!(classify_path(&p, &ctx.workspace, &ctx.cfg, false), Effect::LocalRead, "{path}");
+            assert_eq!(classify_path(&p, &ctx.workspace, &ctx.cfg, true), Effect::Refused, "{path}");
+        }
     }
 }

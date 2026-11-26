@@ -41,7 +41,15 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
     };
     let candidates: Vec<(&str, &[&str])> = if chosen.is_empty() { candidates.to_vec() } else { vec![(chosen.as_str(), chosen_flags)] };
     let grants = sandbox_grants(ctx);
-    let sandbox = crate::sandbox::wrap(&ctx.cfg, &ctx.workspace, &crate::sandbox::Profile::Shell { grants });
+    let sandboxed = crate::sandbox::active(&ctx.cfg) != crate::sandbox::Kind::None;
+    let user_home = crate::toolchain::user_home();
+    let toolchain = if sandboxed { toolchain_state(ctx, &user_home).await } else { Default::default() };
+    if crate::toolchain::names_rust_tool(command) {
+        if let Some(refusal) = crate::toolchain::refusal(&toolchain) {
+            anyhow::bail!("{refusal}");
+        }
+    }
+    let sandbox = crate::sandbox::wrap(&ctx.cfg, &ctx.workspace, &crate::sandbox::Profile::Shell { grants, protect: Default::default(), egress: None, toolchain: toolchain.clone() });
     // The classifier cannot see what a command reads at run time, so it cannot stand in for the
     // sandbox: on macOS, no sandbox means no shell.
     if sandbox.is_none() && crate::sandbox::required() {
@@ -86,6 +94,12 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
         None => return Err(last_err.map(anyhow::Error::from).unwrap_or_else(|| anyhow::anyhow!("no shell available"))).context("could not start a shell"),
     };
     let pid = child.id();
+    #[cfg(unix)]
+    let mut group = GroupGuard(pid.and_then(|p| i32::try_from(p).ok()));
+    #[cfg(unix)]
+    if let Some(pgid) = group.0 {
+        crate::journal::note_child(pgid);
+    }
     // Keep only as much output as could ever be shown, and throw the rest away as it arrives: a command
     // that prints without end (`cat /dev/zero`) must not be able to fill the computer's memory.
     let keep = (ctx.cfg.agent.max_tool_output_chars * 4).clamp(64 * 1024, 4 * 1024 * 1024);
@@ -97,8 +111,14 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
     };
     let waited = tokio::time::timeout(Duration::from_secs(timeout), collect).await;
     let ((stdout, stdout_cut), (stderr, stderr_cut), status) = match waited {
-        Ok(r) => r?,
+        Ok(r) => {
+            #[cfg(unix)]
+            group.disarm();
+            r?
+        }
         Err(_) => {
+            #[cfg(unix)]
+            group.disarm();
             // Kill the whole tree while the shell is still there to be found. (On Windows the tree is
             // looked up through the shell's process id, so this has to happen before the shell is gone.)
             if let Some(pid) = pid {
@@ -108,7 +128,11 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
                 let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
             }
             let _ = child.kill().await;
-            return Ok(format!("[timed out after {timeout}s and was killed. For long-running work, raise timeout_secs or run it in the background.]"));
+            let mut text = format!("[timed out after {timeout}s and was killed. For long-running work, raise timeout_secs or run it in the background.]");
+            if sandboxed {
+                push_note(&mut text, toolchain_note(ctx, &user_home, &toolchain, command).await);
+            }
+            return Ok(text);
         }
     };
     let cut_note = |cut: bool| if cut { "\n[more output than can be kept; the rest was discarded]" } else { "" };
@@ -135,7 +159,53 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
     } else if text.is_empty() {
         text.push_str("(no output, exit code 0)");
     }
+    if sandboxed {
+        push_note(&mut text, toolchain_note(ctx, &user_home, &toolchain, command).await);
+    }
     Ok(text)
+}
+
+/// Kills the command's process group when the call is dropped before the command ended, as the
+/// timeout path does. `kill_on_drop` reaches only the shell itself.
+#[cfg(unix)]
+struct GroupGuard(Option<i32>);
+
+#[cfg(unix)]
+impl GroupGuard {
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+#[cfg(unix)]
+impl Drop for GroupGuard {
+    fn drop(&mut self) {
+        if let Some(pgid) = self.0.filter(|p| *p > 1) {
+            // SAFETY: SIGKILL to the command's own process group, which `process_group(0)` made.
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+        }
+    }
+}
+
+/// The toolchain check, on a blocking thread: it may hash files.
+async fn toolchain_state(ctx: &ToolCtx, user_home: &std::path::Path) -> crate::toolchain::ToolchainState {
+    let (store, home) = (ctx.store.clone(), user_home.to_path_buf());
+    tokio::task::spawn_blocking(move || crate::toolchain::check(&store, &home)).await.unwrap_or_default()
+}
+
+/// The check after a command, and the notice when it found a change it has not reported yet.
+async fn toolchain_note(ctx: &ToolCtx, user_home: &std::path::Path, before: &crate::toolchain::ToolchainState, command: &str) -> Option<String> {
+    let after = toolchain_state(ctx, user_home).await;
+    crate::toolchain::note_after(&ctx.store, before, &after, command)
+}
+
+fn push_note(text: &mut String, note: Option<String>) {
+    if let Some(note) = note {
+        text.push('\n');
+        text.push_str(&note);
+    }
 }
 
 /// Variables every command may see. Nothing here is a credential: locations, language, time zone,
@@ -414,6 +484,172 @@ pub(crate) mod tests {
 
     async fn sh(ctx: &ToolCtx, command: &str) -> String {
         run(&json!({"command": command}), ctx).await.unwrap()
+    }
+
+    /// A tool context in a fresh working folder, with a Heron home of its own.
+    fn fresh_ctx() -> (tempfile::TempDir, ToolCtx) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(dir.path()).unwrap();
+        std::fs::create_dir_all(root.join("ws")).unwrap();
+        let store = Store::in_memory().unwrap();
+        let cfg = Config { home: root.join("heron-home"), ..Default::default() };
+        let ctx = ToolCtx { workspace: root.join("ws"), memory: Memory::new(store.clone(), None), store, session_id: "t".into(), cfg: Arc::new(cfg), tainted: Default::default(), seen_urls: Default::default() };
+        (dir, ctx)
+    }
+
+    /// A user home with one Rust toolchain in it.
+    fn fake_toolchain_home() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dunce::canonicalize(dir.path()).unwrap();
+        let bin = home.join(".rustup/toolchains/stable-test/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("rustc"), "rustc v1").unwrap();
+        std::fs::write(bin.join("cargo"), "cargo v1").unwrap();
+        (dir, home)
+    }
+
+    fn rustc_of(home: &std::path::Path) -> std::path::PathBuf {
+        home.join(".rustup/toolchains/stable-test/bin/rustc")
+    }
+
+    async fn in_home(home: &std::path::Path, ctx: &ToolCtx, command: &str, timeout: Option<u64>) -> Result<String> {
+        let mut args = json!({"command": command});
+        if let Some(t) = timeout {
+            args["timeout_secs"] = json!(t);
+        }
+        crate::toolchain::TEST_HOME.scope(home.to_path_buf(), run(&args, ctx)).await
+    }
+
+    #[tokio::test]
+    async fn toolchain_change_is_reported_after_the_command() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let (_h, home) = fake_toolchain_home();
+        let first = in_home(&home, &ctx, "echo hi", None).await.unwrap();
+        assert!(!first.contains("[toolchain]"), "{first}");
+        let changed = in_home(&home, &ctx, &format!("printf x >> {}", q(&rustc_of(&home))), None).await.unwrap();
+        assert!(
+            changed.contains("[toolchain] the Rust toolchain stable-test changed during this command (bin/rustc). Heron won't use it until you trust it in Settings › Sandbox."),
+            "{changed}"
+        );
+        let later = in_home(&home, &ctx, "echo again", None).await.unwrap();
+        assert!(!later.contains("[toolchain]"), "a change is reported once: {later}");
+    }
+
+    #[tokio::test]
+    async fn toolchain_change_is_reported_after_a_timeout() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let (_h, home) = fake_toolchain_home();
+        in_home(&home, &ctx, "echo hi", None).await.unwrap();
+        let out = in_home(&home, &ctx, &format!("printf x >> {}; sleep 30", q(&rustc_of(&home))), Some(1)).await.unwrap();
+        assert!(out.starts_with("[timed out after 1s"), "{out}");
+        assert!(out.contains("[toolchain] the Rust toolchain stable-test changed during this command (bin/rustc)."), "{out}");
+    }
+
+    #[tokio::test]
+    async fn cargo_is_refused_while_the_toolchain_is_changed() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let (_h, home) = fake_toolchain_home();
+        in_home(&home, &ctx, "echo hi", None).await.unwrap();
+        std::fs::write(rustc_of(&home), "rustc v2").unwrap();
+        let refusal = "Heron won't run the Rust toolchain: stable-test changed since you last trusted it (bin/rustc). Check it, then trust it in Settings › Sandbox.";
+        for command in ["cargo --version", "ls | env FOO=1 cargo build", "echo x && rustc -V"] {
+            let err = in_home(&home, &ctx, command, None).await.unwrap_err().to_string();
+            assert_eq!(err, refusal, "{command}");
+        }
+        assert!(in_home(&home, &ctx, "echo still-fine", None).await.unwrap().contains("still-fine"), "other commands still run");
+        let since = match crate::toolchain::check(&ctx.store, &home) {
+            crate::toolchain::ToolchainState::Changed { since, .. } => since,
+            other => panic!("{other:?}"),
+        };
+        crate::toolchain::trust_current(&ctx.store, &home, Some(since)).unwrap();
+        let ok = in_home(&home, &ctx, "cargo --version", None).await.unwrap();
+        assert!(!ok.contains("won't run the Rust toolchain"), "trusted again, it runs: {ok}");
+    }
+
+    #[tokio::test]
+    async fn disguised_cargo_is_denied_by_the_profile() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let (_h, home) = fake_toolchain_home();
+        let cargo = home.join(".rustup/toolchains/stable-test/bin/cargo");
+        let read = format!("cat {}", q(&cargo));
+        assert!(in_home(&home, &ctx, &read, None).await.unwrap().contains("cargo v1"), "the trusted toolchain is readable");
+        std::fs::write(rustc_of(&home), "rustc v2").unwrap();
+        let denied = in_home(&home, &ctx, &read, None).await.unwrap();
+        assert!(!denied.contains("cargo v1") && denied.contains("Operation not permitted"), "{denied}");
+    }
+
+    #[tokio::test]
+    async fn shell_call_records_its_process_group() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let args = json!({"command": "echo $$"});
+        let intent = crate::journal::Intent {
+            kind: crate::journal::Kind::Tool,
+            name: "shell".into(),
+            args: args.to_string(),
+            args_hash: crate::journal::args_hash(&args),
+            summary: "echo $$".into(),
+            risk: "exec".into(),
+            tainted: false,
+            session_id: "t".into(),
+            run_id: "turn:pgid".into(),
+            origin: "user".into(),
+            workspace: ctx.workspace.clone(),
+            label: None,
+        };
+        let out = match crate::journal::guarded(&ctx.store, &ctx.cfg.home, intent, Duration::from_secs(60), run(&args, &ctx)).await {
+            crate::journal::Guarded::Ran(r) => r.unwrap(),
+            crate::journal::Guarded::NotRun(e) => panic!("{e}"),
+        };
+        let pid: i64 = out.lines().next().unwrap().trim().parse().unwrap_or_else(|_| panic!("{out}"));
+        let pgid: Option<i64> = ctx.store.with_conn(|c| Ok(c.query_row("SELECT child_pgid FROM effects", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(pgid, Some(pid), "the row names the command's process group");
+    }
+
+    #[tokio::test]
+    async fn dropped_shell_call_kills_its_process_group() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let pidfile = ctx.workspace.join("bg.pid");
+        let command = format!("sleep 60 & echo $! > {}; wait", q(&pidfile));
+        let args = json!({"command": command});
+        let mut call = Box::pin(run(&args, &ctx));
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        let bg: i32 = loop {
+            tokio::select! {
+                out = &mut call => panic!("the command ended early: {out:?}"),
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+            }
+            if let Some(pid) = std::fs::read_to_string(&pidfile).ok().and_then(|s| s.trim().parse().ok()) {
+                break pid;
+            }
+            assert!(std::time::Instant::now() < deadline, "the background process never started");
+        };
+        // SAFETY: signal 0 only asks whether the process exists.
+        let alive = |pid: i32| unsafe { libc::kill(pid, 0) } == 0;
+        assert!(alive(bg));
+        drop(call);
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while alive(bg) {
+            assert!(std::time::Instant::now() < deadline, "the background process {bg} outlived the dropped call");
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 
     pub(crate) fn q(p: &std::path::Path) -> String {
@@ -724,7 +960,7 @@ pub(crate) mod tests {
             assert!(out.contains("DENIED"), "{} is readable in the sandbox", dir.display());
         }
         // And the profile names every one of them, present or not.
-        let profile = crate::sandbox::seatbelt_profile(&cfg, &home, &ws, &crate::sandbox::Profile::Shell { grants: vec![] });
+        let profile = crate::sandbox::seatbelt_profile(&cfg, &home, &ws, &crate::sandbox::Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain: Default::default() });
         let refused = &profile[profile.find("(deny file-read* file-write*").unwrap()..];
         for dir in &dirs {
             assert!(refused.contains(&format!("(subpath \"{}\")", dir.display())), "{} missing from the Refused block", dir.display());
@@ -808,7 +1044,7 @@ pub(crate) mod tests {
         let kc = TestKeychain::new(&dir).expect("could not make a test keychain");
         let plain = std::process::Command::new("security").args(kc.lookup()).output().unwrap();
         assert!(String::from_utf8_lossy(&plain.stdout).contains("KEYCHAIN-ITEM-SECRET"), "the lookup works outside the sandbox");
-        let prefix = crate::sandbox::wrap(&cfg, &dir, &crate::sandbox::Profile::Shell { grants: vec![] }).unwrap();
+        let prefix = crate::sandbox::wrap(&cfg, &dir, &crate::sandbox::Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain: Default::default() }).unwrap();
         let (ok, out) = under(&prefix, &kc.lookup());
         assert!(!ok && !out.contains("KEYCHAIN-ITEM-SECRET"), "{out}");
     }
@@ -881,7 +1117,7 @@ pub(crate) mod tests {
         let home = dunce::canonicalize(dirs::home_dir().unwrap()).unwrap();
         // Both profiles end with the launch rules.
         let codex = crate::cli_llm::spec_for("codex-cli").unwrap();
-        let shell_text = crate::sandbox::seatbelt_profile(&cfg, &home, &home.join("project-launch-test"), &crate::sandbox::Profile::Shell { grants: vec![] });
+        let shell_text = crate::sandbox::seatbelt_profile(&cfg, &home, &home.join("project-launch-test"), &crate::sandbox::Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain: Default::default() });
         let cli_text = crate::sandbox::seatbelt_profile(&cfg, &home, std::path::Path::new("/private/var/folders/xy/T/heron-cli-4"), &crate::sandbox::Profile::Cli { spec: &codex, binary_dir: "/usr/bin".into(), extra_read: vec![] });
         for text in [&shell_text, &cli_text] {
             assert!(text.ends_with(&format!("{}\n{}\n", crate::sandbox::JOB_CREATION, crate::sandbox::LAUNCH_SERVICES)), "{text}");
@@ -1068,7 +1304,7 @@ pub(crate) mod tests {
         let home = dunce::canonicalize(dirs::home_dir().unwrap()).unwrap();
         // The profile: every ancestor of a Refused path inside the working folder is write-denied.
         let planned = home.join(format!(".heron-rename-test-{}/project", uuid::Uuid::new_v4().simple()));
-        let text = crate::sandbox::seatbelt_profile(&settings(&planned), &home, &planned, &crate::sandbox::Profile::Shell { grants: vec![] });
+        let text = crate::sandbox::seatbelt_profile(&settings(&planned), &home, &planned, &crate::sandbox::Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain: Default::default() });
         let ancestors = text.lines().find(|l| l.starts_with("(deny file-write* (literal")).unwrap_or_else(|| panic!("no ancestor rule:\n{text}"));
         for a in [planned.join("a/b"), planned.join("a"), planned.join("data"), planned.clone()] {
             assert!(ancestors.contains(&format!("(literal \"{}\")", a.display())), "{} can be renamed: {ancestors}", a.display());
@@ -1119,7 +1355,7 @@ pub(crate) mod tests {
         let probe = test_ctx(&cfg, &home.join("project-grant-test"), "g");
         probe.store.kv_set("grants:g", &serde_json::to_string(&["read=:/".to_string(), format!("read=:{}", home.display())]).unwrap()).unwrap();
         let grants = crate::sandbox::shell_grants(&probe.cfg, &probe.store, "g", false);
-        let text = crate::sandbox::seatbelt_profile(&cfg, &home, &home.join("project-grant-test"), &crate::sandbox::Profile::Shell { grants });
+        let text = crate::sandbox::seatbelt_profile(&cfg, &home, &home.join("project-grant-test"), &crate::sandbox::Profile::Shell { grants, protect: Default::default(), egress: None, toolchain: Default::default() });
         let readable = text.lines().find(|l| l.starts_with("(allow file-read* (subpath")).unwrap();
         for p in ["/".to_string(), home.display().to_string()] {
             assert!(readable.contains(&format!("(literal \"{p}\")")), "{p}: {readable}");
