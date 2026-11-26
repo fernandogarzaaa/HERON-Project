@@ -199,15 +199,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "30b76b8bed7840b7b399fdd9a011186a",
+      "base_branch": "feat/harness-safety",
+      "claim_token": "5ee87dd04de24325b8ad3f1163fbd3f1",
+      "claimed_at": "2026-11-26T22:15:40.633334+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-26T22:15:40.633334+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [],
     "evidence": [],
@@ -227,11 +227,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "W4: Protected list ported from anchor-harness `protect.rs`, `is_protected`, Seatbelt",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/harness-safety",
       "branch": null,
       "path": null
     }
