@@ -606,6 +606,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn save_skill_respects_the_directory_entry_cap_without_hiding_existing_skills() {
         let ws = tempfile::tempdir().unwrap();
