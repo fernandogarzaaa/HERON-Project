@@ -229,8 +229,25 @@ fn account_subject(provider: Provider, client_id: &str, token: &Value) -> Result
         bail!("The provider returned an expired, not-yet-valid, or invalid ID token. Connect again.");
     }
 
-    claims["sub"].as_str().filter(|sub| !sub.is_empty() && sub.len() <= 255)
-        .map(str::to_string).ok_or_else(unreadable)
+    let subject = claims["sub"].as_str()
+        .filter(|sub| !sub.is_empty() && sub.len() <= 255)
+        .ok_or_else(unreadable)?;
+    match provider {
+        // Google's issuer is global and stable; preserve existing Google
+        // subject keys so existing Google connections do not need migration.
+        Provider::Google => Ok(subject.to_string()),
+        // Microsoft uses tenant-specific issuers. OIDC sub is only unique
+        // within its issuer, so persist the validated issuer with the subject.
+        Provider::Microsoft => {
+            let tenant = claims.get("tid").and_then(Value::as_str).ok_or_else(unreadable)?;
+            let tenant = uuid::Uuid::parse_str(tenant).map_err(|_| unreadable())?;
+            Ok(format!(
+                "heron-oidc-v1:https://login.microsoftonline.com/{}/v2.0:{}",
+                tenant,
+                subject
+            ))
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -244,6 +261,8 @@ fn admit(connected: bool, stored_subject: Option<&str>, subject: &str) -> Result
     match (connected, stored_subject) {
         (false, _) => Ok(Admit::Fresh),
         (true, Some(stored)) if stored == subject => Ok(Admit::SameAccount),
+        (true, Some(stored)) if subject.starts_with("heron-oidc-v1:") && !stored.starts_with("heron-oidc-v1:") =>
+            bail!("This Microsoft connection has a legacy tenant-unqualified identity. Disconnect it first, then reconnect; Heron cannot safely infer its original tenant."),
         (true, Some(_)) => bail!("You signed in with a different account from the one connected. Sign in with that account, or disconnect it first."),
         (true, None) => bail!("This connection was made before Heron recorded which account it belongs to. Disconnect it, then connect again."),
     }
@@ -530,7 +549,7 @@ mod tests {
         );
         assert_eq!(
             account_subject(Provider::Microsoft, "app", &token(valid_claims(Provider::Microsoft, "app", "user-2"))).unwrap(),
-            "user-2"
+            "heron-oidc-v1:https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0:user-2"
         );
 
         let mut wrong_issuer = valid_claims(Provider::Google, "app", "user-1");
@@ -570,7 +589,7 @@ mod tests {
         valid_not_before["nbf"] = serde_json::json!(Utc::now().timestamp() - 1);
         assert_eq!(
             account_subject(Provider::Microsoft, "app", &token(valid_not_before)).unwrap(),
-            "user-2"
+            "heron-oidc-v1:https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0:user-2"
         );
 
         let long = "x".repeat(256);
@@ -585,6 +604,33 @@ mod tests {
         ] {
             assert!(account_subject(Provider::Google, "app", &bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn microsoft_account_identity_is_qualified_by_tenant_issuer() {
+        let token = |claims| serde_json::json!({"id_token": id_token(claims)});
+        let first = account_subject(
+            Provider::Microsoft,
+            "app",
+            &token(valid_claims(Provider::Microsoft, "app", "same-subject")),
+        ).unwrap();
+
+        let mut other_tenant = valid_claims(Provider::Microsoft, "app", "same-subject");
+        other_tenant["tid"] = serde_json::json!("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        other_tenant["iss"] = serde_json::json!(
+            "https://login.microsoftonline.com/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/v2.0"
+        );
+        let second = account_subject(Provider::Microsoft, "app", &token(other_tenant)).unwrap();
+
+        assert_ne!(first, second, "the same sub from different tenant issuers is a different account");
+        assert!(admit(true, Some(&first), &second).is_err());
+        assert!(
+            admit(true, Some("same-subject"), &second)
+                .unwrap_err()
+                .to_string()
+                .contains("legacy tenant-unqualified identity"),
+            "legacy bare-subject records must require an explicit disconnect"
+        );
     }
 
     #[test]
