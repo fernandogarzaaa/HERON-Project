@@ -728,15 +728,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "17cd4d20a7a54b4c97ec709226a9e2fc",
+      "base_branch": "skein/HS-W6b__integrate__integrate-base",
+      "claim_token": "c5e7bc938a4d4f569e8393a0b53c8c92",
+      "claimed_at": "2026-11-26T23:09:32.303334+00:00",
+      "holder": "skein-auto-merge",
+      "last_heartbeat": "2026-11-26T23:09:32.303334+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "skein-auto-merge"
     },
     "depends_on": [
       "HS-W3",
@@ -759,11 +759,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Integrate parents of HS-W6b",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/HS-W6b__integrate__integrate-base",
       "branch": null,
       "path": null
     }
