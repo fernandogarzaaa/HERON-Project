@@ -497,11 +497,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "W6a: Phase 1 wiring: `maintain` prune, `RunFrame`, `execute_call` journal, OQ9 gate a",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/HS-W6a__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "1a174ada29d4db9fb7e65a4ca3779d6215977f3b",
+      "branch": "skein/HS-W6a",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W6a"
     }
   },
   "HS-W6a__integrate": {
