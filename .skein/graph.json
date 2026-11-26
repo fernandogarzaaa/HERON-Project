@@ -497,9 +497,9 @@
     "shipped": {},
     "status": "unclaimed",
     "title": "W6a: Phase 1 wiring: `maintain` prune, `RunFrame`, `execute_call` journal, OQ9 gate a",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/HS-W6a__integrate-base",
       "branch": null,
       "path": null
     }
