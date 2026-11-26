@@ -680,15 +680,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "5f04320f96f14521941a77d105d95ba0",
+      "base_branch": "skein/HS-W6b__integrate-base",
+      "claim_token": "44b715035b2346e883d2c1521401c3c5",
+      "claimed_at": "2026-11-26T23:09:32.841924+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-26T23:09:32.841924+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "HS-W3",
@@ -711,9 +711,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "W6b: Phase 2 wiring, after PT-E1 passes: egress in the shell and profile, the Seatbel",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/HS-W6b__integrate-base",
       "branch": null,
