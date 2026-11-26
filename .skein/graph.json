@@ -229,11 +229,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "W4: Protected list ported from anchor-harness `protect.rs`, `is_protected`, Seatbelt",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/harness-safety",
-      "branch": null,
-      "path": null
+      "base_commit": "00b920abd11c62070cae9bf944853ec974c502fc",
+      "branch": "skein/HS-W4",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W4"
     }
   },
   "HS-W5": {
