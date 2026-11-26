@@ -1,6 +1,15 @@
 {
   "HS-W1": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "df54d1d65b3d4bf2b35fd79b0582cd98",
+        "ended_at": "2026-11-26T22:31:12.284081+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-26T22:13:45.429765+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -12,19 +21,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "df54d1d65b3d4bf2b35fd79b0582cd98",
-      "base_branch": "feat/harness-safety",
-      "claim_token": "aca414e15d714f04b2e791238b5301c2",
-      "claimed_at": "2026-11-26T22:13:45.429765+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-26T22:30:48.000855+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash eval/require-tests.sh --lib journal:: -- dead_process_intent_becomes_interrupted missing_lease_file_counts_as_dead a_live_process_intent_is_left_alone finished_rows_drop_their_arguments drop_after_a_cancel_request_writes_cancelled drop_without_a_cancel_request_writes_interrupted panic_inside_guarded_writes_failed timeout_inside_guarded_writes_failed failed_intent_insert_does_not_run_the_tool interrupted_tool_call_becomes_one_ask_again_approval ask_pass_commits_the_approval_and_the_row_together interrupted_calls_from_two_sessions_get_two_approvals interrupted_calls_with_different_taint_get_two_approvals interrupted_parked_call_reopens_its_own_approval parked_call_whose_approval_cannot_reopen_gets_a_new_one live_child_process_group_delays_the_ask interrupted_action_uses_its_label pending_ask_again_matches_session_tool_and_args pending_ask_again_sees_unrecovered_rows live_parked_approvals_lists_only_live_leases dead_lease_files_are_swept args_hash_ignores_key_order prune_keeps_open_rows asked_rows_prune_once_their_approval_is_answered && cargo test --locked --lib -- journal::",
+        "duration_ms": 2264,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W1_20261126T223109797667_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W1_20261126T223112062615_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "HS-W1",
     "integration_for": null,
     "intent": {
@@ -36,13 +57,36 @@
     "max_retries": 1,
     "rejected_count": 2,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "df54d1d65b3d4bf2b35fd79b0582cd98",
+      "base_commit": "93a803d7819a4ed27e1dc9d03d46071aeff6e088",
+      "changed_files": [
+        "src/journal/lease.rs",
+        "src/journal/mod.rs",
+        "src/journal/sql.rs"
+      ],
+      "commit": "284799fd30cfe745835b4fcdd5003119eb2fcba8",
+      "diff_stats": {
+        "src/journal/lease.rs": {
+          "added": 205,
+          "deleted": 0
+        },
+        "src/journal/mod.rs": {
+          "added": 1230,
+          "deleted": 0
+        },
+        "src/journal/sql.rs": {
+          "added": 199,
+          "deleted": 2
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "in_progress",
+    "status": "done",
     "title": "W1: Effect journal module: SQL functions, process leases, `guarded`, two-pass recove",
-    "version": 39,
+    "version": 40,
     "worktree": {
       "base_branch": "feat/harness-safety",
       "base_commit": "93a803d7819a4ed27e1dc9d03d46071aeff6e088",
