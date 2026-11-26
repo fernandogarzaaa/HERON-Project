@@ -10,6 +10,9 @@ use std::io::Read;
 use std::path::Path;
 
 const MAX_SKILLS: usize = 128;
+// Bound directory enumeration as well as the number and size of loaded skills.
+// Allow unrelated files, but fail closed rather than materializing an unbounded listing.
+pub const MAX_SKILL_ENTRIES: usize = MAX_SKILLS * 8;
 pub const MAX_SKILL_BYTES: u64 = 64 * 1024;
 
 /// Reject a save before modifying any existing skill if the loader would
@@ -121,10 +124,11 @@ fn within_skills_directory(root: &Path, path: &Path) -> bool {
 }
 
 #[cfg(unix)]
-fn secure_open(root: &Path, folder: Option<&std::ffi::OsStr>, filename: &std::ffi::OsStr) -> std::io::Result<std::fs::File> {
+fn secure_open(root: &Path, expected_root: &std::fs::Metadata, folder: Option<&std::ffi::OsStr>, filename: &std::ffi::OsStr) -> std::io::Result<std::fs::File> {
     use std::ffi::CString;
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
 
     let croot = CString::new(root.as_os_str().as_bytes())
         .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
@@ -137,6 +141,15 @@ fn secure_open(root: &Path, folder: Option<&std::ffi::OsStr>, filename: &std::ff
     };
     if root_fd < 0 { return Err(std::io::Error::last_os_error()); }
     let root_file = unsafe { std::fs::File::from_raw_fd(root_fd) };
+    // A real directory can be renamed and replaced after enumeration without
+    // becoming a symlink. Verify that this handle is the exact root we checked.
+    let opened_root = root_file.metadata()?;
+    if opened_root.dev() != expected_root.dev() || opened_root.ino() != expected_root.ino() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "skills directory changed while loading",
+        ));
+    }
 
     let nested = if let Some(folder) = folder {
         let cname = CString::new(folder.as_bytes())
@@ -159,8 +172,24 @@ fn secure_open(root: &Path, folder: Option<&std::ffi::OsStr>, filename: &std::ff
     Ok(unsafe { std::fs::File::from_raw_fd(fd) })
 }
 
-#[cfg(not(unix))]
-fn secure_open(root: &Path, folder: Option<&std::ffi::OsStr>, filename: &std::ffi::OsStr) -> std::io::Result<std::fs::File> {
+#[cfg(windows)]
+fn secure_open(
+    _root: &Path,
+    _expected_root: &std::fs::Metadata,
+    _folder: Option<&std::ffi::OsStr>,
+    _filename: &std::ffi::OsStr,
+) -> std::io::Result<std::fs::File> {
+    // Path-based CreateFile resolution cannot pin every parent component.
+    // Do not load untrusted skills until a RootDirectory-handle implementation
+    // can reject reparse points throughout the path and verify final containment.
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "Windows skill loading is disabled until reparse-safe handle-relative opens are available",
+    ))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn secure_open(root: &Path, _expected_root: &std::fs::Metadata, folder: Option<&std::ffi::OsStr>, filename: &std::ffi::OsStr) -> std::io::Result<std::fs::File> {
     let path = match folder {
         Some(dir) => root.join(dir).join(filename),
         None => root.join(filename),
@@ -168,22 +197,268 @@ fn secure_open(root: &Path, folder: Option<&std::ffi::OsStr>, filename: &std::ff
     std::fs::File::open(path)
 }
 
+/// Collect at most MAX_SKILL_ENTRIES directory results. Iterator errors fail
+/// closed; skipping them could otherwise make a stream of failed reads unbounded.
+fn collect_bounded_entries(
+    entries: impl Iterator<Item = std::io::Result<std::fs::DirEntry>>,
+) -> Option<Vec<std::fs::DirEntry>> {
+    let mut bounded_entries = Vec::with_capacity(MAX_SKILL_ENTRIES);
+    for entry in entries.take(MAX_SKILL_ENTRIES + 1) {
+        let entry = entry.ok()?;
+        if bounded_entries.len() == MAX_SKILL_ENTRIES {
+            return None;
+        }
+        bounded_entries.push(entry);
+    }
+    Some(bounded_entries)
+}
+
+/// Hold a home-scoped lock while checking and changing the bounded skills inventory.
+/// The lock lives beside (not inside) the skills directory, so it is not counted as a skill entry.
+pub(crate) fn lock_skill_writes(home: &Path) -> anyhow::Result<crate::config::ConfigLock> {
+    lock_skill_writes_with_wait(home, crate::config::CONFIG_LOCK_WAIT)
+}
+
+fn lock_skill_writes_with_wait(
+    home: &Path,
+    wait: std::time::Duration,
+) -> anyhow::Result<crate::config::ConfigLock> {
+    std::fs::create_dir_all(home)?;
+    // Config::load preserves HERON_HOME as supplied by the environment. Two
+    // processes may therefore name the same directory through a symlink or
+    // relative path; canonicalize before deriving the shared lock identity.
+    let canonical_home = std::fs::canonicalize(home)?;
+    let path = canonical_home.join("skills.lock");
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(false).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(&path)?;
+    if !crate::config::lock_within(&file, wait)? {
+        return Err(crate::config::lock_timed_out(wait));
+    }
+    Ok(crate::config::ConfigLock::held(file))
+}
+
+fn is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        metadata.file_type().is_symlink() || metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
+}
+
+/// Hard links keep an in-root pathname while aliasing the same inode/file
+/// outside the skills directory. Query link count from the opened handle;
+/// canonical-path checks cannot distinguish hard links.
+fn has_multiple_links(file: &std::fs::File) -> std::io::Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(file.metadata()?.nlink() > 1)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        };
+        let mut information = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+        let succeeded = unsafe {
+            GetFileInformationByHandle(file.as_raw_handle() as _, information.as_mut_ptr())
+        };
+        if succeeded == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let information = unsafe { information.assume_init() };
+        Ok(information.nNumberOfLinks > 1)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = file;
+        Ok(false)
+    }
+}
+
+/// Return metadata for a real skills directory. A symlink/junction is not a
+/// trusted root, even if its target happens to be a directory.
+pub(crate) fn validate_skills_root(dir: &Path) -> anyhow::Result<std::fs::Metadata> {
+    let metadata = std::fs::symlink_metadata(dir)?;
+    anyhow::ensure!(
+        metadata.is_dir() && !is_link_or_reparse(&metadata),
+        "skills directory must be a real directory, not a symlink or reparse point"
+    );
+    Ok(metadata)
+}
+
+/// Open a skill relative to the validated directory. Unix pins the expected
+/// root identity and uses openat/O_NOFOLLOW so replacing the directory after
+/// enumeration cannot redirect a load into a different directory.
+pub(crate) fn open_skill_for_write(
+    dir: &Path,
+    filename: &std::ffi::OsStr,
+    expected_root: &std::fs::Metadata,
+) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        use std::ffi::CString;
+        use std::os::fd::{AsRawFd, FromRawFd};
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::MetadataExt;
+
+        let cdir = CString::new(dir.as_os_str().as_bytes())
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+        let cfilename = CString::new(filename.as_bytes())
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+        let root_fd = unsafe {
+            libc::open(
+                cdir.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if root_fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let root_file = unsafe { std::fs::File::from_raw_fd(root_fd) };
+        let opened_root = root_file.metadata()?;
+        if opened_root.dev() != expected_root.dev() || opened_root.ino() != expected_root.ino() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "skills directory changed while saving",
+            ));
+        }
+
+        // Do not truncate until the opened target is verified as a regular
+        // file. O_NONBLOCK prevents a malicious FIFO from hanging the save.
+        let fd = unsafe {
+            libc::openat(
+                root_file.as_raw_fd(),
+                cfilename.as_ptr(),
+                libc::O_WRONLY | libc::O_CREAT | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+                0o600 as libc::c_uint,
+            )
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let file = unsafe { std::fs::File::from_raw_fd(fd) };
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || has_multiple_links(&file)? {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "skill target must be a regular file without external hard links",
+            ));
+        }
+        file.set_len(0)?;
+        Ok(file)
+    }
+    #[cfg(windows)]
+    {
+        let _ = (dir, filename, expected_root);
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Windows skill writes are disabled until reparse-safe handle-relative opens are available",
+        ))
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = expected_root;
+        let root = validate_skills_root(dir)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string()))?;
+        let _ = root;
+        let path = dir.join(filename);
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if is_link_or_reparse(&metadata) || !metadata.is_file() => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "skill target must be a regular file, not a symlink or reparse point",
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        let file = std::fs::OpenOptions::new().write(true).create(true).open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || has_multiple_links(&file)? {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "skill target must be a regular file without external hard links",
+            ));
+        }
+        file.set_len(0)?;
+        Ok(file)
+    }
+}
+
+/// Ensure a save will not make the directory exceed the loader's entry cap.
+/// Existing files may be updated at capacity; a new name must reserve a slot.
+/// Resolve the target through the filesystem so case-insensitive filesystems
+/// recognize an existing differently-cased name without folding names globally.
+pub(crate) fn validate_entry_capacity(
+    dir: &Path,
+    filename: &std::ffi::OsStr,
+) -> anyhow::Result<bool> {
+    let target_exists = match std::fs::symlink_metadata(dir.join(filename)) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
+    let entries = std::fs::read_dir(dir)?;
+    let mut count = 0usize;
+    for entry in entries.take(MAX_SKILL_ENTRIES + 1) {
+        let _entry = entry?;
+        count += 1;
+        anyhow::ensure!(
+            count <= MAX_SKILL_ENTRIES,
+            "skills directory exceeds the maximum of {} entries",
+            MAX_SKILL_ENTRIES
+        );
+    }
+    if !target_exists && count >= MAX_SKILL_ENTRIES {
+        anyhow::bail!(
+            "skills directory is full (maximum {} entries); remove an unused file before adding another skill",
+            MAX_SKILL_ENTRIES
+        );
+    }
+    Ok(target_exists)
+}
+
 /// Read skills deterministically, imposing a limit on each file and the
 /// number of skills. Direct symlinks and nested SKILL.md symlinks are ignored.
 /// This deliberately does NOT install skills from URLs or trust their content.
 pub fn load_all(dir: &Path) -> Vec<Skill> {
+    // The skills root itself must not be a symlink. Canonicalizing it first
+    // would redefine an outside target as the trusted root and admit every
+    // file beneath it. On Unix, secure_open also opens this original path
+    // with O_NOFOLLOW to close a replacement race after this metadata check.
+    let Ok(root_metadata) = std::fs::symlink_metadata(dir) else {
+        return vec![];
+    };
+    if is_link_or_reparse(&root_metadata) || !root_metadata.is_dir() {
+        return vec![];
+    }
     let Ok(root) = std::fs::canonicalize(dir) else {
         return vec![];
     };
     let Ok(entries) = std::fs::read_dir(dir) else {
         return vec![];
     };
-    let mut entries: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
-    entries.sort_by_key(|entry| entry.file_name());
+    let Some(mut bounded_entries) = collect_bounded_entries(entries) else {
+        return vec![];
+    };
+    bounded_entries.sort_by_key(|entry| entry.file_name());
     let mut out = Vec::new();
     let mut names = std::collections::HashSet::new();
 
-    for entry in entries {
+    for entry in bounded_entries {
         if out.len() >= MAX_SKILLS {
             break;
         }
@@ -223,10 +498,13 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
         } else {
             top_level_name.as_os_str()
         };
-        let handle = secure_open(&root, folder.as_deref(), filename);
+        let handle = secure_open(dir, &root_metadata, folder.as_deref(), filename);
         let Ok(handle) = handle else { continue };
         let Ok(opened) = handle.metadata() else { continue };
-        if !opened.is_file() || opened.len() > MAX_SKILL_BYTES {
+        if !opened.is_file()
+            || opened.len() > MAX_SKILL_BYTES
+            || has_multiple_links(&handle).unwrap_or(true)
+        {
             continue;
         }
         let mut text = String::new();
@@ -251,6 +529,136 @@ pub fn find(dir: &Path, name: &str) -> Option<Skill> {
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_skill_loading_fails_closed_until_reparse_safe_open_is_available() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("top-level.md"), "# Top-level skill").unwrap();
+        std::fs::create_dir(dir.path().join("nested")).unwrap();
+        std::fs::write(dir.path().join("nested/SKILL.md"), "# Nested skill").unwrap();
+
+        assert!(
+            load_all(dir.path()).is_empty(),
+            "Windows must not follow path-based skill opens while parent reparse races remain"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_skill_writes_fail_closed_without_truncating_existing_files() {
+        use std::ffi::OsStr;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("existing.md");
+        std::fs::write(&path, "# Preserve this existing skill").unwrap();
+        let expected_root = validate_skills_root(dir.path()).unwrap();
+
+        let error = open_skill_for_write(dir.path(), OsStr::new("existing.md"), &expected_root)
+            .expect_err("Windows skill writes must fail closed until handle-relative opens exist");
+        assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "# Preserve this existing skill",
+            "a failed save must not truncate the existing skill"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn secure_open_rejects_a_replaced_skills_root() {
+        use std::ffi::OsStr;
+
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("skills");
+        let original = parent.path().join("skills-original");
+        let replacement = parent.path().join("replacement");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(&replacement).unwrap();
+        std::fs::write(replacement.join("secret.md"), "# Replacement instructions").unwrap();
+        let expected_root = std::fs::symlink_metadata(&root).unwrap();
+
+        // Simulate a rename-and-replace after load_all has validated/enumerated the root.
+        std::fs::rename(&root, &original).unwrap();
+        std::fs::rename(&replacement, &root).unwrap();
+        assert!(
+            secure_open(&root, &expected_root, None, OsStr::new("secret.md")).is_err(),
+            "a different real directory must not replace the enumerated root"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn skill_write_lock_uses_canonical_home_for_symlink_aliases() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let alias = dir.path().join("home-alias");
+        std::fs::create_dir_all(&home).unwrap();
+        symlink(&home, &alias).unwrap();
+
+        let held = lock_skill_writes_with_wait(&home, std::time::Duration::ZERO).unwrap();
+        assert!(
+            lock_skill_writes_with_wait(&alias, std::time::Duration::ZERO).is_err(),
+            "a symlink alias must resolve to the same cross-process skills lock"
+        );
+        drop(held);
+
+        let acquired = lock_skill_writes_with_wait(&alias, std::time::Duration::ZERO)
+            .expect("the aliased lock is available after the original guard drops");
+        drop(acquired);
+    }
+
+    #[test]
+    fn capacity_check_uses_filesystem_case_semantics_for_existing_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Existing.md"), "# Existing").unwrap();
+        let lowercase_resolves = std::fs::symlink_metadata(dir.path().join("existing.md")).is_ok();
+        for index in 0..(MAX_SKILL_ENTRIES - 1) {
+            std::fs::write(
+                dir.path().join(format!("noise-{index:04}.txt")),
+                "not a skill",
+            ).unwrap();
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), MAX_SKILL_ENTRIES);
+        let result = validate_entry_capacity(dir.path(), std::ffi::OsStr::new("existing.md"));
+        assert_eq!(
+            result.is_ok(),
+            lowercase_resolves,
+            "updates should follow the filesystem's own case-sensitivity rules"
+        );
+        if lowercase_resolves {
+            assert!(result.unwrap());
+        } else {
+            assert!(result.unwrap_err().to_string().contains("skills directory is full"));
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn rejects_directories_with_more_entries_than_the_bounded_scan() {
+        let dir = tempfile::tempdir().unwrap();
+        for index in 0..=MAX_SKILL_ENTRIES {
+            std::fs::write(
+                dir.path().join(format!("noise-{index:04}.txt")),
+                "not a skill",
+            ).unwrap();
+        }
+        std::fs::write(dir.path().join("valid.md"), "# Valid skill").unwrap();
+        assert!(load_all(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn directory_iteration_errors_fail_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("valid.md"), "# Valid").unwrap();
+        let entries = std::fs::read_dir(dir.path()).unwrap().chain(std::iter::once(Err(
+            std::io::Error::other("injected directory iteration failure"),
+        )));
+        assert!(collect_bounded_entries(entries).is_none());
+    }
+
+    #[cfg(not(windows))]
     #[test]
     fn loads_local_skills_with_immutable_review_fingerprints() {
         let dir = tempfile::tempdir().unwrap();
@@ -274,6 +682,7 @@ mod tests {
         assert!(find(dir.path(), "nope").is_none());
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn crlf_preserves_metadata_but_keeps_original_content_digest() {
         let d = tempfile::tempdir().unwrap();
@@ -288,6 +697,7 @@ mod tests {
         assert_eq!(result[0].sha256, raw_hash);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn unicode_long_descriptions_are_truncated_not_discarded() {
         let d = tempfile::tempdir().unwrap();
@@ -299,6 +709,7 @@ mod tests {
         assert_eq!(skills[0].description, "é".repeat(140));
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn rejects_oversized_and_invalid_files() {
         let dir = tempfile::tempdir().unwrap();
@@ -308,6 +719,7 @@ mod tests {
         assert_eq!(load_all(dir.path())[0].name, "normal");
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn case_folded_duplicates_do_not_shadow_other_skills() {
         let dir = tempfile::tempdir().unwrap();
@@ -318,6 +730,48 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert!(find(dir.path(), "ALPHA").is_some());
         assert!(find(dir.path(), "beta").is_some());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn rejects_hardlinked_skill_files_for_loading_and_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let private = outside.path().join("private.md");
+        let original = "# private content that must not become a skill";
+        std::fs::write(&private, original).unwrap();
+        let linked = dir.path().join("leaked.md");
+        std::fs::hard_link(&private, &linked)
+            .expect("the test filesystem must support hard links");
+
+        assert!(
+            load_all(dir.path()).is_empty(),
+            "a hard link must not import a file whose canonical path is outside the skills root"
+        );
+
+        let root = validate_skills_root(dir.path()).unwrap();
+        assert!(
+            open_skill_for_write(dir.path(), std::ffi::OsStr::new("leaked.md"), &root).is_err(),
+            "save must not truncate a hard-linked file outside the skills root"
+        );
+        assert_eq!(std::fs::read_to_string(private).unwrap(), original);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_skills_root() {
+        use std::os::unix::fs::symlink;
+
+        let home = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("outside.md"), "# Outside skill").unwrap();
+        let skills = home.path().join("skills");
+        symlink(outside.path(), &skills).unwrap();
+
+        assert!(
+            load_all(&skills).is_empty(),
+            "a symlinked skills root must not redefine the trusted inventory boundary"
+        );
     }
 
     #[cfg(unix)]
