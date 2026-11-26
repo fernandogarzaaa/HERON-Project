@@ -120,7 +120,7 @@ not replace per-client rate limits or a complete denial-of-service analysis.
 |---|---|---|
 | T1 | Taint is per conversation, not per datum. | Coarse: one fetched page makes every later change ask. Safe, but noisy. |
 | T2 | Facts learned from mail or documents are stored unconfirmed, yet can be recalled into a clean conversation without marking it as tainted. | An injected "fact" could steer a later conversation that looks clean. |
-| T3 | The OS sandbox for commands leaves the network open, and there is none on Windows. Commands the agent runs through its shell tool no longer inherit tokens and keys from the environment, but can still read files the sandbox allows. This covers the shell tool only: the user's own `notify_command` and connected MCP server programs still start with the full environment. | An approved command can send what it can read anywhere. |
+| T3 | On macOS the shell tool's network is limited to the egress allowlist (see Harness safety below), but the sandbox for CLI providers leaves the network open, and Linux has no network filter and Windows has no sandbox. Commands the agent runs through its shell tool no longer inherit tokens and keys from the environment, but can still read files the sandbox allows. This covers the shell tool only: the user's own `notify_command` and connected MCP server programs still start with the full environment. | An approved command can send what it can read anywhere. |
 | T4 | The browser checks addresses before and after navigating, not each request. | A page can make the browser request internal addresses. |
 | T5 | One browser and one "last seen" table for all conversations. | Element numbers from one conversation could be used in another. |
 | T6 | A page listing many addresses can signal a few bits by which the user approves. | Low-bandwidth leak with user approval. |
@@ -130,6 +130,157 @@ not replace per-client rate limits or a complete denial-of-service analysis.
 | T10 | Installers are unsigned. | A user cannot verify who built them. |
 | T12 | Telegram turns run in the desktop's permission mode. Accepted by the owner ([C35-8](../ACCEPTED_RISKS.md#c35-8-phone-turns-inherit-the-desktop-permission-mode)). | In Auto or Yolo mode, whoever controls the paired Telegram account can run tools, including `shell`, with no prompt. Ask mode still asks for every change, and high-risk or outside-content requests are approved only at the computer. |
 | T11 | Undo replaces by atomic exchange and verifies what was displaced (D-13). Removing a file still has only the narrowed check-then-remove gap: the check is repeated at the last moment, after the old version is ready on disk, but the check and the removal are still two steps. | A save from another program that lands in the instant between the removal check and the removal is deleted without a copy. No operating-system primitive closes that one. |
+
+## Harness safety
+
+Source: [the harness-safety design](../designs/heron-harness-safety.md). It adds an effect journal, a loop
+guard, protected paths, an egress allowlist and a toolchain check around the agent's shell. Each entry
+below is one row of that design's Risks table: what could go wrong, what stops or detects it, and what
+stays open. None is an accepted-risk entry, because `ACCEPTED_RISKS.md` is capped at 3. They sit next
+to Harness2's "model-written code on the Mac" entry (HQ2), which relies on this sandbox.
+
+Owner-only settings: the egress list, the "never" lifts and the toolchain re-trust are changed only
+through Heron's authenticated API, from Settings › Sandbox. No agent tool can change them, because the
+file tools are refused `config.toml` and `heron.db` and the shell can't reach them.
+
+#### HS-R1. Uploads to allowed hosts that accept writes
+
+*   **Risk:** `github.com` and `registry.npmjs.org` are on the default egress list, and both accept
+    authenticated writes (`git push`, `npm publish`). A command holding an attacker's token could send
+    data out through them. The proxy does not decrypt TLS, so it can't tell a fetch from a push.
+*   **Source:** OQ5.
+*   **Mitigation:** `publish` commands are `Privileged` and ask every time, with no standing rule. In a
+    tainted conversation every mutating shell call asks. `crates.io`, the host `cargo publish` uses, is
+    off the list.
+*   **Left open:** an upload the owner approves, and a `git push` over HTTPS with a token the command
+    itself holds.
+
+#### HS-R2. Domain fronting through a CDN-hosted allowed host
+
+*   **Risk:** an allowed name that sits behind a CDN can be used to reach a different site on the same CDN.
+*   **Source:** §3.2.
+*   **Mitigation:** the proxy compares the TLS ClientHello's server name with the CONNECT host and
+    refuses a mismatch.
+*   **Left open:** the HTTP `Host` header inside the TLS session is not checked, so a CDN that routes on
+    it can still reach another site.
+
+#### HS-R3. A local forwarding proxy
+
+*   **Risk:** a process that forwards traffic onward (an HTTP debugger, `ssh -D`, a local model proxy
+    on `127.0.0.1:8080`) bypasses the allowlist, because loopback stays open to the shell. It stays open
+    because Heron's own tests and Harness2's `cargo test --locked` bind and connect on loopback.
+*   **Source:** OQ4.
+*   **Mitigation:** `agent.deny_local_ports` lists ports the shell can't connect to. Heron's own API
+    ports are denied as well, although its token, not the port deny, is what protects the API.
+*   **Left open:** any forwarder on a port that is not in the list.
+
+#### HS-R4. A sandboxed command reaching a daemon through a system service
+
+*   **Risk:** a command could ask a daemon that holds the owner's keys or network access (Docker, an
+    SSH agent, a password manager) to act for it, through a socket or a mach service.
+*   **Source:** PT-E1.
+*   **Mitigation:** the local-socket rules from #79, the egress rules' denies for known daemon
+    sockets and the resolver, and PT-E1's service tests.
+*   **Left open:** a mach service that PT-E1 did not try.
+
+#### HS-R5. A replaced toolchain run by the owner's own tools
+
+*   **Risk:** the shell may write to the Rust toolchains, so it could replace `rustc` or `cargo`. The
+    owner's next unsandboxed build would then run the replacement.
+*   **Source:** OQ1.
+*   **Mitigation:** `toolchain::check` before and after each sandboxed command, with a notice when a
+    binary changed, and a read deny so Heron's own commands don't use a changed toolchain.
+*   **Left open:** the time until the owner reads the notice. OQ1's stronger option, which removes the
+    write allowance, closes it, and the owner has not chosen it.
+
+#### HS-R6. Edited crate sources in the Cargo caches
+
+*   **Risk:** the shell may write to `~/.cargo/registry/src` and `~/.cargo/git/checkouts`, so a crate's
+    source can be edited there.
+*   **Source:** OQ2.
+*   **Mitigation:** none.
+*   **Left open:** the edited source runs in the owner's next unsandboxed build.
+
+#### HS-R7. Build inputs in the working folder
+
+*   **Risk:** `build.rs`, `.cargo/config.toml` and `package.json` scripts run on the owner's next build.
+*   **Source:** the design's Non-Goals.
+*   **Mitigation:** none. Writing those files is the agent's normal work.
+*   **Left open:** they run in the owner's next build.
+
+#### HS-R8. Hard links to a protected file
+
+*   **Risk:** a link made inside the working folder to a file the profile denies for writing could
+    give a write path to it.
+*   **Source:** PT-P1.
+*   **Mitigation:** Seatbelt refuses a hard link to a write-denied file. The rehash is defence in depth.
+*   **Left open:** a link made outside the sandbox before the run, and any change between runs, which the
+    rehash doesn't see.
+
+#### HS-R9. The config of a repository made during the run
+
+*   **Risk:** a repository created during the run has a config that can name hooks or a filter command.
+    Seatbelt can't deny it, because the scan that builds the deny list ran before the repository existed.
+*   **Source:** OQ7 (e).
+*   **Mitigation:** the rehash at the end of the run. The repository's hooks are denied at any depth.
+*   **Left open:** the change is made before it is reported.
+
+#### HS-R10. A protected file changed between two runs
+
+*   **Risk:** a protected file is edited while no run is active, for example by another program.
+*   **Source:** §3.3.
+*   **Mitigation:** none. The hash check compares a run's start with its end.
+*   **Left open:** not reported.
+
+#### HS-R11. A command running at the same time as the one that changed the toolchain
+
+*   **Risk:** two shell commands overlap, and one replaces a toolchain binary while the other uses it.
+*   **Source:** G7.
+*   **Mitigation:** the next toolchain check sees the change.
+*   **Left open:** the overlapping command uses the changed toolchain.
+
+#### HS-R12. Heron's API reached from the sandbox
+
+*   **Risk:** loopback is open to the shell, so a command can try Heron's local API.
+*   **Source:** OQ4.
+*   **Mitigation:** every `/api` route needs the token, and the token is kept in memory and never written
+    where the sandbox can read it. The profile also denies Heron's own ports.
+*   **Left open:** a server in another process that fell back to a random port. It still needs the token.
+
+#### HS-R13. A CLI provider that runs its own shell
+
+*   **Risk:** under `cli_allow_agent_tools`, `cline-cli` and `goose-cli` run their own tool loop and shell
+    inside the CLI sandbox.
+*   **Source:** the design's Non-Goals.
+*   **Mitigation:** the Cli profile lets the CLI write only its own run folder (`src/sandbox.rs:402`).
+    Without `cli_allow_agent_tools` set, Heron refuses to run these two.
+*   **Left open:** its network is open (`docs/cli-providers.md`, Containment), so the egress allowlist
+    does not apply to it.
+
+#### HS-R14. Power loss between a tool's effect and its intent commit
+
+*   **Risk:** the machine loses power after a tool changed something and before the journal row for it
+    was committed, so the journal doesn't know the effect happened.
+*   **Source:** §1.3.
+*   **Mitigation:** `synchronous=FULL` on the journal's database.
+*   **Left open:** macOS `fsync` is not `F_FULLFSYNC`, so the drive can still hold the write in its cache.
+
+#### HS-R15. Orphaned children of an interrupted shell command
+
+*   **Risk:** Heron dies while a shell command runs. The command's children keep running, and a re-run
+    could start a second copy.
+*   **Source:** §1.4.
+*   **Mitigation:** the ask waits while the recorded process group is alive, for up to one hour. The
+    gate for repeats of the same call covers the call in the meantime.
+*   **Left open:** a child that leaves its process group, or one still running after an hour.
+
+#### HS-R16. Protected files changed in a run that Heron's shutdown cut short
+
+*   **Risk:** Heron shuts down while a run is active, so the end-of-run comparison of protected files
+    doesn't happen.
+*   **Source:** §1.2.
+*   **Mitigation:** the skipped check is recorded in the audit log and the inbox.
+*   **Left open:** the change is not compared, so the owner must check by hand.
 
 ## Accepted risks
 

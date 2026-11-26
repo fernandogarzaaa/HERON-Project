@@ -152,7 +152,7 @@ Harness2 keeps all three, including for code Heron writes into itself and for ev
 *   **The effect journal.** An action that a crash interrupted asks again before it re-runs.
 *   **The loop guard (RepeatGuard).** It stops repeating tool calls, including A-B loops.
 *   **Protected paths.** Git hooks, `.envrc`, `.mcp.json`, shell rc files, launch agents, and Heron's own config and database are read-only to the agent, and are hash-checked after each run.
-*   **The egress allowlist and toolchain check.** Sandboxed commands reach only allowlisted hosts. Writes to the Rust toolchains are allowed, and the toolchain binaries are hash-checked before their next use.
+*   **The egress allowlist and toolchain check.** Sandboxed commands reach only allowlisted hosts. Writes to the Rust toolchains are allowed. `toolchain::check` runs before and after each sandboxed command and hashes the toolchain binaries whose size, inode, mtime or ctime changed. A change is reported in a notice. The check depends on OQ1 of the harness-safety design: the default keeps it, and OQ1's stronger option removes it.
 
 ## Owner decisions recorded in this doc
 
@@ -398,6 +398,7 @@ Untrusted inputs never start a run.
 *   **The 24-hour cap was reached:** the run is held in the queue [`queued`].
 *   **Setup failed:** an inbox note [`setup_failed`].
 *   **A crash interrupted it:** the effect journal (Pre-5) asks "Repair #N was interrupted. Run again?" [`interrupted`].
+    *   The resumer carries the taint across the re-run: `ActionIntent.tainted` is the trigger's `origin_tainted`, and `rerun` takes `tainted`. A tainted repair asks again, as it would have the first time.
 *   **The switch was turned off:** the current step finishes and nothing more is pushed [`cancelled`].
 
 API errors don't produce failure records. Every handler error becomes a 400 (`src/server.rs:81-85`), and most are user input, so records from them would trigger repairs for things that aren't bugs.
@@ -1167,6 +1168,10 @@ Running them in sequence avoids conflicts in `server.rs`, `config.rs` and `agent
 *   `REPAIR_POLICY` (§2).
 *   `REPAIR_PROMPT`.
 *   `prepare(run, commit)`. It runs `git worktree add`, writes the disposable home's `config.toml`, and returns `setup_failed` when `commit` is null.
+    *   It calls `toolchain::check` on the main store, then `export_baseline` on the main store and `import_baseline` into the child's database, so the child starts from the toolchain state the owner has already seen.
+    *   It takes a `protect::Snapshot` of the worktree before the child starts. After the child exits it diffs the worktree against that snapshot and reports the result to the main inbox, because the child's own inbox is discarded with its `HERON_HOME`.
+    *   After the child exits it calls `toolchain::check` again on the main store.
+    *   **If the owner picks OQ1's stronger option,** both `toolchain::check` calls and the baseline export and import are removed. The snapshot and the diff stay.
 *   `attempt(run, feedback)`. It builds the app with `App::assemble_with_tools(..., Some(&REPAIR_TOOLS))` and `DenyAll`, then runs one turn.
 
 ##### 5. `src/harness2/checks.rs` (Create)
