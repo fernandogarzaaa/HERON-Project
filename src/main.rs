@@ -152,6 +152,9 @@ struct TerminalApprover;
 
 #[async_trait]
 impl Approver for TerminalApprover {
+    fn live(&self) -> bool {
+        std::io::stdin().is_terminal()
+    }
     async fn approve(&self, req: &ApprovalRequest) -> Approval {
         if !std::io::stdin().is_terminal() {
             // Say the real reason, so the model passes on advice that will actually work.

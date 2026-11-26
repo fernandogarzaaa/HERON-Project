@@ -103,6 +103,26 @@ fn toolchains_dir(user_home: &Path) -> PathBuf {
     user_home.join(".rustup").join("toolchains")
 }
 
+#[cfg(test)]
+tokio::task_local! {
+    /// The user home the shell and the toolchain API use in a test. Without it, tests see a home with
+    /// no toolchains, so no test hashes the real ones.
+    pub static TEST_HOME: PathBuf;
+}
+
+/// The user home whose toolchains the shell checks, canonical as the sandbox profile names it.
+pub fn user_home() -> PathBuf {
+    #[cfg(test)]
+    {
+        TEST_HOME.try_with(|h| h.clone()).unwrap_or_else(|_| PathBuf::from("/nonexistent/heron-test-home"))
+    }
+    #[cfg(not(test))]
+    {
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+        dunce::canonicalize(&home).unwrap_or(home)
+    }
+}
+
 fn stat_of(md: &fs::Metadata) -> Stat {
     #[cfg(unix)]
     {

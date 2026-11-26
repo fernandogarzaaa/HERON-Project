@@ -34,6 +34,139 @@ pub fn null_sink() -> EventSink {
     Arc::new(|_| {})
 }
 
+/// One run: a chat turn, a job, or an approval carried out later. Every call awaited inside it
+/// finds it through [`current_run`].
+pub struct RunFrame {
+    /// `turn:<events run id>`, `job:<job_runs.id>`, `job:<schedule id>:<run id>` or `parked:<approval id>`.
+    pub run_id: String,
+    /// The working folder the run started in.
+    pub workspace: PathBuf,
+    store: Store,
+    sink: EventSink,
+    state: std::sync::Mutex<FrameState>,
+}
+
+#[derive(Default)]
+struct FrameState {
+    /// Set by the first mutating call; used for the audit row.
+    session_id: Option<String>,
+    /// Set once, by the first mutating call.
+    snapshot: Option<Taken>,
+}
+
+#[allow(dead_code)]
+struct Taken {
+    snapshot: crate::protect::Snapshot,
+    user_home: PathBuf,
+    heron_homes: Vec<PathBuf>,
+}
+
+tokio::task_local! {
+    pub static RUN: Arc<RunFrame>;
+}
+
+/// The run id of a chat turn whose events run id is `events_run_id`.
+pub fn turn_run_id(events_run_id: &str) -> String {
+    format!("turn:{events_run_id}")
+}
+
+pub fn current_run() -> Option<Arc<RunFrame>> {
+    RUN.try_with(Arc::clone).ok()
+}
+
+/// The audit decision of a run that ended before its protected files were checked again.
+pub const REHASH_SKIPPED: &str = "protect-rehash-skipped";
+
+impl RunFrame {
+    pub fn new(run_id: String, workspace: PathBuf, store: Store, sink: EventSink) -> RunFrame {
+        RunFrame { run_id, workspace, store, sink, state: Default::default() }
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, FrameState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Before the run's first mutating call: record its session, and take the protect snapshot.
+    pub async fn before_mutating_call(&self, session_id: &str, cfg: &Config) {
+        {
+            let mut st = self.state();
+            st.session_id.get_or_insert_with(|| session_id.to_string());
+            if st.snapshot.is_some() {
+                return;
+            }
+        }
+        let user_home = dirs::home_dir().unwrap_or_default();
+        let heron_homes = crate::permissions::heron_homes(cfg);
+        let (ws, home, homes) = (self.workspace.clone(), user_home.clone(), heron_homes.clone());
+        let Ok(snapshot) = tokio::task::spawn_blocking(move || crate::protect::Snapshot::take(&ws, &home, &homes)).await else { return };
+        let mut st = self.state();
+        if st.snapshot.is_none() {
+            st.snapshot = Some(Taken { snapshot, user_home, heron_homes });
+        }
+    }
+
+    pub fn snapshot_taken(&self) -> bool {
+        self.state().snapshot.is_some()
+    }
+
+    #[allow(dead_code)]
+    fn notice(&self, text: String) {
+        (self.sink)(Event::Notice(text));
+    }
+
+    /// The frame was dropped before its work finished.
+    fn end_dropped(&self) {
+        let stopped = std::thread::panicking() || crate::journal::cancel_requested(&self.run_id);
+        if stopped && tokio::runtime::Handle::try_current().is_ok() {
+            return;
+        }
+        let session = {
+            let st = self.state();
+            if st.snapshot.is_none() {
+                return;
+            }
+            st.session_id.clone().unwrap_or_default()
+        };
+        let folder = self.workspace.display().to_string();
+        self.store.audit(&session, "protect", &folder, REHASH_SKIPPED, "");
+        let _ = self.store.add_inbox(
+            "Protected files not checked",
+            &format!("Heron stopped before it checked protected files after a run in {folder}. Check them before you next use this folder."),
+        );
+    }
+}
+
+struct FrameEnd<F> {
+    frame: Arc<RunFrame>,
+    fut: Option<std::pin::Pin<Box<F>>>,
+    finished: bool,
+}
+
+impl<F> Drop for FrameEnd<F> {
+    fn drop(&mut self) {
+        // The work goes first, so its journal guards still see a Stop.
+        drop(self.fut.take());
+        if !self.finished {
+            self.frame.end_dropped();
+        }
+        crate::journal::clear_cancel(&self.frame.run_id);
+    }
+}
+
+/// Run `fut` inside `frame`. When a frame is already set, `fut` runs inside that one, and `frame`
+/// is dropped unused.
+pub async fn in_run<F: std::future::Future>(frame: RunFrame, fut: F) -> F::Output {
+    if current_run().is_some() {
+        return fut.await;
+    }
+    let frame = Arc::new(frame);
+    let mut end = FrameEnd { frame: frame.clone(), fut: Some(Box::pin(fut)), finished: false };
+    let out = RUN.scope(frame, std::future::poll_fn(|cx| end.fut.as_mut().expect("polled after it finished").as_mut().poll(cx))).await;
+    end.fut = None;
+    end.finished = true;
+    out
+}
+
 pub struct Session {
     pub id: String,
     pub messages: Vec<Message>,
@@ -131,6 +264,27 @@ pub struct Agent {
 }
 
 const DELEGATE: &str = "delegate";
+
+/// Why a call whose interrupted copy is being run again from Approvals is not run.
+pub const GATE_RUNNING: &str = "Not run: the same call is being run again from Approvals right now.";
+/// Why a call whose interrupted copy waits is not run when no person can answer now.
+pub const GATE_WAITING: &str = "Not run: an interrupted copy of this call is waiting for the user in Approvals.";
+/// The start of the forced ask's detail.
+pub const GATE_DETAIL: &str = "This call was interrupted earlier and is waiting in Approvals. Approving it here runs it now and closes that request.";
+
+/// A mutating call outside any run frame. Outside tests, the first in a process is audited, so a
+/// caller that opens no frame shows up in the audit log.
+fn note_no_run_frame(agent: &Agent, session_id: &str) {
+    #[cfg(not(test))]
+    {
+        static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !SAID.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            agent.audit(session_id, "journal", "", "no-run-frame", "");
+        }
+    }
+    #[cfg(test)]
+    let _ = (agent, session_id);
+}
 
 /// Kinds of action the user allowed for one conversation, kept with the conversation so they end with it.
 fn session_grants(ctx: &ToolCtx) -> Vec<String> {
@@ -275,6 +429,10 @@ fn delegate_schema() -> Value {
     }})
 }
 
+/// The result `repair_transcript` gives a call that has none. It can't see the journal, so it holds
+/// for a cancelled, a read-only and an interrupted call alike.
+pub const INTERRUPTED_RESULT: &str = "[interrupted: Heron stopped before this tool returned, so it may or may not have finished. Check before relying on it, and don't run it again unless the user asks you to.]";
+
 /// Every assistant tool call must be followed by a tool result. After an interruption
 /// (Ctrl-C, crash) some may be missing; fill them in so the transcript stays valid.
 pub fn repair_transcript(messages: &mut Vec<Message>) {
@@ -290,7 +448,7 @@ pub fn repair_transcript(messages: &mut Vec<Message>) {
             }
             for id in ids {
                 if !answered.contains(&id) {
-                    messages.insert(j, Message::tool(id, "[interrupted before this tool finished; no result]"));
+                    messages.insert(j, Message::tool(id, INTERRUPTED_RESULT));
                     j += 1;
                 }
             }
@@ -472,6 +630,14 @@ impl Agent {
 
     /// Run one user turn to completion. Returns the assistant's final text.
     pub async fn run_turn(&self, session: &mut Session, input: &str, sink: &EventSink) -> Result<String> {
+        if self.depth == 0 && current_run().is_none() {
+            let frame = RunFrame::new(turn_run_id(&crate::events::new_run_id()), self.workspace.clone(), self.store.clone(), sink.clone());
+            return in_run(frame, self.turn(session, input, sink)).await;
+        }
+        self.turn(session, input, sink).await
+    }
+
+    async fn turn(&self, session: &mut Session, input: &str, sink: &EventSink) -> Result<String> {
         // A working folder inside Heron's home, a CLI login or a personal store never starts a turn,
         // whichever surface asked for it.
         crate::permissions::check_workspace(&self.workspace, &self.cfg)?;
@@ -491,7 +657,9 @@ impl Agent {
         }
         let system = self.system_prompt(session, input).await;
         let tools = self.tool_schemas();
-        let mut recent_calls: Vec<String> = vec![];
+        let mut repeats = crate::repeat::RepeatGuard::default();
+        let max_repeats = self.cfg.agent.max_repeats;
+        let mut stopped: Option<String> = None;
 
         // How carefully to spend, and which model should take this request.
         let budget = crate::usage::Budget::now(&self.store, &self.cfg);
@@ -561,14 +729,22 @@ impl Agent {
                 out
             };
 
+            let mut stop = None;
             for (call, mut result) in calls.iter().zip(results) {
-                let sig = format!("{}:{}", call.function.name, call.function.arguments);
-                let repeats = recent_calls.iter().rev().take_while(|s| **s == sig).count();
-                if repeats >= 2 {
+                let name = call.function.name.as_str();
+                let input: Value = serde_json::from_str(&call.function.arguments).unwrap_or(Value::Null);
+                let found = repeats.observe(max_repeats, name, &input, !crate::repeat::is_failure(name, &result), &result);
+                stop = stop.or(found);
+                if repeats.same_call_count() >= 3 {
                     result.push_str("\n\n[You have made this exact call several times in a row with the same result. Stop repeating it: try a different approach or tell the user what is blocking you.]");
                 }
-                recent_calls.push(sig);
                 self.push(session, Message::tool(call.id.clone(), result));
+            }
+            if let Some(stop) = stop {
+                let text = crate::repeat::stop_text(&stop, max_repeats);
+                sink(Event::Notice(text.clone()));
+                stopped = Some(text);
+                break;
             }
 
             if step + 1 == max_steps {
@@ -576,8 +752,12 @@ impl Agent {
             }
         }
 
-        // Out of steps: one final call without tools so the user gets a real status report.
-        self.push(session, Message::user("[system notice] You have reached the step limit for this turn. Without calling any tools, tell the user what you accomplished, what is unfinished, and how to continue."));
+        // Out of steps, or stopped: one final call without tools so the user gets a real status report.
+        let closing = match &stopped {
+            Some(text) => format!("[system notice] You were stopped. {text} Without calling any tools, tell the user what you tried, what is blocking you, and what they could do."),
+            None => "[system notice] You have reached the step limit for this turn. Without calling any tools, tell the user what you accomplished, what is unfinished, and how to continue.".to_string(),
+        };
+        self.push(session, Message::user(closing));
         let mut messages = vec![Message::system(system)];
         messages.extend(session.messages.iter().cloned());
         let s = sink.clone();
@@ -636,16 +816,46 @@ impl Agent {
             let target = tool.read_target(&args, ctx);
             let audit_args = redact_secrets(&preview(&call.function.arguments, 600));
             let tainted = ctx.tainted.load(std::sync::atomic::Ordering::SeqCst);
+            let args_hash = crate::journal::args_hash(&args);
+            let gate = if risk.mutates() { crate::journal::pending_ask_again(&ctx.store, &ctx.cfg.home, &ctx.session_id, name, &args_hash) } else { None };
             let verdict = self.policy.decide(&Call { tool: name, summary: &summary, effect: risk, read_target: target.as_deref() }, ctx);
+            let deny = |decision: &str, reason: &str, shown: String| {
+                self.audit(&ctx.session_id, name, &audit_args, decision, reason);
+                sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk });
+                sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: shown });
+            };
             let mut grant_after_call = false;
             let decision = match verdict {
-                Verdict::Allow => "allowed",
                 Verdict::Deny(reason) => {
-                    self.audit(&ctx.session_id, name, &audit_args, "denied-by-policy", &reason);
-                    sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk });
-                    sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: format!("blocked: {reason}") });
+                    let reason = if risk == Effect::Refused { crate::permissions::refused_text(name, &args, ctx, reason) } else { reason };
+                    deny("denied-by-policy", &reason, format!("blocked: {reason}"));
                     return format!("Permission denied: {reason}. Do not retry or work around this; tell the user.");
                 }
+                _ if gate.is_some() => {
+                    let gate = gate.expect("checked above");
+                    let refusal = match &gate {
+                        crate::journal::Gate::Running(_) => Some(GATE_RUNNING),
+                        _ if !self.approver.live() => Some(GATE_WAITING),
+                        _ => None,
+                    };
+                    if let Some(text) = refusal {
+                        deny("denied-by-policy", text, format!("blocked: {text}"));
+                        return format!("Permission denied: {text} Do not retry or work around this; tell the user.");
+                    }
+                    let detail = format!("{GATE_DETAIL}\n\n{}", tool.detail(&args, ctx));
+                    let req = ApprovalRequest { tool: name.into(), summary: summary.clone(), risk, detail, tainted, args: args.clone(), session_id: ctx.session_id.clone(), always_rule: None };
+                    if let Approval::Deny(reason) = self.approver.approve(&req).await {
+                        let reason = reason.unwrap_or_else(|| "the user declined this action".into());
+                        deny("denied-by-user", &reason, "Not allowed, so this was not done.".into());
+                        return format!("Permission denied: {reason}. Do not retry or work around this; ask the user how they want to proceed.");
+                    }
+                    if !crate::journal::supersede(&ctx.store, &gate).unwrap_or(false) {
+                        deny("denied-by-policy", GATE_RUNNING, format!("blocked: {GATE_RUNNING}"));
+                        return format!("Permission denied: {GATE_RUNNING} Do not retry or work around this; tell the user.");
+                    }
+                    "approved"
+                }
+                Verdict::Allow => "allowed",
                 // Already allowed for this conversation by the user (never for risky actions, never once
                 // outside content is present, and never for anything chained after the approved command).
                 Verdict::Ask if may_grant_for_conversation(name, risk, tainted) && session_grant(ctx, name, &summary, target.as_deref()) => "approved-for-conversation",
@@ -688,9 +898,39 @@ impl Agent {
             sink(Event::ToolStart { id: call.id.clone(), name: name.into(), summary: preview(&summary, 160), risk });
             // The shell tool enforces its own (argument-controlled) timeout.
             let limit = if name == "shell" { Duration::from_secs(1900) } else { Duration::from_secs(self.cfg.agent.tool_timeout_secs) };
-            let outcome = match tokio::time::timeout(limit, tool.call(&args, ctx)).await {
-                Ok(r) => r,
-                Err(_) => Err(anyhow::anyhow!("tool timed out after {}s", limit.as_secs())),
+            let outcome = if risk.mutates() {
+                let frame = current_run();
+                match &frame {
+                    Some(frame) => frame.before_mutating_call(&ctx.session_id, &self.cfg).await,
+                    None => note_no_run_frame(self, &ctx.session_id),
+                }
+                let intent = crate::journal::Intent {
+                    kind: crate::journal::Kind::Tool,
+                    name: name.to_string(),
+                    args: args.to_string(),
+                    args_hash,
+                    summary: summary.clone(),
+                    risk: risk.label().to_string(),
+                    tainted,
+                    session_id: ctx.session_id.clone(),
+                    run_id: frame.map_or_else(|| crate::journal::NO_RUN.to_string(), |f| f.run_id.clone()),
+                    origin: ctx.store.session_origin(&ctx.session_id).unwrap_or_default(),
+                    workspace: ctx.workspace.clone(),
+                    label: None,
+                };
+                match crate::journal::guarded(&ctx.store, &ctx.cfg.home, intent, limit, tool.call(&args, ctx)).await {
+                    crate::journal::Guarded::Ran(r) => r,
+                    crate::journal::Guarded::NotRun(text) => {
+                        self.audit(&ctx.session_id, name, &audit_args, "journal-failed", &text);
+                        sink(Event::ToolEnd { id: call.id.clone(), name: name.into(), ok: false, preview: preview(&text, 200) });
+                        return format!("Error: {text}");
+                    }
+                }
+            } else {
+                match tokio::time::timeout(limit, tool.call(&args, ctx)).await {
+                    Ok(r) => r,
+                    Err(_) => Err(anyhow::anyhow!("tool timed out after {}s", limit.as_secs())),
+                }
             };
             if grant_after_call {
                 grant_for_session(ctx, name, &summary, target.as_deref());
@@ -1017,6 +1257,9 @@ mod tests {
         struct ForConversation(std::sync::atomic::AtomicUsize);
         #[async_trait::async_trait]
         impl Approver for ForConversation {
+            fn live(&self) -> bool {
+                true
+            }
             async fn approve(&self, _: &ApprovalRequest) -> Approval {
                 self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Approval::Session
@@ -1060,6 +1303,9 @@ mod tests {
         struct Always;
         #[async_trait::async_trait]
         impl Approver for Always {
+            fn live(&self) -> bool {
+                true
+            }
             async fn approve(&self, _: &ApprovalRequest) -> Approval {
                 Approval::Always
             }
@@ -1595,6 +1841,9 @@ mod tests {
         struct Refuses(Mutex<Vec<ApprovalRequest>>);
         #[async_trait::async_trait]
         impl Approver for Refuses {
+            fn live(&self) -> bool {
+                true
+            }
             async fn approve(&self, req: &ApprovalRequest) -> Approval {
                 self.0.lock().unwrap().push(req.clone());
                 Approval::Deny(None)
@@ -1639,6 +1888,9 @@ mod tests {
         struct Always(std::sync::atomic::AtomicUsize);
         #[async_trait::async_trait]
         impl Approver for Always {
+            fn live(&self) -> bool {
+                true
+            }
             async fn approve(&self, _: &ApprovalRequest) -> Approval {
                 self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Approval::Always
@@ -1719,6 +1971,9 @@ mod tests {
         struct ThisConversation(std::sync::atomic::AtomicUsize);
         #[async_trait::async_trait]
         impl Approver for ThisConversation {
+            fn live(&self) -> bool {
+                true
+            }
             async fn approve(&self, _: &ApprovalRequest) -> Approval {
                 self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Approval::Session
@@ -1778,5 +2033,451 @@ mod tests {
         repair_transcript(&mut copy);
         assert_eq!(copy, s.messages, "compaction must not orphan tool messages");
         assert_eq!(agent.store.session_summary(&s.id).as_deref(), Some("- user asked about A and B"));
+    }
+
+    /// Answers every request the same way, says whether a person answers, and keeps what it was asked.
+    struct Answers {
+        answer: Approval,
+        live: bool,
+        asked: Mutex<Vec<ApprovalRequest>>,
+    }
+
+    impl Answers {
+        fn new(answer: Approval, live: bool) -> Arc<Answers> {
+            Arc::new(Answers { answer, live, asked: Default::default() })
+        }
+        fn asked(&self) -> Vec<ApprovalRequest> {
+            self.asked.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Approver for Answers {
+        fn live(&self) -> bool {
+            self.live
+        }
+        async fn approve(&self, req: &ApprovalRequest) -> Approval {
+            self.asked.lock().unwrap().push(req.clone());
+            self.answer.clone()
+        }
+    }
+
+    /// `(name, state, run_id)` of every effects row, oldest first.
+    fn effects(store: &Store) -> Vec<(String, String, String)> {
+        store.with_conn(|c| Ok(c.prepare("SELECT name, state, run_id FROM effects ORDER BY id")?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?)).unwrap()
+    }
+
+    fn effect_state(store: &Store, id: i64) -> (String, Option<String>) {
+        store.with_conn(|c| Ok(c.query_row("SELECT state, outcome FROM effects WHERE id=?", [id], |r| Ok((r.get(0)?, r.get(1)?)))?)).unwrap()
+    }
+
+    /// An `intent` row left by a process that exited: its lease file does not exist.
+    fn crashed_call(agent: &Agent, session: &str, tool: &str, args: &Value) -> i64 {
+        let intent = crate::journal::Intent {
+            kind: crate::journal::Kind::Tool,
+            name: tool.into(),
+            args: args.to_string(),
+            args_hash: crate::journal::args_hash(args),
+            summary: "the earlier copy".into(),
+            risk: "write".into(),
+            tainted: false,
+            session_id: session.into(),
+            run_id: "turn:earlier".into(),
+            origin: "user".into(),
+            workspace: agent.workspace.clone(),
+            label: None,
+        };
+        agent.store.with_conn(|c| crate::journal::sql::insert_intent(c, &intent, "a-process-that-exited")).unwrap()
+    }
+
+    /// A crashed call that recovery has turned into a waiting ask-again approval. Returns its id.
+    fn waiting_ask_again(agent: &Agent, session: &str, tool: &str, args: &Value) -> i64 {
+        crashed_call(agent, session, tool, args);
+        crate::journal::recover(&agent.store, &agent.cfg.home).unwrap();
+        agent.store.pending_approvals().unwrap().into_iter().find(|a| a.tool == tool && serde_json::from_str::<Value>(&a.args).ok().as_ref() == Some(args)).expect("an ask-again approval").id
+    }
+
+    fn write_call(file: &str) -> (Value, Message) {
+        let args = json!({"path": file, "content": "x"});
+        (args.clone(), ScriptedLlm::tool_call("write_file", args))
+    }
+
+    fn recording_sink() -> (EventSink, Arc<Mutex<Vec<Event>>>) {
+        let events = Arc::new(Mutex::new(vec![]));
+        let ev = events.clone();
+        (Arc::new(move |e| ev.lock().unwrap().push(e)), events)
+    }
+
+    fn notices(events: &Mutex<Vec<Event>>) -> Vec<String> {
+        events.lock().unwrap().iter().filter_map(|e| if let Event::Notice(n) = e { Some(n.clone()) } else { None }).collect()
+    }
+
+    #[tokio::test]
+    async fn alternating_two_call_loop_stops_the_turn_with_a_notice() {
+        let ws = tempfile::tempdir().unwrap();
+        std::fs::write(ws.path().join("a.txt"), "A").unwrap();
+        std::fs::write(ws.path().join("b.txt"), "B").unwrap();
+        let a = || ScriptedLlm::tool_call("read_file", json!({"path": "a.txt"}));
+        let b = || ScriptedLlm::tool_call("read_file", json!({"path": "b.txt"}));
+        let mut script = vec![];
+        for _ in 0..4 {
+            script.push(a());
+            script.push(b());
+        }
+        script.push(Message::assistant("I kept reading the same two files."));
+        let (agent, llm) = agent_with(ScriptedLlm::new(script), Mode::Auto, Arc::new(DenyAll), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let (sink, events) = recording_sink();
+        let out = agent.run_turn(&mut s, "go", &sink).await.unwrap();
+        assert_eq!(out, "I kept reading the same two files.");
+        let text = "Stopped: the same 2 calls (read_file, read_file) ran 4 times in a row with the same results.";
+        assert_eq!(notices(&events), vec![text.to_string()]);
+        let reqs = llm.requests.lock().unwrap();
+        assert_eq!(reqs.len(), 9, "the stop goes straight to the closing call");
+        assert!(reqs[8].tools.is_empty());
+        let closing = reqs[8].messages.last().unwrap().text().to_string();
+        assert_eq!(closing, format!("[system notice] You were stopped. {text} Without calling any tools, tell the user what you tried, what is blocking you, and what they could do."));
+        assert_eq!(s.messages.iter().filter(|m| m.role == "tool").count(), 8, "every result of the last batch is recorded");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failing_shell_call_with_changing_digits_stops() {
+        let ws = tempfile::tempdir().unwrap();
+        let call = || ScriptedLlm::tool_call("shell", json!({"command": "echo \"took $RANDOM$RANDOM ms\"; exit 3"}));
+        let mut script: Vec<Message> = (0..4).map(|_| call()).collect();
+        script.push(Message::assistant("The command keeps failing."));
+        let (agent, llm) = agent_with(ScriptedLlm::new(script), Mode::Yolo, Arc::new(AllowAll), ws.path());
+        if !crate::tools::shell::tests::seatbelt(&agent.cfg) {
+            return;
+        }
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let (sink, events) = recording_sink();
+        agent.run_turn(&mut s, "go", &sink).await.unwrap();
+        let results: Vec<String> = s.messages.iter().filter(|m| m.role == "tool").map(|m| m.text().to_string()).collect();
+        assert_eq!(results.len(), 4);
+        assert!(results.iter().all(|r| r.contains("[exit code 3]")), "{results:?}");
+        assert!(results.windows(2).any(|w| w[0] != w[1]), "the digits changed: {results:?}");
+        assert_eq!(
+            notices(&events),
+            vec!["Stopped: the same call (shell) ran 4 times in a row with the same results. Failures that differ only in digits count as the same.".to_string()]
+        );
+        assert!(llm.requests.lock().unwrap().last().unwrap().tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn changing_success_output_does_not_stop() {
+        let ws = tempfile::tempdir().unwrap();
+        let call = || ScriptedLlm::tool_call("task_add", json!({"title": "water the plants"}));
+        let mut script: Vec<Message> = (0..5).map(|_| call()).collect();
+        script.push(Message::assistant("Added it five times."));
+        let (agent, llm) = agent_with(ScriptedLlm::new(script), Mode::Auto, Arc::new(DenyAll), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let (sink, events) = recording_sink();
+        assert_eq!(agent.run_turn(&mut s, "go", &sink).await.unwrap(), "Added it five times.");
+        assert!(notices(&events).iter().all(|n| !n.starts_with("Stopped")), "{:?}", notices(&events));
+        assert_eq!(llm.requests.lock().unwrap().len(), 6);
+        assert!(s.messages.iter().any(|m| m.role == "tool" && m.text().starts_with("added task #5")));
+    }
+
+    #[tokio::test]
+    async fn max_repeats_zero_keeps_only_the_nudge() {
+        let ws = tempfile::tempdir().unwrap();
+        let call = || ScriptedLlm::tool_call("list_dir", json!({"path": "."}));
+        let mut script: Vec<Message> = (0..6).map(|_| call()).collect();
+        script.push(Message::assistant("still listing"));
+        let (mut agent, llm) = agent_with(ScriptedLlm::new(script), Mode::Auto, Arc::new(DenyAll), ws.path());
+        let mut cfg = (*agent.cfg).clone();
+        cfg.agent.max_repeats = 0;
+        agent.cfg = Arc::new(cfg);
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let (sink, events) = recording_sink();
+        assert_eq!(agent.run_turn(&mut s, "go", &sink).await.unwrap(), "still listing");
+        assert!(notices(&events).iter().all(|n| !n.starts_with("Stopped")));
+        assert_eq!(llm.requests.lock().unwrap().len(), 7);
+        let tools: Vec<&Message> = s.messages.iter().filter(|m| m.role == "tool").collect();
+        assert!(!tools[1].text().contains("Stop repeating"));
+        assert!(tools[2..].iter().all(|m| m.text().contains("Stop repeating")));
+    }
+
+    fn probe_tool() -> Arc<dyn crate::tools::Tool> {
+        Arc::new(crate::tools::FnTool {
+            name: "probe",
+            description: "Reports the journal while it runs.",
+            parameters: json!({"type": "object", "properties": {}}),
+            summary: |_| "probe".into(),
+            risk: |_, _| Effect::LocalStateWrite,
+            detail: None,
+            untrusted: false,
+            target: None,
+            run: |_, ctx| Box::pin(async move { Ok(format!("{:?}", effects(&ctx.store))) }),
+        })
+    }
+
+    #[tokio::test]
+    async fn mutating_call_writes_intent_before_running() {
+        let ws = tempfile::tempdir().unwrap();
+        let llm = ScriptedLlm::new(vec![ScriptedLlm::tool_call("probe", json!({})), Message::assistant("done")]);
+        let (mut agent, _) = agent_with(llm, Mode::Auto, Arc::new(DenyAll), ws.path());
+        let mut tools = ToolRegistry::builtin();
+        tools.register(probe_tool());
+        agent.tools = Arc::new(tools);
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let frame = RunFrame::new(turn_run_id("r-intent"), agent.workspace.clone(), agent.store.clone(), null_sink());
+        in_run(frame, agent.run_turn(&mut s, "go", &null_sink())).await.unwrap();
+        let seen = s.messages.iter().find(|m| m.role == "tool").unwrap().text().to_string();
+        assert_eq!(seen, r#"[("probe", "intent", "turn:r-intent")]"#);
+        assert_eq!(effects(&agent.store), vec![("probe".to_string(), "done".to_string(), "turn:r-intent".to_string())]);
+        let (args, outcome): (Option<String>, Option<String>) = agent.store.with_conn(|c| Ok(c.query_row("SELECT args, outcome FROM effects", [], |r| Ok((r.get(0)?, r.get(1)?)))?)).unwrap();
+        assert_eq!(args, None, "the arguments are cleared once the call ends");
+        assert!(outcome.unwrap().contains("intent"));
+    }
+
+    #[tokio::test]
+    async fn read_only_call_writes_no_journal_row() {
+        let ws = tempfile::tempdir().unwrap();
+        std::fs::write(ws.path().join("notes.md"), "hello").unwrap();
+        let llm = ScriptedLlm::new(vec![ScriptedLlm::tool_call("read_file", json!({"path": "notes.md"})), ScriptedLlm::tool_call("task_add", json!({"title": "t"})), Message::assistant("done")]);
+        let (agent, _) = agent_with(llm, Mode::Auto, Arc::new(DenyAll), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        agent.run_turn(&mut s, "go", &null_sink()).await.unwrap();
+        let rows = effects(&agent.store);
+        assert_eq!(rows.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(), vec!["task_add"], "only the mutating call is journaled");
+    }
+
+    #[tokio::test]
+    async fn delegate_child_shares_the_run_frame() {
+        let ws = tempfile::tempdir().unwrap();
+        let (_, write) = write_call("child.txt");
+        let llm = ScriptedLlm::new(vec![ScriptedLlm::tool_call("delegate", json!({"task": "write child.txt"})), write, Message::assistant("child done"), Message::assistant("parent done")]);
+        let (agent, _) = agent_with(llm, Mode::Auto, Arc::new(DenyAll), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let frame = RunFrame::new(turn_run_id("r-parent"), agent.workspace.clone(), agent.store.clone(), null_sink());
+        assert_eq!(in_run(frame, agent.run_turn(&mut s, "go", &null_sink())).await.unwrap(), "parent done");
+        assert!(ws.path().join("child.txt").exists());
+        assert_eq!(effects(&agent.store), vec![("write_file".to_string(), "done".to_string(), "turn:r-parent".to_string())]);
+    }
+
+    #[tokio::test]
+    async fn turn_frame_uses_the_callers_run_id() {
+        let ws = tempfile::tempdir().unwrap();
+        let (_, first) = write_call("one.txt");
+        let (_, second) = write_call("two.txt");
+        let llm = ScriptedLlm::new(vec![first, Message::assistant("one"), second, Message::assistant("two")]);
+        let (agent, _) = agent_with(llm, Mode::Auto, Arc::new(DenyAll), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let frame = RunFrame::new(turn_run_id("caller-run"), agent.workspace.clone(), agent.store.clone(), null_sink());
+        in_run(frame, agent.run_turn(&mut s, "one", &null_sink())).await.unwrap();
+        agent.run_turn(&mut s, "two", &null_sink()).await.unwrap();
+        let rows = effects(&agent.store);
+        assert_eq!(rows[0].2, "turn:caller-run");
+        assert!(rows[1].2.starts_with("turn:") && rows[1].2 != rows[0].2 && rows[1].2 != crate::journal::NO_RUN, "a turn without a caller's frame opens its own: {rows:?}");
+        assert!(current_run().is_none());
+    }
+
+    #[test]
+    fn repaired_transcript_says_the_call_may_have_finished() {
+        let mut m = vec![Message::user("hi"), ScriptedLlm::tool_call("shell", json!({"command": "git commit -m x"})), Message::user("next")];
+        repair_transcript(&mut m);
+        assert_eq!(m[2].role, "tool");
+        assert_eq!(
+            m[2].text(),
+            "[interrupted: Heron stopped before this tool returned, so it may or may not have finished. Check before relying on it, and don't run it again unless the user asks you to.]"
+        );
+    }
+
+    #[tokio::test]
+    async fn identical_call_asks_while_its_ask_again_waits() {
+        let ws = tempfile::tempdir().unwrap();
+        let (args, call) = write_call("a.txt");
+        let answers = Answers::new(Approval::Deny(None), true);
+        let (agent, _) = agent_with(ScriptedLlm::new(vec![call, Message::assistant("ok")]), Mode::Auto, answers.clone(), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let waiting = waiting_ask_again(&agent, &s.id, "write_file", &args);
+        agent.run_turn(&mut s, "write a", &null_sink()).await.unwrap();
+        let asked = answers.asked();
+        assert_eq!(asked.len(), 1, "Auto would have run it unasked");
+        assert!(asked[0].detail.starts_with(GATE_DETAIL), "{}", asked[0].detail);
+        assert_eq!(asked[0].always_rule, None);
+        assert!(!ws.path().join("a.txt").exists());
+        assert_eq!(agent.store.get_approval(waiting).unwrap().status, "new", "a declined ask leaves the waiting copy as it is");
+        let (_, other) = write_call("b.txt");
+        let (agent2, _) = agent_with(ScriptedLlm::new(vec![other, Message::assistant("ok")]), Mode::Auto, answers.clone(), ws.path());
+        let mut s2 = Session::create(&agent2.store, "").unwrap();
+        agent2.run_turn(&mut s2, "write b", &null_sink()).await.unwrap();
+        assert_eq!(answers.asked().len(), 1, "a call with no interrupted copy is not gated");
+    }
+
+    #[tokio::test]
+    async fn persisted_grant_does_not_bypass_the_ask_again_gate() {
+        let ws = tempfile::tempdir().unwrap();
+        let (args, call) = write_call("a.txt");
+        let answers = Answers::new(Approval::Deny(None), true);
+        let (agent, _) = agent_with(ScriptedLlm::new(vec![call, Message::assistant("ok")]), Mode::Ask, answers.clone(), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let ctx = agent.tool_ctx(&s.id);
+        let summary = agent.tools.get("write_file").unwrap().summary(&args);
+        grant_for_session(&ctx, "write_file", &summary, None);
+        assert!(session_grant(&ctx, "write_file", &summary, None), "the grant would answer this call");
+        waiting_ask_again(&agent, &s.id, "write_file", &args);
+        agent.run_turn(&mut s, "write a", &null_sink()).await.unwrap();
+        assert_eq!(answers.asked().len(), 1);
+        assert!(!ws.path().join("a.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn always_answer_to_a_gated_call_adds_no_rule_or_grant() {
+        for answer in [Approval::Always, Approval::Session] {
+            let ws = tempfile::tempdir().unwrap();
+            let (args, call) = write_call("a.txt");
+            let answers = Answers::new(answer.clone(), true);
+            let (agent, _) = agent_with(ScriptedLlm::new(vec![call, Message::assistant("ok")]), Mode::Ask, answers.clone(), ws.path());
+            let mut s = Session::create(&agent.store, "").unwrap();
+            waiting_ask_again(&agent, &s.id, "write_file", &args);
+            let rules = agent.policy.allow_rules();
+            agent.run_turn(&mut s, "write a", &null_sink()).await.unwrap();
+            assert!(ws.path().join("a.txt").exists(), "{answer:?} runs the call once");
+            assert_eq!(agent.policy.allow_rules(), rules, "{answer:?} added a standing rule");
+            assert_eq!(agent.store.kv_get(&format!("grants:{}", s.id)), None, "{answer:?} added a conversation grant");
+            assert_eq!(agent.store.audit_log(1).unwrap()[0].decision, "approved");
+        }
+    }
+
+    #[tokio::test]
+    async fn self_approving_approver_cannot_answer_the_gate() {
+        let ws = tempfile::tempdir().unwrap();
+        let (args, call) = write_call("a.txt");
+        let (agent, _) = agent_with(ScriptedLlm::new(vec![call, Message::assistant("ok")]), Mode::Ask, Arc::new(AllowAll), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let waiting = waiting_ask_again(&agent, &s.id, "write_file", &args);
+        agent.run_turn(&mut s, "write a", &null_sink()).await.unwrap();
+        assert!(!ws.path().join("a.txt").exists());
+        assert!(s.messages[2].text().contains(GATE_WAITING), "{}", s.messages[2].text());
+        assert_eq!(agent.store.audit_log(1).unwrap()[0].decision, "denied-by-policy");
+        assert_eq!(agent.store.get_approval(waiting).unwrap().status, "new");
+    }
+
+    #[tokio::test]
+    async fn gated_call_in_a_job_is_denied_without_parking() {
+        let ws = tempfile::tempdir().unwrap();
+        let (args, call) = write_call("a.txt");
+        let (mut agent, _) = agent_with(ScriptedLlm::new(vec![call, Message::assistant("ok")]), Mode::Ask, Arc::new(DenyAll), ws.path());
+        agent.approver = Arc::new(crate::permissions::ParkingApprover { store: agent.store.clone(), origin: "nightly".into() });
+        let mut s = Session::create(&agent.store, "").unwrap();
+        waiting_ask_again(&agent, &s.id, "write_file", &args);
+        agent.run_turn(&mut s, "write a", &null_sink()).await.unwrap();
+        assert!(s.messages[2].text().contains(GATE_WAITING), "{}", s.messages[2].text());
+        assert_eq!(agent.store.pending_approvals().unwrap().len(), 1, "no second approval for the same call");
+        assert!(!ws.path().join("a.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn approving_a_gated_call_retires_the_waiting_ask_again() {
+        let ws = tempfile::tempdir().unwrap();
+        let (args, call) = write_call("a.txt");
+        let (args_b, call_b) = write_call("b.txt");
+        let answers = Answers::new(Approval::Once, true);
+        let llm = ScriptedLlm::new(vec![call, Message::assistant("one"), call_b, Message::assistant("two")]);
+        let (agent, _) = agent_with(llm, Mode::Auto, answers.clone(), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let waiting = waiting_ask_again(&agent, &s.id, "write_file", &args);
+        agent.run_turn(&mut s, "write a", &null_sink()).await.unwrap();
+        assert!(ws.path().join("a.txt").exists());
+        let retired = agent.store.get_approval(waiting).unwrap();
+        assert_eq!((retired.status.as_str(), retired.result.as_deref()), ("dismissed", Some(crate::journal::SUPERSEDED_RESULT)));
+
+        let unasked = crashed_call(&agent, &s.id, "write_file", &args_b);
+        agent.run_turn(&mut s, "write b", &null_sink()).await.unwrap();
+        assert_eq!(answers.asked().len(), 2);
+        assert!(ws.path().join("b.txt").exists());
+        assert_eq!(effect_state(&agent.store, unasked), ("cancelled".to_string(), Some(crate::journal::RERUN_OUTCOME.to_string())));
+        crate::journal::recover(&agent.store, &agent.cfg.home).unwrap();
+        assert!(agent.store.pending_approvals().unwrap().is_empty(), "recovery never asks about a retired row");
+    }
+
+    #[tokio::test]
+    async fn gated_call_is_denied_while_run_again_is_running() {
+        let ws = tempfile::tempdir().unwrap();
+        let (args, call) = write_call("a.txt");
+        let answers = Answers::new(Approval::Once, true);
+        let (agent, _) = agent_with(ScriptedLlm::new(vec![call, Message::assistant("ok")]), Mode::Auto, answers.clone(), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let waiting = waiting_ask_again(&agent, &s.id, "write_file", &args);
+        assert!(agent.store.claim_approval(waiting).unwrap());
+        agent.run_turn(&mut s, "write a", &null_sink()).await.unwrap();
+        assert!(answers.asked().is_empty(), "nobody is asked");
+        assert!(s.messages[2].text().contains(GATE_RUNNING), "{}", s.messages[2].text());
+        assert!(!ws.path().join("a.txt").exists());
+        assert_eq!(agent.store.get_approval(waiting).unwrap().status, "running");
+    }
+
+    #[tokio::test]
+    async fn gate_sees_an_unrecovered_crash_in_another_process() {
+        let ws = tempfile::tempdir().unwrap();
+        let (args, call) = write_call("a.txt");
+        let answers = Answers::new(Approval::Deny(None), true);
+        let (agent, _) = agent_with(ScriptedLlm::new(vec![call, Message::assistant("ok")]), Mode::Auto, answers.clone(), ws.path());
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let crashed = crashed_call(&agent, &s.id, "write_file", &args);
+        agent.run_turn(&mut s, "write a", &null_sink()).await.unwrap();
+        assert_eq!(answers.asked().len(), 1);
+        assert!(answers.asked()[0].detail.starts_with(GATE_DETAIL));
+        assert!(!ws.path().join("a.txt").exists());
+        assert_eq!(effect_state(&agent.store, crashed).0, "intent", "a declined ask retires nothing");
+    }
+
+    #[tokio::test]
+    async fn journal_failure_runs_nothing_and_says_so() {
+        let ws = tempfile::tempdir().unwrap();
+        let (_, call) = write_call("a.txt");
+        let (mut agent, _) = agent_with(ScriptedLlm::new(vec![call, Message::assistant("ok")]), Mode::Auto, Arc::new(DenyAll), ws.path());
+        let not_a_folder = ws.path().join("home-is-a-file");
+        std::fs::write(&not_a_folder, "").unwrap();
+        let mut cfg = (*agent.cfg).clone();
+        cfg.home = not_a_folder;
+        agent.cfg = Arc::new(cfg);
+        let mut s = Session::create(&agent.store, "").unwrap();
+        let (sink, events) = recording_sink();
+        agent.run_turn(&mut s, "write a", &sink).await.unwrap();
+        assert!(!ws.path().join("a.txt").exists(), "the tool never started");
+        let result = s.messages[2].text();
+        assert!(result.starts_with("Error: Heron couldn't record this action before running it, so it was not run:"), "{result}");
+        let row = &agent.store.audit_log(1).unwrap()[0];
+        assert_eq!((row.tool.as_str(), row.decision.as_str()), ("write_file", "journal-failed"));
+        assert!(events.lock().unwrap().iter().any(|e| matches!(e, Event::ToolEnd { ok: false, name, .. } if name == "write_file")));
+        assert!(effects(&agent.store).is_empty());
+    }
+
+    #[test]
+    fn rehash_skipped_at_shutdown_is_recorded() {
+        let ws = tempfile::tempdir().unwrap();
+        let store = Store::in_memory().unwrap();
+        let cfg = Config { home: ws.path().join(".heron-home"), ..Default::default() };
+        let run = |name: &str, snapshot: bool| {
+            let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let frame = RunFrame::new(name.to_string(), ws.path().to_path_buf(), store.clone(), null_sink());
+            let cfg = cfg.clone();
+            rt.spawn(in_run(frame, async move {
+                if snapshot {
+                    current_run().unwrap().before_mutating_call("s-shutdown", &cfg).await;
+                }
+                tx.send(()).unwrap();
+                std::future::pending::<()>().await
+            }));
+            rx.recv_timeout(Duration::from_secs(30)).unwrap();
+            drop(rt);
+        };
+        let skipped = |store: &Store| store.audit_log(50).unwrap().into_iter().filter(|r| r.decision == REHASH_SKIPPED).count();
+        run("turn:no-snapshot", false);
+        assert_eq!(skipped(&store), 0, "a run with nothing to check records nothing");
+        run("turn:shutdown", true);
+        let rows: Vec<_> = store.audit_log(50).unwrap().into_iter().filter(|r| r.decision == REHASH_SKIPPED).collect();
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].session_id.as_str(), rows[0].tool.as_str()), ("s-shutdown", "protect"));
+        let inbox = store.inbox(false, 10).unwrap();
+        assert_eq!(inbox.len(), 1);
+        assert_eq!(inbox[0].body, format!("Heron stopped before it checked protected files after a run in {}. Check them before you next use this folder.", ws.path().display()));
+        assert!(!crate::journal::cancel_requested("turn:shutdown"));
     }
 }

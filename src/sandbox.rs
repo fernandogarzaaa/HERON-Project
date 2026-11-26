@@ -65,11 +65,20 @@ pub fn required() -> bool {
     cfg!(target_os = "macos")
 }
 
+/// The network rules of a shell command under the egress allowlist.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EgressRules {
+    /// Loopback ports the command may not reach.
+    pub deny_ports: Vec<u16>,
+}
+
 /// What a sandbox is for.
 #[derive(Debug, Clone)]
 pub enum Profile<'a> {
     /// A shell command. `grants` are the folders and single paths the user granted for reading.
-    Shell { grants: Vec<ReadGrant> },
+    /// `protect` is the scan of the working folder, `egress` the network rules (`None`: open), and
+    /// `toolchain` the Rust toolchain's state, whose changed toolchains are read-denied.
+    Shell { grants: Vec<ReadGrant>, protect: crate::protect::Scan, egress: Option<EgressRules>, toolchain: crate::toolchain::ToolchainState },
     /// A CLI provider child. `binary_dir` is the install folder of its binary. `extra_read` holds the
     /// interpreter's folder when the binary is a script.
     Cli { spec: &'a CliSpec, binary_dir: PathBuf, extra_read: Vec<PathBuf> },
@@ -401,7 +410,7 @@ pub fn seatbelt_profile(cfg: &Config, home: &Path, workdir: &Path, profile: &Pro
     };
     let launch = format!("{JOB_CREATION}\n{LAUNCH_SERVICES}\n");
     match profile {
-        Profile::Shell { grants } => {
+        Profile::Shell { grants, toolchain, .. } => {
             let mut readable = vec![workdir.to_path_buf()];
             readable.extend(grants.iter().filter_map(|g| match g {
                 ReadGrant::Folder(f) => Some(f.clone()),
@@ -427,6 +436,7 @@ pub fn seatbelt_profile(cfg: &Config, home: &Path, workdir: &Path, profile: &Pro
             let names: Vec<String> = KEYCHAIN_SERVICES.iter().map(|n| format!(" (global-name \"{n}\")")).collect();
             p.push_str(&format!("(deny mach-lookup{})\n", names.concat()));
             p.push_str(&local_sockets(workdir));
+            p.push_str(&crate::toolchain::seatbelt_denies(toolchain, home));
             p.push_str(&launch);
         }
         Profile::Cli { spec, binary_dir, extra_read } => {
@@ -469,6 +479,8 @@ pub fn seatbelt_profile(cfg: &Config, home: &Path, workdir: &Path, profile: &Pro
 pub fn wrap(cfg: &Config, workdir: &Path, profile: &Profile) -> Option<(String, Vec<String>)> {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
     let home = dunce::canonicalize(&home).unwrap_or(home);
+    #[cfg(test)]
+    let home = crate::toolchain::TEST_HOME.try_with(|h| h.clone()).unwrap_or(home);
     let s = |p: &Path| p.to_string_lossy().to_string();
     match (active(cfg), profile) {
         (Kind::None, _) | (Kind::Bubblewrap, Profile::Cli { .. }) => None,
@@ -645,7 +657,7 @@ mod tests {
         let home = real_home();
         let h = home.display().to_string();
         let cfg = Config { home: home.join(".heron-profile-test"), ..Default::default() };
-        let profile = seatbelt_profile(&cfg, &home, &home.join("project-profile-test"), &Profile::Shell { grants: vec![ReadGrant::Folder(home.join("Documents/notes-profile-test"))] });
+        let profile = seatbelt_profile(&cfg, &home, &home.join("project-profile-test"), &Profile::Shell { grants: vec![ReadGrant::Folder(home.join("Documents/notes-profile-test"))], protect: Default::default(), egress: None, toolchain: Default::default() });
         let at = |needle: &str| profile.find(needle).unwrap_or_else(|| panic!("{needle} missing from:\n{profile}"));
         let deny_roots = at(&format!("(deny file-read* (subpath \"{h}\") (subpath \"/Users\") (subpath \"/Volumes\") (subpath \"{h}/.heron-profile-test\") (subpath \"/System/Volumes/Data{h}\") (subpath \"/System/Volumes/Data/Users\") (subpath \"/System/Volumes/Data/Volumes\")"));
         let metadata = at("(allow file-read-metadata)");
@@ -746,7 +758,7 @@ mod tests {
             let spec = cli_spec(id);
             no_bare_file_rules(&seatbelt_profile(&cfg, &home, Path::new("/tmp/run"), &Profile::Cli { spec: &spec, binary_dir: PathBuf::from("/usr/local/bin"), extra_read: vec![] }));
         }
-        no_bare_file_rules(&seatbelt_profile(&cfg, &home, Path::new("/tmp/ws"), &Profile::Shell { grants: vec![] }));
+        no_bare_file_rules(&seatbelt_profile(&cfg, &home, Path::new("/tmp/ws"), &Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain: Default::default() }));
     }
 
     #[cfg(target_os = "macos")]
@@ -756,7 +768,7 @@ mod tests {
         // under Seatbelt: every CLI's config folder is in the Refused block, present on disk or not.
         let home = real_home();
         let cfg = Config { home: home.join(".heron-profile-test"), ..Default::default() };
-        let profile = seatbelt_profile(&cfg, &home, &home.join("project-profile-test"), &Profile::Shell { grants: vec![] });
+        let profile = seatbelt_profile(&cfg, &home, &home.join("project-profile-test"), &Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain: Default::default() });
         let refused = &profile[profile.find("(deny file-read* file-write*").unwrap()..profile.find("(deny file-read* (regex #\"").unwrap()];
         for spec in crate::cli_llm::providers() {
             for d in spec.config_dirs {
@@ -771,7 +783,7 @@ mod tests {
         let cfg = Config { agent: crate::config::AgentConfig { sandbox: "off".into(), ..Default::default() }, ..Default::default() };
         let spec = cli_spec("codex-cli");
         assert!(wrap(&cfg, Path::new("/tmp"), &Profile::Cli { spec: &spec, binary_dir: PathBuf::from("/usr/bin"), extra_read: vec![] }).is_none());
-        assert!(wrap(&cfg, Path::new("/tmp"), &Profile::Shell { grants: vec![] }).is_none());
+        assert!(wrap(&cfg, Path::new("/tmp"), &Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain: Default::default() }).is_none());
         let on = Config::default();
         let wrapped = wrap(&on, Path::new("/tmp"), &Profile::Cli { spec: &spec, binary_dir: PathBuf::from("/usr/bin"), extra_read: vec![] });
         match available() {
@@ -833,6 +845,35 @@ mod tests {
         }
     }
 
+    #[test]
+    fn changed_toolchain_is_denied_in_the_profile() {
+        let home = PathBuf::from("/Users/someone");
+        let ws = home.join("project-toolchain-test");
+        let cfg = Config { home: home.join(".heron"), ..Default::default() };
+        let changed = crate::toolchain::ToolchainState::Changed { toolchains: vec!["stable-aarch64-apple-darwin".into()], files: vec![], since: 1, during: None };
+        let shell = |toolchain| seatbelt_profile(&cfg, &home, &ws, &Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain });
+        let profile = shell(changed);
+        let deny = format!("(deny file-read* (subpath {})", sbpl_quote(&home.join(".rustup/toolchains/stable-aarch64-apple-darwin")));
+        let at = profile.find(&deny).unwrap_or_else(|| panic!("no toolchain deny in:\n{profile}"));
+        let allow = profile.find(&format!("(subpath {})", sbpl_quote(&home.join(".rustup")))).unwrap();
+        assert!(allow < at, "the deny must come after the toolchain folders are opened");
+        assert!(at < profile.find(JOB_CREATION).unwrap(), "the deny comes before the launch rules");
+        assert!(!shell(crate::toolchain::ToolchainState::Trusted).contains(".rustup/toolchains/stable"));
+        assert!(!shell(crate::toolchain::ToolchainState::NoBaseline).contains(".rustup/toolchains/stable"));
+    }
+
+    #[test]
+    fn cli_profile_has_no_egress_rules() {
+        let home = PathBuf::from("/Users/someone");
+        let cfg = Config { home: home.join(".heron"), ..Default::default() };
+        let codex = cli_spec("codex-cli");
+        let cli = seatbelt_profile(&cfg, &home, Path::new("/private/var/folders/xy/T/heron-cli-4"), &Profile::Cli { spec: &codex, binary_dir: PathBuf::from("/usr/local/bin"), extra_read: vec![] });
+        assert!(!cli.contains("network-outbound") && !cli.contains("remote ip"), "{cli}");
+        assert!(!cli.contains(".rustup/toolchains/"), "{cli}");
+        let shell = seatbelt_profile(&cfg, &home, &home.join("p"), &Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain: Default::default() });
+        assert!(!shell.contains("(remote ip"), "egress None leaves the shell's network open: {shell}");
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn secrets_and_refused_ancestors_are_write_denied_in_both_profiles() {
@@ -841,7 +882,7 @@ mod tests {
         let ws = home.join("project-rename-test");
         let mut cfg = Config { home: ws.join("data/heron"), ..Default::default() };
         cfg.llm.cli_config_dir = ws.join("a/b/acct").display().to_string();
-        let shell = seatbelt_profile(&cfg, &home, &ws, &Profile::Shell { grants: vec![] });
+        let shell = seatbelt_profile(&cfg, &home, &ws, &Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain: Default::default() });
         let run = ws.clone();
         let codex = cli_spec("codex-cli");
         let cli = seatbelt_profile(&cfg, &home, &run, &Profile::Cli { spec: &codex, binary_dir: PathBuf::from("/usr/local/bin"), extra_read: vec![] });

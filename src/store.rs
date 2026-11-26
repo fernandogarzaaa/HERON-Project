@@ -779,6 +779,7 @@ impl Store {
     /// Housekeeping for a long-running process: fold the write-ahead log back into the main file so it
     /// cannot grow without limit, and let SQLite refresh its query statistics.
     pub fn maintain(&self) -> Result<()> {
+        self.with_conn(|c| crate::journal::sql::prune(c, now_ts() - crate::journal::RETAIN_SECS))?;
         let db = self.db();
         // Statistics first (that is itself a write), then the fold, so the log ends up empty.
         db.execute_batch("PRAGMA optimize;")?;
@@ -2283,6 +2284,33 @@ mod upgrade_tests {
         s.resolve_approval(done, "failed", Some("boom")).unwrap();
         assert!(!s.requeue_approval(done, "x").unwrap(), "an answered request stays answered");
         assert_eq!(s.get_approval(done).unwrap().result.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn maintain_prunes_finished_rows_after_30_days() {
+        let s = Store::in_memory().unwrap();
+        let old = now_ts() - crate::journal::RETAIN_SECS - 60;
+        let recent = now_ts() - 60;
+        let waiting = parked(&s, 1);
+        let answered = parked(&s, 2);
+        s.resolve_approval(answered, "approved", None).unwrap();
+        let row = |state: &str, finished: i64, approval: Option<i64>| -> i64 {
+            s.with_conn(|c| {
+                c.execute(
+                    "INSERT INTO effects(started_at, finished_at, proc, session_id, run_id, workspace, kind, name, args_hash, summary, risk, state, approval_id) \
+                     VALUES (?1, ?1, 'p', 's', 'none', '/w', 'tool', 'shell', 'h', 'x', 'exec', ?2, ?3)",
+                    params![finished, state, approval],
+                )?;
+                Ok(c.last_insert_rowid())
+            })
+            .unwrap()
+        };
+        let gone = [row("done", old, None), row("failed", old, None), row("cancelled", old, None), row("asked", old, Some(answered)), row("asked", old, Some(9999))];
+        let kept = [row("done", recent, None), row("intent", old, None), row("interrupted", old, None), row("asked", old, Some(waiting))];
+        s.maintain().unwrap();
+        let ids: Vec<i64> = s.with_conn(|c| Ok(c.prepare("SELECT id FROM effects ORDER BY id")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?)).unwrap();
+        assert_eq!(ids, kept.to_vec());
+        assert!(gone.iter().all(|g| !ids.contains(g)));
     }
 
     #[test]

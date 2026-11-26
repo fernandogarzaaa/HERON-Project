@@ -60,6 +60,15 @@ fn write_risk(args: &Value, ctx: &ToolCtx) -> Effect {
     stricter(resolved, classify_path(&written_path(ctx, &raw), &ctx.workspace, &ctx.cfg, true))
 }
 
+/// Why a write is refused as a protected file, over the same two path forms as `write_risk`.
+pub(crate) fn write_refusal(args: &Value, ctx: &ToolCtx) -> Option<crate::protect::Refusal> {
+    let raw = path_summary(args);
+    [resolve_path(&ctx.workspace, &raw), written_path(ctx, &raw)]
+        .iter()
+        .find_map(|p| crate::permissions::protected_write(p, &ctx.workspace, &ctx.cfg))
+        .map(|r| crate::protect::Refusal { path: PathBuf::from(&raw), label: r.label })
+}
+
 fn content_hash(bytes: &[u8]) -> String {
     crate::util::sha256_hex(bytes)
 }
