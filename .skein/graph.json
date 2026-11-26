@@ -713,11 +713,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "W6b: Phase 2 wiring, after PT-E1 passes: egress in the shell and profile, the Seatbel",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/HS-W6b__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "1a13be5e73a20561b1697964ecb3d56ee4ad16c0",
+      "branch": "skein/HS-W6b",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W6b"
     }
   },
   "HS-W6b__integrate": {
