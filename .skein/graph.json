@@ -1138,30 +1138,45 @@
     }
   },
   "HS-verify__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "21bec2e0a4ed49358057d8a006a49cd0",
+        "ended_at": "2026-11-26T23:43:40.563684+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-26T23:43:40.052233+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "21bec2e0a4ed49358057d8a006a49cd0",
-      "base_branch": "skein/HS-verify__integrate__integrate-base",
-      "claim_token": "f470455339e8439aa03411d6e631a9ec",
-      "claimed_at": "2026-11-26T23:43:40.052233+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-26T23:43:40.052233+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "HS-W6b",
       "HS-W7",
       "HS-W8"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 44d232cb7ae5fc7cab08da0e759d89b0b946c0ce bd72e1cfb8b20ebb29ed34e638860d87c4af8814",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['de9ba72cfc87a1a5c1fedbb55c530f151aacd425', '44d232cb7ae5fc7cab08da0e759d89b0b946c0ce', 'bd72e1cfb8b20ebb29ed34e638860d87c4af8814'] into skein/HS-verify__integrate-base.",
     "id": "HS-verify__integrate",
     "integration_for": "HS-verify",
     "intent": {
@@ -1173,16 +1188,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "changed_files": [],
+      "commit": "1c47275909a16462cc52d7cc64092d31d18a77d1",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of HS-verify",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/HS-verify__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "branch": "skein/HS-verify__integrate-base",
       "path": null
     }
   },
