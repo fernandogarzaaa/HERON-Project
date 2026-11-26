@@ -324,11 +324,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "W5: Toolchain manifest, stat-then-hash check, trust, `names_rust_tool`, `seatbelt_de",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/harness-safety",
-      "branch": null,
-      "path": null
+      "base_commit": "c686205b5013d71404cb1f7fb90620e17b82983b",
+      "branch": "skein/HS-W5",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W5"
     }
   },
   "HS-W6a": {
