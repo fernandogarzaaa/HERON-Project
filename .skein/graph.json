@@ -84,7 +84,7 @@
       "goal": "`RepeatGuard` ported from anchor-harness `repeats.rs`, with the failure rule and one notice template (\u00a72, file 2)"
     },
     "max_retries": 1,
-    "rejected_count": 0,
+    "rejected_count": 1,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -92,7 +92,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "W2: `RepeatGuard` ported from anchor-harness `repeats.rs`, with the failure rule and",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/harness-safety",
       "branch": null,
@@ -112,15 +112,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "1c38979a8e1e4292901ac5d1d0612f79",
+      "base_branch": "feat/harness-safety",
+      "claim_token": "5e7d678381144653ac1712828cee80e6",
+      "claimed_at": "2026-11-26T22:13:45.903426+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-26T22:13:45.903426+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [],
     "evidence": [],
@@ -140,11 +140,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "W3: Egress proxy ported from anchor-harness `proxy.rs`, Seatbelt network rules, prox",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/harness-safety",
       "branch": null,
       "path": null
     }
