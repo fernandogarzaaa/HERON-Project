@@ -505,22 +505,31 @@
     }
   },
   "HS-W6a__integrate": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "b8c1dc0c361c487ebe50e87269f16970",
+        "ended_at": "2026-11-26T22:31:13.545134+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-26T22:31:12.796197+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_code",
     "backend_config": {},
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "b8c1dc0c361c487ebe50e87269f16970",
-      "base_branch": "skein/HS-W6a__integrate__integrate-base",
-      "claim_token": "d1d87542299c42bd9f6b9cb0ee695cf6",
-      "claimed_at": "2026-11-26T22:31:12.796197+00:00",
-      "holder": "skein-auto-merge",
-      "last_heartbeat": "2026-11-26T22:31:12.796197+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "skein-auto-merge"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "HS-W1",
@@ -528,8 +537,14 @@
       "HS-W4",
       "HS-W5"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "git merge 86f690240cbd352e88753f6ddcb13d90a4ade2cc b987ba1faa65d337d11e3f9c3e0396a274d70d3d f229e237a98f3e0dee0588937c246dace0e1de24",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['284799fd30cfe745835b4fcdd5003119eb2fcba8', '86f690240cbd352e88753f6ddcb13d90a4ade2cc', 'b987ba1faa65d337d11e3f9c3e0396a274d70d3d', 'f229e237a98f3e0dee0588937c246dace0e1de24'] into skein/HS-W6a__integrate-base.",
     "id": "HS-W6a__integrate",
     "integration_for": "HS-W6a",
     "intent": {
@@ -541,16 +556,21 @@
     "max_retries": 3,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "base_commit": "284799fd30cfe745835b4fcdd5003119eb2fcba8",
+      "changed_files": [],
+      "commit": "1a174ada29d4db9fb7e65a4ca3779d6215977f3b",
+      "diff_stats": {}
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "Integrate parents of HS-W6a",
-    "version": 2,
+    "version": 3,
     "worktree": {
-      "base_branch": "skein/HS-W6a__integrate__integrate-base",
-      "branch": null,
+      "base_branch": "284799fd30cfe745835b4fcdd5003119eb2fcba8",
+      "branch": "skein/HS-W6a__integrate-base",
       "path": null
     }
   },
