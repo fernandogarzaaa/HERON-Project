@@ -1,4 +1,54 @@
 {
+  "HS-W1": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/journal/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "HS-W1",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/require-tests.sh --lib journal:: -- dead_process_intent_becomes_interrupted missing_lease_file_counts_as_dead a_live_process_intent_is_left_alone finished_rows_drop_their_arguments drop_after_a_cancel_request_writes_cancelled drop_without_a_cancel_request_writes_interrupted panic_inside_guarded_writes_failed timeout_inside_guarded_writes_failed failed_intent_insert_does_not_run_the_tool interrupted_tool_call_becomes_one_ask_again_approval ask_pass_commits_the_approval_and_the_row_together interrupted_calls_from_two_sessions_get_two_approvals interrupted_calls_with_different_taint_get_two_approvals interrupted_parked_call_reopens_its_own_approval parked_call_whose_approval_cannot_reopen_gets_a_new_one live_child_process_group_delays_the_ask interrupted_action_uses_its_label pending_ask_again_matches_session_tool_and_args pending_ask_again_sees_unrecovered_rows live_parked_approvals_lists_only_live_leases dead_lease_files_are_swept args_hash_ignores_key_order prune_keeps_open_rows asked_rows_prune_once_their_approval_is_answered && cargo test --locked --lib -- journal::",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W1, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Effect journal module: SQL functions, process leases, `guarded`, two-pass recovery, ask-again texts, the `Resumer` hook (\u00a71, file 1)"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "W1: Effect journal module: SQL functions, process leases, `guarded`, two-pass recove",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {
