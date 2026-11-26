@@ -1434,7 +1434,13 @@ mod tests {
         assert_eq!(outside, vec![PromptSource::RelevantUnconfirmed, PromptSource::Ambient, PromptSource::Calendar]);
         assert_eq!(PromptSource::SessionSummary.trust(), PromptTrust::SameAsSession);
         // What the user and Heron wrote is there...
-        for wanted in ["Dana Okafor", "plans.md", "Order garden seeds", "garden-report", "Earlier, Dana asked", "1 calendar events"] {
+        let mut wanted = vec!["Dana Okafor", "plans.md", "Order garden seeds", "Earlier, Dana asked", "1 calendar events"];
+        if !cfg!(windows) {
+            wanted.push("garden-report");
+        } else {
+            assert!(!prompt.contains("garden-report"), "Windows skill loading must remain fail-closed");
+        }
+        for wanted in wanted {
             assert!(prompt.contains(wanted), "{wanted} missing from the prompt:\n{prompt}");
         }
         // ...and nothing anyone else wrote.
