@@ -93,11 +93,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "W2: `RepeatGuard` ported from anchor-harness `repeats.rs`, with the failure rule and",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/harness-safety",
-      "branch": null,
-      "path": null
+      "base_commit": "730a48c5c1c0d3ed3f379c238c87f1ea22563485",
+      "branch": "skein/HS-W2",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W2"
     }
   },
   "HS-W3": {
