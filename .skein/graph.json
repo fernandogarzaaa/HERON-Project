@@ -144,11 +144,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "W3: Egress proxy ported from anchor-harness `proxy.rs`, Seatbelt network rules, prox",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "feat/harness-safety",
-      "branch": null,
-      "path": null
+      "base_commit": "122636bc958fab94a639dc98eb783c5796a9c6e7",
+      "branch": "skein/HS-W3",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W3"
     }
   },
   "HS-W4": {
