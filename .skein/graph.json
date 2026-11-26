@@ -49,6 +49,56 @@
       "path": null
     }
   },
+  "HS-W2": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/repeat/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "HS-W2",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/require-tests.sh --lib repeat:: -- identical_calls_stop_at_the_limit any_difference_resets_the_count limit_zero_disables_and_one_stops_immediately a_repeating_block_of_calls_is_a_loop failures_that_differ_only_in_digits_are_repeats same_call_count_is_three_after_three_identical_calls same_call_count_ignores_results shell_exit_code_line_counts_as_failure shell_timeout_counts_as_failure stop_text_uses_one_template && cargo test --locked --lib -- repeat::",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W2, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "`RepeatGuard` ported from anchor-harness `repeats.rs`, with the failure rule and one notice template (\u00a72, file 2)"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "W2: `RepeatGuard` ported from anchor-harness `repeats.rs`, with the failure rule and",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {
