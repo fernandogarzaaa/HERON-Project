@@ -42,11 +42,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "W1: Effect journal module: SQL functions, process leases, `guarded`, two-pass recove",
-    "version": 4,
+    "version": 5,
     "worktree": {
       "base_branch": "feat/harness-safety",
-      "branch": null,
-      "path": null
+      "base_commit": "93a803d7819a4ed27e1dc9d03d46071aeff6e088",
+      "branch": "skein/HS-W1",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W1"
     }
   },
   "HS-W2": {
