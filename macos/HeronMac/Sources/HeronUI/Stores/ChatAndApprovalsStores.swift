@@ -16,6 +16,7 @@ func describe(_ error: Error) -> String {
     case CoreError.sessionBusy: return "Heron is still working on this conversation."
     case CoreError.riskNoticeNotAccepted: return "Accept the risk notice first."
     case CoreError.riskNoticeOutdated: return "The risk notice was updated."
+    case CoreError.coreStopped: return "Heron's core isn't running."
     default: return error.localizedDescription
     }
 }
@@ -49,6 +50,18 @@ public struct ChatErrorCard: Equatable, Sendable {
     public var title: String
     public var text: String
     public var actions: [ChatErrorAction]
+
+    /// Under a reply the core never finished (`interrupted`): it was stopped, ended in an error, or the core
+    /// restarted while it ran. The core can't tell which, so neither does the card.
+    public static let cutOff = ChatErrorCard(title: "This reply didn't finish",
+                                             text: "It was stopped, or Heron's core restarted before it was done. Send your message again to carry on.",
+                                             actions: [.tryAgain])
+
+    /// The core is down and starting it again for this message failed. The details stay on the
+    /// "Heron's core stopped" card, behind its Copy button.
+    public static let coreStopped = ChatErrorCard(title: "Heron's core isn't running",
+                                                  text: "It stopped and didn't start again. Your message is kept in the box. Try again, or restart the core from the card at the top of the window.",
+                                                  actions: [.tryAgain])
 
     public static func from(message: String, code: String?, provider: String?, version: String?) -> ChatErrorCard {
         switch code {
@@ -97,10 +110,17 @@ public final class ChatStore {
     @ObservationIgnored private let now: () -> Date
 
     public private(set) var sessions: [SessionSummary] = []
+    /// Shown under "Archived" in the sidebar once opened.
+    public private(set) var archivedSessions: [SessionSummary] = []
+    public private(set) var showsArchived = false
+    /// The last sidebar action that failed (rename, pin, archive, delete), shown under the list.
+    public private(set) var sessionActionError: String?
     public private(set) var currentSessionID: String?
     public private(set) var messages: [ChatMessage] = []
     public var composer = ""
     public private(set) var isRunning = false
+    /// Between Stop and the core's answer: the Stop button is disabled so a second click sends nothing more.
+    public private(set) var isStopping = false
     /// The live approval for the open conversation: shows the sheet.
     public private(set) var liveApproval: ApprovalRequest?
     /// What outside content the conversation has read, once known. Non-nil means the violet chip shows.
@@ -115,6 +135,9 @@ public final class ChatStore {
 
     private static let approvalStepPrefix = "approval-"
     @ObservationIgnored private var awaitingStart = false
+    /// The run this conversation is waiting on, once known. The end of an earlier run (its `run_end` comes
+    /// after the core has learned from it, which can be well into the next turn) must not end this one.
+    @ObservationIgnored private var currentRunID: String?
     /// Events that arrived while `sendMessage` was in flight. The core starts the run before it answers
     /// `/api/chat`, so a fast reply can come before the turn's messages exist; they are replayed in order.
     @ObservationIgnored private var heldEvents: [CoreEvent] = []
@@ -147,17 +170,75 @@ public final class ChatStore {
         do { sessions = try await client.sessions() } catch { loadState = .failed(describe(error)) }
     }
 
+    // MARK: Sidebar actions
+
+    public func toggleArchived() async {
+        showsArchived.toggle()
+        if showsArchived { await loadArchived() }
+    }
+
+    public func loadArchived() async {
+        do { archivedSessions = try await client.archivedSessions() } catch { sessionActionError = describe(error) }
+    }
+
+    /// Returns false, with the reason in `sessionActionError`, when the name was refused.
+    @discardableResult
+    public func rename(_ id: String, to title: String) async -> Bool {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { sessionActionError = "A conversation needs a name."; return false }
+        return await updateSession { try await $0.updateSession(id: id, title: name, pinned: nil, archived: nil) }
+    }
+
+    public func setPinned(_ id: String, _ pinned: Bool) async {
+        await updateSession { try await $0.updateSession(id: id, title: nil, pinned: pinned, archived: nil) }
+    }
+
+    public func setArchived(_ id: String, _ archived: Bool) async {
+        await updateSession { try await $0.updateSession(id: id, title: nil, pinned: nil, archived: archived) }
+    }
+
+    /// Deletes the conversation for good (the sidebar asks first). The open conversation gives way to a new one.
+    public func delete(_ id: String) async {
+        await updateSession { try await $0.deleteSession(id: id) }
+        if id == currentSessionID, !sessions.contains(where: { $0.id == id }), sessionActionError == nil { startNewConversation() }
+    }
+
+    @discardableResult
+    private func updateSession(_ change: (any CoreClientProtocol) async throws -> Void) async -> Bool {
+        do {
+            try await change(client)
+            sessionActionError = nil
+        } catch {
+            sessionActionError = describe(error)
+            return false
+        }
+        await loadSessions()
+        if showsArchived { await loadArchived() }
+        return true
+    }
+
     public func open(id: String) async {
         loadState = .loading
         do {
             let detail = try await client.session(id: id)
             currentSessionID = id
-            messages = detail.messages.map { m in
+            currentRunID = nil
+            var loaded = detail.messages.map { m in
                 ChatMessage(id: "m\(m.id)", role: m.role == "user" ? .user : .assistant, text: m.content,
                             steps: m.toolCalls.map { ChatStep(id: $0.id, name: $0.name, sentence: $0.summary,
                                                               status: $0.ok == false ? .failed : .done, durationMs: $0.durationMs, untrusted: $0.untrusted) },
                             finished: true, error: nil)
             }
+            // The core kept the reply's steps but no run is finishing it (stopped, a restart, a quit mid-reply): say so,
+            // so the conversation doesn't look done or stuck.
+            if detail.interrupted && !detail.busy {
+                if let last = loaded.indices.last, loaded[last].role == .assistant {
+                    loaded[last].error = .cutOff
+                } else {
+                    loaded.append(ChatMessage(id: "cut-\(loaded.count)", role: .assistant, text: "", steps: [], finished: true, error: .cutOff))
+                }
+            }
+            messages = loaded
             isRunning = detail.busy
             isOutsideContent = detail.tainted
             outsideSource = nil
@@ -171,6 +252,7 @@ public final class ChatStore {
 
     public func startNewConversation() {
         currentSessionID = nil
+        currentRunID = nil
         messages = []
         isRunning = false
         liveApproval = nil
@@ -189,6 +271,7 @@ public final class ChatStore {
         do {
             let start = try await client.sendMessage(sessionID: currentSessionID, message: body, title: title)
             currentSessionID = start.sessionID
+            currentRunID = start.runID
             messages.append(ChatMessage(id: "u-\(messages.count)", role: .user, text: body, steps: [], finished: true, error: nil))
             messages.append(ChatMessage(id: "a-\(messages.count)", role: .assistant, text: "", steps: [], finished: false, error: nil))
             isRunning = true
@@ -199,6 +282,9 @@ public final class ChatStore {
             composerError = ChatErrorCard.from(message: "", code: "session_busy", provider: nil, version: nil)
         } catch CoreError.riskNoticeNotAccepted {
             needsRiskNotice = true
+        } catch CoreError.coreStopped {
+            coreWentAway()
+            composerError = .coreStopped
         } catch {
             composerError = ChatErrorCard(title: describe(error), text: "Your message is kept in the box.", actions: [.tryAgain])
         }
@@ -226,10 +312,45 @@ public final class ChatStore {
 
     public func clearRiskNoticeRequest() { needsRiskNotice = false }
 
-    /// Esc stops the current reply.
+    /// "Try again" on a card: sends what is kept in the box, or else the last message again.
+    public func retry() async {
+        if !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            await send()
+        } else if let last = messages.last(where: { $0.role == .user })?.text {
+            await send(last)
+        }
+    }
+
+    /// The Stop button and Esc. The core ends the run and sends `cancelled` and `run_end`. When it answers that
+    /// nothing is running here (the run ended, or a restarted core never had it), the reply is over: the
+    /// composer is freed rather than left on a Stop button that does nothing.
     public func stop() async {
-        guard let id = currentSessionID, isRunning else { return }
-        _ = try? await client.cancel(sessionID: id)
+        guard let id = currentSessionID, isRunning, !isStopping else { return }
+        isStopping = true
+        defer { isStopping = false }
+        do {
+            if try await client.cancel(sessionID: id) == false { endRun() }
+        } catch CoreError.coreStopped {
+            coreWentAway() // nothing is left to stop
+        } catch {
+            composerError = ChatErrorCard(title: "Heron couldn't stop the reply", text: describe(error), actions: [.stopReply])
+        }
+    }
+
+    /// The core restarted or stopped: a reply it was running is gone and sends nothing more. Without this the
+    /// conversation stays "running" (Stop instead of Send, the box disabled under a dead approval) until a
+    /// resync that a stopped core never sends.
+    public func coreWentAway() {
+        guard isRunning || liveApproval != nil else { return }
+        mutateAssistant { m in if !m.finished { m.error = .cutOff } }
+        endRun()
+    }
+
+    /// The reply is over: the composer is free and the reply shows as finished.
+    private func endRun() {
+        isRunning = false
+        liveApproval = nil
+        mutateAssistant { $0.finished = true }
     }
 
     /// Answers the open sheet. `scope` is once, session or always; `deny` refuses.
@@ -259,9 +380,11 @@ public final class ChatStore {
     public func handle(_ event: CoreEvent) {
         if awaitingStart, event.sessionID != nil { heldEvents.append(event); return }
         guard accepts(event) else { return }
+        if event.isRunEnding, let run = event.runID, let current = currentRunID, run != current { return }
         switch event.kind {
-        case .session(let id, _):
+        case .session(let id, let runID):
             if currentSessionID == nil { currentSessionID = id }
+            currentRunID = runID
             isRunning = true
         case .text(let chunk):
             mutateAssistant { $0.text += chunk }
@@ -309,23 +432,24 @@ public final class ChatStore {
                     m.steps[i].sentence = "Moved to your Inbox"
                 }
             }
+        // `done`, `error` and `cancelled` come once the core has freed the conversation: it takes the next
+        // message from here, even while it still learns from this exchange before `run_end`.
         case .done(let text, _):
             mutateAssistant { m in
                 if m.text.isEmpty { m.text = text }
-                m.finished = true
             }
+            endRun()
         case .cancelled:
-            mutateAssistant { $0.finished = true }
+            endRun()
         case .error(let message, let code, let provider, let version):
             let card = ChatErrorCard.from(message: message, code: code, provider: provider, version: version)
-            mutateAssistant { $0.error = card; $0.finished = true }
+            mutateAssistant { $0.error = card }
+            endRun()
             if code == "risk_notice_not_accepted" { needsRiskNotice = true }
         case .runEnd:
-            isRunning = false
-            liveApproval = nil
-            mutateAssistant { $0.finished = true }
+            endRun()
             Task { await loadSessions() }
-        case .usage, .model, .notice, .learned, .resync:
+        case .usage, .model, .notice, .notification, .learned, .resync:
             break
         }
     }
