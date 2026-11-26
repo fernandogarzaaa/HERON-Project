@@ -844,7 +844,16 @@
     }
   },
   "HS-W7": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "da4bb62e0d1d48bda085d8e75335f761",
+        "ended_at": "2026-11-26T23:37:25.046030+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-26T23:35:47.486140+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -856,21 +865,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "da4bb62e0d1d48bda085d8e75335f761",
-      "base_branch": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
-      "claim_token": "d200858fe2484ba380bc2ef9d99d8c8c",
-      "claimed_at": "2026-11-26T23:35:47.486140+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-26T23:35:47.486140+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "HS-W6b"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash eval/harness-safety/check-w7.sh",
+        "duration_ms": 247,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W7_20261126T233724683518_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W7_20261126T233724932486_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Nothing is committed. Next: run `bash eval/harness-safety/check-w7.sh` yourself to confirm.",
     "id": "HS-W7",
     "integration_for": null,
     "intent": {
@@ -882,13 +903,36 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "da4bb62e0d1d48bda085d8e75335f761",
+      "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "changed_files": [
+        "docs/cli-providers.md",
+        "docs/designs/heron-harness2.md",
+        "docs/engineering/SECURITY_THREAT_MODEL.md"
+      ],
+      "commit": "44d232cb7ae5fc7cab08da0e759d89b0b946c0ce",
+      "diff_stats": {
+        "docs/cli-providers.md": {
+          "added": 49,
+          "deleted": 0
+        },
+        "docs/designs/heron-harness2.md": {
+          "added": 6,
+          "deleted": 1
+        },
+        "docs/engineering/SECURITY_THREAT_MODEL.md": {
+          "added": 152,
+          "deleted": 1
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "W7: Threat-model entries, one per Risks row; the egress section of the CLI providers",
-    "version": 3,
+    "version": 7,
     "worktree": {
       "base_branch": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
       "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
