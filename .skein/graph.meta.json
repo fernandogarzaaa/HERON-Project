@@ -1,8 +1,8 @@
 {
-  "event_count": 4657,
-  "generated_at": "2026-11-26T22:13:45.688579+00:00",
-  "graph_digest": "0eabd0afa0acf1a4b86481c12366273facf6034b9b099119d6ab397d6598e887",
-  "last_event_id": "df803b74e6a84b35ab685d32bee34410",
-  "log_digest": "c29c245303ae0442f06d3f811f6773ae01f8718dd78f66b02f7ba4c036e3a39a",
+  "event_count": 4673,
+  "generated_at": "2026-11-26T22:15:40.653872+00:00",
+  "graph_digest": "ddcf41a3a9844cda8dca38ca8bf870c1dcc096e4623115fae4c05125ca57824d",
+  "last_event_id": "84f2667d3877400ba6bee539819deaa7",
+  "log_digest": "8f78323c18697e6f75b306b5e37bd19bf3d2255dec126cd37daa4c7479e4b8e0",
   "schema_version": 1
 }
