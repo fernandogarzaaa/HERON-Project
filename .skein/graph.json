@@ -458,6 +458,14 @@
         "holder": "agent-2",
         "outcome": "timeout",
         "started_at": "2026-11-26T22:31:13.650709+00:00"
+      },
+      {
+        "attempt_id": "45fff5deab0547c38610cd123eed871c",
+        "ended_at": "2026-11-26T23:09:31.904363+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-26T23:02:28.124367+00:00"
       }
     ],
     "attempts_used": 0,
@@ -471,15 +479,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "45fff5deab0547c38610cd123eed871c",
-      "base_branch": "skein/HS-W6a__integrate-base",
-      "claim_token": "0b05328031a745cbb1af4c3d6014847b",
-      "claimed_at": "2026-11-26T23:02:28.124367+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-26T23:02:28.124367+00:00",
-      "node_version": 64,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "HS-W1",
@@ -489,12 +497,18 @@
     ],
     "evidence": [
       {
+        "command": "bash eval/harness-safety/check.sh w6a w6a-toolchain",
+        "duration_ms": 17343,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W6a_20261126T230914449565_0.log"
+      },
+      {
         "command": "<adapter:claude_build_rust>",
-        "exit_code": 124,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W6a_20261126T230114635611_adapter.log"
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W6a_20261126T230931794062_adapter.log"
       }
     ],
-    "handoff_note": "backend timed out after 1800.0s (holder=agent-2); see evidence",
+    "handoff_note": "Done. Verification passed. Last output: Next: watch whether the supervisor's run of `check.sh` passes those 7 tests.",
     "id": "HS-W6a",
     "integration_for": null,
     "intent": {
@@ -506,13 +520,76 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "45fff5deab0547c38610cd123eed871c",
+      "base_commit": "1a174ada29d4db9fb7e65a4ca3779d6215977f3b",
+      "changed_files": [
+        "src/agent.rs",
+        "src/app.rs",
+        "src/main.rs",
+        "src/permissions.rs",
+        "src/sandbox.rs",
+        "src/server.rs",
+        "src/store.rs",
+        "src/telegram.rs",
+        "src/toolchain/mod.rs",
+        "src/tools/fs.rs",
+        "src/tools/shell.rs"
+      ],
+      "commit": "bffb5f320049ae65234f1c432439ff5f4cf5c8ef",
+      "diff_stats": {
+        "src/agent.rs": {
+          "added": 716,
+          "deleted": 15
+        },
+        "src/app.rs": {
+          "added": 540,
+          "deleted": 21
+        },
+        "src/main.rs": {
+          "added": 3,
+          "deleted": 0
+        },
+        "src/permissions.rs": {
+          "added": 140,
+          "deleted": 0
+        },
+        "src/sandbox.rs": {
+          "added": 48,
+          "deleted": 7
+        },
+        "src/server.rs": {
+          "added": 212,
+          "deleted": 4
+        },
+        "src/store.rs": {
+          "added": 28,
+          "deleted": 0
+        },
+        "src/telegram.rs": {
+          "added": 77,
+          "deleted": 5
+        },
+        "src/toolchain/mod.rs": {
+          "added": 20,
+          "deleted": 0
+        },
+        "src/tools/fs.rs": {
+          "added": 9,
+          "deleted": 0
+        },
+        "src/tools/shell.rs": {
+          "added": 244,
+          "deleted": 8
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "W6a: Phase 1 wiring: `maintain` prune, `RunFrame`, `execute_call` journal, OQ9 gate a",
-    "version": 66,
+    "version": 81,
     "worktree": {
       "base_branch": "skein/HS-W6a__integrate-base",
       "base_commit": "1a174ada29d4db9fb7e65a4ca3779d6215977f3b",
