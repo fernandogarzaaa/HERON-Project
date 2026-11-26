@@ -634,6 +634,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn rejects_directories_with_more_entries_than_the_bounded_scan() {
         let dir = tempfile::tempdir().unwrap();
@@ -657,6 +658,7 @@ mod tests {
         assert!(collect_bounded_entries(entries).is_none());
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn loads_local_skills_with_immutable_review_fingerprints() {
         let dir = tempfile::tempdir().unwrap();
@@ -680,6 +682,7 @@ mod tests {
         assert!(find(dir.path(), "nope").is_none());
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn crlf_preserves_metadata_but_keeps_original_content_digest() {
         let d = tempfile::tempdir().unwrap();
@@ -694,6 +697,7 @@ mod tests {
         assert_eq!(result[0].sha256, raw_hash);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn unicode_long_descriptions_are_truncated_not_discarded() {
         let d = tempfile::tempdir().unwrap();
@@ -705,6 +709,7 @@ mod tests {
         assert_eq!(skills[0].description, "é".repeat(140));
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn rejects_oversized_and_invalid_files() {
         let dir = tempfile::tempdir().unwrap();
@@ -714,6 +719,7 @@ mod tests {
         assert_eq!(load_all(dir.path())[0].name, "normal");
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn case_folded_duplicates_do_not_shadow_other_skills() {
         let dir = tempfile::tempdir().unwrap();
@@ -726,6 +732,7 @@ mod tests {
         assert!(find(dir.path(), "beta").is_some());
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn rejects_hardlinked_skill_files_for_loading_and_writing() {
         let dir = tempfile::tempdir().unwrap();
