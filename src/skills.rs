@@ -172,7 +172,23 @@ fn secure_open(root: &Path, expected_root: &std::fs::Metadata, folder: Option<&s
     Ok(unsafe { std::fs::File::from_raw_fd(fd) })
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn secure_open(
+    _root: &Path,
+    _expected_root: &std::fs::Metadata,
+    _folder: Option<&std::ffi::OsStr>,
+    _filename: &std::ffi::OsStr,
+) -> std::io::Result<std::fs::File> {
+    // Path-based CreateFile resolution cannot pin every parent component.
+    // Do not load untrusted skills until a RootDirectory-handle implementation
+    // can reject reparse points throughout the path and verify final containment.
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "Windows skill loading is disabled until reparse-safe handle-relative opens are available",
+    ))
+}
+
+#[cfg(not(any(unix, windows)))]
 fn secure_open(root: &Path, _expected_root: &std::fs::Metadata, folder: Option<&std::ffi::OsStr>, filename: &std::ffi::OsStr) -> std::io::Result<std::fs::File> {
     let path = match folder {
         Some(dir) => root.join(dir).join(filename),
@@ -343,7 +359,15 @@ pub(crate) fn open_skill_for_write(
         file.set_len(0)?;
         Ok(file)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let _ = (dir, filename, expected_root);
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Windows skill writes are disabled until reparse-safe handle-relative opens are available",
+        ))
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = expected_root;
         let root = validate_skills_root(dir)
@@ -504,6 +528,40 @@ pub fn find(dir: &Path, name: &str) -> Option<Skill> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_skill_loading_fails_closed_until_reparse_safe_open_is_available() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("top-level.md"), "# Top-level skill").unwrap();
+        std::fs::create_dir(dir.path().join("nested")).unwrap();
+        std::fs::write(dir.path().join("nested/SKILL.md"), "# Nested skill").unwrap();
+
+        assert!(
+            load_all(dir.path()).is_empty(),
+            "Windows must not follow path-based skill opens while parent reparse races remain"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_skill_writes_fail_closed_without_truncating_existing_files() {
+        use std::ffi::OsStr;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("existing.md");
+        std::fs::write(&path, "# Preserve this existing skill").unwrap();
+        let expected_root = validate_skills_root(dir.path()).unwrap();
+
+        let error = open_skill_for_write(dir.path(), OsStr::new("existing.md"), &expected_root)
+            .expect_err("Windows skill writes must fail closed until handle-relative opens exist");
+        assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "# Preserve this existing skill",
+            "a failed save must not truncate the existing skill"
+        );
+    }
 
     #[cfg(unix)]
     #[test]
