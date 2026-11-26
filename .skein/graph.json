@@ -1130,11 +1130,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "verify: Full suites, the desktop build, lint, and the test-quality gate on the branch; a",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "skein/HS-verify__integrate-base",
-      "branch": null,
-      "path": null
+      "base_commit": "1c47275909a16462cc52d7cc64092d31d18a77d1",
+      "branch": "skein/HS-verify",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-verify"
     }
   },
   "HS-verify__integrate": {
