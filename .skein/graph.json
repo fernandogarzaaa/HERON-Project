@@ -17,7 +17,7 @@
       "claim_token": "aca414e15d714f04b2e791238b5301c2",
       "claimed_at": "2026-11-26T22:13:45.429765+00:00",
       "holder": "agent-2",
-      "last_heartbeat": "2026-11-26T22:18:46.712549+00:00",
+      "last_heartbeat": "2026-11-26T22:23:47.234874+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-2"
@@ -42,7 +42,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "W1: Effect journal module: SQL functions, process leases, `guarded`, two-pass recove",
-    "version": 15,
+    "version": 25,
     "worktree": {
       "base_branch": "feat/harness-safety",
       "base_commit": "93a803d7819a4ed27e1dc9d03d46071aeff6e088",
@@ -248,7 +248,7 @@
       "claim_token": "5ee87dd04de24325b8ad3f1163fbd3f1",
       "claimed_at": "2026-11-26T22:15:40.633334+00:00",
       "holder": "agent-3",
-      "last_heartbeat": "2026-11-26T22:18:41.437708+00:00",
+      "last_heartbeat": "2026-11-26T22:23:41.989688+00:00",
       "node_version": 1,
       "ttl_seconds": 1800,
       "worker_id": "agent-3"
@@ -273,7 +273,7 @@
     "shipped": {},
     "status": "in_progress",
     "title": "W4: Protected list ported from anchor-harness `protect.rs`, `is_protected`, Seatbelt",
-    "version": 9,
+    "version": 19,
     "worktree": {
       "base_branch": "feat/harness-safety",
       "base_commit": "00b920abd11c62070cae9bf944853ec974c502fc",
@@ -282,7 +282,16 @@
     }
   },
   "HS-W5": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "bfa2ac3e8b46401e9dd6ea5ffd33394d",
+        "ended_at": "2026-11-26T22:23:58.992526+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-26T22:18:50.306301+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_rust",
     "backend_config": {
@@ -294,19 +303,31 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "bfa2ac3e8b46401e9dd6ea5ffd33394d",
-      "base_branch": "feat/harness-safety",
-      "claim_token": "63c9a2cde91e4e609cc3c7b76b2122b8",
-      "claimed_at": "2026-11-26T22:18:50.306301+00:00",
-      "holder": "agent-1",
-      "last_heartbeat": "2026-11-26T22:18:50.306301+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-1"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash eval/require-tests.sh --lib toolchain:: -- changed_binary_is_reported libexec_change_is_reported touch_without_content_change_stays_trusted new_toolchain_folder_is_a_change rust_src_and_docs_are_ignored names_rust_tool_finds_cargo_after_a_pipe names_rust_tool_skips_env_and_assignments changed_toolchain_is_read_denied no_baseline_adds_no_denies change_is_noticed_once trust_current_makes_state_trusted exported_baseline_imports_into_another_store export_without_a_baseline_fails import_refuses_a_malformed_or_existing_baseline trust_with_a_stale_since_is_refused stat_refresh_skips_a_file_that_changed_while_hashing && cargo test --locked --lib -- toolchain::",
+        "duration_ms": 888,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W5_20261126T222357881888_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W5_20261126T222358771806_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
     "id": "HS-W5",
     "integration_for": null,
     "intent": {
@@ -318,13 +339,26 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "bfa2ac3e8b46401e9dd6ea5ffd33394d",
+      "base_commit": "c686205b5013d71404cb1f7fb90620e17b82983b",
+      "changed_files": [
+        "src/toolchain/mod.rs"
+      ],
+      "commit": "f229e237a98f3e0dee0588937c246dace0e1de24",
+      "diff_stats": {
+        "src/toolchain/mod.rs": {
+          "added": 756,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "W5: Toolchain manifest, stat-then-hash check, trust, `names_rust_tool`, `seatbelt_de",
-    "version": 3,
+    "version": 14,
     "worktree": {
       "base_branch": "feat/harness-safety",
       "base_commit": "c686205b5013d71404cb1f7fb90620e17b82983b",
