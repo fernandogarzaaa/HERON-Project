@@ -199,6 +199,56 @@
       "path": null
     }
   },
+  "HS-W5": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/toolchain/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "HS-W5",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/require-tests.sh --lib toolchain:: -- changed_binary_is_reported libexec_change_is_reported touch_without_content_change_stays_trusted new_toolchain_folder_is_a_change rust_src_and_docs_are_ignored names_rust_tool_finds_cargo_after_a_pipe names_rust_tool_skips_env_and_assignments changed_toolchain_is_read_denied no_baseline_adds_no_denies change_is_noticed_once trust_current_makes_state_trusted exported_baseline_imports_into_another_store export_without_a_baseline_fails import_refuses_a_malformed_or_existing_baseline trust_with_a_stale_since_is_refused stat_refresh_skips_a_file_that_changed_while_hashing && cargo test --locked --lib -- toolchain::",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W5, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Toolchain manifest, stat-then-hash check, trust, `names_rust_tool`, `seatbelt_denies`, baseline export and import (\u00a73.4, file 5). Manual hold: added to the graph only after the owner answers OQ1, and only under its default (Pre-S3)"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "W5: Toolchain manifest, stat-then-hash check, trust, `names_rust_tool`, `seatbelt_de",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {
