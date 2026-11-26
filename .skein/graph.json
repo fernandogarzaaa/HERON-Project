@@ -856,15 +856,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "da4bb62e0d1d48bda085d8e75335f761",
+      "base_branch": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "claim_token": "d200858fe2484ba380bc2ef9d99d8c8c",
+      "claimed_at": "2026-11-26T23:35:47.486140+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-26T23:35:47.486140+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "HS-W6b"
@@ -886,11 +886,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "W7: Threat-model entries, one per Risks row; the egress section of the CLI providers",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
       "branch": null,
       "path": null
     }
