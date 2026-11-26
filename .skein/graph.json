@@ -941,7 +941,16 @@
     }
   },
   "HS-W8": {
-    "attempts": [],
+    "attempts": [
+      {
+        "attempt_id": "872ae70e670243faaef4b6618a0b32a1",
+        "ended_at": "2026-11-26T23:43:39.638815+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-26T23:37:25.179332+00:00"
+      }
+    ],
     "attempts_used": 0,
     "backend": "claude_build_swift",
     "backend_config": {
@@ -953,21 +962,33 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "872ae70e670243faaef4b6618a0b32a1",
-      "base_branch": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
-      "claim_token": "5ebe7f5d1cbe4787a31745402ad549ef",
-      "claimed_at": "2026-11-26T23:37:25.179332+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-26T23:37:25.179332+00:00",
-      "node_version": 1,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "HS-W6b"
     ],
-    "evidence": [],
-    "handoff_note": null,
+    "evidence": [
+      {
+        "command": "bash eval/harness-safety/check-w8.sh default",
+        "duration_ms": 3446,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W8_20261126T234336080861_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W8_20261126T234339528690_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run `bash eval/harness-safety/check-w8.sh default` outside the sandbox. Expect the `never-long-rows-light` and `NotificationTests` failures above to show up in the full `swift test` run, not in the filtered one.",
     "id": "HS-W8",
     "integration_for": null,
     "intent": {
@@ -979,13 +1000,82 @@
     "max_retries": 1,
     "rejected_count": 0,
     "removed": false,
-    "result": null,
+    "result": {
+      "attempt_id": "872ae70e670243faaef4b6618a0b32a1",
+      "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "changed_files": [
+        "macos/HeronMac/Sources/HeronCore/CoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/CoreClientProtocol.swift",
+        "macos/HeronMac/Sources/HeronCore/ManagedCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/Models.swift",
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/PreviewData.swift",
+        "macos/HeronMac/Sources/HeronCore/Wire.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/SettingsAndFirstRunStores.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/SettingsView.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/CoreClientTests.swift",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/never-long-dark.macos27.png",
+        "macos/HeronMac/Sources/HeronUI/Views/SandboxViews.swift",
+        "macos/HeronMac/Tests/HeronUITests/SandboxSettingsTests.swift"
+      ],
+      "commit": "bd72e1cfb8b20ebb29ed34e638860d87c4af8814",
+      "diff_stats": {
+        "macos/HeronMac/Sources/HeronCore/CoreClient.swift": {
+          "added": 13,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/CoreClientProtocol.swift": {
+          "added": 8,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/ManagedCoreClient.swift": {
+          "added": 5,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/Models.swift": {
+          "added": 40,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift": {
+          "added": 76,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewData.swift": {
+          "added": 11,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/Wire.swift": {
+          "added": 16,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/SettingsAndFirstRunStores.swift": {
+          "added": 97,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/SandboxViews.swift": {
+          "added": 159,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/SettingsView.swift": {
+          "added": 1,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/CoreClientTests.swift": {
+          "added": 49,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronUITests/SandboxSettingsTests.swift": {
+          "added": 110,
+          "deleted": 0
+        }
+      }
+    },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "done",
     "title": "W8: Mac app Settings \u203a Sandbox: egress mode and lists, toolchain state and Trust, al",
-    "version": 3,
+    "version": 16,
     "worktree": {
       "base_branch": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
       "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
