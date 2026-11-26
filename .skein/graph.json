@@ -249,6 +249,61 @@
       "path": null
     }
   },
+  "HS-W6a": {
+    "attempts": [],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "HS-W1",
+      "HS-W2",
+      "HS-W4",
+      "HS-W5"
+    ],
+    "evidence": [],
+    "handoff_note": null,
+    "id": "HS-W6a",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/harness-safety/check.sh w6a w6a-toolchain",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W6a, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Phase 1 wiring: `maintain` prune, `RunFrame`, `execute_call` journal, OQ9 gate and loop guard, transcript text, recovery calls, `run_parked` with `resume:` and the workspace check, `classify_path` and the protected-file text, the Stop flag, the toolchain in the shell and profile, the toolchain and dismiss API (files 6 to 12 and 15, W6a parts). Supervisor"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "unclaimed",
+    "title": "W6a: Phase 1 wiring: `maintain` prune, `RunFrame`, `execute_call` journal, OQ9 gate a",
+    "version": 1,
+    "worktree": {
+      "base_branch": null,
+      "branch": null,
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {
