@@ -1145,15 +1145,15 @@
     "blast_radius": [],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "21bec2e0a4ed49358057d8a006a49cd0",
+      "base_branch": "skein/HS-verify__integrate__integrate-base",
+      "claim_token": "f470455339e8439aa03411d6e631a9ec",
+      "claimed_at": "2026-11-26T23:43:40.052233+00:00",
+      "holder": "skein-auto-merge",
+      "last_heartbeat": "2026-11-26T23:43:40.052233+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "skein-auto-merge"
     },
     "depends_on": [
       "HS-W6b",
@@ -1177,11 +1177,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "Integrate parents of HS-verify",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "skein/HS-verify__integrate__integrate-base",
       "branch": null,
       "path": null
     }
