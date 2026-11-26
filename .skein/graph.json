@@ -1096,15 +1096,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "66d71b2cb86341d99623c7dcfdb1d945",
+      "base_branch": "skein/HS-verify__integrate-base",
+      "claim_token": "7e4e4755979941d4b642b4aa7edcd4ea",
+      "claimed_at": "2026-11-26T23:43:40.666855+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-26T23:43:40.666855+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "HS-W6b",
@@ -1128,9 +1128,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "verify: Full suites, the desktop build, lint, and the test-quality gate on the branch; a",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/HS-verify__integrate-base",
       "branch": null,
