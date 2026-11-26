@@ -462,15 +462,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "67edf00e469b4871b8869ab8a11765de",
+      "base_branch": "skein/HS-W6a__integrate-base",
+      "claim_token": "805f423d6362422c9afeb312a86298d5",
+      "claimed_at": "2026-11-26T22:31:13.650709+00:00",
+      "holder": "agent-2",
+      "last_heartbeat": "2026-11-26T22:31:13.650709+00:00",
+      "node_version": 2,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-2"
     },
     "depends_on": [
       "HS-W1",
@@ -495,9 +495,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "W6a: Phase 1 wiring: `maintain` prune, `RunFrame`, `execute_call` journal, OQ9 gate a",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "skein/HS-W6a__integrate-base",
       "branch": null,
