@@ -888,11 +888,12 @@
     "shipped": {},
     "status": "claimed",
     "title": "W7: Threat-model entries, one per Risks row; the egress section of the CLI providers",
-    "version": 2,
+    "version": 3,
     "worktree": {
       "base_branch": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
-      "branch": null,
-      "path": null
+      "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "branch": "skein/HS-W7",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W7"
     }
   },
   "HS-W8": {
