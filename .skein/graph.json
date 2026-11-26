@@ -294,15 +294,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "bfa2ac3e8b46401e9dd6ea5ffd33394d",
+      "base_branch": "feat/harness-safety",
+      "claim_token": "63c9a2cde91e4e609cc3c7b76b2122b8",
+      "claimed_at": "2026-11-26T22:18:50.306301+00:00",
+      "holder": "agent-1",
+      "last_heartbeat": "2026-11-26T22:18:50.306301+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-1"
     },
     "depends_on": [],
     "evidence": [],
@@ -322,11 +322,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "W5: Toolchain manifest, stat-then-hash check, trust, `names_rust_tool`, `seatbelt_de",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/harness-safety",
       "branch": null,
       "path": null
     }
