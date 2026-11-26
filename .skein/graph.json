@@ -34,7 +34,7 @@
       "goal": "Effect journal module: SQL functions, process leases, `guarded`, two-pass recovery, ask-again texts, the `Resumer` hook (\u00a71, file 1)"
     },
     "max_retries": 1,
-    "rejected_count": 0,
+    "rejected_count": 2,
     "removed": false,
     "result": null,
     "retry_at": null,
@@ -42,7 +42,7 @@
     "shipped": {},
     "status": "claimed",
     "title": "W1: Effect journal module: SQL functions, process leases, `guarded`, two-pass recove",
-    "version": 2,
+    "version": 4,
     "worktree": {
       "base_branch": "feat/harness-safety",
       "branch": null,
@@ -62,15 +62,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": null,
-      "base_branch": null,
-      "claim_token": null,
-      "claimed_at": null,
-      "holder": null,
-      "last_heartbeat": null,
-      "node_version": null,
-      "ttl_seconds": null,
-      "worker_id": null
+      "attempt_id": "8f6f74782c28411ebdddd3b5dfd8b658",
+      "base_branch": "feat/harness-safety",
+      "claim_token": "32775d02872c431bb403bd6a53ad1765",
+      "claimed_at": "2026-11-26T22:13:45.669298+00:00",
+      "holder": "agent-3",
+      "last_heartbeat": "2026-11-26T22:13:45.669298+00:00",
+      "node_version": 1,
+      "ttl_seconds": 1800,
+      "worker_id": "agent-3"
     },
     "depends_on": [],
     "evidence": [],
@@ -90,11 +90,11 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "unclaimed",
+    "status": "claimed",
     "title": "W2: `RepeatGuard` ported from anchor-harness `repeats.rs`, with the failure rule and",
-    "version": 1,
+    "version": 2,
     "worktree": {
-      "base_branch": null,
+      "base_branch": "feat/harness-safety",
       "branch": null,
       "path": null
     }
