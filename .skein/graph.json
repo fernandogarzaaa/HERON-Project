@@ -478,10 +478,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "c686205b5013d71404cb1f7fb90620e17b82983b",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "18f7076342e962456d12735cafc9a2b4042c1a40",
+        "result_commit": "f229e237a98f3e0dee0588937c246dace0e1de24",
+        "shipped_at": "2026-11-27T01:58:45.267751+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
     "status": "done",
     "title": "W5: Toolchain manifest, stat-then-hash check, trust, `names_rust_tool`, `seatbelt_de",
-    "version": 14,
+    "version": 15,
     "worktree": {
       "base_branch": "feat/harness-safety",
       "base_commit": "c686205b5013d71404cb1f7fb90620e17b82983b",
