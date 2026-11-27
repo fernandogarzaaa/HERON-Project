@@ -588,9 +588,7 @@ fn start_reply(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i64, mut s
 /// Forward results of scheduled and self-started work to the paired chat.
 async fn forward_inbox(app: &App, bot: &Bot, chat: i64) {
     let last: i64 = app.store.kv_get("telegram_inbox_last").and_then(|v| v.parse().ok()).unwrap_or(0);
-    let mut items = app.store.inbox(false, 20).unwrap_or_default();
-    items.retain(|m| m.id > last);
-    items.sort_by_key(|m| m.id);
+    let items = app.store.inbox_after(last, 20).unwrap_or_default();
     for m in items {
         if m.title == UNDELIVERED_TITLE {
             let _ = app.store.kv_set("telegram_inbox_last", &m.id.to_string());
