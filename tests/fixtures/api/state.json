@@ -5,6 +5,7 @@
   "memories": 1,
   "mode": "ask",
   "model": "anthropic/claude-sonnet-5.5",
+  "model_label": "anthropic/claude-sonnet-5.5",
   "name": "Heron",
   "onboarded": false,
   "os": "macos",
