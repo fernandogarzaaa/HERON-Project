@@ -12,6 +12,7 @@ use crate::tools::ToolRegistry;
 use crate::util::preview;
 use anyhow::{Context, Result};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// The lock on `background.lock`. A lock belongs to the open file, not to this handle: a child process
@@ -47,6 +48,9 @@ pub struct App {
     background: Mutex<Option<BackgroundLock>>,
     /// Every event from every session and run (M15).
     pub events: EventBus,
+    /// True while a native app (the Mac app) is attached to this core. It shows the owner's
+    /// notifications itself, from `notification` events, so macOS names Heron as the sender.
+    native_app: AtomicBool,
     /// The saved "always allow" list as this program last read or wrote it (see
     /// [`App::persist_rules`]).
     rules_seen: Mutex<Vec<String>>,
@@ -807,7 +811,7 @@ impl App {
         // Tool calls read their standing `read:` rules from this live policy (see `ToolCtx::read_grants`).
         store.set_live_policy(&policy);
         let config_seen = Mutex::new(ConfigSeen { allow: config_rules.allow, nevers, ..Default::default() });
-        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy, workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default(), events: EventBus::new(), rules_seen: Mutex::new(saved), config_seen, #[cfg(test)] test_hooks: Default::default() })
+        Ok(App { cfg: RwLock::new(Arc::new(cfg)), store, llm, memory, tools: Arc::new(registry), policy, workspace, mcp_status, mcp_pending, usage: Default::default(), telegram_task: Default::default(), background: Default::default(), events: EventBus::new(), native_app: AtomicBool::new(false), rules_seen: Mutex::new(saved), config_seen, #[cfg(test)] test_hooks: Default::default() })
     }
 
     pub fn cfg(&self) -> Arc<Config> {
@@ -1253,6 +1257,35 @@ impl App {
         self.events.publish(session_id, run_id, serde_json::json!({"type": "run_end"}));
     }
 
+    /// Record that a native app is attached and will show the owner's notifications. Call it before
+    /// anything that can notify starts.
+    pub fn attach_native_app(&self) {
+        self.native_app.store(true, Ordering::SeqCst);
+    }
+
+    /// Which way [`App::notify`] reaches the owner: the first that applies.
+    fn delivery(&self, cfg: &Config) -> Delivery {
+        if !cfg.agent.notify_command.is_empty() {
+            Delivery::Command
+        } else if self.native_app.load(Ordering::SeqCst) {
+            Delivery::NativeApp
+        } else {
+            Delivery::InboxOnly
+        }
+    }
+
+    /// Best-effort desktop notification: `notify_command` if configured, else a `notification` event
+    /// on the bus when a native app is attached, else nothing beyond the Inbox entry.
+    fn notify(&self, cfg: &Config, title: &str, body: &str) {
+        match self.delivery(cfg) {
+            Delivery::Command => notify_with_command(&cfg.agent.notify_command, title, body),
+            Delivery::NativeApp => {
+                self.events.publish("", "", serde_json::json!({"type": "notification", "title": title, "body": notification_body(body)}));
+            }
+            Delivery::InboxOnly => {}
+        }
+    }
+
     /// Remember "always allow" choices across restarts.
     ///
     /// Another Heron on the same home may have added or revoked rules since this one last read them,
@@ -1611,7 +1644,7 @@ impl App {
         }
         let _ = self.store.record_schedule_run(job.id, &preview(&body, 500), tokens);
         let _ = self.store.add_inbox(&job.name, &body);
-        notify(&cfg, &job.name, &body);
+        self.notify(&cfg, &job.name, &body);
         if worked { RunStatus::Ok } else { RunStatus::Failed }
     }
 
@@ -1671,7 +1704,7 @@ impl App {
         for (title, text) in &record.notices {
             let title = title.clone().unwrap_or_else(|| job.name.clone());
             let _ = self.store.add_inbox(&title, text);
-            notify(&cfg, &title, text);
+            self.notify(&cfg, &title, text);
         }
         let summary = match record.status.as_str() {
             "ok" | "stopped" => format!("Ran {} step{}.", record.steps.len(), if record.steps.len() == 1 { "" } else { "s" }),
@@ -1684,7 +1717,7 @@ impl App {
             _ => {
                 let msg = format!("This automation did not finish: {}", record.error.clone().unwrap_or_else(|| "unknown error".into()));
                 let _ = self.store.add_inbox(&job.name, &msg);
-                notify(&cfg, &job.name, &msg);
+                self.notify(&cfg, &job.name, &msg);
                 msg
             }
         };
@@ -2082,7 +2115,7 @@ impl App {
                 let _ = self.store.update_suggestion(id, if takeover { "done" } else { "prepared" }, Some(&text), Some(&sid));
                 if takeover {
                     let _ = self.store.add_inbox(&format!("Done for you: {}", s.title), &text);
-                    notify(&cfg, &s.title, &text);
+                    self.notify(&cfg, &s.title, &text);
                 }
             }
             // The suggestion stays open; it can be done once the notice is accepted.
@@ -2265,7 +2298,6 @@ impl crate::workflow::Host for JobHost<'_> {
     }
 }
 
-/// Best-effort desktop notification. Uses `notify_command` if configured, else the OS default where one exists.
 /// Wait for a helper process off to the side. A finished process that nobody waits for stays in the
 /// process table until Heron exits, and a long-running Heron would slowly fill it.
 fn reap(child: std::io::Result<std::process::Child>) {
@@ -2276,35 +2308,44 @@ fn reap(child: std::io::Result<std::process::Child>) {
     }
 }
 
-fn notify(cfg: &Config, title: &str, body: &str) {
-    let message = format!("{title}: {}", preview(body, 180));
-    if !cfg.agent.notify_command.is_empty() {
-        #[cfg(windows)]
-        let mut c = {
-            let mut c = std::process::Command::new("powershell.exe");
-            c.args(["-NoProfile", "-NonInteractive", "-Command", &cfg.agent.notify_command]);
-            c
-        };
-        #[cfg(not(windows))]
-        let mut c = {
-            let mut c = std::process::Command::new("sh");
-            c.arg("-c").arg(&cfg.agent.notify_command);
-            c
-        };
-        reap(c.env("HERON_MESSAGE", &message).env("HERON_TITLE", title).spawn());
-        return;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        // Arguments are passed via argv, not interpolated into the script, so job output cannot inject AppleScript.
-        reap(
-            std::process::Command::new("osascript")
-                .args(["-e", "on run argv", "-e", "display notification (item 1 of argv) with title \"Heron\" subtitle (item 2 of argv)", "-e", "end run", &preview(body, 180), title])
-                .spawn(),
-        );
-    }
-    let _ = message;
+/// How [`App::notify`] reaches the owner.
+#[derive(Debug, PartialEq, Eq)]
+enum Delivery {
+    /// The user's `notify_command`.
+    Command,
+    /// A `notification` event, shown by the attached native app.
+    NativeApp,
+    /// No banner: the Inbox entry the caller already wrote is the notice. Heron never posts through
+    /// `osascript`, because macOS shows those as Script Editor; the Mac app is how Heron notifies.
+    InboxOnly,
 }
+
+/// Longest `body` a `notification` event carries, counting the "…" that marks a cut.
+const NOTIFICATION_BODY_CHARS: usize = 180;
+
+/// The body on one line, cut so that with its "…" it is at most [`NOTIFICATION_BODY_CHARS`].
+fn notification_body(body: &str) -> String {
+    let whole = preview(body, NOTIFICATION_BODY_CHARS);
+    if whole.chars().count() <= NOTIFICATION_BODY_CHARS { whole } else { preview(body, NOTIFICATION_BODY_CHARS - 1) }
+}
+
+fn notify_with_command(command: &str, title: &str, body: &str) {
+    let message = format!("{title}: {}", preview(body, 180));
+    #[cfg(windows)]
+    let mut c = {
+        let mut c = std::process::Command::new("powershell.exe");
+        c.args(["-NoProfile", "-NonInteractive", "-Command", command]);
+        c
+    };
+    #[cfg(not(windows))]
+    let mut c = {
+        let mut c = std::process::Command::new("sh");
+        c.arg("-c").arg(command);
+        c
+    };
+    reap(c.env("HERON_MESSAGE", &message).env("HERON_TITLE", title).spawn());
+}
+
 
 /// How sure the model must be before a suggestion is shown, from the user's last answers (true =
 /// accepted). Mostly declined: be pickier. Mostly accepted: speak up more. Under four answers is
@@ -2341,6 +2382,178 @@ mod tests {
         let mut cfg = (*app.cfg()).clone();
         f(&mut cfg.llm);
         *app.cfg.write().unwrap() = Arc::new(cfg);
+    }
+
+    async fn plain_app(dir: &std::path::Path, answers: Vec<Message>) -> App {
+        let mut cfg = Config { home: dir.join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        let app = App::assemble(cfg, dir.join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(answers))).await.unwrap();
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        app
+    }
+
+    fn set_notify_command(app: &App, command: &str) {
+        let mut cfg = (*app.cfg()).clone();
+        cfg.agent.notify_command = command.into();
+        *app.cfg.write().unwrap() = Arc::new(cfg);
+    }
+
+    /// Everything the bus yields until it has been quiet for a moment.
+    async fn drain(bus: &mut crate::events::Subscription) -> Vec<Arc<crate::events::BusEvent>> {
+        let mut events = vec![];
+        while let Ok(Some(crate::events::Item::Event(e))) = tokio::time::timeout(std::time::Duration::from_millis(150), bus.next()).await {
+            events.push(e);
+        }
+        events
+    }
+
+    #[tokio::test]
+    async fn a_notification_with_a_native_app_attached_is_one_bus_event_with_the_previewed_body() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        app.attach_native_app();
+        let mut bus = app.events.subscribe(Some(0));
+        let body = "word ".repeat(100);
+        app.notify(&app.cfg(), "Morning brief", &body);
+        let events = drain(&mut bus).await;
+        assert_eq!(events.len(), 1, "{events:?}");
+        let e = &events[0];
+        assert_eq!(e.kind(), "notification");
+        assert_eq!(e.json["title"], "Morning brief");
+        let sent = e.json["body"].as_str().unwrap();
+        assert_eq!(sent.chars().count(), 180, "the cut body, its \"…\" included, fills the limit exactly");
+        assert!(sent.ends_with('…'));
+        assert!(body.starts_with(sent.trim_end_matches('…')));
+        assert_eq!((e.session_id.as_str(), e.run_id.as_str()), ("", ""));
+    }
+
+    #[test]
+    fn a_notification_body_is_at_most_180_characters_with_its_ellipsis() {
+        let exactly = "a".repeat(180);
+        assert_eq!(notification_body(&exactly), exactly, "a body that fits is not cut");
+        let over = "b".repeat(181);
+        let cut = notification_body(&over);
+        assert_eq!(cut.chars().count(), 180);
+        assert_eq!(cut, format!("{}…", "b".repeat(179)));
+        assert_eq!(notification_body("two\n  lines"), "two lines");
+    }
+
+    /// The `notification` events on the bus, as (title, body).
+    async fn notifications(bus: &mut crate::events::Subscription) -> Vec<(String, String)> {
+        drain(bus).await.iter().filter(|e| e.kind() == "notification").map(|e| (e.json["title"].as_str().unwrap().to_string(), e.json["body"].as_str().unwrap().to_string())).collect()
+    }
+
+    #[tokio::test]
+    async fn an_automation_notice_reaches_the_attached_app_under_its_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        app.attach_native_app();
+        let mut bus = app.events.subscribe(Some(0));
+        let id = app.store.add_schedule("tickets", "", "automation", 1, "").unwrap();
+        app.store.set_schedule_workflow(id, &json!([{"id": "tell", "do": "notify", "title": "Tickets", "text": "Still sold out."}, {"id": "plain", "do": "notify", "text": "No title."}]).to_string()).unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        assert_eq!(notifications(&mut bus).await, vec![("Tickets".to_string(), "Still sold out.".to_string()), ("tickets".to_string(), "No title.".to_string())]);
+    }
+
+    #[tokio::test]
+    async fn a_failed_automation_tells_the_attached_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        app.attach_native_app();
+        let mut bus = app.events.subscribe(Some(0));
+        let id = app.store.add_schedule("broken job", "", "automation", 1, "").unwrap();
+        app.store.set_schedule_workflow(id, "{ this is not a valid automation").unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        let notes = notifications(&mut bus).await;
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert_eq!(notes[0].0, "broken job");
+        assert!(notes[0].1.starts_with("This automation did not finish:"), "{notes:?}");
+    }
+
+    #[tokio::test]
+    async fn work_done_on_takeover_tells_the_attached_app_and_a_prepared_draft_does_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![Message::assistant("Drafted the reply."), Message::assistant("Filed the receipts.")]).await;
+        app.attach_native_app();
+        let mut bus = app.events.subscribe(Some(0));
+        let prepared = app.store.add_suggestion("Draft a reply", "", "draft it").unwrap();
+        app.act_on_suggestion(prepared, false).await;
+        assert_eq!(app.store.get_suggestion(prepared).unwrap().status, "prepared");
+        assert!(notifications(&mut bus).await.is_empty(), "a prepared draft waits in the app; it is not announced");
+        let done = app.store.add_suggestion("File receipts", "", "file them").unwrap();
+        app.act_on_suggestion(done, true).await;
+        assert_eq!(app.store.get_suggestion(done).unwrap().status, "done");
+        assert_eq!(notifications(&mut bus).await, vec![("File receipts".to_string(), "Filed the receipts.".to_string())]);
+    }
+
+    #[tokio::test]
+    async fn a_finished_job_notifies_through_the_attached_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![Message::assistant("Stretch now.")]).await;
+        app.attach_native_app();
+        let mut bus = app.events.subscribe(Some(0));
+        app.store.add_schedule("stretch", "", "remind me to stretch", 1, "").unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        let events = drain(&mut bus).await;
+        let notes: Vec<_> = events.iter().filter(|e| e.kind() == "notification").collect();
+        assert_eq!(notes.len(), 1, "{events:?}");
+        assert_eq!(notes[0].json["title"], "stretch");
+        assert_eq!(notes[0].json["body"], "Stretch now.");
+    }
+
+    #[cfg(unix)]
+    async fn notify_ran_command_and_published(attached: bool) -> (Option<String>, usize) {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        if attached {
+            app.attach_native_app();
+        }
+        let marker = dir.path().join("marker");
+        set_notify_command(&app, &format!("printf '%s|%s' \"$HERON_TITLE\" \"$HERON_MESSAGE\" > '{}'", marker.display()));
+        let mut bus = app.events.subscribe(Some(0));
+        app.notify(&app.cfg(), "Digest", "All done.");
+        let mut written = None;
+        for _ in 0..100 {
+            if let Ok(text) = std::fs::read_to_string(&marker) {
+                if !text.is_empty() {
+                    written = Some(text);
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        (written, drain(&mut bus).await.len())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn notify_command_still_wins_when_a_native_app_is_attached() {
+        let (written, published) = notify_ran_command_and_published(true).await;
+        assert_eq!(written.as_deref(), Some("Digest|Digest: All done."));
+        assert_eq!(published, 0, "the command was the way out, so nothing goes to the app");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn notify_command_runs_and_publishes_nothing_without_a_native_app() {
+        let (written, published) = notify_ran_command_and_published(false).await;
+        assert_eq!(written.as_deref(), Some("Digest|Digest: All done."));
+        assert_eq!(published, 0);
+    }
+
+    #[tokio::test]
+    async fn without_a_native_app_or_a_command_only_the_inbox_gets_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        assert_eq!(app.delivery(&app.cfg()), Delivery::InboxOnly);
+        let mut bus = app.events.subscribe(Some(0));
+        app.notify(&app.cfg(), "Digest", "All done.");
+        let published = drain(&mut bus).await;
+        assert!(published.is_empty(), "nothing goes on the bus without an app to show it: {published:?}");
+        app.attach_native_app();
+        assert_eq!(app.delivery(&app.cfg()), Delivery::NativeApp);
+        set_notify_command(&app, "true");
+        assert_eq!(app.delivery(&app.cfg()), Delivery::Command);
     }
 
     #[tokio::test]

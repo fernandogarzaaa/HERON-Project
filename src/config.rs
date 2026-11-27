@@ -977,7 +977,7 @@ name = "Heron"
 max_steps = 40
 context_tokens = 100000
 auto_memory = true
-notify_command = ""                  # e.g. 'notify-send Heron "$HERON_MESSAGE"'
+notify_command = ""                  # e.g. 'notify-send Heron "$HERON_MESSAGE"'; without it, only the Mac app shows banners
 shell_env = []                       # extra variables commands may see, e.g. ["GITHUB_TOKEN"]; others are withheld
 daily_token_limit = 0                # your own cap per day; 0 = none. Heron economises as it runs down
 monthly_token_limit = 0              # the same, per calendar month

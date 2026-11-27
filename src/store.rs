@@ -52,6 +52,24 @@ pub struct Store {
     live_policy: Arc<std::sync::RwLock<std::sync::Weak<crate::permissions::Policy>>>,
 }
 
+/// A mark the user puts on a conversation in the sidebar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionFlag {
+    /// Listed first.
+    Pinned,
+    /// Left out of the list until unarchived.
+    Archived,
+}
+
+impl SessionFlag {
+    fn key(self, id: &str) -> String {
+        match self {
+            SessionFlag::Pinned => format!("pinned:{id}"),
+            SessionFlag::Archived => format!("archived:{id}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionInfo {
     pub id: String,
@@ -869,8 +887,26 @@ impl Store {
     }
 
     pub fn delete_session(&self, id: &str) -> Result<()> {
-        self.db().execute("DELETE FROM sessions WHERE id=?", [id])?;
+        let db = self.db();
+        db.execute("DELETE FROM sessions WHERE id=?", [id])?;
+        for flag in [SessionFlag::Pinned, SessionFlag::Archived] {
+            db.execute("DELETE FROM kv WHERE k=?", [flag.key(id)])?;
+        }
         Ok(())
+    }
+
+    /// Turns a conversation's pin or archive mark on or off. Kept in `kv`, so it needs no new column.
+    pub fn set_session_flag(&self, id: &str, flag: SessionFlag, on: bool) -> Result<()> {
+        if on { self.kv_set(&flag.key(id), "1") } else { self.kv_delete(&flag.key(id)) }
+    }
+
+    /// Every conversation id that has `flag` on.
+    pub fn sessions_with_flag(&self, flag: SessionFlag) -> Result<std::collections::HashSet<String>> {
+        let prefix = flag.key("");
+        let db = self.db();
+        let mut st = db.prepare("SELECT k FROM kv WHERE substr(k, 1, ?) = ?")?;
+        let keys = st.query_map(params![prefix.len() as i64, prefix], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(keys.into_iter().map(|k| k[prefix.len()..].to_string()).collect())
     }
 
     // ---------- memories ----------

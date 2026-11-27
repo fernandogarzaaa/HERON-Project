@@ -56,6 +56,11 @@ public final class AppModel {
     /// True until the first bootstrap says the user is onboarded.
     public private(set) var needsFirstRun = true
     public private(set) var hasBootstrapped = false
+    /// "Run setup again" (Settings › General): the setup steps show over the main window for someone already onboarded.
+    /// The core's `onboarded` flag is not touched, so quitting mid-way leaves nothing half-reset.
+    public private(set) var isRerunningSetup = false
+    /// Whether the setup steps are on screen, for a first run or a re-run.
+    public var showsSetup: Bool { needsFirstRun || isRerunningSetup }
     /// After an update raised the risk register's version: the notice shows again as a sheet.
     public var showsRiskNoticeSheet = false
     public var coreStatus: CoreStatus = .running
@@ -66,10 +71,17 @@ public final class AppModel {
 
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private let notifier: (any NotificationPosting)?
+    /// The highest `seq` already shown as a notification, so one event never posts twice. Each core
+    /// process numbers events from 1, so a `resync` (which a restart causes) starts the count over.
+    @ObservationIgnored private var lastNotifiedSeq = 0
+    @ObservationIgnored private var notificationGeneration = 0
 
     public init(client: any CoreClientProtocol, preferences: DisplayPreferences? = nil,
-                userFirstName: String? = nil, now: @escaping () -> Date = Date.init) {
+                userFirstName: String? = nil, notifier: (any NotificationPosting)? = nil,
+                now: @escaping () -> Date = Date.init) {
         self.client = client
+        self.notifier = notifier
         self.preferences = preferences ?? DisplayPreferences()
         self.now = now
         avatar = AvatarModel()
@@ -107,6 +119,9 @@ public final class AppModel {
         }
     }
 
+    /// The sidebar footer's model name: the CLI provider's short name when one is active, else the model.
+    public var footerModelName: String { state?.modelDisplayName ?? "No model" }
+
     /// "Sandbox on · Ask first", from `/api/state`.
     public var footerLine: String {
         let mode = state?.mode.title ?? PermissionMode.ask.title
@@ -117,6 +132,9 @@ public final class AppModel {
     // MARK: Start
 
     public func bootstrap() async {
+        // First, so nothing the core publishes while the screens load is missed: its scheduler runs
+        // due jobs as soon as it starts, and the stream carries only events after it opens.
+        startEvents()
         async let loadedPersona: Void = persona.load()
         do {
             state = try await client.state()
@@ -128,12 +146,29 @@ public final class AppModel {
         await loadedPersona
         hasBootstrapped = true
         if needsFirstRun { await firstRun.load() } else { await loadAll() }
-        startEvents()
+    }
+
+    /// Starts the setup steps again: from the risk notice, with what the core already holds.
+    public func runSetupAgain() async {
+        firstRun.restart()
+        isRerunningSetup = true
+        await firstRun.load()
+        await refreshState()
+        // Already accepted: the box starts ticked, and "Accept and continue" just moves on.
+        firstRun.accepted = state?.riskNoticeAccepted ?? false
+        await settings.reloadConnections()
+    }
+
+    /// Leaves a re-run without finishing it.
+    public func cancelSetupAgain() {
+        isRerunningSetup = false
+        firstRun.restart()
     }
 
     public func finishFirstRun() async {
         await firstRun.finish(persona: persona)
         needsFirstRun = false
+        isRerunningSetup = false
         if firstRun.wantsAPIKey { settingsTab = .model }
         selection = .today
         await refreshState()
@@ -149,6 +184,8 @@ public final class AppModel {
         async let e: Void = tasks.load()
         async let f: Void = schedules.load()
         _ = await (a, b, c, d, e, f)
+        await settings.refreshLocalCalendarIfConnected()
+        await settings.refreshLocalMailIfConnected()
     }
 
     public func refreshState() async {
@@ -170,6 +207,10 @@ public final class AppModel {
 
     /// Sends one event to the avatar and the stores. Public so tests and U4b's replay can drive it directly.
     public func route(_ event: CoreEvent) {
+        if case .notification(let title, let body) = event.kind {
+            postNotification(seq: event.seq, title: title, body: body)
+            return
+        }
         avatar.handle(event)
         switch event.kind {
         case .approval:
@@ -180,6 +221,8 @@ public final class AppModel {
                 addToFeed(event)
             }
         case .resync:
+            lastNotifiedSeq = 0
+            notificationGeneration += 1
             Task { await resynchronize() }
         case .runEnd, .approvalParked:
             chat.handle(event)
@@ -189,6 +232,15 @@ public final class AppModel {
             chat.handle(event)
             approvals.handle(event)
         }
+    }
+
+    /// A notification is not part of any conversation, so it skips the avatar and the stores.
+    private func postNotification(seq: Int, title: String, body: String) {
+        if seq > 0 {
+            guard seq > lastNotifiedSeq else { return }
+            lastNotifiedSeq = seq
+        }
+        notifier?.post(title: title, body: body, identifier: "heron.notification.\(notificationGeneration).\(seq)")
     }
 
     private func addToFeed(_ event: CoreEvent) {
