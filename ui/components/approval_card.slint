@@ -26,6 +26,9 @@ export struct ApprovalRow {
     can-always: bool,
     session-label: string,
     always-label: string,
+    // The conversation has read outside content. Violet, unless the card
+    // is already red for a dangerous action.
+    outside: bool,
 }
 
 export component ApprovalCardView inherits VerticalBox {
@@ -33,23 +36,27 @@ export component ApprovalCardView inherits VerticalBox {
     in property <bool> reduce-motion;
     callback answered(string, string);
 
+    property <bool> outside: card.outside && !card.danger;
+    property <color> tone: card.danger ? Theme.danger : outside ? Theme.outside : Theme.talon;
+    property <color> tone-soft: card.danger ? Theme.danger-soft : outside ? Theme.outside-soft : Theme.talon-soft;
     property <float> appear: 0;
     init => { appear = 1; }
-    animate appear { duration: reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+    animate appear { duration: reduce-motion ? 0ms : 220ms; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
 
     Rectangle {
         opacity: appear;
-        background: card.danger ? Theme.danger-soft : Theme.talon-soft;
-        border-color: card.danger ? Theme.danger : Theme.talon;
+        background: tone-soft;
+        border-color: tone;
         border-width: 1px; border-radius: 10px;
         HorizontalBox {
             Rectangle {
                 width: 4px;
-                background: card.danger ? Theme.danger : Theme.talon;
+                background: tone;
                 border-top-left-radius: 10px; border-bottom-left-radius: 10px;
             }
             VerticalBox {
                 Text { text: card.title; font-size: 16px; font-weight: 600; color: Theme.ink; wrap: word-wrap; }
+                if card.outside: Text { text: "Outside content is in this conversation"; font-size: 12px; font-weight: 600; color: Theme.outside; wrap: word-wrap; }
                 if card.warning != "": Text { text: card.warning; font-size: 14px; font-weight: 600; color: Theme.danger; wrap: word-wrap; }
                 if card.detail != "": Rectangle {
                     background: Theme.surface; border-color: Theme.line; border-width: 1px; border-radius: 6px;
