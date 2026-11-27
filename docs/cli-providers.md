@@ -165,6 +165,55 @@ A folder is added only when the build check
 need the Keychain, such as git's `osxkeychain` credential helper, fail inside
 the shell sandbox.
 
+### The egress allowlist
+
+On macOS, the agent's `shell` tool reaches the network only through a local
+filter that Heron starts for each command. The filter allows HTTPS on port 443
+to the hosts on an egress allowlist, and nothing else. This is the default
+(`agent.egress = "allowlist"`). It does not apply to CLI providers: a CLI's own
+sandbox (see Containment) leaves its network open, because it has to reach its
+model host. The allowlist matters for a CLI in one case only. `cline-cli` and
+`goose-cli` run their own shell when you set `cli_allow_agent_tools = true`,
+and nothing filters what that shell reaches.
+
+The default host list:
+
+| Group | Hosts |
+| --- | --- |
+| Rust | `index.crates.io`, `static.crates.io`, `static.rust-lang.org` |
+| GitHub | `github.com`, `codeload.github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` |
+| Python | `pypi.org`, `files.pythonhosted.org` |
+| Node | `registry.npmjs.org` |
+
+`crates.io` itself, the host `cargo publish` uses, is not on the list. Only you
+can change the list, in Settings › Sandbox or `agent.egress_allow` in
+`config.toml`. A list you set replaces the default. `agent.egress = "open"`
+turns the allowlist off. The agent can't change either setting.
+
+What breaks under the allowlist, for a command that runs in the shell sandbox:
+
+- **Hosts not on the list.** `curl` to another site, `brew install`, `go get`,
+  `git clone` from GitLab or Bitbucket, and `cargo search` all fail. A blocked
+  connection is named in the command's output: "[network] blocked <host>:443:
+  not on the sandbox's egress allowlist." Add the host in Settings, or use
+  `web_fetch` for a page.
+- **Plain HTTP, ports other than 443, and SSH.** `git@github.com:` remotes,
+  `git push` over SSH and `ssh` itself stop working.
+- **Programs that ignore the proxy variables** (`HTTPS_PROXY` and friends), such
+  as `ping`, `nc` to a remote host and some language runtimes. They fail with a
+  connection error and no "[network] blocked" line.
+- **DNS lookups made inside the sandbox**, such as `nslookup` and `dig`.
+- **Docker and OrbStack** from Heron's shell.
+- **Background processes** a command starts lose that command's filter when it
+  ends.
+
+An allowed host can still receive an upload, such as `git push` over HTTPS or
+`npm publish` to `registry.npmjs.org`. The filter does not decrypt TLS, so it
+can't tell a fetch from a push. `publish` commands ask every time, and every
+change a tainted conversation makes asks.
+
+Linux and Windows have no egress allowlist.
+
 ## Subscriptions and cost
 
 Every CLI provider counts as a subscription unless you say otherwise. That
