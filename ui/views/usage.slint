@@ -40,7 +40,8 @@ export component UsageTile inherits Rectangle {
                 width: parent.width * root.frac;
                 height: parent.height;
                 border-radius: 4px;
-                background: root.state == "out" ? Theme.danger : root.state == "low" ? Theme.talon : Theme.slate;
+                // Low is ink, not gold. Gold is only "waiting for you". Out stays danger.
+                background: root.state == "out" ? Theme.danger : root.state == "low" ? Theme.ink : Theme.slate;
             }
         }
     }
@@ -127,7 +128,8 @@ export component UsageView inherits Rectangle {
                         Rectangle {
                             height: parent.height * day.frac;
                             border-radius: 3px;
-                            background: day.today ? Theme.talon : Theme.slate;
+                            // Today is ink, so the chart does not spend the waiting colour.
+                            background: day.today ? Theme.ink : Theme.slate;
                             opacity: 0.85;
                         }
                     }

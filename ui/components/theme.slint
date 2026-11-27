@@ -1,47 +1,107 @@
-// Theme: named colors and fonts for the Setup views.
+// Heron's colour, type and motion tokens.
 //
-// All three plan decisions are settled. Widget style per OS: cupertino
-// on macOS, fluent on Windows and Linux, pinned per target in build.rs
-// by the Shell lane. The style is a compile-time choice in build.rs, not
-// a property here. This file carries Heron's dark palette as custom
-// theme properties, per the plan recommendation (section 8, item 2).
+// The values are the owner-approved Dusk / Shore / Graphite palettes
+// (docs/designs/heron-mac-visual.md). Dusk is the default: warm stone
+// and paper. Light and dark are both fully specified. Gold (talon) is
+// reserved for "waiting for you" and violet (outside) for "this
+// conversation has read something from outside". Neither is used as an
+// accent, so those two signals never blend into the theme.
 //
-// Values are measured from assets/index.html, dark media query
-// (lines 21-25). The brand hexes slate #2F6690 and talon #C98F00 are the
-// light-mode values. In dark mode they lighten to #7DB3D8 and #EDB92B
-// for contrast on dark surfaces. Headings use Georgia, the serif the
-// web UI stack resolves to on both desktop platforms.
+// Existing property names stay, so every view keeps compiling. `slate`
+// is the active accent (system blue by default, or slate, lagoon, reed,
+// rose). `paper` is the window, `sidebar` the rail, `surface` the page.
 
 export global Theme {
-    in-out property <color> slate: #7DB3D8;
-    in-out property <color> slate-ink: #0D1B26;
-    in-out property <color> slate-soft: #1D3040;
-    in-out property <color> talon: #EDB92B;
-    in-out property <color> talon-soft: #352C0F;
-    in-out property <color> talon-ink: #F6E3A6;
-    in-out property <color> surface: #17212A;
-    in-out property <color> paper: #10181F;
-    in-out property <color> ink: #E3EAF0;
-    in-out property <color> muted: #93A4B3;
-    in-out property <color> line: #293642;
-    in-out property <color> danger: #EC7A6F;
-    in-out property <color> danger-soft: #3A1D1A;
-    in-out property <color> ok: #6EC49C;
-    // Round 1 redesign tokens (2026-11-14). Existing tokens above do
-    // not change. raised is one step above surface, for cards, the
-    // composer, and message containers. hover is the nav and row hover
-    // background. border-strong is for focused and active elements.
-    // icon is brighter than muted so 16px glyphs stay legible;
-    // icon-active matches ink. badge matches talon; badge text is
-    // slate-ink.
-    in-out property <color> raised: #1C2833;
-    in-out property <color> hover: #22303C;
-    in-out property <color> border-strong: #3A4A58;
-    in-out property <color> icon: #A8B8C4;
-    in-out property <color> icon-active: #E3EAF0;
-    in-out property <color> badge: #EDB92B;
-    // One family name: Slint's font-family is not a CSS stack, and a
-    // comma list matches no font, so it fell back to the sans default.
-    // Georgia ships with macOS and Windows.
+    // dusk | shore | graphite
+    in-out property <string> theme: "dusk";
+    in-out property <bool> dark: true;
+    // system | slate | lagoon | reed | rose
+    in-out property <string> accent: "system";
+
+    out property <bool> shore: theme == "shore";
+    out property <bool> graphite: theme == "graphite";
+
+    out property <color> window: dark
+        ? (shore ? #0F161C : graphite ? #161617 : #171311)
+        : (shore ? #F3F6F8 : graphite ? #F5F5F5 : #F6F3F1);
+    out property <color> sidebar: dark
+        ? (shore ? #131C23 : graphite ? #1C1C1E : #1C1714)
+        : (shore ? #E9EEF2 : graphite ? #ECECEC : #EEE9E5);
+    // `paper` is the window ground. Inputs sit on it so they read as
+    // sunken against `surface`.
+    out property <color> paper: window;
+    out property <color> surface: dark
+        ? (shore ? #151E25 : graphite ? #1E1E20 : #1E1916)
+        : #FFFFFF;
+    out property <color> raised: dark
+        ? (shore ? #1C2731 : graphite ? #2A2A2D : #28211D)
+        : (shore ? #F0F4F7 : graphite ? #F2F2F2 : #F4F0EC);
+    out property <color> line: dark
+        ? (shore ? #283540 : graphite ? #38383B : #3A302A)
+        : (shore ? #D9E1E7 : graphite ? #DDDDDD : #E2DBD5);
+    out property <color> ink: dark
+        ? (shore ? #E5EBF0 : graphite ? #ECECEE : #EEE8E3)
+        : (shore ? #15202A : graphite ? #1D1D1F : #221C19);
+    out property <color> muted: dark
+        ? (shore ? #A6B4C0 : graphite ? #AEAEB2 : #B9AEA6)
+        : (shore ? #465663 : graphite ? #4F4F55 : #58504A);
+    out property <color> ink3: dark
+        ? (shore ? #83919D : graphite ? #98989D : #958A82)
+        : (shore ? #5C6975 : graphite ? #636368 : #6A615B);
+
+    out property <color> hover: dark
+        ? (shore ? #243240 : graphite ? #2C2C2E : #322822)
+        : (shore ? #E3EAF0 : graphite ? #E8E8E8 : #E8E2DC);
+    out property <color> border-strong: dark
+        ? (shore ? #3A4C5A : graphite ? #48484C : #4E423A)
+        : (shore ? #C5D0D8 : graphite ? #C8C8C8 : #C9BDB4);
+
+    // Accent. `system` is the documented default blue. The Mac app
+    // follows the system accent and falls back to slate when that accent
+    // would read as gold or violet; this window has no system-accent
+    // channel, so `system` stays the blue.
+    out property <color> slate: accent == "slate" ? (dark ? #7DB3D8 : #2F6690)
+        : accent == "lagoon" ? (dark ? #6CC3BE : #1D6B6B)
+        : accent == "reed" ? (dark ? #9CCB7A : #466E2E)
+        : accent == "rose" ? (dark ? #E79AB8 : #9C3D62)
+        : (dark ? #4FA3FF : #0A64D8);
+    out property <color> slate-soft: accent == "slate" ? (dark ? #1B3142 : #E2ECF4)
+        : accent == "lagoon" ? (dark ? #16302F : #DDEFEE)
+        : accent == "reed" ? (dark ? #1F2E16 : #E6EFDD)
+        : accent == "rose" ? (dark ? #3A1B28 : #F5E1E9)
+        : (dark ? #14294A : #E0ECFB);
+    out property <color> slate-ink: accent == "slate" ? (dark ? #0D1B26 : #FFFFFF)
+        : accent == "lagoon" ? (dark ? #0A1D1C : #FFFFFF)
+        : accent == "reed" ? (dark ? #122009 : #FFFFFF)
+        : accent == "rose" ? (dark ? #2A0E19 : #FFFFFF)
+        : (dark ? #071A33 : #FFFFFF);
+
+    // Waiting for you. Text uses talon; fills use talon-soft; dots use badge.
+    out property <color> talon: dark ? #EDB92B : #7A5500;
+    out property <color> talon-soft: dark ? #33290C : #FBEFCF;
+    out property <color> talon-ink: dark ? #F6E3A6 : #7A5500;
+    out property <color> badge: dark ? #EDB92B : #C98F00;
+
+    // Outside content is in the conversation.
+    out property <color> outside: dark ? #BBA8E6 : #5E4B8B;
+    out property <color> outside-soft: dark ? #271F38 : #ECE7F5;
+
+    out property <color> danger: dark ? #F08A80 : #A8261D;
+    out property <color> danger-soft: dark ? #3B1D1A : #FBE3E0;
+    out property <color> ok: dark ? #6EC49C : #24704F;
+    out property <color> ok-soft: dark ? #15301F : #DFF1E8;
+
+    out property <color> icon: muted;
+    out property <color> icon-active: ink;
+
+    // One family name: a comma-separated stack matches no font.
+    // Georgia ships with macOS and Windows; other systems fall back.
     in-out property <string> heading-font: "Georgia";
+
+    // Motion. 120ms for hover and press, 220ms for pages, rows and
+    // sheets. Callers that already take a reduce-motion flag keep it;
+    // these durations are for new animation.
+    in-out property <bool> reduce-motion: false;
+    out property <duration> motion-fast: reduce-motion ? 0ms : 120ms;
+    out property <duration> motion-std: reduce-motion ? 0ms : 220ms;
 }

@@ -255,7 +255,7 @@ async fn start(cfg: &Config) -> Result<Live> {
 
 #[cfg(unix)]
 fn is_root() -> bool {
-    std::process::Command::new("id").arg("-u").output().map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0").unwrap_or(false)
+    unsafe { libc::geteuid() == 0 }
 }
 
 async fn attach(conn: Arc<Conn>, child: Option<tokio::process::Child>) -> Result<Live> {
@@ -600,5 +600,12 @@ mod tests {
         assert!(!super::local_allowed());
         std::env::remove_var("HERON_ALLOW_LOCAL_FETCH");
         assert!(!super::local_allowed());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn is_root_matches_the_effective_user() {
+        let id = std::process::Command::new("/usr/bin/id").arg("-u").output().unwrap();
+        assert_eq!(super::is_root(), String::from_utf8_lossy(&id.stdout).trim() == "0");
     }
 }

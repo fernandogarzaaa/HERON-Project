@@ -103,7 +103,7 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
             // looked up through the shell's process id, so this has to happen before the shell is gone.)
             if let Some(pid) = pid {
                 #[cfg(unix)]
-                let _ = std::process::Command::new("kill").args(["-9", &format!("-{pid}")]).status();
+                crate::cli_llm::kill_group(pid);
                 #[cfg(windows)]
                 let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
             }
@@ -873,6 +873,26 @@ pub(crate) mod tests {
             let found = out.lines().filter(|l| l.starts_with("keychain: ")).count();
             assert!(ok && found >= 1, "{}: {found} root certificates: {}", spec.id, crate::util::preview(&out, 2000));
         }
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn a_timed_out_command_is_killed_with_its_whole_process_tree() {
+        let cfg = Config::default();
+        if cfg!(target_os = "macos") && !seatbelt(&cfg) {
+            return;
+        }
+        let ws = tempfile::tempdir().unwrap();
+        let ws = dunce::canonicalize(ws.path()).unwrap();
+        let ctx = test_ctx(&cfg, &ws, "t");
+        let out = run(&json!({"command": "sleep 60 & echo $! > child.pid; wait", "timeout_secs": 1}), &ctx).await.unwrap();
+        assert!(out.starts_with("[timed out after 1s"), "{out}");
+        let pid: libc::pid_t = std::fs::read_to_string(ws.join("child.pid")).unwrap().trim().parse().unwrap();
+        let gone = (0..200).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            (unsafe { libc::kill(pid, 0) }) != 0
+        });
+        assert!(gone, "the shell's background child {pid} outlived the timeout");
     }
 
     #[tokio::test]
