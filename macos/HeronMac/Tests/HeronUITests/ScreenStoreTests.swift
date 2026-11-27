@@ -1124,6 +1124,21 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertTrue(state.riskNoticeAccepted)
     }
 
+    func test_experimentalProviderIsNeverRecommendedOrCalledTested() {
+        func p(_ id: String, experimental: Bool, active: Bool = false) -> ProviderStatus {
+            ProviderStatus(id: id, displayName: id, installed: true, version: "2.1.4", testedRange: ">=2.1.4 <3.0.0",
+                           inRange: true, loggedIn: true, experimental: experimental, versionAccepted: false,
+                           loginCommand: "\(id) login", authKind: "cli", isActive: active)
+        }
+        let opencode = p("opencode-cli", experimental: true, active: true)
+        let claude = p("claude-cli", experimental: false)
+        XCTAssertEqual(FirstRunStore.recommendedID(in: [opencode, claude]), "claude-cli")
+        XCTAssertNil(FirstRunStore.recommendedID(in: [opencode]), "an experimental provider alone gets no tag")
+        XCTAssertEqual(opencode.detailText, "Version 2.1.4 · experimental, not tested yet")
+        XCTAssertFalse(opencode.detailText.contains("tested range"))
+        XCTAssertEqual(claude.detailText, "Version 2.1.4 · tested")
+    }
+
     func testFirstRunSandboxOffShowsTheOffCard() async throws {
         let client = try await makeClient(accepted: false)
         client.setSandbox("none")
