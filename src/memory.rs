@@ -35,6 +35,11 @@ const TRUSTED_SOURCES: &[&str] = &["user", "onboarding", "about", "agent", "auto
 /// other way). A save from any other source never does.
 const VOUCHING_SOURCES: &[&str] = &["user", "onboarding"];
 
+/// Whether a save from `source` starts confirmed.
+pub fn starts_confirmed(source: &str) -> bool {
+    TRUSTED_SOURCES.contains(&source)
+}
+
 /// What follows an item the learner (or a source's learning) saved but that waits for the user to
 /// confirm it in Memories, in place of reporting it as learned.
 pub const WAITING_NOTE: &str = " (waiting for your confirmation in Memories, not learned yet)";

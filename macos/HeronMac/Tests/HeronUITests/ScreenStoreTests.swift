@@ -378,6 +378,22 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertTrue(store.memories.contains { $0.content == victim.content })
     }
 
+    func testUndoAndEditKeepAnOutsideMemoryUnconfirmed() async throws {
+        let client = try await makeClient()
+        let store = MemoryStore(client: client)
+        await store.load()
+        let outside = try XCTUnwrap(store.toCheck.first)
+        await store.forget(outside)
+        await store.undoForget()
+        let back = try XCTUnwrap(store.memories.first { $0.content == outside.content })
+        XCTAssertEqual(back.source, outside.source)
+        XCTAssertFalse(back.confirmed, "undo restores the row as it was, not as the user's own fact")
+        await store.edit(back, content: back.content + " (edited)")
+        let edited = try XCTUnwrap(store.memories.first { $0.content == back.content + " (edited)" })
+        XCTAssertEqual(edited.source, outside.source)
+        XCTAssertFalse(edited.confirmed, "editing an outside fact does not confirm it")
+    }
+
     func testMemorySearchAndEmptyStates() async throws {
         let client = try await makeClient()
         let store = MemoryStore(client: client)
