@@ -89,6 +89,7 @@ fn chat_message(i: usize) -> crate::ChatMsg {
             can_always: true,
             session_label: "Allow for this conversation".into(),
             always_label: "Always allow".into(),
+            outside: false,
         }]
     } else {
         Vec::new()

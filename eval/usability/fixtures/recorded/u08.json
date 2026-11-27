@@ -1,0 +1,38 @@
+{
+  "_provenance": "Recorded by `run.sh --live --record-fixtures` against a real core; absolute paths, ports and the token are replaced by placeholders.",
+  "audit": [],
+  "driver": "direct",
+  "files": {},
+  "heron_commit": "9b2490407022a81559d66ebdfb5235d415dedae6",
+  "kind": "recorded",
+  "persona": "priya-pm",
+  "provider": "demo",
+  "session_id": "",
+  "steps": [
+    {
+      "body": "{\"code\":null,\"configured\":false,\"paired\":false}",
+      "error": null,
+      "events": [],
+      "index": 0,
+      "kind": "api",
+      "ms": 1,
+      "reply": "",
+      "request": "GET /api/telegram",
+      "status": 200
+    },
+    {
+      "body": "{\"error\":\"That does not look like a bot token. Create a bot with @BotFather in Telegram and paste the token it gives you.\"}",
+      "error": null,
+      "events": [],
+      "index": 1,
+      "kind": "api",
+      "ms": 1,
+      "reply": "",
+      "request": "POST /api/telegram",
+      "status": 400
+    }
+  ],
+  "task": "u08",
+  "variant": "default",
+  "web_log": []
+}

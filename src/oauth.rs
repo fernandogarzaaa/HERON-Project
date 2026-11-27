@@ -758,8 +758,7 @@ mod tests {
         use crate::llm::ScriptedLlm;
         use serde_json::json;
         let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = dir.path().join("home");
+        let cfg = Config { home: dir.path().join("home"), ..Config::default() };
         cfg.ensure_home().unwrap();
         std::fs::write(cfg.home.join("secrets.json"), json!({
             "oauth_google_refresh_token": "working-refresh", "oauth_google_account_epoch": "e1",

@@ -62,6 +62,7 @@ export component ChoiceCard inherits Rectangle {
 // sequential, so numbering them encodes real order. The fill bar is the
 // progress; its width animates when a step completes. Display only: going
 // back is the Back button on each step, not a tap on the indicator.
+// The current step is ink. Gold is reserved for "waiting for you".
 export component StepIndicator inherits VerticalBox {
     padding: 0px;
     in property <[string]> labels;
@@ -77,7 +78,7 @@ export component StepIndicator inherits VerticalBox {
             text: done[idx] ? "✓ " + label : label;
             font-size: 14px;
             font-weight: idx == current ? 700 : 400;
-            color: done[idx] ? Theme.slate : idx == current ? Theme.talon : Theme.muted;
+            color: done[idx] ? Theme.slate : idx == current ? Theme.ink : Theme.muted;
             horizontal-stretch: 1;
             horizontal-alignment: center;
         }

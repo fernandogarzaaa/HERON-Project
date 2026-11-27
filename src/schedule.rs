@@ -139,11 +139,11 @@ fn parse_duration(s: &str) -> Option<Duration> {
         return None;
     }
     match s[split..].trim() {
-        "s" | "sec" | "secs" | "second" | "seconds" => Some(Duration::seconds(n)),
-        "m" | "min" | "mins" | "minute" | "minutes" => Some(Duration::minutes(n)),
-        "h" | "hr" | "hrs" | "hour" | "hours" => Some(Duration::hours(n)),
-        "d" | "day" | "days" => Some(Duration::days(n)),
-        "w" | "week" | "weeks" => Some(Duration::weeks(n)),
+        "s" | "sec" | "secs" | "second" | "seconds" => Duration::try_seconds(n),
+        "m" | "min" | "mins" | "minute" | "minutes" => Duration::try_minutes(n),
+        "h" | "hr" | "hrs" | "hour" | "hours" => Duration::try_hours(n),
+        "d" | "day" | "days" => Duration::try_days(n),
+        "w" | "week" | "weeks" => Duration::try_weeks(n),
         _ => None,
     }
 }
@@ -177,16 +177,17 @@ fn local_ts(dt: NaiveDateTime) -> Result<i64> {
 /// empty text = any email, otherwise the sender or subject must contain it).
 pub fn parse_trigger(expr: &str) -> Option<String> {
     let e = expr.trim();
-    let lower = e.to_lowercase();
+    // ASCII lowercasing keeps every byte offset, so `lower`'s offsets index `e` too.
+    let lower = e.to_ascii_lowercase();
     let rest = lower.strip_prefix("when ").or_else(|| lower.strip_prefix("whenever "))?;
     let rest = rest.trim();
     if rest.contains("email") || rest.contains("mail arrives") {
-        let needle = rest.split_once(" from ").or_else(|| rest.split_once(" about ")).map(|(_, n)| n.trim().trim_matches(['"', '\'', '.']).to_string()).unwrap_or_default();
+        let needle = rest.split_once(" from ").or_else(|| rest.split_once(" about ")).map(|(_, n)| n.trim().trim_matches(['"', '\'', '.']).to_lowercase()).unwrap_or_default();
         return Some(format!("@email:{needle}"));
     }
     // "when notes/*.md changes", "when a file changes in notes", "when anything in drafts changes"
     let original_rest = &e[e.len() - rest.len()..];
-    let lower_rest = original_rest.to_lowercase();
+    let lower_rest = original_rest.to_ascii_lowercase();
     let target = if let Some(i) = lower_rest.find(" in ") {
         original_rest[i + 4..].trim().trim_end_matches(" changes").trim_end_matches(" change").to_string()
     } else {
@@ -236,7 +237,8 @@ pub fn parse_when(expr: &str, now: DateTime<Local>) -> Result<When> {
 
     if let Some(rest) = lower.strip_prefix("in ") {
         let d = parse_duration(rest).ok_or_else(|| anyhow!("could not parse duration '{rest}' (try 'in 10m', 'in 2 hours')"))?;
-        return Ok(When { cron: String::new(), next_run: (now + d).timestamp() });
+        let at = now.checked_add_signed(d).ok_or_else(|| anyhow!("'{rest}' is too far in the future"))?;
+        return Ok(When { cron: String::new(), next_run: at.timestamp() });
     }
     // "weekdays at 9am", "every weekday 9:00", "weekends 10:00", "every monday at 8", "fridays 17:30"
     if let Some((days, time)) = days_phrase(lower.strip_prefix("every ").unwrap_or(&lower).trim()) {
@@ -323,6 +325,21 @@ mod tests {
     fn at(s: &str) -> DateTime<Local> {
         Local.from_local_datetime(&NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M").unwrap()).unwrap()
     }
+    #[test]
+    fn huge_durations_are_refused_not_panicked_on() {
+        let now = at("2026-11-22 10:00");
+        assert!(parse_when("in 99999999999999 weeks", now).is_err());
+        assert!(parse_when("every 99999999999999 weeks", now).is_err());
+        assert!(parse_when("in 9223372036854775807 seconds", now).is_err());
+    }
+
+    #[test]
+    fn a_trigger_with_letters_that_grow_when_lowercased_is_parsed() {
+        assert_eq!(parse_trigger("When İİİ/*.md changes").as_deref(), Some("@file:İİİ/*.md"));
+        assert_eq!(parse_trigger("WHENEVER anything in İzmir changes").as_deref(), Some("@file:İzmir/**"));
+        assert_eq!(parse_trigger("when email from ÉMILE arrives").as_deref(), Some("@email:émile arrives"));
+    }
+
     fn next(cron: &str, from: &str) -> String {
         Cron::parse(cron).unwrap().next_after(at(from)).unwrap().format("%Y-%m-%d %H:%M").to_string()
     }
@@ -370,6 +387,9 @@ mod tests {
         let now = at("2026-11-12 10:00");
         assert_eq!(parse_when("in 10m", now).unwrap(), When { cron: "".into(), next_run: now.timestamp() + 600 });
         assert_eq!(parse_when("in 2 hours", now).unwrap().next_run, now.timestamp() + 7200);
+        assert_eq!(parse_when("in 30 seconds", now).unwrap().next_run, now.timestamp() + 30);
+        assert_eq!(parse_when("in 2 days", now).unwrap().next_run, now.timestamp() + 2 * 86_400);
+        assert_eq!(parse_when("in 1 week", now).unwrap().next_run, now.timestamp() + 7 * 86_400);
         assert_eq!(parse_when("every 30m", now).unwrap().cron, "*/30 * * * *");
         assert_eq!(parse_when("every 2h", now).unwrap().cron, "0 */2 * * *");
         assert_eq!(parse_when("every hour", now).unwrap().cron, "0 */1 * * *");

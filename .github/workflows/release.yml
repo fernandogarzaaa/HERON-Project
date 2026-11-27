@@ -73,6 +73,8 @@ jobs:
           ref: ${{ needs.source.outputs.target }}
       - run: rustup update stable && rustup default stable
       - run: cargo test --locked
+        env:
+          HERON_REQUIRE_SEATBELT: "1"
       - name: Choose signed or unsigned build
         id: mode
         env:

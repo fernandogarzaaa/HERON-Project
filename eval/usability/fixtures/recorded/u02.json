@@ -1,0 +1,217 @@
+{
+  "_provenance": "Recorded by `run.sh --live --record-fixtures` against a real core; absolute paths, ports and the token are replaced by placeholders.",
+  "audit": [],
+  "driver": "direct",
+  "files": {},
+  "heron_commit": "9b2490407022a81559d66ebdfb5235d415dedae6",
+  "kind": "recorded",
+  "persona": "lena-teacher",
+  "provider": "demo",
+  "session_id": "0c49019ded00",
+  "steps": [
+    {
+      "body": "",
+      "decisions": [],
+      "end": "done",
+      "error": null,
+      "events": [
+        {
+          "id": "0c49019ded00",
+          "type": "session"
+        },
+        {
+          "text": "This ",
+          "type": "text"
+        },
+        {
+          "text": "is ",
+          "type": "text"
+        },
+        {
+          "text": "**demo ",
+          "type": "text"
+        },
+        {
+          "text": "mode**: ",
+          "type": "text"
+        },
+        {
+          "text": "my ",
+          "type": "text"
+        },
+        {
+          "text": "replies ",
+          "type": "text"
+        },
+        {
+          "text": "are ",
+          "type": "text"
+        },
+        {
+          "text": "canned, ",
+          "type": "text"
+        },
+        {
+          "text": "but ",
+          "type": "text"
+        },
+        {
+          "text": "the ",
+          "type": "text"
+        },
+        {
+          "text": "actions ",
+          "type": "text"
+        },
+        {
+          "text": "are ",
+          "type": "text"
+        },
+        {
+          "text": "real. ",
+          "type": "text"
+        },
+        {
+          "text": "Try ",
+          "type": "text"
+        },
+        {
+          "text": "asking ",
+          "type": "text"
+        },
+        {
+          "text": "me ",
+          "type": "text"
+        },
+        {
+          "text": "to ",
+          "type": "text"
+        },
+        {
+          "text": "*list ",
+          "type": "text"
+        },
+        {
+          "text": "this ",
+          "type": "text"
+        },
+        {
+          "text": "folder*, ",
+          "type": "text"
+        },
+        {
+          "text": "*save ",
+          "type": "text"
+        },
+        {
+          "text": "a ",
+          "type": "text"
+        },
+        {
+          "text": "plan ",
+          "type": "text"
+        },
+        {
+          "text": "as ",
+          "type": "text"
+        },
+        {
+          "text": "plan.md*, ",
+          "type": "text"
+        },
+        {
+          "text": "*run ",
+          "type": "text"
+        },
+        {
+          "text": "a ",
+          "type": "text"
+        },
+        {
+          "text": "command*, ",
+          "type": "text"
+        },
+        {
+          "text": "or ",
+          "type": "text"
+        },
+        {
+          "text": "*remind ",
+          "type": "text"
+        },
+        {
+          "text": "me ",
+          "type": "text"
+        },
+        {
+          "text": "to ",
+          "type": "text"
+        },
+        {
+          "text": "call ",
+          "type": "text"
+        },
+        {
+          "text": "the ",
+          "type": "text"
+        },
+        {
+          "text": "dentist*. ",
+          "type": "text"
+        },
+        {
+          "text": "For ",
+          "type": "text"
+        },
+        {
+          "text": "real ",
+          "type": "text"
+        },
+        {
+          "text": "answers, ",
+          "type": "text"
+        },
+        {
+          "text": "connect ",
+          "type": "text"
+        },
+        {
+          "text": "a ",
+          "type": "text"
+        },
+        {
+          "text": "model ",
+          "type": "text"
+        },
+        {
+          "text": "in ",
+          "type": "text"
+        },
+        {
+          "text": "Settings.",
+          "type": "text"
+        },
+        {
+          "completion": 0,
+          "prompt": 0,
+          "type": "usage"
+        },
+        {
+          "text": "This is **demo mode**: my replies are canned, but the actions are real. Try asking me to *list this folder*, *save a plan as plan.md*, *run a command*, or *remind me to call the dentist*. For real answers, connect a model in Settings.",
+          "title": "Hi, I'm new here. What kinds of things can you help me with?",
+          "type": "done"
+        }
+      ],
+      "index": 0,
+      "kind": "say",
+      "message": "Hi, I'm new here. What kinds of things can you help me with?",
+      "ms": 606,
+      "reply": "This is **demo mode**: my replies are canned, but the actions are real. Try asking me to *list this folder*, *save a plan as plan.md*, *run a command*, or *remind me to call the dentist*. For real answers, connect a model in Settings.",
+      "status": 200,
+      "ttft_ms": 3
+    }
+  ],
+  "task": "u02",
+  "variant": "default",
+  "web_log": []
+}
