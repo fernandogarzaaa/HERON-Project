@@ -88,9 +88,12 @@ jobs:
         run: cargo test --locked --features neural --lib -- --ignored neural --nocapture
   macos-app:
     # The native macOS app: Rust lints, Swift tests, the unsigned bundle and the upgrade test.
+    # Swift tests have no per-test deadline. A stream that never emits leaves this step
+    # running until GitHub kills the job. Bound it so a hang fails in minutes, not hours.
     name: macOS app
     if: github.event_name == 'pull_request'
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -99,6 +102,7 @@ jobs:
       - name: Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Swift tests
+        timeout-minutes: 20
         run: swift test --package-path macos/HeronMac
       - name: Build the unsigned app
         run: bash packaging/macos/build-app.sh --unsigned

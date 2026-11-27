@@ -406,7 +406,7 @@ pub fn shell_tmpdir() -> PathBuf {
 /// own there too: see `shell_tmpdir`). Never `/tmp/pymp-*`: other programs' multiprocessing servers
 /// listen there and run what they are sent.
 fn local_sockets(workdir: &Path) -> String {
-    let own: String = [workdir.to_path_buf(), shell_tmpdir()].iter().map(|d| format!(" (remote unix-socket (subpath \"{}\"))", d.display())).collect();
+    let own: String = [workdir.to_path_buf(), shell_tmpdir()].iter().map(|d| format!(" (remote unix-socket (subpath {}))", sbpl_quote(d))).collect();
     format!(
         "(deny network-outbound (remote unix-socket))\n(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")) (remote unix-socket (path-literal \"/private/var/run/syslog\")){own})\n"
     )
@@ -637,6 +637,32 @@ mod tests {
         // The two left out on purpose.
         assert!(crate::permissions::is_secret_path(Path::new("/etc/shadow")) && !seatbelt("/etc/shadow"));
         assert!(!seatbelt("/dev/null") && !seatbelt("/dev/urandom"));
+    }
+
+    /// SBPL text with every quoted string removed (honouring `\\` and `\"` escapes), so what is left
+    /// is the rules themselves.
+    fn sbpl_outside_strings(text: &str) -> String {
+        let (mut out, mut chars, mut quoted) = (String::new(), text.chars(), false);
+        while let Some(c) = chars.next() {
+            match (quoted, c) {
+                (true, '\\') => {
+                    chars.next();
+                }
+                (_, '"') => quoted = !quoted,
+                (false, c) => out.push(c),
+                (true, _) => {}
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_quote_in_the_working_folder_cannot_add_rules_to_the_socket_deny() {
+        let workdir = Path::new("/tmp/w\") (allow default) (x \"");
+        let text = local_sockets(workdir);
+        assert!(text.contains(&sbpl_quote(workdir)), "{text}");
+        assert!(!sbpl_outside_strings(&text).contains("allow default"), "the folder name became a rule:\n{text}");
+        assert!(sbpl_outside_strings(&format!("(subpath \"{}\")", workdir.display())).contains("allow default"), "the check sees an injection");
     }
 
     #[test]

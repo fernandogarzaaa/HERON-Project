@@ -796,10 +796,10 @@ fn names_sensitive_path(cmd: &str) -> bool {
 /// Classify a shell command. Conservative: anything not provably read-only is at least `Exec`.
 /// `cmd` as the patterns below should see it: each word without its quotes and backslashes, and the
 /// long spellings of the destructive flags written short, including the abbreviations GNU tools and
-/// git accept (`--rec`, `--forc`), so `rm "--recursive" --force` reads as `rm -Rr -f`. Used only for
+/// git accept (any unambiguous prefix, down to `--r` and `--f`), so `rm "--recursive" --force` reads as `rm -Rr -f`. Used only for
 /// matching.
 fn short_flags(cmd: &str) -> String {
-    let long = |w: &str, full: &str| w.len() >= 5 && w.starts_with("--") && full.starts_with(&w[2..]);
+    let long = |w: &str, full: &str| w.len() >= 3 && w.starts_with("--") && full.starts_with(&w[2..]);
     cmd.split_whitespace()
         .map(|w| {
             let w: String = w.chars().filter(|c| !matches!(c, '\'' | '"' | '\\')).collect();
@@ -1396,11 +1396,11 @@ mod tests {
 
     #[test]
     fn long_option_spellings_are_as_dangerous_as_short_ones() {
-        for c in ["rm --recursive --force ~", "rm --force --recursive /", "rm -r --force ~/*", "rm '-rf' ~", "rm \"--recursive\" \"--force\" ~", "rm --rec --for ~", "rm --verbose -rf ~", "rm --verbose --recursive --force ~"] {
+        for c in ["rm --recursive --force ~", "rm --force --recursive /", "rm -r --force ~/*", "rm '-rf' ~", "rm \"--recursive\" \"--force\" ~", "rm --rec --for ~", "rm --re --fo ~", "rm --r --f /", "rm --verbose -rf ~", "rm --verbose --recursive --force ~"] {
             assert_eq!(classify_shell(c), Effect::Forbidden, "{c}");
         }
         for c in ["rm --recursive build", "rm --force notes.txt", "rm --dir --recursive out", "git clean --force -d", "git clean -d --force", "git clean -xdf", "git push origin main --force-with-lease",
-            "git clean --forc -dx", "git -c clean.requireForce=false clean -dx", "git push origin +main", "chown --recursive me .", "rm \\-rf build"] {
+            "git clean --forc -dx", "git clean --f -dx", "git clean --fo -d", "git -c clean.requireForce=false clean -dx", "git push origin +main", "chown --recursive me .", "rm \\-rf build"] {
             assert_eq!(classify_shell(c), Effect::Privileged, "{c}");
         }
         // Unrelated long options keep their meaning.
