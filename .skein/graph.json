@@ -83,10 +83,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "93a803d7819a4ed27e1dc9d03d46071aeff6e088",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "e76a9109c6985928b66085eb358042bb1dc77cab",
+        "result_commit": "284799fd30cfe745835b4fcdd5003119eb2fcba8",
+        "shipped_at": "2026-11-27T01:58:43.596858+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
     "status": "done",
     "title": "W1: Effect journal module: SQL functions, process leases, `guarded`, two-pass recove",
-    "version": 40,
+    "version": 41,
     "worktree": {
       "base_branch": "feat/harness-safety",
       "base_commit": "93a803d7819a4ed27e1dc9d03d46071aeff6e088",
