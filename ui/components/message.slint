@@ -180,10 +180,20 @@ export component MessageView inherits VerticalBox {
         for note in msg.notes: WrapText { text: note; font-size: 13px; color: Theme.muted; }
         if msg.live: HorizontalBox {
             spacing: 4px;
-            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.slate; opacity: reduce-motion ? 0.7 : think-phase == 0 ? 1 : 0.3; animate opacity { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; } }
-            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.slate; opacity: reduce-motion ? 0.7 : think-phase == 1 ? 1 : 0.3; animate opacity { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; } }
-            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.slate; opacity: reduce-motion ? 0.7 : think-phase == 2 ? 1 : 0.3; animate opacity { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; } }
-            Text { text: "Thinking…"; color: Theme.muted; font-size: 13px; }
+            alignment: start;
+            // A caret while words are arriving, dots while the model has not spoken yet.
+            if msg.text != "": Rectangle {
+                width: 2px;
+                height: 14px;
+                border-radius: 1px;
+                background: Theme.slate;
+                opacity: reduce-motion ? 1 : (think-phase == 1 ? 0.25 : 1);
+                animate opacity { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; }
+            }
+            if msg.text == "": Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.slate; opacity: reduce-motion ? 0.7 : think-phase == 0 ? 1 : 0.3; animate opacity { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; } }
+            if msg.text == "": Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.slate; opacity: reduce-motion ? 0.7 : think-phase == 1 ? 1 : 0.3; animate opacity { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; } }
+            if msg.text == "": Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.slate; opacity: reduce-motion ? 0.7 : think-phase == 2 ? 1 : 0.3; animate opacity { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; } }
+            Text { text: msg.text == "" ? "Thinking…" : "Writing…"; color: Theme.muted; font-size: 13px; }
         }
         if msg.failure != "": Rectangle {
             background: Theme.danger-soft; border-color: Theme.danger; border-width: 1px; border-radius: 10px;

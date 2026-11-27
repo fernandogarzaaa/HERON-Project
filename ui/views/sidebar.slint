@@ -35,6 +35,13 @@ export component Sidebar inherits Rectangle {
     callback open-session(string);
     callback new-conversation();
 
+    property <int> start-phase: 0;
+    start-timer := Timer {
+        interval: 700ms;
+        running: root.status-text == "Starting…" && !root.reduce-motion;
+        triggered => { start-phase = Math.mod(start-phase + 1, 2); }
+    }
+
     // No explicit size: the box fills the sidebar anyway, and without one
     // its minimum height reaches the window, so the window cannot be made
     // shorter than the sidebar's content.
@@ -146,6 +153,8 @@ export component Sidebar inherits Rectangle {
                 color: Theme.muted;
                 wrap: TextWrap.word-wrap;
                 overflow: elide;
+                opacity: root.status-text == "Starting…" && !root.reduce-motion ? (start-phase == 0 ? 1 : 0.4) : 1;
+                animate opacity { duration: root.reduce-motion ? 0ms : 220ms; easing: ease-out; }
             }
         }
     }

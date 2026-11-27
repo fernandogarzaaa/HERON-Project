@@ -173,6 +173,10 @@ component EmptyStateView inherits VerticalBox {
     spacing: 12px;
     vertical-stretch: 0;
     alignment: start;
+    property <float> appear: reduce-motion ? 1 : 0;
+    opacity: appear;
+    init => { appear = 1; }
+    animate appear { duration: reduce-motion ? 0ms : 360ms; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
     in property <bool> has-key;
     in property <bool> demo;
     in property <bool> paused;
