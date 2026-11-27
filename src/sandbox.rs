@@ -928,7 +928,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn wrap_runs_the_program_the_probe_checked() {
-        let wrapped = wrap(&Config::default(), Path::new("/tmp"), &Profile::Shell { grants: vec![] });
+        let wrapped = wrap(&Config::default(), Path::new("/tmp"), &Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain: Default::default() });
         match available() {
             Kind::None => assert!(wrapped.is_none()),
             kind => {
@@ -959,7 +959,7 @@ mod tests {
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
         let ws = tempfile::tempdir().unwrap();
         let ws = dunce::canonicalize(ws.path()).unwrap();
-        let (program, prefix) = wrap(&cfg, &ws, &Profile::Shell { grants: vec![] }).expect("Seatbelt wraps a shell command");
+        let (program, prefix) = wrap(&cfg, &ws, &Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain: Default::default() }).expect("Seatbelt wraps a shell command");
         // The callers clear the environment and hand the child an allowlisted PATH, and the program
         // is looked up on that PATH.
         let out = std::process::Command::new(&program)
