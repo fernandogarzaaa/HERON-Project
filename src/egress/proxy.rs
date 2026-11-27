@@ -138,6 +138,8 @@ pub fn is_public(ip: IpAddr) -> bool {
             }
             !(v6.is_loopback()
                 || s[..6] == [0, 0, 0, 0, 0, 0]
+                || s[..6] == [0, 0, 0, 0, 0xffff, 0]
+                || (s[0] == 0x2001 && s[1] == 0)
                 || (s[0] == 0x64 && s[1] == 0xff9b && s[2] == 1)
                 || (s[0] & 0xffc0) == 0xfec0
                 || v6.is_unspecified()
@@ -264,9 +266,9 @@ async fn handle(mut client: TcpStream, allow: Arc<Vec<String>>, log: Arc<Mutex<V
     }
     let target = decision.target.clone();
     let host = target.rsplit_once(':').map(|(h, _)| h.to_ascii_lowercase()).unwrap_or_default();
-    let addrs: Vec<SocketAddr> = match tokio::net::lookup_host(&target).await {
-        Ok(a) => a.filter(|a| opts.allow_internal || is_public(a.ip())).collect(),
-        Err(_) => vec![],
+    let addrs: Vec<SocketAddr> = match tokio::time::timeout(Duration::from_secs(10), tokio::net::lookup_host(&target)).await {
+        Ok(Ok(a)) => a.filter(|a| opts.allow_internal || is_public(a.ip())).collect(),
+        _ => vec![],
     };
     if addrs.is_empty() {
         refuse(Decision::refused(&target, Refusal::NotPublic));
@@ -517,6 +519,10 @@ mod tests {
             "::127.0.0.1",
             "::8.8.8.8",
             "fec0::1",
+            "::ffff:0:7f00:1",
+            "::ffff:0:808:808",
+            "2001::1",
+            "2001:0:4136:e378:8000:63bf:3fff:fdd2",
         ] {
             assert!(!is_public(ip.parse().unwrap()), "{ip}");
         }

@@ -2552,13 +2552,18 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
-    async fn toolchain_trust_needs_the_token() {
+    async fn the_toolchain_endpoints_need_the_token() {
         let h = harness(scripted(vec![]), true, |_| {}).await;
         for token in [None, Some("wrong-token")] {
             assert_eq!(h.send_with_token("POST", "/toolchain/trust", json!({"since": null}), token).await.status, 401, "{token:?}");
             assert_eq!(h.send_with_token("GET", "/toolchain", Value::Null, token).await.status, 401, "{token:?}");
         }
+    }
+
+    #[tokio::test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
+    async fn toolchain_trust_needs_the_token() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
         assert_eq!(h.json("GET", "/toolchain", Value::Null).await, json!({"state": "trusted"}));
         let record = json!({"toolchains": ["stable-x"], "files": [{"toolchain": "stable-x", "path": "bin/rustc"}], "since": 1763900000, "during": "cargo install --path .", "reported": true});
         h.app.store.kv_set("toolchain:changed", &record.to_string()).unwrap();
