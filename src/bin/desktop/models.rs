@@ -184,6 +184,7 @@ fn chat_msg_from_item(item: &view::ThreadItem) -> ChatMsg {
                         can_always: card.can_always,
                         session_label: SharedString::from(card.session_label.as_str()),
                         always_label: SharedString::from(card.always_label.as_str()),
+                        outside: card.outside,
                     }),
                 })
                 .collect();

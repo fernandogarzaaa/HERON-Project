@@ -6,8 +6,9 @@
 // elevation tokens, so it is no longer used.
 // kind is "primary" (slate), "secondary" (surface with a line border),
 // or "danger" (red). Hover and press follow the shell's own button
-// pattern in ui/main.slint: a talon border on hover, a softer
-// background with the accent text color on press. Disabled is a muted
+// pattern in ui/main.slint: an accent border on hover, a softer
+// background with the accent text color on press. Gold is not used
+// here; it is reserved for "waiting for you". Disabled is a muted
 // state, not an invisible one. The user always sees what the next
 // action is. The label sits inside 14px side padding, so a button
 // without an explicit width is as wide as its label. An optional icon
@@ -45,10 +46,10 @@ export component ActionButton inherits Rectangle {
     // Secondary keeps a resting line border: its fill is Theme.surface,
     // the same as the content area, so without one it reads as bare text.
     border-width: kind == "secondary" || keyboard.has-focus || touch.has-hover || !enabled ? 1px : 0px;
-    border-color: keyboard.has-focus ? Theme.slate : touch.has-hover ? Theme.talon : Theme.line;
+    border-color: keyboard.has-focus ? Theme.slate : touch.has-hover ? Theme.slate : Theme.line;
     background: !enabled ? Theme.line : touch.pressed ? press-bg : base;
-    animate background { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
-    animate border-color { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; }
+    animate background { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; }
+    animate border-color { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; }
 
     HorizontalLayout {
         padding-left: 14px;
