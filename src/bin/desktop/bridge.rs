@@ -667,8 +667,8 @@ mod tests {
             .await
             .expect("GET /api/sessions works");
         assert!(
-            sessions.iter().any(|s| s.id == id),
-            "the new session is listed"
+            !sessions.iter().any(|s| s.id == id),
+            "an empty session is not listed until its first message"
         );
         let detail = client
             .get_session(&id)

@@ -68,6 +68,105 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(s.workspace, "/tmp/heron-fixture/ws")
     }
 
+    func testStateModelLabelIsDecodedFromTheRecording() throws {
+        let s = try CoreWire.state(try Fixtures.data("state.json"))
+        XCTAssertEqual(s.modelLabel, "anthropic/claude-sonnet-5.5", "the recorded core serves model_label")
+        XCTAssertEqual(s.modelDisplayName, s.modelLabel)
+    }
+
+    func testStateWithoutAModelLabelFallsBackToTheModel() throws {
+        // A core from before model_label: the same recording with the key removed.
+        let lines = String(decoding: try Fixtures.data("state.json"), as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
+        let json = lines.filter { !$0.contains("\"model_label\"") }.joined(separator: "\n")
+        let s = try CoreWire.state(Data(json.utf8))
+        XCTAssertNil(s.modelLabel, "an older core doesn't serve it")
+        XCTAssertEqual(s.modelDisplayName, "anthropic/claude-sonnet-5.5")
+    }
+
+    func testStateModelLabelIsUsedWhenItDiffersFromTheModel() throws {
+        let json = String(decoding: try Fixtures.data("state.json"), as: UTF8.self)
+            .replacingOccurrences(of: "\"model_label\": \"anthropic/claude-sonnet-5.5\"", with: "\"model_label\": \"Claude Code\"")
+        let s = try CoreWire.state(Data(json.utf8))
+        XCTAssertEqual(s.modelLabel, "Claude Code")
+        XCTAssertEqual(s.modelDisplayName, "Claude Code")
+        XCTAssertEqual(s.model, "anthropic/claude-sonnet-5.5", "the model name is still there")
+    }
+
+    func testAnEmptyModelLabelFallsBackToTheModel() {
+        var s = CoreState(name: "H", version: "1", model: "gpt-4o", modelLabel: "  ", mode: .ask, workspace: "/w", paused: false,
+                          waiting: 0, unread: 0, memories: 0, onboarded: true, riskNoticeAccepted: true, sandbox: "seatbelt", hasKey: true)
+        XCTAssertEqual(s.modelDisplayName, "gpt-4o")
+        s.modelLabel = "Codex"
+        XCTAssertEqual(s.modelDisplayName, "Codex")
+    }
+
+    func testOAuthAccountsDecodeProvidersAndSkipUnknownOnes() throws {
+        let json = #"{"providers":[{"provider":"google","connected":true,"client_configured":true,"account":"sam@gmail.com","read_only":true},{"provider":"microsoft","connected":false,"client_configured":false,"read_only":true},{"provider":"yahoo","connected":false,"client_configured":false}]}"#
+        let accounts = try CoreWire.oauthAccounts(Data(json.utf8))
+        XCTAssertEqual(accounts, [OAuthAccount(provider: .google, connected: true, clientConfigured: true, account: "sam@gmail.com"),
+                                  OAuthAccount(provider: .microsoft, connected: false, clientConfigured: false, account: nil)])
+    }
+
+    func testOAuthStartOnlyAcceptsAnHTTPSAddress() throws {
+        let url = try CoreWire.oauthStart(Data(#"{"provider":"google","authorization_url":"https://accounts.google.com/o/oauth2/v2/auth?x=1","expires_in_seconds":600}"#.utf8))
+        XCTAssertEqual(url.host, "accounts.google.com")
+        for bad in ["file:///etc/passwd", "javascript:alert(1)", "http://accounts.example.com/x", "not a url"] {
+            XCTAssertThrowsError(try CoreWire.oauthStart(Data(#"{"authorization_url":"\#(bad)"}"#.utf8)), bad)
+        }
+    }
+
+    func testTheMacCalendarSourceIsARowWhenTheCoreServesIt() throws {
+        let json = #"{"calendar_local":{"connected":true,"indexed":12,"learned":0},"documents":{"connected":false,"folders":[],"indexed":0,"learned":0}}"#
+        let rows = CoreWire.connections(Data(json.utf8))
+        XCTAssertEqual(rows.map(\.id), ["documents", "calendar_local"])
+        XCTAssertEqual(rows.last?.detail, "12 events indexed")
+        XCTAssertEqual(rows.last?.connected, true)
+    }
+
+    func testCountsAreWrittenInTheRightNumber() {
+        XCTAssertEqual(countPhrase(1, "item"), "1 item")
+        XCTAssertEqual(countPhrase(0, "item"), "0 items")
+        XCTAssertEqual(countPhrase(2, "message"), "2 messages")
+        XCTAssertEqual(countPhrase(1, "entry", "entries"), "1 entry")
+        XCTAssertEqual(countPhrase(2, "entry", "entries"), "2 entries")
+        let one = #"{"computer":{"connected":true,"indexed":1},"calendar_local":{"connected":true,"indexed":1},"mail_local":{"connected":true,"indexed":1},"documents":{"connected":true,"folders":["/a"],"indexed":1},"calendar":{"connected":true,"indexed":1,"ics_connected":true,"ics_indexed":1}}"#
+        let rows = Dictionary(uniqueKeysWithValues: CoreWire.connections(Data(one.utf8)).map { ($0.id, $0.detail) })
+        XCTAssertEqual(rows["computer"], "1 item indexed")
+        XCTAssertEqual(rows["calendar"], "1 item indexed")
+        XCTAssertEqual(rows["calendar_local"], "1 event indexed")
+        XCTAssertEqual(rows["mail_local"], "1 message indexed")
+        XCTAssertEqual(rows["documents"], "1 folder, 1 file indexed")
+        let many = one.replacingOccurrences(of: "\"indexed\":1", with: "\"indexed\":3").replacingOccurrences(of: "\"ics_indexed\":1", with: "\"ics_indexed\":3")
+        let plural = Dictionary(uniqueKeysWithValues: CoreWire.connections(Data(many.utf8)).map { ($0.id, $0.detail) })
+        XCTAssertEqual(plural["computer"], "3 items indexed")
+        XCTAssertEqual(plural["mail_local"], "3 messages indexed")
+        XCTAssertEqual(plural["calendar_local"], "3 events indexed")
+        XCTAssertEqual(plural["documents"], "1 folder, 3 files indexed")
+    }
+
+    func testTheMacMailSourceIsARowWhenTheCoreServesIt() throws {
+        let rows = CoreWire.connections(Data(#"{"mail_local":{"connected":true,"indexed":42,"learned":0}}"#.utf8))
+        XCTAssertEqual(rows.map(\.id), ["mail_local"])
+        XCTAssertEqual([rows[0].name, rows[0].detail], ["Mac Mail", "42 messages indexed"])
+    }
+
+    func testMailAndCalendarRowsReadTheirOwnStateNotTheSignedInAccounts() throws {
+        // Google is signed in (the combined flags are true) but no password mailbox and no calendar link exist.
+        let json = #"{"email":{"connected":true,"address":null,"indexed":40,"imap_connected":false,"imap_host":null,"imap_indexed":0},"calendar":{"connected":true,"hosts":[],"indexed":9,"ics_connected":false,"ics_indexed":0}}"#
+        let rows = CoreWire.connections(Data(json.utf8))
+        XCTAssertEqual(rows.map(\.id), ["calendar", "email"])
+        XCTAssertEqual(rows.map(\.connected), [false, false])
+        XCTAssertEqual(rows[1].name, "iCloud Mail")
+    }
+
+    func testAnIcloudMailboxAndAGoogleAccountAreBothThere() throws {
+        let icloud = #"{"email":{"connected":true,"address":"sam@icloud.com","indexed":5,"imap_connected":true,"imap_host":"imap.mail.me.com","imap_indexed":5}}"#
+        let mail = try XCTUnwrap(CoreWire.connections(Data(icloud.utf8)).first)
+        XCTAssertEqual([mail.name, mail.detail, "\(mail.connected)"], ["iCloud Mail", "sam@icloud.com", "true"])
+        let other = #"{"email":{"connected":true,"address":"sam@work.example","indexed":5,"imap_connected":true,"imap_host":"mail.work.example","imap_indexed":5}}"#
+        XCTAssertEqual(CoreWire.connections(Data(other.utf8)).first?.name, "Mailbox (mail.work.example)")
+    }
+
     func testSandboxNoneIsOff() throws {
         let json = String(decoding: try Fixtures.data("state.json"), as: UTF8.self).replacingOccurrences(of: "\"seatbelt\"", with: "\"none\"")
         XCTAssertFalse(try CoreWire.state(Data(json.utf8)).sandboxOn)
@@ -292,6 +391,18 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(try kind(#"{"seq":3,"type":"model","name":"fast","why":"short"}"#), .model(name: "fast", why: "short"))
         XCTAssertEqual(try kind(#"{"seq":4,"type":"notice","text":"careful"}"#), .notice("careful"))
         XCTAssertEqual(try kind(#"{"seq":5,"type":"cancelled"}"#), .cancelled)
+    }
+
+    func test_notificationEventCarriesTitleAndBody() throws {
+        let json = #"{"seq":12,"session_id":"","run_id":"","type":"notification","title":"Morning brief","body":"Three meetings today."}"#
+        let e = try XCTUnwrap(CoreWire.envelope(Data(json.utf8)).event)
+        XCTAssertEqual(e.seq, 12)
+        XCTAssertEqual(e.kind, .notification(title: "Morning brief", body: "Three meetings today."))
+    }
+
+    func test_notificationEventWithoutABodyHasAnEmptyBody() throws {
+        let kind = try XCTUnwrap(CoreWire.envelope(Data(#"{"seq":3,"type":"notification","title":"Done"}"#.utf8)).event).kind
+        XCTAssertEqual(kind, .notification(title: "Done", body: ""))
     }
 
     func testResyncEnvelopeHasNoSequence() throws {

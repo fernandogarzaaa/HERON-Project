@@ -88,10 +88,12 @@ case "$MODE" in
     codesign --force --sign - "$APP"
     ;;
   sign)
-    # No entitlements file: outside the App Sandbox, spawning children, sandbox-exec and loopback
-    # networking need none. Notarization is where that is confirmed.
+    # Outside the App Sandbox, spawning children, sandbox-exec and loopback networking need no entitlement.
+    # The hardened runtime does need one for Calendar access (EventKit, "Use your Mac's Calendar"); without it
+    # macOS never shows the permission prompt. It goes on the app only, not on the core binary.
+    # Notarization is where the rest is confirmed.
     codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$APP/Contents/MacOS/heron-cli"
-    codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$APP"
+    codesign --force --options runtime --timestamp --entitlements packaging/macos/Heron.entitlements --sign "$CODESIGN_IDENTITY" "$APP"
     ;;
   *)
     codesign --force --deep --sign "${CODESIGN_IDENTITY:--}" "$APP"
