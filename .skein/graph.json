@@ -383,10 +383,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "00b920abd11c62070cae9bf944853ec974c502fc",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "9d08ef018119e103023ce9fd0a536ec29c0054b3",
+        "result_commit": "b987ba1faa65d337d11e3f9c3e0396a274d70d3d",
+        "shipped_at": "2026-11-27T01:58:44.875560+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
     "status": "done",
     "title": "W4: Protected list ported from anchor-harness `protect.rs`, `is_protected`, Seatbelt",
-    "version": 34,
+    "version": 35,
     "worktree": {
       "base_branch": "feat/harness-safety",
       "base_commit": "00b920abd11c62070cae9bf944853ec974c502fc",
