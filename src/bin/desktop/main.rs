@@ -1109,8 +1109,23 @@ mod window_layout_tests {
             let pixels = render_frame(window, 1100, 700);
             write_bmp(&directory.join(format!("appearance-settings-{name}.bmp")), 1100, 700, &pixels);
         }
+        let writing = "The draft is in notes/yesterday.md. ";
+        ui.set_reduce_motion(true);
+        ui.set_messages(ModelRc::new(VecModel::from(vec![super::ChatMsg {
+            role: "assistant".into(),
+            text: writing.into(),
+            body: StyledText::from_plain_text(writing),
+            steps: ModelRc::new(VecModel::default()),
+            approvals: ModelRc::new(VecModel::default()),
+            notes: ModelRc::new(VecModel::default()),
+            failure: SharedString::default(),
+            complete: false,
+            live: true,
+        }])));
+        ui.set_current_view("chat".into());
         ui.set_ui_theme("dusk".into());
         ui.set_dark(true);
-        ui.set_current_view("chat".into());
+        let pixels = render_frame(window, 1100, 700);
+        write_bmp(&directory.join("appearance-chat-writing.bmp"), 1100, 700, &pixels);
     }
 }
