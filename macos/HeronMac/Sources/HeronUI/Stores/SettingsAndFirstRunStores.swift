@@ -83,11 +83,43 @@ public final class SettingsStore {
     /// What went wrong loading the list or removing a rule, shown inline in the "Never" section.
     public private(set) var neverError: String?
     public private(set) var isRemovingNever = false
+    /// Sources whose connect or disconnect request is in flight (`ConnectionInfo.id`), for the per-row spinner.
+    public private(set) var busySources: Set<String> = []
+    /// The last connect or disconnect failure per source, in the core's own words, shown inline on that row or its sheet.
+    public private(set) var sourceErrors: [String: String] = [:]
+    /// The source the user asked to disconnect; the confirm sheet shows while it is set.
+    public private(set) var pendingDisconnect: ConnectionInfo?
+    /// Google and Microsoft sign-ins (`GET /api/oauth`): each connects Email and Calendar, read-only.
+    public private(set) var oauthAccounts: [OAuthAccount] = []
+    /// The provider whose sign-in page is open in the browser while Heron waits for it to finish.
+    public private(set) var signingIn: OAuthProviderID?
+    /// Accounts that just signed in and are being read for the first time.
+    public private(set) var syncingAccounts: Set<OAuthProviderID> = []
+    /// True after "Use your Mac's Calendar" was refused: the row then offers System Settings.
+    public private(set) var localCalendarDenied = false
+    public let localCalendar: any LocalCalendarAccess
+    /// Why "Use your Mac's Mail" last failed, so the row offers the right System Settings pane.
+    public private(set) var localMailProblem: LocalMailProblem?
+    public let localMail: any LocalMailAccess
+    /// How often the sign-in is checked, and how long Heron waits (the core's sign-in expires after ten minutes).
+    public var pollInterval: Duration = .seconds(2)
+    public var signInTimeout: Duration = .seconds(600)
+    /// nil means the real `Task.sleep`, called inline in `signIn`. Not a stored default closure `{ try await Task.sleep(for: $0) }`:
+    /// calling that aborts the macOS 26 runtime ("freed pointer was not the last allocation") when it returns.
+    @ObservationIgnored private let sleep: (@Sendable (Duration) async throws -> Void)?
+    @ObservationIgnored private var signInTask: Task<Void, Never>?
     public private(set) var usage: UsageReport?
     public private(set) var loadState: LoadState = .idle
     public private(set) var error: String?
 
-    public init(client: any CoreClientProtocol) { self.client = client }
+    public init(client: any CoreClientProtocol, localCalendar: any LocalCalendarAccess = SystemCalendarAccess(),
+                localMail: any LocalMailAccess = SystemMailAccess(),
+                sleep: (@Sendable (Duration) async throws -> Void)? = nil) {
+        self.client = client
+        self.localCalendar = localCalendar
+        self.localMail = localMail
+        self.sleep = sleep
+    }
 
     public var sandboxOn: Bool { state?.sandboxOn ?? false }
     public var mode: PermissionMode { settings?.mode ?? state?.mode ?? .ask }
@@ -104,6 +136,7 @@ public final class SettingsStore {
             (state, settings, providers, grants, usage) = try await (s, st, p, g, u)
             loadState = .loaded
         } catch { loadState = .failed(describe(error)) }
+        if let accounts = try? await client.oauthAccounts() { oauthAccounts = accounts }
         // Its own request: a core that can't list "never" rules still lets the rest of Settings load.
         do { nevers = try await client.nevers(); neverError = nil } catch { neverError = describe(error) }
     }
@@ -134,6 +167,229 @@ public final class SettingsStore {
         do { try await client.removeNever(rule: rule.rule) } catch { message = describe(error) }
         do { nevers = try await client.nevers() } catch { message = message ?? describe(error) }
         neverError = message
+    }
+
+    // MARK: Connections (Settings › Connections, and the first-run sources step)
+
+    public func isBusy(source id: String) -> Bool { busySources.contains(id) }
+
+    public func clearSourceError(_ id: String) { sourceErrors[id] = nil }
+
+    /// Reads the Connections rows again, without the rest of Settings.
+    @discardableResult
+    public func reloadConnections() async -> Bool {
+        var refreshed = false
+        if let fresh = try? await client.settings() { settings = fresh; refreshed = true }
+        if let accounts = try? await client.oauthAccounts() { oauthAccounts = accounts }
+        return refreshed
+    }
+
+    /// After a connect succeeded: the rows are read again. If that read fails the list would still say "Not connected" with
+    /// no word of why, so the row says what happened instead.
+    private func refreshAfterConnect(_ id: String) async {
+        if await !reloadConnections() { sourceErrors[id] = SourceCopy.connectedButCouldNotRefresh }
+    }
+
+    // MARK: Sign in with Google or Microsoft
+
+    /// The provider's state, or "unknown, so try it" when the core didn't list it.
+    public func account(_ provider: OAuthProviderID) -> OAuthAccount {
+        oauthAccounts.first { $0.provider == provider } ?? OAuthAccount(provider: provider, connected: false, clientConfigured: true)
+    }
+
+    /// "Sign in with Google": asks the core to start the sign-in, opens the consent page it returns in the system
+    /// browser through `open`, then polls until the core has finished the sign-in and reads the account once.
+    /// Returns the running task so a caller (or a test) can wait for it. Only one sign-in runs at a time.
+    @discardableResult
+    public func beginSignIn(_ provider: OAuthProviderID, open: @escaping @MainActor (URL) -> Bool) -> Task<Void, Never> {
+        cancelSignIn()
+        let task = Task { await signIn(provider, open: open) }
+        signInTask = task
+        return task
+    }
+
+    /// "Cancel" while waiting. If the user finishes in the browser anyway, the account shows up the next time the page loads.
+    public func cancelSignIn() {
+        signInTask?.cancel()
+        signInTask = nil
+        signingIn = nil
+    }
+
+    private func signIn(_ provider: OAuthProviderID, open: @MainActor (URL) -> Bool) async {
+        let id = provider.rawValue
+        sourceErrors[id] = nil
+        guard account(provider).clientConfigured else { sourceErrors[id] = SourceCopy.signInNotSetUp(provider); return }
+        signingIn = provider
+        defer { if signingIn == provider { signingIn = nil } }
+        let url: URL
+        do { url = try await client.startOAuth(provider: provider) } catch { sourceErrors[id] = describe(error); return }
+        if Task.isCancelled { return }
+        guard open(url) else { sourceErrors[id] = SourceCopy.browserWouldNotOpen; return }
+        var waited = Duration.zero
+        while !Task.isCancelled {
+            do { if let sleep { try await sleep(pollInterval) } else { try await Task.sleep(for: pollInterval) } } catch { return }
+            waited += pollInterval
+            if let accounts = try? await client.oauthAccounts() {
+                oauthAccounts = accounts
+                if accounts.first(where: { $0.provider == provider })?.connected == true { break }
+            }
+            if waited >= signInTimeout { sourceErrors[id] = SourceCopy.signInTimedOut; return }
+        }
+        if Task.isCancelled { return }
+        signingIn = nil
+        syncingAccounts.insert(provider)
+        defer { syncingAccounts.remove(provider) }
+        do { try await client.syncOAuth(provider: provider) } catch {
+            sourceErrors[id] = SourceCopy.firstSyncFailed(describe(error))
+        }
+        await reloadConnections()
+    }
+
+    /// Disconnect an account: asks first, like every source.
+    public func askToDisconnect(account provider: OAuthProviderID) {
+        let row = account(provider)
+        guard row.connected, !busySources.contains(provider.rawValue) else { return }
+        pendingDisconnect = ConnectionInfo(id: provider.rawValue, name: provider.displayName, connected: true, detail: row.account ?? "")
+    }
+
+    // MARK: The Mac's Calendar app
+
+    /// "Use your Mac's Calendar": asks macOS for read access if needed, reads the events and sends them to the core.
+    @discardableResult
+    public func connectLocalCalendar() async -> Bool {
+        let id = "calendar_local"
+        guard !busySources.contains(id) else { return false }
+        busySources.insert(id)
+        sourceErrors[id] = nil
+        localCalendarDenied = false
+        defer { busySources.remove(id) }
+        var access = localCalendar.authorization()
+        if access == .notDetermined { access = await localCalendar.requestAccess() }
+        guard access == .granted else {
+            localCalendarDenied = true
+            sourceErrors[id] = SourceCopy.calendarAccessDenied
+            return false
+        }
+        do {
+            try await client.connectSource(.localCalendar(events: try await localCalendar.events()))
+        } catch is CancellationError {
+            sourceErrors[id] = SourceCopy.cancelledBeforeFinishing
+            return false
+        } catch {
+            sourceErrors[id] = describe(error)
+            return false
+        }
+        await refreshAfterConnect(id)
+        return true
+    }
+
+    /// Events change after the first sync, so a connected Mac Calendar is read again when the app starts. Silent:
+    /// it never prompts, and a failure leaves what the core already holds.
+    public func refreshLocalCalendarIfConnected() async {
+        if settings == nil { await reloadConnections() }
+        guard settings?.connections.first(where: { $0.id == "calendar_local" })?.connected == true,
+              localCalendar.authorization() == .granted,
+              let events = try? await localCalendar.events() else { return }
+        try? await client.connectSource(.localCalendar(events: events))
+        await reloadConnections()
+    }
+
+    // MARK: The Mac's Mail app
+
+    /// "Use your Mac's Mail": asks Mail for the recent inbox messages (macOS asks for Automation permission the first
+    /// time, and Mail is opened if it isn't) and sends them to the core. The wait happens off the main thread.
+    @discardableResult
+    public func connectLocalMail() async -> Bool {
+        let id = "mail_local"
+        guard !busySources.contains(id) else { return false }
+        busySources.insert(id)
+        sourceErrors[id] = nil
+        localMailProblem = nil
+        defer { busySources.remove(id) }
+        var found = 0
+        do {
+            let messages = try await localMail.messages()
+            found = messages.count
+            try await client.connectSource(.localMail(messages: messages))
+        } catch is CancellationError {
+            sourceErrors[id] = SourceCopy.cancelledBeforeFinishing
+            return false
+        } catch let problem as MailAccessError {
+            switch problem {
+            case .notAuthorized: localMailProblem = .automationDenied; sourceErrors[id] = SourceCopy.mailAccessDenied
+            case .noAccounts: localMailProblem = .noAccounts; sourceErrors[id] = SourceCopy.mailHasNoAccounts
+            case .notRunning: sourceErrors[id] = SourceCopy.mailWouldNotOpen
+            case .failed(let message): sourceErrors[id] = String(message.prefix(SourceCopy.maxErrorCharacters))
+            }
+            return false
+        } catch {
+            sourceErrors[id] = describe(error)
+            return false
+        }
+        await refreshAfterConnect(id)
+        // Connected, but nothing came back: say so, so a quiet "0 messages" isn't mistaken for a failure to connect.
+        if found == 0, sourceErrors[id] == nil { sourceErrors[id] = SourceCopy.mailWasEmpty }
+        return true
+    }
+
+    /// Mail changes, so a connected Mac Mail is read again when the app starts, on the Mac Calendar's cadence. Silent:
+    /// it only reads a Mail that is already open (Apple Events would open it), never prompts, and a failure leaves
+    /// what the core already holds.
+    public func refreshLocalMailIfConnected() async {
+        if settings == nil { await reloadConnections() }
+        guard settings?.connections.first(where: { $0.id == "mail_local" })?.connected == true,
+              !busySources.contains("mail_local"), localMail.isMailRunning(),
+              let messages = try? await localMail.messages() else { return }
+        try? await client.connectSource(.localMail(messages: messages))
+        await reloadConnections()
+    }
+
+    /// Connects one source: `POST /api/sources/{name}`, then the rows are read again so they show what the core holds.
+    /// The email password is in `source` only for this call; nothing here keeps or logs it. A failure becomes
+    /// `sourceErrors[id]` and the function returns false.
+    @discardableResult
+    public func connect(_ source: SourceConnection) async -> Bool {
+        let id = source.sourceID
+        guard !busySources.contains(id) else { return false }
+        busySources.insert(id)
+        sourceErrors[id] = nil
+        defer { busySources.remove(id) }
+        do {
+            try await client.connectSource(source)
+        } catch is CancellationError {
+            sourceErrors[id] = SourceCopy.cancelledBeforeFinishing
+            return false
+        } catch {
+            sourceErrors[id] = describe(error)
+            return false
+        }
+        await refreshAfterConnect(id)
+        return true
+    }
+
+    /// Disconnect asks first: this opens the confirm sheet and changes nothing yet.
+    public func askToDisconnect(_ id: String) {
+        guard !busySources.contains(id), let row = settings?.connections.first(where: { $0.id == id }) else { return }
+        pendingDisconnect = row
+    }
+
+    public func cancelDisconnect() { pendingDisconnect = nil }
+
+    public func confirmDisconnect() async {
+        guard let row = pendingDisconnect, !busySources.contains(row.id) else { return }
+        pendingDisconnect = nil
+        busySources.insert(row.id)
+        sourceErrors[row.id] = nil
+        defer { busySources.remove(row.id) }
+        do {
+            if let provider = OAuthProviderID(rawValue: row.id) {
+                if signingIn == provider { cancelSignIn() }
+                try await client.disconnectOAuth(provider: provider)
+            } else {
+                try await client.disconnectSource(id: row.id)
+            }
+        } catch { sourceErrors[row.id] = describe(error) }
+        await reloadConnections()
     }
 
     public func setMode(_ mode: PermissionMode) async {
@@ -198,9 +454,14 @@ public extension ProviderStatus {
 @Observable
 public final class FirstRunStore {
     public enum Step: Int, CaseIterable, Sendable {
-        case risks = 0, model, personalize
+        case risks = 0, model, sources, personalize
         public var title: String {
-            switch self { case .risks: "Read the risks"; case .model: "Connect a model"; case .personalize: "Make it yours" }
+            switch self {
+            case .risks: "Read the risks"
+            case .model: "Connect a model"
+            case .sources: "Connect your sources"
+            case .personalize: "Make it yours"
+            }
         }
     }
 
@@ -223,7 +484,22 @@ public final class FirstRunStore {
 
     public func useAPIKeyInstead() async {
         wantsAPIKey = true
-        step = .personalize
+        step = .sources
+    }
+
+    /// "Continue" and "Skip for now" on the sources step: every source is optional, so both go to the same place.
+    public func continueFromSources() { step = .personalize }
+
+    /// Starts the steps again for someone who is already set up ("Run setup again" in Settings › General).
+    /// Nothing is deleted: `onboarded` stays set, and the risk notice stays accepted if it still is.
+    public func restart() {
+        step = .risks
+        accepted = false
+        noticeUpdated = false
+        wantsAPIKey = false
+        isFinished = false
+        error = nil
+        selectedProviderID = nil
     }
 
     public var canAccept: Bool { accepted && notice != nil }
@@ -278,7 +554,7 @@ public final class FirstRunStore {
 
     public func continueFromModel() async {
         if let id = selectedProviderID { try? await client.selectProvider(id: id) }
-        step = .personalize
+        step = .sources
     }
 
     public func finish(persona: PersonaStore) async {

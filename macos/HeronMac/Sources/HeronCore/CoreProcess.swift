@@ -201,10 +201,14 @@ public final class CoreProcess: @unchecked Sendable {
     private func handle(line: String, generation gen: Int, isOutput: Bool) {
         guard !line.isEmpty else { return }
         lock.withLock {
-            tail.append(line)
-            if tail.count > 20 { tail.removeFirst(tail.count - 20) }
-            guard isOutput, gen == generation, var running = current, !running.gotEndpoint,
-                  let endpoint = try? CoreWire.endpoint(line: line) else { return }
+            // The endpoint line carries the token that opens the core's API: it never goes into the tail, which
+            // the "Heron's core stopped" card shows and copies.
+            guard isOutput, let endpoint = try? CoreWire.endpoint(line: line) else {
+                tail.append(line)
+                if tail.count > 20 { tail.removeFirst(tail.count - 20) }
+                return
+            }
+            guard gen == generation, var running = current, !running.gotEndpoint else { return }
             running.gotEndpoint = true
             current = running
             publish(running.isRestart ? .restarted(endpoint) : .running(endpoint))

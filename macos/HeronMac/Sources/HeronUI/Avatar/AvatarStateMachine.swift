@@ -78,7 +78,7 @@ public struct AvatarStateMachine: Equatable, Sendable {
             errorSince = now
         case .runEnd:
             endRun(run)
-        case .toolEnd, .usage, .model, .notice, .learned, .resync:
+        case .toolEnd, .usage, .model, .notice, .notification, .learned, .resync:
             break
         }
     }

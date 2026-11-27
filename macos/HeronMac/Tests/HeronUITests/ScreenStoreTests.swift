@@ -479,6 +479,487 @@ final class ScreenStoreTests: XCTestCase {
 
     // MARK: Settings
 
+    // MARK: Settings: connecting sources
+
+    private func connectionsStore() async throws -> (SettingsStore, PreviewCoreClient) {
+        let client = try await makeClient()
+        let store = SettingsStore(client: client)
+        await store.load()
+        return (store, client)
+    }
+
+    func testConnectingASourceReloadsTheRows() async throws {
+        let (store, client) = try await connectionsStore()
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "documents" }?.connected, false)
+        let ok = await store.connect(.documents(path: "/Users/sam/Notes"))
+        XCTAssertTrue(ok)
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "documents" }?.connected, true)
+        XCTAssertNil(store.sourceErrors["documents"])
+        XCTAssertFalse(store.isBusy(source: "documents"), "the spinner is gone")
+        XCTAssertEqual(client.sourceRequests, [.documents(path: "/Users/sam/Notes")])
+    }
+
+    func testConnectingICloudMailKeepsASignedInGoogleAccountAndSendsOnlyTheEmailRequest() async throws {
+        let (store, client) = try await connectionsStore()
+        let ok = await store.connect(.iCloudMail(address: "sam@icloud.com", password: "abcd-efgh-ijkl-mnop"))
+        XCTAssertTrue(ok)
+        XCTAssertEqual(client.sourceRequests, [.iCloudMail(address: "sam@icloud.com", password: "abcd-efgh-ijkl-mnop")])
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "email" }?.connected, true)
+        XCTAssertTrue(client.oauthSyncs.isEmpty, "no account was touched")
+    }
+
+    func testICloudCopyNamesWhereToMakeTheAppPassword() {
+        XCTAssertEqual(SourceCopy.iCloudURL, "https://account.apple.com")
+        XCTAssertTrue(SourceCopy.iCloudWhy.contains("App-Specific Passwords"))
+    }
+
+    func testAFailedConnectShowsTheCoresSentenceOnThatRowAndChangesNothing() async throws {
+        let (store, client) = try await connectionsStore()
+        client.failNextSourceChange(with: .failed("Couldn't sign in to imap.gmail.com. Check the app password."))
+        let ok = await store.connect(.email(host: "imap.gmail.com", username: "sam@example.com", password: "wrong", port: nil, tls: nil))
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.sourceErrors["email"], "Couldn't sign in to imap.gmail.com. Check the app password.")
+        XCTAssertNil(store.sourceErrors["calendar"], "other rows are untouched")
+        XCTAssertFalse(store.isBusy(source: "email"))
+        store.clearSourceError("email")
+        XCTAssertNil(store.sourceErrors["email"])
+    }
+
+    func testTheNextConnectClearsTheLastError() async throws {
+        let (store, client) = try await connectionsStore()
+        client.failNextSourceChange(with: .failed("Paste your calendar's private ICS link."))
+        _ = await store.connect(.calendar(url: "x"))
+        XCTAssertNotNil(store.sourceErrors["calendar"])
+        let ok = await store.connect(.calendar(url: "https://example.com/p.ics"))
+        XCTAssertTrue(ok)
+        XCTAssertNil(store.sourceErrors["calendar"])
+    }
+
+    func testThisMacScanConnectsItsRow() async throws {
+        let (store, _) = try await connectionsStore()
+        let ok = await store.connect(.computer)
+        XCTAssertTrue(ok)
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "computer" }?.connected, true)
+    }
+
+    func testDisconnectAsksFirstAndChangesNothingUntilConfirmed() async throws {
+        let (store, client) = try await connectionsStore()
+        store.askToDisconnect("email")
+        XCTAssertEqual(store.pendingDisconnect?.id, "email")
+        var rows = try await client.settings().connections
+        XCTAssertEqual(rows.first { $0.id == "email" }?.connected, true, "asking disconnects nothing")
+        store.cancelDisconnect()
+        XCTAssertNil(store.pendingDisconnect)
+        store.askToDisconnect("email")
+        await store.confirmDisconnect()
+        XCTAssertNil(store.pendingDisconnect)
+        rows = try await client.settings().connections
+        XCTAssertEqual(rows.first { $0.id == "email" }?.connected, false)
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "email" }?.connected, false, "the page reloaded")
+    }
+
+    func testAFailedDisconnectKeepsTheRowConnectedAndSaysWhy() async throws {
+        let (store, client) = try await connectionsStore()
+        client.failNextSourceChange(with: .failed("An OAuth account is still connected."))
+        store.askToDisconnect("calendar")
+        await store.confirmDisconnect()
+        XCTAssertEqual(store.sourceErrors["calendar"], "An OAuth account is still connected.")
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "calendar" }?.connected, true)
+    }
+
+    func testDisconnectCopySaysWhatHeronForgets() {
+        let row = ConnectionInfo(id: "email", name: "Email", connected: true, detail: "sam@example.com")
+        XCTAssertTrue(SourceCopy.forgetSentence(row).contains("app password"))
+        XCTAssertTrue(SourceCopy.forgetSentence(row).contains("forget"))
+        XCTAssertTrue(SourceCopy.forgetSentence(ConnectionInfo(id: "documents", name: "Documents", connected: true, detail: "")).contains("forget"))
+        XCTAssertTrue(SourceCopy.scanSentence.contains("opens no files"))
+        XCTAssertEqual(SourceCopy.connectTitle("computer"), "Scan")
+        XCTAssertEqual(SourceCopy.connectTitle("email"), "Connect…")
+    }
+
+    // MARK: Sign in with Google or Microsoft
+
+    /// Opened URLs, captured on the main actor.
+    @MainActor private final class Opened { var urls: [URL] = []; var canOpen = true }
+
+    private func signInStore(_ client: PreviewCoreClient, calendar: FakeCalendar = FakeCalendar()) async -> SettingsStore {
+        let store = SettingsStore(client: client, localCalendar: calendar, sleep: { _ in await Task.yield() })
+        await store.load()
+        return store
+    }
+
+    func testSignInOpensTheConsentPagePollsUntilConnectedThenReadsTheAccount() async throws {
+        let client = try await makeClient()
+        client.completeSignIn(afterPolls: 3, address: "sam@gmail.com")
+        let store = await signInStore(client)
+        XCTAssertFalse(store.account(.google).connected)
+        let opened = Opened()
+        await store.beginSignIn(.google) { opened.urls.append($0); return opened.canOpen }.value
+        XCTAssertEqual(opened.urls, [URL(string: "https://accounts.example.com/consent?provider=google")!], "the consent page went to the system browser")
+        XCTAssertTrue(store.account(.google).connected)
+        XCTAssertEqual(store.account(.google).account, "sam@gmail.com")
+        XCTAssertEqual(client.oauthSyncs, [.google], "the first read was triggered once connected")
+        XCTAssertNil(store.signingIn)
+        XCTAssertTrue(store.syncingAccounts.isEmpty)
+        XCTAssertNil(store.sourceErrors["google"])
+        XCTAssertFalse(store.account(.microsoft).connected, "one provider's sign-in doesn't touch the other")
+    }
+
+    func testWhileWaitingTheStoreSaysSoAndCancelStopsWithoutConnecting() async throws {
+        let client = try await makeClient()
+        client.completeSignIn(afterPolls: nil)   // the user never finishes
+        let store = SettingsStore(client: client, localCalendar: FakeCalendar(), sleep: { _ in try await Task.sleep(for: .seconds(60)) })
+        await store.load()
+        let task = store.beginSignIn(.google) { _ in true }
+        for _ in 0..<200 where store.signingIn == nil { await Task.yield() }
+        XCTAssertEqual(store.signingIn, .google, "waiting for the browser")
+        store.cancelSignIn()
+        XCTAssertNil(store.signingIn)
+        await task.value
+        XCTAssertFalse(store.account(.google).connected)
+        XCTAssertTrue(client.oauthSyncs.isEmpty, "nothing is read after a cancel")
+        XCTAssertNil(store.sourceErrors["google"], "cancelling is not an error")
+    }
+
+    func testSignInThatIsNotFinishedInTimeSaysSoAndStopsWaiting() async throws {
+        let client = try await makeClient()
+        client.completeSignIn(afterPolls: nil)
+        let store = await signInStore(client)
+        store.pollInterval = .seconds(2)
+        store.signInTimeout = .seconds(10)
+        await store.beginSignIn(.microsoft) { _ in true }.value
+        XCTAssertEqual(store.sourceErrors["microsoft"], SourceCopy.signInTimedOut)
+        XCTAssertNil(store.signingIn)
+    }
+
+    func testAProviderThisBuildCannotSignInToIsOffAndNeverStartsASignIn() async throws {
+        let client = try await makeClient()
+        client.setOAuthConfigured(.google, false)
+        let store = await signInStore(client)
+        XCTAssertFalse(store.account(.google).clientConfigured)
+        XCTAssertTrue(store.account(.microsoft).clientConfigured, "the other provider is unaffected")
+        let opened = Opened()
+        await store.beginSignIn(.google) { opened.urls.append($0); return true }.value
+        XCTAssertTrue(opened.urls.isEmpty, "nothing opens")
+        XCTAssertEqual(store.sourceErrors["google"], "Google sign-in isn't set up in this build yet.")
+        XCTAssertNil(store.signingIn)
+    }
+
+    func testAFailedStartAndABrowserThatWontOpenShowAMessage() async throws {
+        let client = try await makeClient()
+        let store = await signInStore(client)
+        client.failNextOAuthStart(with: .failed("Too many unfinished sign-ins. Try again later."))
+        await store.beginSignIn(.google) { _ in true }.value
+        XCTAssertEqual(store.sourceErrors["google"], "Too many unfinished sign-ins. Try again later.")
+        await store.beginSignIn(.google) { _ in false }.value
+        XCTAssertEqual(store.sourceErrors["google"], SourceCopy.browserWouldNotOpen)
+        XCTAssertNil(store.signingIn)
+    }
+
+    func testAFirstReadThatFailsKeepsTheAccountConnectedAndSaysWhat() async throws {
+        let client = try await makeClient()
+        client.completeSignIn(afterPolls: 1)
+        client.failNextOAuthSync(with: .failed("Read-only account sync failed (HTTP 403)."))
+        let store = await signInStore(client)
+        await store.beginSignIn(.google) { _ in true }.value
+        XCTAssertTrue(store.account(.google).connected, "the sign-in itself worked")
+        XCTAssertTrue(store.sourceErrors["google"]?.contains("Read-only account sync failed (HTTP 403).") ?? false)
+    }
+
+    func testDisconnectingAnAccountAsksFirstThenSignsOut() async throws {
+        let client = try await makeClient()
+        client.completeSignIn(afterPolls: 1)
+        let store = await signInStore(client)
+        await store.beginSignIn(.google) { _ in true }.value
+        store.askToDisconnect(account: .google)
+        XCTAssertEqual(store.pendingDisconnect?.id, "google")
+        XCTAssertTrue(SourceCopy.forgetSentence(try XCTUnwrap(store.pendingDisconnect)).contains("sign out of this account"))
+        XCTAssertTrue(store.account(.google).connected, "asking changes nothing")
+        await store.confirmDisconnect()
+        XCTAssertFalse(store.account(.google).connected)
+        XCTAssertNil(store.pendingDisconnect)
+        store.askToDisconnect(account: .microsoft)
+        XCTAssertNil(store.pendingDisconnect, "an account that isn't connected has nothing to disconnect")
+    }
+
+    // MARK: The Mac's Calendar (EventKit)
+
+    func testMacCalendarAsksMacOSThenSendsTheEventsToTheCore() async throws {
+        let client = try await makeClient()
+        let calendar = FakeCalendar(status: .notDetermined, afterPrompt: .granted,
+                                    events: [LocalCalendarEvent(uid: "e1", title: "Dentist", start: 1_795_100_000), LocalCalendarEvent(uid: "e2", title: "Standup", start: 1_795_200_000)])
+        let store = await signInStore(client, calendar: calendar)
+        let ok = await store.connectLocalCalendar()
+        XCTAssertTrue(ok)
+        XCTAssertEqual(calendar.prompts, 1, "the macOS prompt was shown once")
+        XCTAssertEqual(client.sourceRequests.last, .localCalendar(events: calendar.eventList))
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "calendar_local" }?.connected, true)
+        XCTAssertFalse(store.localCalendarDenied)
+    }
+
+    func testMacCalendarDeniedExplainsHowToTurnItOnInSystemSettings() async throws {
+        let client = try await makeClient()
+        let calendar = FakeCalendar(status: .denied, afterPrompt: .denied)
+        let store = await signInStore(client, calendar: calendar)
+        let ok = await store.connectLocalCalendar()
+        XCTAssertFalse(ok)
+        XCTAssertEqual(calendar.prompts, 0, "macOS won't ask twice, so Heron doesn't try")
+        XCTAssertTrue(store.localCalendarDenied)
+        let message = try XCTUnwrap(store.sourceErrors["calendar_local"])
+        XCTAssertTrue(message.contains("System Settings"))
+        XCTAssertTrue(message.contains("Calendars"))
+        XCTAssertTrue(client.sourceRequests.isEmpty, "nothing was sent")
+        XCTAssertTrue(SourceCopy.privacyCalendarsURL.hasSuffix("Privacy_Calendars"))
+        XCTAssertFalse(store.isBusy(source: "calendar_local"))
+    }
+
+    func testRefusingTheMacOSPromptIsTheSameAsDenied() async throws {
+        let client = try await makeClient()
+        let calendar = FakeCalendar(status: .notDetermined, afterPrompt: .denied)
+        let store = await signInStore(client, calendar: calendar)
+        let ok = await store.connectLocalCalendar()
+        XCTAssertFalse(ok)
+        XCTAssertEqual(calendar.prompts, 1)
+        XCTAssertTrue(store.localCalendarDenied)
+    }
+
+    func testAConnectedMacCalendarIsReadAgainQuietlyAndNeverPromptsOnItsOwn() async throws {
+        let client = try await makeClient()
+        let calendar = FakeCalendar(status: .granted, afterPrompt: .granted, events: [LocalCalendarEvent(uid: "e1", title: "Dentist", start: 1_795_100_000)])
+        let store = await signInStore(client, calendar: calendar)
+        await store.refreshLocalCalendarIfConnected()
+        XCTAssertTrue(client.sourceRequests.isEmpty, "not connected, so nothing is read")
+        _ = await store.connectLocalCalendar()
+        calendar.eventList.append(LocalCalendarEvent(uid: "e2", title: "Standup", start: 1_795_200_000))
+        await store.refreshLocalCalendarIfConnected()
+        XCTAssertEqual(client.sourceRequests.last, .localCalendar(events: calendar.eventList), "the new event went along")
+        // Access was taken away in System Settings: the refresh does nothing and doesn't prompt.
+        calendar.status = .denied
+        let sent = client.sourceRequests.count
+        await store.refreshLocalCalendarIfConnected()
+        XCTAssertEqual(client.sourceRequests.count, sent)
+        XCTAssertEqual(calendar.prompts, 0)
+    }
+
+    // MARK: The Mac's Mail (Apple Events)
+
+    private func mailStore(_ client: PreviewCoreClient, mail: FakeMail) async -> SettingsStore {
+        let store = SettingsStore(client: client, localCalendar: FakeCalendar(), localMail: mail, sleep: { _ in await Task.yield() })
+        await store.load()
+        return store
+    }
+
+    private func sampleMail(_ id: String, account: String = "iCloud", date: Int = Int(Date().timeIntervalSince1970)) -> LocalMailMessage {
+        LocalMailMessage(id: id, from: "Dana <dana@example.com>", subject: "Invoice", date: date, account: account, body: "Please pay.")
+    }
+
+    func testMacMailSendsTheMessagesToTheCoreAndMarksTheRowConnected() async throws {
+        let client = try await makeClient()
+        let mail = FakeMail(result: .success([sampleMail("<a@x>"), sampleMail("<b@x>", account: "Outlook")]))
+        let store = await mailStore(client, mail: mail)
+        let ok = await store.connectLocalMail()
+        XCTAssertTrue(ok)
+        XCTAssertEqual(client.sourceRequests.last, .localMail(messages: try mail.result.get()))
+        let row = try XCTUnwrap(store.settings?.connections.first { $0.id == "mail_local" })
+        XCTAssertEqual([row.connected, row.detail == "2 messages indexed"], [true, true])
+        XCTAssertNil(store.localMailProblem)
+        XCTAssertFalse(store.isBusy(source: "mail_local"))
+    }
+
+    func testMacMailPermissionDeniedShowsHowToTurnItOnAndOffersTheAutomationPane() async throws {
+        let client = try await makeClient()
+        let store = await mailStore(client, mail: FakeMail(result: .failure(.notAuthorized)))
+        let ok = await store.connectLocalMail()
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.localMailProblem, .automationDenied)
+        let message = try XCTUnwrap(store.sourceErrors["mail_local"])
+        XCTAssertTrue(message.contains("System Settings") && message.contains("Automation") && message.contains("Mail"), message)
+        XCTAssertTrue(client.sourceRequests.isEmpty, "nothing was sent")
+        XCTAssertTrue(SourceCopy.privacyAutomationURL.hasSuffix("Privacy_Automation"))
+        XCTAssertFalse(store.isBusy(source: "mail_local"))
+        // Asking again after turning it on works, and clears the problem.
+        let fixed = FakeMail(result: .success([sampleMail("<a@x>")]))
+        let again = await mailStore(client, mail: fixed)
+        let retried = await again.connectLocalMail()
+        XCTAssertTrue(retried)
+        XCTAssertNil(again.localMailProblem)
+    }
+
+    func testMacMailWithNoAccountsSaysHowToAddOneAndOffersInternetAccounts() async throws {
+        let client = try await makeClient()
+        let store = await mailStore(client, mail: FakeMail(result: .failure(.noAccounts)))
+        let ok = await store.connectLocalMail()
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.localMailProblem, .noAccounts)
+        XCTAssertTrue(try XCTUnwrap(store.sourceErrors["mail_local"]).contains("Internet Accounts"))
+        XCTAssertTrue(client.sourceRequests.isEmpty)
+        XCTAssertTrue(SourceCopy.internetAccountsURL.contains("Internet-Accounts"))
+    }
+
+    // The silent-failure paths: every one ends with the row connected or a visible sentence.
+
+    func testAnEmptyMailIsConnectedWithAVisibleNoteNotASilentZero() async throws {
+        let client = try await makeClient()
+        let store = await mailStore(client, mail: FakeMail(result: .success([])))
+        let ok = await store.connectLocalMail()
+        XCTAssertTrue(ok, "it did connect")
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "mail_local" }?.connected, true)
+        XCTAssertEqual(store.sourceErrors["mail_local"], SourceCopy.mailWasEmpty)
+        XCTAssertTrue(SourceCopy.mailWasEmpty.contains("no inbox messages from the last 14 days") && SourceCopy.mailWasEmpty.contains("finished downloading"))
+    }
+
+    func testAConnectThatWorkedButCouldNotRefreshTheRowsSaysSo() async throws {
+        let client = try await makeClient()
+        let store = await mailStore(client, mail: FakeMail(result: .success([sampleMail("<a@x>")])))
+        client.failNextSettingsRead(with: .failed("offline"))
+        let ok = await store.connectLocalMail()
+        XCTAssertTrue(ok)
+        XCTAssertEqual(store.sourceErrors["mail_local"], SourceCopy.connectedButCouldNotRefresh, "the list still says Not connected, so the row explains")
+        XCTAssertEqual(client.sourceRequests.count, 1)
+    }
+
+    func testACancelledMailReadSaysSoAndIsNotBusyAfterwards() async throws {
+        let client = try await makeClient()
+        let mail = FakeMail(result: .success([]))
+        mail.cancelled = true
+        let store = await mailStore(client, mail: mail)
+        let ok = await store.connectLocalMail()
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.sourceErrors["mail_local"], SourceCopy.cancelledBeforeFinishing)
+        XCTAssertFalse(store.isBusy(source: "mail_local"))
+        XCTAssertTrue(client.sourceRequests.isEmpty)
+    }
+
+    func testAnyMailFailureTextOnTheRowIsCapped() async throws {
+        let client = try await makeClient()
+        let store = await mailStore(client, mail: FakeMail(result: .failure(.failed(String(repeating: "x", count: 10_000)))))
+        _ = await store.connectLocalMail()
+        XCTAssertEqual(store.sourceErrors["mail_local"]?.count, SourceCopy.maxErrorCharacters)
+    }
+
+    func testMacMailThatCannotBeOpenedOrFailsIsExplainedWithoutASettingsButton() async throws {
+        let client = try await makeClient()
+        let notRunning = await mailStore(client, mail: FakeMail(result: .failure(.notRunning)))
+        _ = await notRunning.connectLocalMail()
+        XCTAssertEqual(notRunning.sourceErrors["mail_local"], SourceCopy.mailWouldNotOpen)
+        XCTAssertNil(notRunning.localMailProblem)
+        let broken = await mailStore(client, mail: FakeMail(result: .failure(.failed("Mail answered with error 7."))))
+        _ = await broken.connectLocalMail()
+        XCTAssertEqual(broken.sourceErrors["mail_local"], "Mail answered with error 7.", "a short message passes through unchanged")
+    }
+
+    func testMacMailTakesItsTimeOffTheMainThreadAndShowsBusyUntilMailAnswers() async throws {
+        let client = try await makeClient()
+        // Apple Events opens Mail first, so the answer can be slow: the store stays responsive and busy meanwhile.
+        let mail = FakeMail(result: .success([sampleMail("<a@x>")]), delay: .milliseconds(150))
+        let store = await mailStore(client, mail: mail)
+        let reading = Task { await store.connectLocalMail() }
+        for _ in 0..<500 where !store.isBusy(source: "mail_local") { await Task.yield() }
+        XCTAssertTrue(store.isBusy(source: "mail_local"), "the row shows the wait")
+        let second = await store.connectLocalMail()
+        XCTAssertFalse(second, "a second click while Mail is answering does nothing")
+        let ok = await reading.value
+        XCTAssertTrue(ok)
+        XCTAssertEqual(mail.calls, 1)
+        XCTAssertFalse(store.isBusy(source: "mail_local"))
+    }
+
+    func testAConnectedMacMailIsReadAgainQuietlyOnlyWhileMailIsOpen() async throws {
+        let client = try await makeClient()
+        let mail = FakeMail(result: .success([sampleMail("<a@x>")]))
+        let store = await mailStore(client, mail: mail)
+        await store.refreshLocalMailIfConnected()
+        XCTAssertTrue(client.sourceRequests.isEmpty, "not connected, so nothing is read")
+        _ = await store.connectLocalMail()
+        mail.result = .success([sampleMail("<a@x>"), sampleMail("<c@x>")])
+        mail.running = false
+        let reads = mail.calls
+        await store.refreshLocalMailIfConnected()
+        XCTAssertEqual(mail.calls, reads, "a closed Mail is left closed: Apple Events would open it")
+        mail.running = true
+        await store.refreshLocalMailIfConnected()
+        XCTAssertEqual(client.sourceRequests.last, .localMail(messages: try mail.result.get()), "the new message went along")
+        // Permission taken away: the refresh does nothing visible.
+        mail.result = .failure(.notAuthorized)
+        let sent = client.sourceRequests.count
+        await store.refreshLocalMailIfConnected()
+        XCTAssertEqual(client.sourceRequests.count, sent)
+        XCTAssertNil(store.sourceErrors["mail_local"])
+    }
+
+    func testDisconnectingMacMailAsksFirstThenForgetsItsMessages() async throws {
+        let client = try await makeClient()
+        let store = await mailStore(client, mail: FakeMail(result: .success([sampleMail("<a@x>")])))
+        _ = await store.connectLocalMail()
+        store.askToDisconnect("mail_local")
+        XCTAssertEqual(store.pendingDisconnect?.id, "mail_local")
+        XCTAssertTrue(SourceCopy.forgetSentence(try XCTUnwrap(store.pendingDisconnect)).contains("forget the messages"))
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "mail_local" }?.connected, true, "nothing changes before the confirm")
+        await store.confirmDisconnect()
+        XCTAssertEqual(store.settings?.connections.first { $0.id == "mail_local" }?.connected, false)
+    }
+
+    // MARK: Run setup again
+
+    func testRunSetupAgainShowsSetupWithoutUnsettingOnboardedAndKeepsAcceptedRisks() async throws {
+        let client = try await makeClient()   // risk notice already accepted, onboarded by the preview sample
+        try await client.setOnboarded()
+        let model = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!),
+                             userFirstName: "Sam", now: { self.now })
+        await model.bootstrap()
+        model.stopEvents()
+        XCTAssertFalse(model.needsFirstRun)
+        XCTAssertFalse(model.showsSetup)
+        await model.runSetupAgain()
+        XCTAssertTrue(model.showsSetup)
+        XCTAssertEqual(model.firstRun.step, .risks)
+        XCTAssertTrue(model.firstRun.accepted, "the risks show as already accepted")
+        XCTAssertTrue(model.firstRun.canAccept)
+        let stillOnboarded = try await client.state().onboarded
+        XCTAssertTrue(stillOnboarded, "the core's onboarded flag is left alone")
+        await model.firstRun.accept()
+        XCTAssertEqual(model.firstRun.step, .model)
+        await model.firstRun.continueFromModel()
+        XCTAssertEqual(model.firstRun.step, .sources)
+        model.firstRun.continueFromSources()
+        await model.finishFirstRun()
+        XCTAssertFalse(model.showsSetup)
+        XCTAssertFalse(model.isRerunningSetup)
+        XCTAssertEqual(model.selection, .today)
+    }
+
+    func testClosingSetupAgainLeavesEverythingAsItWas() async throws {
+        let client = try await makeClient()
+        try await client.setOnboarded()
+        let model = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!),
+                             userFirstName: "Sam", now: { self.now })
+        await model.bootstrap()
+        model.stopEvents()
+        await model.runSetupAgain()
+        model.firstRun.step = .sources
+        model.cancelSetupAgain()
+        XCTAssertFalse(model.showsSetup)
+        XCTAssertEqual(model.firstRun.step, .risks)
+        XCTAssertFalse(model.needsFirstRun)
+    }
+
+    // MARK: Sidebar footer model name
+
+    func testSidebarFooterNamesTheProviderNotTheConfiguredModel() async throws {
+        let client = try await makeClient()
+        client.setModel("anthropic/claude-sonnet-5.5", label: "Claude Code")   // [llm] provider = "claude-cli", llm.model still set
+        let model = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!),
+                             userFirstName: "Sam", now: { self.now })
+        await model.refreshState()
+        XCTAssertEqual(model.state?.model, "anthropic/claude-sonnet-5.5")
+        XCTAssertEqual(model.footerModelName, "Claude Code", "llm.model is not what a CLI provider runs")
+        client.setModel("gpt-4o", label: nil, servesLabel: false)   // a core from before model_label
+        await model.refreshState()
+        XCTAssertEqual(model.footerModelName, "gpt-4o")
+        let bare = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!), now: { self.now })
+        XCTAssertEqual(bare.footerModelName, "No model", "before the first state")
+    }
+
     // MARK: Settings: the Never list (heron-v1.md item 35h)
 
     func testNeverListLoadsWithSettings() async throws {
@@ -694,6 +1175,8 @@ final class ScreenStoreTests: XCTestCase {
         await store.accept()
         store.selectedProviderID = "claude-cli"
         await store.continueFromModel()
+        XCTAssertEqual(store.step, .sources, "the sources step sits between the model and the name")
+        store.continueFromSources()
         XCTAssertEqual(store.step, .personalize)
         let persona = PersonaStore(client: client)
         await persona.load()
@@ -705,11 +1188,32 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertEqual(state.name, "Wren")
     }
 
-    func testUseAnAPIKeyInsteadSkipsToPersonalize() async throws {
+    func testUseAnAPIKeyInsteadSkipsTheModelListButStillOffersSources() async throws {
         let store = FirstRunStore(client: try await makeClient(accepted: false))
         await store.useAPIKeyInstead()
-        XCTAssertEqual(store.step, .personalize)
+        XCTAssertEqual(store.step, .sources)
         XCTAssertTrue(store.wantsAPIKey)
+    }
+
+    func testFirstRunStepsRunInOrderWithSourcesBetweenModelAndName() {
+        XCTAssertEqual(FirstRunStore.Step.allCases.map(\.title),
+                       ["Read the risks", "Connect a model", "Connect your sources", "Make it yours"])
+        XCTAssertEqual(FirstRunStore.Step.allCases.map(\.rawValue), [0, 1, 2, 3])
+    }
+
+    func testFirstRunCanFinishWithoutConnectingAnySource() async throws {
+        let client = try await makeClient(accepted: false)
+        let model = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!),
+                             userFirstName: "Sam", now: { self.now })
+        await model.bootstrap()
+        model.stopEvents()
+        model.firstRun.accepted = true
+        await model.firstRun.accept()
+        await model.firstRun.continueFromModel()
+        model.firstRun.continueFromSources()   // "Skip for now"
+        await model.finishFirstRun()
+        XCTAssertFalse(model.needsFirstRun)
+        XCTAssertTrue(client.sourceRequests.isEmpty, "skipping connects nothing")
     }
 
     // MARK: App model
@@ -824,4 +1328,42 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertEqual(TextSizeChoice.allCases.map(\.scale), TextSizeChoice.allCases.map(\.scale).sorted())
         XCTAssertEqual(TextSizeChoice.m.scale, 1)
     }
+}
+
+
+/// A stand-in for the Mac's Mail app, so no test reaches Apple Events or the Automation prompt.
+final class FakeMail: LocalMailAccess, @unchecked Sendable {
+    var result: Result<[LocalMailMessage], MailAccessError>
+    var running = true
+    var cancelled = false
+    let delay: Duration?
+    private let lock = NSLock()
+    private var count = 0
+    var calls: Int { lock.withLock { count } }
+
+    init(result: Result<[LocalMailMessage], MailAccessError>, delay: Duration? = nil) { self.result = result; self.delay = delay }
+
+    func isMailRunning() -> Bool { running }
+    func messages() async throws -> [LocalMailMessage] {
+        lock.withLock { count += 1 }
+        if let delay { try await Task.sleep(for: delay) }
+        if cancelled { throw CancellationError() }
+        return try result.get()
+    }
+}
+
+/// A stand-in for the Mac's Calendar app, so no test reaches EventKit or the permission prompt.
+final class FakeCalendar: LocalCalendarAccess, @unchecked Sendable {
+    var status: CalendarAuthorization
+    let afterPrompt: CalendarAuthorization
+    var eventList: [LocalCalendarEvent]
+    private(set) var prompts = 0
+
+    init(status: CalendarAuthorization = .granted, afterPrompt: CalendarAuthorization = .granted, events: [LocalCalendarEvent] = []) {
+        self.status = status; self.afterPrompt = afterPrompt; self.eventList = events
+    }
+
+    func authorization() -> CalendarAuthorization { status }
+    func requestAccess() async -> CalendarAuthorization { prompts += 1; status = afterPrompt; return status }
+    func events() async throws -> [LocalCalendarEvent] { eventList }
 }
