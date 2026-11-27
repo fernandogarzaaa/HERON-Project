@@ -118,6 +118,18 @@ public final class CoreClient: CoreClientProtocol, Sendable {
     public func session(id: String) async throws -> SessionDetail { try CoreWire.session(try await send("GET", "/sessions/\(segment(id))")) }
     public func deleteSession(id: String) async throws { try await send("DELETE", "/sessions/\(segment(id))") }
 
+    public func archivedSessions() async throws -> [SessionSummary] {
+        try CoreWire.sessions(try await send("GET", "/sessions", query: [URLQueryItem(name: "archived", value: "true")]))
+    }
+
+    public func updateSession(id: String, title: String?, pinned: Bool?, archived: Bool?) async throws {
+        var body: [String: Any] = [:]
+        if let title { body["title"] = title }
+        if let pinned { body["pinned"] = pinned }
+        if let archived { body["archived"] = archived }
+        try await send("POST", "/sessions/\(segment(id))", body: body)
+    }
+
     /// `POST /api/chat` answers with the run's events as SSE. This reads only up to its `session` event and then
     /// drops the response: the run goes on without it (heron-v1.md §3), and its events reach the app once, on `events(since:)`.
     /// The core has no title field on `/api/chat`: `title` is accepted for the protocol and not sent (DESIGN-CHOICES.md).
@@ -310,6 +322,41 @@ public final class CoreClient: CoreClientProtocol, Sendable {
     public func revokeGrant(rule: String) async throws { try await send("DELETE", "/grants", body: ["rule": rule]) }
     public func nevers() async throws -> [NeverRule] { try CoreWire.nevers(try await send("GET", "/nevers")) }
     public func removeNever(rule: String) async throws { try await send("DELETE", "/nevers", body: ["rule": rule]) }
+    public func connectSource(_ source: SourceConnection) async throws {
+        var body: [String: Any] = [:]
+        switch source {
+        case .documents(let path): body["path"] = path
+        case .calendar(let url): body["url"] = url
+        case .email(let host, let username, let password, let port, let tls):
+            body = ["host": host, "username": username, "password": password]
+            if let port { body["port"] = port }
+            if let tls { body["tls"] = tls }
+        case .computer: break
+        case .localCalendar(let events):
+            body["events"] = events.map { e -> [String: Any] in
+                var o: [String: Any] = ["uid": e.uid, "title": e.title, "start": e.start, "all_day": e.allDay, "location": e.location]
+                if let end = e.end { o["end"] = end }
+                return o
+            }
+        case .localMail(let messages):
+            body["messages"] = messages.map { m -> [String: Any] in
+                ["id": m.id, "from": m.from, "subject": m.subject, "date": m.date, "account": m.account, "body": m.body]
+            }
+        }
+        try await send("POST", "/sources/\(segment(source.sourceID))", body: body)
+    }
+
+    public func oauthAccounts() async throws -> [OAuthAccount] { try CoreWire.oauthAccounts(try await send("GET", "/oauth")) }
+
+    public func startOAuth(provider: OAuthProviderID) async throws -> URL {
+        try CoreWire.oauthStart(try await send("POST", "/oauth/\(provider.rawValue)/start", body: [:]))
+    }
+
+    public func syncOAuth(provider: OAuthProviderID) async throws { try await send("POST", "/oauth/\(provider.rawValue)/sync", body: [:]) }
+    public func disconnectOAuth(provider: OAuthProviderID) async throws { try await send("DELETE", "/oauth/\(provider.rawValue)") }
+
+    public func disconnectSource(id: String) async throws { try await send("DELETE", "/sources/\(segment(id))") }
+
     public func usage() async throws -> UsageReport { try CoreWire.usage(try await send("GET", "/usage")) }
 }
 

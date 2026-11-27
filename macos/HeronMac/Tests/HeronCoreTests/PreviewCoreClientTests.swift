@@ -141,6 +141,43 @@ final class PreviewCoreClientTests: XCTestCase {
         do { try await c.removeNever(rule: "shell:*sudo*"); XCTFail("removing twice fails") } catch { XCTAssertEqual(error as? CoreError, .notFound) }
     }
 
+    func testConnectingAndDisconnectingASourceChangesItsRow() async throws {
+        let c = try await client()
+        var rows = try await c.settings().connections
+        XCTAssertEqual(rows.first { $0.id == "documents" }?.connected, false)
+        try await c.connectSource(.documents(path: "/Users/sam/Notes"))
+        rows = try await c.settings().connections
+        XCTAssertEqual(rows.first { $0.id == "documents" }?.connected, true)
+        try await c.disconnectSource(id: "documents")
+        rows = try await c.settings().connections
+        XCTAssertEqual(rows.first { $0.id == "documents" }?.connected, false)
+        XCTAssertEqual(rows.first { $0.id == "documents" }?.detail, "Not connected")
+    }
+
+    func testConnectingWithAMissingFieldFailsWithTheCoresSentence() async throws {
+        let c = try await client()
+        do { try await c.connectSource(.email(host: "imap.gmail.com", username: "sam@example.com", password: " ", port: nil, tls: nil)); XCTFail("expected the failure") } catch {
+            XCTAssertEqual(error as? CoreError, .failed("Enter the app password for this account."))
+        }
+        let rows = try await c.settings().connections
+        XCTAssertEqual(rows.first { $0.id == "email" }?.detail, "sam@northwind.example", "a refused request changes nothing")
+    }
+
+    func testAFailedSourceChangeIsForOneAttemptOnly() async throws {
+        let c = try await client()
+        c.failNextSourceChange(with: .failed("Couldn't sign in."))
+        do { try await c.connectSource(.computer); XCTFail("expected the failure") } catch { XCTAssertEqual(error as? CoreError, .failed("Couldn't sign in.")) }
+        try await c.connectSource(.computer)
+        let rows = try await c.settings().connections
+        XCTAssertEqual(rows.first { $0.id == "computer" }?.connected, true)
+    }
+
+    func testStateServesTheModelLabel() async throws {
+        let c = try await client()
+        let state = try await c.state()
+        XCTAssertEqual(state.modelDisplayName, "Claude Code")
+    }
+
     func testAFailedRemovalLeavesTheRuleInForce() async throws {
         let c = try await client()
         c.failNextNeverRemoval(with: .failed("Heron couldn't save that."))

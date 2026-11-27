@@ -498,7 +498,7 @@ The buffer is an in-memory ring of the last 10,000 events. That covers a 5-minut
 
 `GET /api/events?since=<seq>` streams the bus as SSE:
 
-*   **Envelope.** Each event is `id: <seq>` plus one JSON `data:` line, `{"seq", "session_id", "run_id", "type", ...fields}`. Types and fields are today's chat events, unchanged, plus three new types:
+*   **Envelope.** Each event is `id: <seq>` plus one JSON `data:` line, `{"seq", "session_id", "run_id", "type", ...fields}`. Types and fields are today's chat events, unchanged, plus new types:
 
     | type | fields | when |
     |---|---|---|
@@ -512,6 +512,7 @@ The buffer is an in-memory ring of the last 10,000 events. That covers a 5-minut
     | `done`, `cancelled` | as today | a run ends |
     | `error` | `message`, `code` (**new**: `cli_version_untested` with `provider` and `version`, `risk_notice_not_accepted`, `workspace_refused`, or `null`) | a run ends with an error |
     | `run_end` | none | **new**: the last event of every run, after `done`, `error` or `cancelled` and any `learned`; `/api/chat` ends its stream on it |
+    | `notification` | `title`, `body` (at most 180 characters); `session_id` and `run_id` are empty | **new**: the owner should see this outside the app (a scheduled job's result, an automation's notice). Published only while a native app is attached (`heron serve --print-endpoint`); see the features doc, "Notifications have one owner" |
     | `resync` | `oldest` | **new**: the client asked for a `since` older than the ring holds, or newer than the last `seq` (after a core restart), or fell behind |
 *   **Without `since`,** the stream starts with new events only.
 *   **After `resync`,** the client reloads with `GET /api/sessions/{id}` and `GET /api/approvals`, then continues from the newest `seq` it has.
