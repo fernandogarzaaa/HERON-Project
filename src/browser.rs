@@ -236,20 +236,25 @@ async fn start(cfg: &Config) -> Result<Live> {
     cmd.arg("about:blank").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true);
     let mut child = cmd.spawn().with_context(|| format!("could not start {}", program.display()))?;
     let began = Instant::now();
-    let url = loop {
-        if let Some(url) = listening(&profile) {
-            break url;
+    // The port file can appear before the socket accepts a connection. One attempt then
+    // reports a timeout even though the browser is still starting, which Windows CI hits.
+    let conn = loop {
+        if began.elapsed() > Duration::from_secs(60) {
+            let _ = child.kill().await;
+            bail!("the browser ({}) did not start in time", program.display());
         }
         if let Ok(Some(status)) = child.try_wait() {
             bail!("the browser ({}) closed straight away ({status})", program.display());
         }
-        if began.elapsed() > Duration::from_secs(30) {
-            let _ = child.kill().await;
-            bail!("the browser ({}) did not start in time", program.display());
+        if let Some(url) = listening(&profile) {
+            match Conn::connect(&url).await {
+                Ok(conn) => break conn,
+                Err(_) => tokio::time::sleep(Duration::from_millis(200)).await,
+            }
+        } else {
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
     };
-    let conn = Conn::connect(&url).await.context("could not connect to the browser")?;
     attach(conn, Some(child)).await
 }
 

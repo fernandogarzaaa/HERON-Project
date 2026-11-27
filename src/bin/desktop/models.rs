@@ -357,6 +357,97 @@ pub fn push_note(window: &MainWindow, chat: &mut view::ChatView, text: &str) {
     bump_thread_version(window);
 }
 
+/// The words on screen, in order, for the owner's own clipboard.
+/// An empty row is left out. A note is not labelled as Heron.
+pub fn transcript(messages: &ModelRc<ChatMsg>) -> String {
+    let mut out = String::new();
+    for row in messages.iter() {
+        if row.text.is_empty() {
+            continue;
+        }
+        let who = match row.role.as_str() {
+            "user" => "You",
+            "note" => "Note",
+            _ => "Heron",
+        };
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(who);
+        out.push('\n');
+        out.push_str(row.text.as_str());
+        for step in row.steps.iter() {
+            if step.label.is_empty() {
+                continue;
+            }
+            out.push_str("\n- ");
+            out.push_str(step.label.as_str());
+        }
+        for note in row.notes.iter() {
+            if note.is_empty() {
+                continue;
+            }
+            out.push('\n');
+            out.push_str(note.as_str());
+        }
+        if !row.failure.is_empty() {
+            out.push('\n');
+            out.push_str(row.failure.as_str());
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod transcript_tests {
+    use super::*;
+
+    fn row(role: &str, text: &str, step: Option<&str>) -> ChatMsg {
+        let steps = match step {
+            Some(label) => VecModel::from(vec![ToolStep {
+                id: "s".into(),
+                name: "read_file".into(),
+                label: label.into(),
+                summary: SharedString::default(),
+                risk: "low".into(),
+                state: "ok".into(),
+                preview: SharedString::default(),
+                expanded: false,
+            }]),
+            None => VecModel::default(),
+        };
+        ChatMsg {
+            role: role.into(),
+            text: text.into(),
+            body: StyledText::from_plain_text(text),
+            steps: ModelRc::new(steps),
+            approvals: ModelRc::new(VecModel::default()),
+            notes: ModelRc::new(VecModel::default()),
+            failure: SharedString::default(),
+            complete: true,
+            live: false,
+        }
+    }
+
+    #[test]
+    fn a_transcript_names_each_speaker_and_skips_an_empty_row() {
+        let mut failed = row("assistant", "I stopped", None);
+        failed.notes = ModelRc::new(VecModel::from(vec![SharedString::from("Allowed once")]));
+        failed.failure = "The folder was missing".into();
+        let messages = ModelRc::new(VecModel::from(vec![
+            row("user", "Hello", None),
+            row("assistant", "Hi", Some("Read the notes")),
+            row("note", "Saved", None),
+            row("assistant", "", None),
+            failed,
+        ]));
+        assert_eq!(
+            transcript(&messages),
+            "You\nHello\n\nHeron\nHi\n- Read the notes\n\nNote\nSaved\n\nHeron\nI stopped\nAllowed once\nThe folder was missing"
+        );
+    }
+}
+
 /// Flip a tool result row open or closed. View state only, no server call.
 pub fn toggle_step(window: &MainWindow, chat: &mut view::ChatView, id: &str) {
     chat.toggle_step(id);

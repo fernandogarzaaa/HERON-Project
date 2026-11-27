@@ -34,6 +34,24 @@ use views_slint::{bind_window, ViewsController};
 
 slint::include_modules!();
 
+fn copy_to_clipboard(clipboard: &std::rc::Rc<std::cell::RefCell<Option<arboard::Clipboard>>>, text: &str) {
+    let mut slot = clipboard.borrow_mut();
+    if slot.is_none() {
+        match arboard::Clipboard::new() {
+            Ok(cb) => *slot = Some(cb),
+            Err(e) => {
+                eprintln!("could not open the clipboard: {e}");
+                return;
+            }
+        }
+    }
+    if let Some(cb) = slot.as_mut() {
+        if let Err(e) = cb.set_text(text.to_string()) {
+            eprintln!("could not copy to the clipboard: {e}");
+        }
+    }
+}
+
 fn apply_appearance(window: &MainWindow) {
     push_appearance(window, &heron::ui_prefs::UiPrefs::load());
 }
@@ -499,23 +517,18 @@ fn main() {
         // Retain the platform clipboard object for the window's lifetime.
         // Some clipboard backends transfer ownership on drop, so creating
         // and immediately dropping it can make copied text disappear.
-        let clipboard = std::cell::RefCell::new(None::<arboard::Clipboard>);
-        window.on_copy_requested(move |text| {
-            let mut slot = clipboard.borrow_mut();
-            if slot.is_none() {
-                match arboard::Clipboard::new() {
-                    Ok(cb) => *slot = Some(cb),
-                    Err(e) => {
-                        eprintln!("could not open the clipboard: {e}");
-                        return;
-                    }
-                }
+        let clipboard = std::rc::Rc::new(std::cell::RefCell::new(None::<arboard::Clipboard>));
+        let clipboard_for_text = clipboard.clone();
+        window.on_copy_requested(move |text| copy_to_clipboard(&clipboard_for_text, &text));
+        let clipboard_for_chat = clipboard;
+        let weak = window.as_weak();
+        window.on_copy_conversation(move || {
+            let Some(window) = weak.upgrade() else { return };
+            let text = models::transcript(&window.get_messages());
+            if text.is_empty() {
+                return;
             }
-            if let Some(cb) = slot.as_mut() {
-                if let Err(e) = cb.set_text(text.to_string()) {
-                    eprintln!("could not copy to the clipboard: {e}");
-                }
-            }
+            copy_to_clipboard(&clipboard_for_chat, &text);
         });
 
         // Open a link from a message in the default browser.

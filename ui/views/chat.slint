@@ -328,6 +328,7 @@ export component ChatView inherits FocusScope {
     callback open-settings();
     callback new-session();
     callback open-palette();
+    callback copy-conversation();
     callback continue-turn();
     callback use-starter(string);
     callback try-demo();
@@ -349,6 +350,7 @@ export component ChatView inherits FocusScope {
                 alignment: space-between;
                 // One line: a long title must not push the thread off the window.
                 Text { text: title; font-size: 20px; font-weight: 600; font-family: Theme.heading-font; overflow: elide; horizontal-stretch: 1; }
+                if thread.length > 0: Button { reduce-motion: root.reduce-motion; text: "Copy chat"; clicked => { root.copy-conversation(); } }
                 if can-undo: Button { reduce-motion: root.reduce-motion; text: "Undo last file change"; clicked => { root.undo(); } }
             }
             HorizontalBox {
