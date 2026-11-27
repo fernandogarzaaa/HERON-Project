@@ -1123,7 +1123,8 @@ mod tests {
         let c = before.diff(&snap(d.path()));
         assert_eq!(ws_paths(d.path(), &c), vec![".envrc:Changed", "new/.git/config:NewRepository"]);
         let text = report_text(&c);
-        assert!(text.contains(".envrc (changed)") && text.contains("new/.git/config (new repository)"), "{text}");
+        let config = Path::new("new").join(".git").join("config");
+        assert!(text.contains(".envrc (changed)") && text.contains(&format!("{} (new repository)", config.display())), "{text}");
         assert!(!text.contains("SECRET_TOKEN") && !text.contains("hunter2") && !text.contains("hookspath"), "{text}");
         assert!(text.starts_with("Protected files changed while Heron was working: "));
         assert!(text.ends_with("If you didn't change them, check them before you next use this folder."));
