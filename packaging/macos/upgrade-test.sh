@@ -81,7 +81,7 @@ if grep -q "WARNING" "$AUDIT_OUT"; then cat "$AUDIT_OUT" >&2; fail "the audit ch
 
 # 4. The format moved forward, nothing was lost, the snapshot exists.
 AFTER_VERSION=$(q "PRAGMA user_version;")
-[ "$AFTER_VERSION" = 3 ] || fail "PRAGMA user_version is $AFTER_VERSION after the upgrade, expected 3"
+[ "$AFTER_VERSION" = 4 ] || fail "PRAGMA user_version is $AFTER_VERSION after the upgrade, expected 4"
 AFTER_COUNTS=$(counts)
 [ "$AFTER_COUNTS" = "$BEFORE_COUNTS" ] || fail "row counts changed:"$'\n'"before:"$'\n'"$BEFORE_COUNTS"$'\n'"after:"$'\n'"$AFTER_COUNTS"
 [ "$(rules_kv)" = "$BEFORE_KV" ] || fail "the allow_rules kv entry changed: $BEFORE_KV -> $(rules_kv)"
@@ -102,4 +102,4 @@ RESTORED_VERSION=$(q "PRAGMA user_version;")
 [ "$RESTORED_VERSION" = 2 ] || fail "PRAGMA user_version is $RESTORED_VERSION after the rollback, expected 2"
 "$OLD_BIN" audit >"$WORK/old-audit.out" 2>&1 || { cat "$WORK/old-audit.out" >&2; fail "the old binary's audit did not exit 0 after the rollback"; }
 
-echo "upgrade-test OK: v0.3.1 -> current (data format 2 -> 3), counts and rules kept, snapshot made, rollback works"
+echo "upgrade-test OK: v0.3.1 -> current (data format 2 -> 4), counts and rules kept, snapshot made, rollback works"

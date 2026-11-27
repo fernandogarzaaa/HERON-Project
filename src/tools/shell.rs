@@ -811,6 +811,25 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn a_commondir_redirect_cannot_move_a_repositorys_hooks_out_of_reach() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let ws = ctx.workspace.clone();
+        assert!(std::process::Command::new("git").args(["init", "-q"]).current_dir(&ws).status().unwrap().success());
+        let out = sh(&ctx, "cp -R .git g && echo evil > g/hooks/pre-commit; echo ../g > .git/commondir; echo elsewhere > .git/gitdir; ls .git").await;
+        assert!(!ws.join(".git/commondir").exists(), "git would read hooks from the copy: {out}");
+        assert!(!ws.join(".git/gitdir").exists(), "{out}");
+        assert!(out.contains("Operation not permitted"), "{out}");
+        // A redirect already in place when the command starts: the hooks it points at are protected too.
+        std::fs::create_dir_all(ws.join("shared/hooks")).unwrap();
+        std::fs::write(ws.join(".git/commondir"), "../shared\n").unwrap();
+        let out = sh(&ctx, "echo evil > shared/hooks/pre-commit; ls shared/hooks").await;
+        assert!(!ws.join("shared/hooks/pre-commit").exists(), "{out}");
+    }
+
+    #[tokio::test]
     async fn own_api_port_is_denied_in_the_profile() {
         let (dir, ctx) = fresh_ctx();
         if !seatbelt(&ctx.cfg) {

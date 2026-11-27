@@ -354,14 +354,16 @@ pub fn seatbelt_rules(workspace: &Path, user_home: &Path, heron_homes: &[PathBuf
     }
     let mut literal_paths = refused.clone();
 
-    let mut home_folders = vec![];
+    // The rule above covers hooks inside a `.git` folder. A `commondir` can name hooks anywhere else,
+    // and those are denied whole.
+    let mut whole_folders: Vec<PathBuf> = scan.repos.iter().map(|r| r.common_dir.join("hooks")).filter(|h| !has_git_component(h)).collect();
     for item in HOME_PATHS {
         let path = user_home.join(item);
         if !inside_any(&path, writable) {
             continue;
         }
         if HOME_DIRECTORIES.contains(item) {
-            home_folders.push(path.clone());
+            whole_folders.push(path.clone());
         } else {
             literal_paths.push(path.clone());
         }
@@ -376,8 +378,8 @@ pub fn seatbelt_rules(workspace: &Path, user_home: &Path, heron_homes: &[PathBuf
     if !literal_paths.is_empty() {
         rules.push_str(&format!("(deny file-write*{})\n", literals(&as_written_and_real(literal_paths))));
     }
-    if !home_folders.is_empty() {
-        rules.push_str(&format!("(deny file-write*{})\n", subpaths(&as_written_and_real(home_folders))));
+    if !whole_folders.is_empty() {
+        rules.push_str(&format!("(deny file-write*{})\n", subpaths(&as_written_and_real(whole_folders))));
     }
     (rules, as_written_and_real(refused))
 }
@@ -542,7 +544,8 @@ fn repo_findings(repo: &Repo) -> Vec<PathBuf> {
     if !repo.entry.is_dir() {
         return vec![repo.entry.clone()];
     }
-    let mut out = vec![];
+    // A redirect sends git to hooks and config this function does not read.
+    let mut out: Vec<PathBuf> = ["commondir", "gitdir"].iter().map(|f| repo.entry.join(f)).filter(|f| f.exists()).collect();
     if let Ok(rd) = std::fs::read_dir(repo.entry.join("hooks")) {
         for e in rd.flatten() {
             if !e.file_name().to_string_lossy().ends_with(".sample") {
@@ -1016,6 +1019,35 @@ mod tests {
         std::fs::remove_file(d.path().join(".git/hooks/pre-push")).unwrap();
         let c = before.diff(&snap(d.path()));
         assert_eq!(ws_paths(d.path(), &c), vec![".git/hooks/pre-push:Deleted"]);
+    }
+
+    #[test]
+    fn a_new_commondir_or_gitdir_file_is_a_change() {
+        let ws = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(ws.path().join(".git/hooks")).unwrap();
+        let before = Snapshot::take(ws.path(), home.path(), &[]);
+        std::fs::write(ws.path().join(".git/commondir"), "../g\n").unwrap();
+        let after = Snapshot::take(ws.path(), home.path(), &[]);
+        let changed = before.diff(&after);
+        assert!(changed.iter().any(|c| c.path.ends_with("commondir")), "{changed:?}");
+        std::fs::remove_file(ws.path().join(".git/commondir")).unwrap();
+        let before = Snapshot::take(ws.path(), home.path(), &[]);
+        std::fs::write(ws.path().join(".git/gitdir"), "elsewhere\n").unwrap();
+        let after = Snapshot::take(ws.path(), home.path(), &[]);
+        let changed = before.diff(&after);
+        assert!(changed.iter().any(|c| c.path.ends_with("gitdir")), "{changed:?}");
+    }
+
+    #[test]
+    fn a_git_folder_with_a_commondir_protects_the_folder_it_names() {
+        let ws = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(ws.path().join(".git")).unwrap();
+        std::fs::write(ws.path().join(".git/commondir"), "../shared\n").unwrap();
+        let repo = scan::Repo::from_entry(ws.path().join(".git"));
+        let parts = repo.parts();
+        assert!(parts.contains(&ws.path().join("shared/hooks")), "{parts:?}");
+        assert!(parts.contains(&ws.path().join(".git/commondir")) && parts.contains(&ws.path().join(".git/gitdir")), "{parts:?}");
     }
 
     #[test]

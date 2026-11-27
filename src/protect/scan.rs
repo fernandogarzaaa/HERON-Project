@@ -15,17 +15,23 @@ pub struct Repo {
 
 impl Repo {
     pub fn from_entry(entry: PathBuf) -> Repo {
-        if entry.is_dir() {
-            return Repo { git_dir: entry.clone(), common_dir: entry.clone(), entry };
-        }
-        let git_dir = gitdir_of(&entry).unwrap_or_else(|| entry.clone());
+        // A `.git` folder can name another folder in `commondir` too: git then reads hooks and config
+        // from there.
+        let git_dir = if entry.is_dir() { entry.clone() } else { gitdir_of(&entry).unwrap_or_else(|| entry.clone()) };
         let common_dir = commondir_of(&git_dir).unwrap_or_else(|| git_dir.clone());
         Repo { entry, git_dir, common_dir }
     }
 
-    /// The files and folders of this repository that run code: hooks and both configs.
+    /// The files and folders of this repository that run code: hooks and both configs, and the
+    /// `commondir` and `gitdir` files, which move where git looks for them.
     pub fn parts(&self) -> Vec<PathBuf> {
-        vec![self.common_dir.join("hooks"), self.common_dir.join("config"), self.git_dir.join("config.worktree")]
+        vec![
+            self.common_dir.join("hooks"),
+            self.common_dir.join("config"),
+            self.git_dir.join("config.worktree"),
+            self.git_dir.join("commondir"),
+            self.git_dir.join("gitdir"),
+        ]
     }
 }
 
@@ -165,7 +171,9 @@ mod tests {
             vec![
                 root.join("main/.git/hooks"),
                 root.join("main/.git/config"),
-                root.join("main/.git/worktrees/w1/config.worktree")
+                root.join("main/.git/worktrees/w1/config.worktree"),
+                root.join("main/.git/worktrees/w1/commondir"),
+                root.join("main/.git/worktrees/w1/gitdir")
             ]
         );
 
