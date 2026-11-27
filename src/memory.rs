@@ -540,9 +540,8 @@ impl Memory {
         );
         let resp = llm.chat(ChatRequest { messages: vec![Message::user(prompt)], tools: vec![], model: Some(model.to_string()), max_tokens: Some(600) }, &|_| {}).await?;
         let text = resp.message.text();
-        let Some(start) = text.find('[') else { return Ok(vec![]) };
-        let Some(end) = text.rfind(']') else { return Ok(vec![]) };
-        let items: Vec<serde_json::Value> = serde_json::from_str(&text[start..=end]).unwrap_or_default();
+        let Some(span) = crate::util::json_array_span(text) else { return Ok(vec![]) };
+        let items: Vec<serde_json::Value> = serde_json::from_str(span).unwrap_or_default();
         let mut learned = vec![];
         for it in items.iter().take(5) {
             let Some(content) = it["content"].as_str().filter(|c| c.len() > 8) else { continue };
