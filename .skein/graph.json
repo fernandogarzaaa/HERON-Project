@@ -1316,10 +1316,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "d7950685134aad20e4d0cce4df59cfe036bc5f08",
+        "result_commit": "1c47275909a16462cc52d7cc64092d31d18a77d1",
+        "shipped_at": "2026-11-27T01:59:12.642014+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
     "status": "done",
     "title": "Integrate parents of HS-verify",
-    "version": 3,
+    "version": 4,
     "worktree": {
       "base_branch": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
       "branch": "skein/HS-verify__integrate-base",
