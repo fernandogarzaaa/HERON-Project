@@ -1127,5 +1127,18 @@ mod window_layout_tests {
         ui.set_dark(true);
         let pixels = render_frame(window, 1100, 700);
         write_bmp(&directory.join("appearance-chat-writing.bmp"), 1100, 700, &pixels);
+        ui.set_sidebar_sessions(ModelRc::new(VecModel::from(vec![
+            crate::SessionRow {
+                id: "s1".into(),
+                title: "Plan the quarterly review".into(),
+                updated: "today".into(),
+                messages: 4,
+                current: true,
+            },
+        ])));
+        ui.set_palette_open(true);
+        let pixels = render_frame(window, 1100, 700);
+        write_bmp(&directory.join("appearance-command-palette.bmp"), 1100, 700, &pixels);
+        ui.set_palette_open(false);
     }
 }
