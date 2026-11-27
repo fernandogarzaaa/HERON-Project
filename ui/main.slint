@@ -444,6 +444,7 @@ export component MainWindow inherits Window {
     // Programmatic copy: the shell has no Slint copy API, so Rust copies
     // through the arboard crate (see the bridge contract).
     callback copy-requested(string);
+    callback copy-conversation();
 
     MenuBar {
         Menu {
@@ -566,6 +567,7 @@ export component MainWindow inherits Window {
                     approve(id, decision) => { root.approve(id, decision); }
                     toggle-step(id) => { root.toggle-step(id); }
                     copy-requested(t) => { root.copy-requested(t); }
+                    copy-conversation => { root.copy-conversation(); }
                     open-link(url) => { root.open-link(url); }
                     open-settings => { root.open-settings(); }
                     new-session => { root.new-session(); }
