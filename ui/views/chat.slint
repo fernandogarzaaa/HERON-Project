@@ -49,12 +49,16 @@ export component ComposerView inherits FocusScope {
     callback send-message(string);
     callback cancel-reply();
     callback new-session();
+    callback open-palette();
     // When the Send/Stop button holds keyboard focus, events must be
     // handled here: ChatView is a sibling, not an ancestor, now that the
     // composer is anchored by the shell. TextEdit handles its own keys.
     key-pressed(event) => {
         if (event.text == "n" && (event.modifiers.control || event.modifiers.meta)) {
             root.new-session();
+            accept
+        } else if (event.text == "k" && (event.modifiers.control || event.modifiers.meta)) {
+            root.open-palette();
             accept
         } else if (event.text == Key.Escape && root.busy) {
             root.cancel-reply();
@@ -95,13 +99,16 @@ export component ComposerView inherits FocusScope {
                     placeholder-text: "Ask Heron to do something";
                     wrap: word-wrap;
                     key-pressed(event) => {
-                        if (event.text == "n" && (event.modifiers.control || event.modifiers.meta)) {
-                            root.new-session();
-                            accept
-                        } else if (event.text == Key.Escape && root.busy) {
-                            root.cancel-reply();
-                            accept
-                        } else if ((event.text == Key.Return || event.text == "\n")
+        if (event.text == "n" && (event.modifiers.control || event.modifiers.meta)) {
+            root.new-session();
+            accept
+        } else if (event.text == "k" && (event.modifiers.control || event.modifiers.meta)) {
+            root.open-palette();
+            accept
+        } else if (event.text == Key.Escape && root.busy) {
+            root.cancel-reply();
+            accept
+        } else if ((event.text == Key.Return || event.text == "\n")
                                    && !event.modifiers.shift && !event.modifiers.control
                                    && !event.modifiers.meta) {
                             // Ignore repeated Enter and never submit while busy.
@@ -299,6 +306,9 @@ export component ChatView inherits FocusScope {
         if (event.text == "n" && (event.modifiers.control || event.modifiers.meta)) {
             root.new-session();
             accept
+        } else if (event.text == "k" && (event.modifiers.control || event.modifiers.meta)) {
+            root.open-palette();
+            accept
         } else if (event.text == Key.Escape && busy) {
             root.cancel-reply();
             accept
@@ -317,6 +327,7 @@ export component ChatView inherits FocusScope {
     callback open-link(string);
     callback open-settings();
     callback new-session();
+    callback open-palette();
     callback continue-turn();
     callback use-starter(string);
     callback try-demo();
