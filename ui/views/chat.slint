@@ -186,13 +186,14 @@ component EmptyStateView inherits VerticalBox {
     callback use-starter(string);
     // Banners size to their text, so a narrow window wraps the message
     // instead of clipping the buttons. The first action is primary.
+    // Setup notices use the card chrome. Gold is only "waiting for you".
     if !has-key && !demo: Rectangle {
         vertical-stretch: 0;
-        background: Theme.talon-soft; border-color: Theme.talon; border-width: 1px; border-radius: 10px;
+        background: Theme.raised; border-color: Theme.border-strong; border-width: 1px; border-radius: 10px;
         VerticalLayout {
             padding: 14px;
             spacing: 12px;
-            WrapText { text: "Heron needs an AI model before it can reply. Add an API key, or point it at a model running on this computer."; color: Theme.talon-ink; }
+            WrapText { text: "Heron needs an AI model before it can reply. Add an API key, or point it at a model running on this computer."; color: Theme.ink; }
             HorizontalLayout {
                 alignment: start;
                 spacing: 8px;
@@ -203,11 +204,11 @@ component EmptyStateView inherits VerticalBox {
     }
     if demo: Rectangle {
         vertical-stretch: 0;
-        background: Theme.talon-soft; border-color: Theme.talon; border-width: 1px; border-radius: 10px;
+        background: Theme.raised; border-color: Theme.border-strong; border-width: 1px; border-radius: 10px;
         VerticalLayout {
             padding: 14px;
             spacing: 12px;
-            WrapText { text: "Demo mode: replies are canned, but the actions are real, so you can try approvals, memory and reminders. Connect a model for real answers."; color: Theme.talon-ink; }
+            WrapText { text: "Demo mode: replies are canned, but the actions are real, so you can try approvals, memory and reminders. Connect a model for real answers."; color: Theme.ink; }
             HorizontalLayout {
                 alignment: start;
                 ActionButton { width: 156px; label: "Connect a model"; kind: "primary"; reduce-motion: reduce-motion; clicked => { root.open-settings(); } }
