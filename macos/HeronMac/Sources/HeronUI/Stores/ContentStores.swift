@@ -181,7 +181,7 @@ public final class MemoryStore {
     public func undoForget() async {
         guard let m = lastForgotten else { return }
         lastForgotten = nil
-        _ = try? await client.addMemory(content: m.content, kind: m.kind)
+        await restore(m, content: m.content)
         await load()
     }
 
@@ -191,9 +191,19 @@ public final class MemoryStore {
     public func edit(_ m: Memory, content: String) async {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count >= 3, text != m.content else { return }
-        _ = try? await client.addMemory(content: text, kind: m.kind)
-        try? await client.deleteMemory(id: m.id)
+        // A save that only changes case or punctuation updates `m` itself; the old row goes only
+        // once a different one holds the new words.
+        if let id = await restore(m, content: text), id != m.id { try? await client.deleteMemory(id: m.id) }
         await load()
+    }
+
+    /// Saves `content` with `m`'s source and standing, so a fact from outside, or one still waiting
+    /// for the owner, comes back as it was.
+    @discardableResult
+    private func restore(_ m: Memory, content: String) async -> Int? {
+        guard let id = try? await client.addMemory(content: content, kind: m.kind, source: m.source, confirmed: m.confirmed) else { return nil }
+        if m.confirmed { try? await client.confirmMemory(id: id) }
+        return id
     }
 
     public func add(_ content: String, kind: String = "fact") async {

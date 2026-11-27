@@ -445,6 +445,7 @@ public extension ProviderStatus {
     var detailText: String {
         switch rowState {
         case .signedIn:
+            if experimental { return "Version \(version ?? "unknown") · experimental, not tested yet" }
             return "Version \(version ?? "unknown")" + (inRange ? " · tested" : " · accepted")
         case .signedOut:
             return "\(displayName) is signed out. Run `\(loginCommand)` in Terminal, then check again."
@@ -514,8 +515,12 @@ public final class FirstRunStore {
     public var canAccept: Bool { accepted && notice != nil }
 
     /// The best signed-in, tested provider, which gets the "Recommended" tag.
-    public var recommendedID: String? {
-        providers.first { $0.rowState == .signedIn && $0.isActive }?.id ?? providers.first { $0.rowState == .signedIn }?.id
+    public var recommendedID: String? { Self.recommendedID(in: providers) }
+
+    /// An experimental provider is never recommended, even when it's the only one signed in.
+    public nonisolated static func recommendedID(in providers: [ProviderStatus]) -> String? {
+        let tested = providers.filter { $0.rowState == .signedIn && !$0.experimental }
+        return tested.first { $0.isActive }?.id ?? tested.first?.id
     }
 
     public func load() async {

@@ -1,0 +1,87 @@
+// The ripple avatar. Idle, thinking, speaking, waiting and error differ
+// in colour and badge as well as motion, so Reduce Motion still reads.
+// Gold is waiting. Red is an error. The accent is everything else.
+
+import { Theme } from "theme.slint";
+
+export component Avatar inherits Rectangle {
+    in property <string> state: "idle";
+    in property <bool> reduce-motion: false;
+    width: 28px;
+    height: 28px;
+    vertical-stretch: 0;
+
+    property <bool> waiting: state == "waiting" || state == "awaitingApproval";
+    property <bool> bad: state == "error";
+    property <bool> thinking: state == "thinking";
+    property <bool> speaking: state == "speaking";
+    property <bool> live: thinking || speaking;
+    property <color> tone: bad ? Theme.danger : waiting ? Theme.badge : Theme.slate;
+
+    property <int> phase: 1;
+    timer := Timer {
+        interval: speaking ? 280ms : thinking ? 420ms : 900ms;
+        running: !reduce-motion && !bad;
+        triggered => { phase = Math.mod(phase + 1, 3); }
+    }
+
+    accessible-role: image;
+    accessible-label: waiting ? "Heron: Waiting for your approval"
+        : bad ? "Heron: Something went wrong"
+        : thinking ? "Heron: Thinking"
+        : speaking ? "Heron: Replying"
+        : "Heron: Ready";
+
+    // Outer ring. Thinking ripples it; idle and waiting breathe it.
+    Rectangle {
+        width: 28px;
+        height: 28px;
+        border-radius: 14px;
+        border-width: live && !reduce-motion && phase == 0 ? 2px : 1px;
+        border-color: tone;
+        opacity: reduce-motion || bad ? 0.9 : live ? (phase == 0 ? 1 : 0.35) : (phase == 0 ? 1 : 0.62);
+        animate opacity { duration: Theme.motion-std; easing: ease-out; }
+        animate border-width { duration: Theme.motion-fast; easing: ease-out; }
+    }
+    Rectangle {
+        x: 5px;
+        y: 5px;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        border-width: 1.5px;
+        border-color: tone;
+        opacity: reduce-motion ? 0.85 : live ? (phase == 1 ? 1 : 0.4) : 0.8;
+        animate opacity { duration: Theme.motion-std; easing: ease-out; }
+    }
+    Rectangle {
+        x: 9px;
+        y: 9px;
+        width: 10px;
+        height: 10px;
+        border-radius: 5px;
+        background: tone;
+        opacity: speaking && !reduce-motion ? (phase == 2 ? 1 : 0.45) : 1;
+        animate opacity { duration: Theme.motion-fast; easing: ease-out; }
+    }
+    if waiting || bad: Rectangle {
+        x: 16px;
+        y: 16px;
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        background: tone;
+        border-width: 1.5px;
+        border-color: Theme.sidebar;
+        Text {
+            text: bad ? "!" : "";
+            font-size: 9px;
+            font-weight: 700;
+            color: bad ? (Theme.dark ? #1A0C0A : #FFFFFF) : Theme.slate-ink;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            width: 100%;
+            height: 100%;
+        }
+    }
+}

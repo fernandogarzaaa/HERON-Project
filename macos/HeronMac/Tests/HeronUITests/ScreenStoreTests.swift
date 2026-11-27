@@ -425,6 +425,22 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertTrue(store.memories.contains { $0.content == victim.content })
     }
 
+    func testUndoAndEditKeepAnOutsideMemoryUnconfirmed() async throws {
+        let client = try await makeClient()
+        let store = MemoryStore(client: client)
+        await store.load()
+        let outside = try XCTUnwrap(store.toCheck.first)
+        await store.forget(outside)
+        await store.undoForget()
+        let back = try XCTUnwrap(store.memories.first { $0.content == outside.content })
+        XCTAssertEqual(back.source, outside.source)
+        XCTAssertFalse(back.confirmed, "undo restores the row as it was, not as the user's own fact")
+        await store.edit(back, content: back.content + " (edited)")
+        let edited = try XCTUnwrap(store.memories.first { $0.content == back.content + " (edited)" })
+        XCTAssertEqual(edited.source, outside.source)
+        XCTAssertFalse(edited.confirmed, "editing an outside fact does not confirm it")
+    }
+
     func testMemorySearchAndEmptyStates() async throws {
         let client = try await makeClient()
         let store = MemoryStore(client: client)
@@ -1184,6 +1200,21 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertEqual(store.selectedProviderID, "claude-cli")
         let state = try await client.state()
         XCTAssertTrue(state.riskNoticeAccepted)
+    }
+
+    func test_experimentalProviderIsNeverRecommendedOrCalledTested() {
+        func p(_ id: String, experimental: Bool, active: Bool = false) -> ProviderStatus {
+            ProviderStatus(id: id, displayName: id, installed: true, version: "2.1.4", testedRange: ">=2.1.4 <3.0.0",
+                           inRange: true, loggedIn: true, experimental: experimental, versionAccepted: false,
+                           loginCommand: "\(id) login", authKind: "cli", isActive: active)
+        }
+        let opencode = p("opencode-cli", experimental: true, active: true)
+        let claude = p("claude-cli", experimental: false)
+        XCTAssertEqual(FirstRunStore.recommendedID(in: [opencode, claude]), "claude-cli")
+        XCTAssertNil(FirstRunStore.recommendedID(in: [opencode]), "an experimental provider alone gets no tag")
+        XCTAssertEqual(opencode.detailText, "Version 2.1.4 · experimental, not tested yet")
+        XCTAssertFalse(opencode.detailText.contains("tested range"))
+        XCTAssertEqual(claude.detailText, "Version 2.1.4 · tested")
     }
 
     func testFirstRunSandboxOffShowsTheOffCard() async throws {

@@ -26,6 +26,9 @@ public struct CoreEvent: Sendable, Equatable {
         case usage(prompt: Int, completion: Int)
         case model(name: String, why: String)
         case notice(String)
+        /// Something the owner should see outside the app: a scheduled job's result, an automation's notice.
+        /// Not part of any conversation, so `sessionID` and `runID` are empty.
+        case notification(title: String, body: String)
         case learned([String])
         case done(text: String, title: String?)
         case cancelled

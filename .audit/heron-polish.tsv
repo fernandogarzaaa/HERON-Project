@@ -1,0 +1,12 @@
+ts	phase	decision	why	evidence	result
+2026-11-27T02:55:13Z	start	this run continues the polish already underway	the operator asked to keep the in-flight work and run it under poteto-mode	agent bc-8dce738d-f0bd-50ea-b091-2c62e4f666ee	open
+2026-11-27T02:55:13Z	frame	use figure-it-out and ship two independent PRs	a plan-only stop would drop work the operator already told this run to finish	pstack/skills/figure-it-out/SKILL.md	open
+2026-11-27T02:55:13Z	frame	reverted the tree-wide rustfmt	cargo fmt --all rewrote files this change does not own	git checkout HEAD of untouched rust files	restored
+2026-11-27T02:55:13Z	design	appearance lives in ui.toml and colours live on the Theme global	config.toml is rewritten from the server copy, so a field there can be dropped	src/ui_prefs.rs	in working tree
+2026-11-27T02:55:13Z	design	decoded vectors stay in a process cache on Store	a new database table would bump the schema fingerprint for a read-only speedup	src/store.rs embed_cache	in working tree
+2026-11-27T03:06:16Z	verify	headless window draws Dusk light and dark, and the layout tests pass	the software renderer is the check CI uses	/opt/cursor/artifacts/appearance-chat-dusk-dark.png	tests green
+2026-11-27T03:06:17Z	verify	sidebar counts are real numbers	the old label printed the template text	ui/views/sidebar.slint	Conversation (2) in the frame
+2026-11-27T03:06:59Z	measure	search of 2000 facts is 4.53 ms cold and 2.53 ms warm	release build, in-memory database, median of 5, load 1.09 on 4 cores	terminal bench_embed_cache	faster, not twice, rest of search remains
+2026-11-27T03:08:26Z	ship	cache ships on its own branch from main	it does not depend on the appearance change	src/memory.rs src/store.rs	ready to commit
+2026-11-27T03:36:00Z	interrogate	the vector cache key includes the vector length	a hit keyed only by embedder returned a 4-float row for an 8-float read and left it tagged remote, so re-indexing never queued it	src/memory.rs a_read_at_a_new_vector_length_drops_the_old_vector_and_marks_it_stale	fixed
+2026-11-27T03:35:31Z	interrogate	gold stays on waiting only: current step, usage marks, and setup banners use ink or the card chrome	a headless frame showed the Model step in talon while the status was Ready, and the same token was still on the low meter, today's bar, and the setup banners	ui/components/atoms.slint ui/views/usage.slint ui/views/chat.slint	fixed on the appearance branch

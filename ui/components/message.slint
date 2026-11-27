@@ -76,8 +76,8 @@ component StepRowView inherits TouchArea {
                 spacing: 8px;
                 Rectangle {
                     width: 10px; height: 10px; border-radius: 5px;
-                    background: step.state == "ok" ? Theme.slate : step.state == "err" ? Theme.danger : Theme.talon;
-                    border-color: step.state == "run" ? Theme.talon : step.state == "ok" ? Theme.slate : Theme.danger;
+                    background: step.state == "ok" ? Theme.ok : step.state == "err" ? Theme.danger : Theme.slate;
+                    border-color: step.state == "run" ? Theme.slate : step.state == "ok" ? Theme.ok : Theme.danger;
                     border-width: 2px;
                     animate background { duration: reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
                     animate border-color { duration: reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
@@ -115,6 +115,13 @@ export component MessageView inherits VerticalBox {
     in property <bool> reduce-motion;
     callback toggled-step(string);
     callback answered-approval(string, string);
+
+    // New rows ease in. A streamed update rewrites the same row, so this
+    // runs once when the row is created, not on every token.
+    property <float> appear: 0;
+    opacity: appear;
+    init => { appear = 1; }
+    animate appear { duration: reduce-motion ? 0ms : 220ms; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
     // Per the plan, the .slint side fires copy-requested(string) and
     // Rust copies with arboard. There is no public Slint copy API.
     callback copy-requested(string);
@@ -173,9 +180,9 @@ export component MessageView inherits VerticalBox {
         for note in msg.notes: WrapText { text: note; font-size: 13px; color: Theme.muted; }
         if msg.live: HorizontalBox {
             spacing: 4px;
-            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.muted; opacity: reduce-motion ? 0.6 : think-phase == 0 ? 1 : 0.35; animate opacity { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; } }
-            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.muted; opacity: reduce-motion ? 0.6 : think-phase == 1 ? 1 : 0.35; animate opacity { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; } }
-            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.muted; opacity: reduce-motion ? 0.6 : think-phase == 2 ? 1 : 0.35; animate opacity { duration: reduce-motion ? 0ms : 150ms; easing: ease-in-out; } }
+            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.slate; opacity: reduce-motion ? 0.7 : think-phase == 0 ? 1 : 0.3; animate opacity { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; } }
+            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.slate; opacity: reduce-motion ? 0.7 : think-phase == 1 ? 1 : 0.3; animate opacity { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; } }
+            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.slate; opacity: reduce-motion ? 0.7 : think-phase == 2 ? 1 : 0.3; animate opacity { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; } }
             Text { text: "Thinking…"; color: Theme.muted; font-size: 13px; }
         }
         if msg.failure != "": Rectangle {

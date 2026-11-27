@@ -977,7 +977,7 @@ name = "Heron"
 max_steps = 40
 context_tokens = 100000
 auto_memory = true
-notify_command = ""                  # e.g. 'notify-send Heron "$HERON_MESSAGE"'
+notify_command = ""                  # e.g. 'notify-send Heron "$HERON_MESSAGE"'; without it, only the Mac app shows banners
 shell_env = []                       # extra variables commands may see, e.g. ["GITHUB_TOKEN"]; others are withheld
 daily_token_limit = 0                # your own cap per day; 0 = none. Heron economises as it runs down
 monthly_token_limit = 0              # the same, per calendar month
@@ -1181,8 +1181,7 @@ mod tests {
     #[cfg(not(any(target_os = "macos", windows)))]
     fn connector_vault_fails_closed_without_an_os_backend() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = tmp.path().join("home");
+        let cfg = Config { home: tmp.path().join("home"), ..Config::default() };
         assert!(cfg.store_vault_only_secret("connector_test_api_key", "never-write-me").is_err());
         assert!(!cfg.vault_only_secret_present("connector_test_api_key"));
         assert!(!cfg.home.join("secrets.json").exists());
