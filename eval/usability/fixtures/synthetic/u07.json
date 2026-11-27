@@ -1,0 +1,126 @@
+{
+  "_provenance": "Synthetic: written by hand from docs/designs/heron-v1.md section 3 (the event envelope, run_end, /api/events, the risk notice routes) before U3 landed. Not a recording. Replace it with `run.sh --live --record-fixtures` output once the core has U3.",
+  "audit": [
+    {
+      "decision": "approved",
+      "tool": "write_file"
+    }
+  ],
+  "files": {
+    "plan.md": "# Plan\n\n1. Connect a real model in Settings\n2. Ask Heron for the real plan\n"
+  },
+  "heron_commit": null,
+  "kind": "synthetic",
+  "persona": "priya-pm",
+  "provider": "demo",
+  "session_id": "s1",
+  "steps": [
+    {
+      "body": "",
+      "decisions": [],
+      "end": "disconnected",
+      "error": null,
+      "events": [
+        {
+          "id": "s1",
+          "run_id": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e07",
+          "seq": 1,
+          "session_id": "s1",
+          "type": "session"
+        }
+      ],
+      "index": 0,
+      "kind": "say",
+      "message": "Please save a plan as plan.md",
+      "ms": 20,
+      "reply": "",
+      "status": 200,
+      "ttft_ms": null
+    },
+    {
+      "body": "",
+      "decisions": [
+        {
+          "decision": "once",
+          "planned": true,
+          "tool": "write_file"
+        }
+      ],
+      "end": "run_end",
+      "error": null,
+      "events": [
+        {
+          "completion": 0,
+          "prompt": 0,
+          "run_id": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e07",
+          "seq": 2,
+          "session_id": "s1",
+          "type": "usage"
+        },
+        {
+          "always_rule": "write_file:*",
+          "can_always": true,
+          "can_session": true,
+          "detail": "Create plan.md (75 bytes)",
+          "id": "9f1c2b3a4d5e4f60718293a4b5c6d7e8",
+          "risk": "write",
+          "run_id": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e07",
+          "seq": 3,
+          "session_id": "s1",
+          "summary": "plan.md",
+          "tool": "write_file",
+          "type": "approval"
+        },
+        {
+          "decision": "once",
+          "id": "9f1c2b3a4d5e4f60718293a4b5c6d7e8",
+          "run_id": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e07",
+          "seq": 4,
+          "session_id": "s1",
+          "type": "approval_resolved"
+        },
+        {
+          "id": "call_1",
+          "name": "write_file",
+          "risk": "write",
+          "run_id": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e07",
+          "seq": 5,
+          "session_id": "s1",
+          "summary": "plan.md",
+          "type": "tool_start"
+        },
+        {
+          "id": "call_1",
+          "name": "write_file",
+          "ok": true,
+          "preview": "Created plan.md",
+          "run_id": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e07",
+          "seq": 6,
+          "session_id": "s1",
+          "type": "tool_end"
+        },
+        {
+          "run_id": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e07",
+          "seq": 7,
+          "session_id": "s1",
+          "text": "Done. Here is the result:\n\n```\nCreated plan.md\n```",
+          "type": "done"
+        },
+        {
+          "run_id": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e07",
+          "seq": 8,
+          "session_id": "s1",
+          "type": "run_end"
+        }
+      ],
+      "index": 1,
+      "kind": "resume",
+      "ms": 2100,
+      "reply": "Done. Here is the result:\n\n```\nCreated plan.md\n```",
+      "status": 200,
+      "ttft_ms": 30
+    }
+  ],
+  "task": "u07",
+  "web_log": []
+}

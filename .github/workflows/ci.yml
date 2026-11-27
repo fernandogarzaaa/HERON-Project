@@ -27,6 +27,8 @@ jobs:
         env:
           # Also drive the machine's real browser (Chrome or Edge) against a local test site.
           HERON_TEST_BROWSER: "1"
+          # On macOS a Seatbelt test that cannot run fails instead of skipping.
+          HERON_REQUIRE_SEATBELT: ${{ runner.os == 'macOS' && '1' || '' }}
       - name: Qualify native connector credential vault
         if: runner.os == 'macOS' || runner.os == 'Windows'
         # Exercise the real OS backend with disposable, profile-isolated keys.
@@ -52,6 +54,24 @@ jobs:
       - name: Linux installer smoke test
         if: runner.os == 'Linux'
         run: bash tests/linux-install-smoke.sh
+  eval:
+    # The release gates' own code: pass rules, the gate checker, the runners and the containment check.
+    name: Eval tests
+    # macOS: the scripts these tests drive (discover-dirs.sh, owner-use.sh) use the Mac's own date and paths.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Gate and runner tests
+        working-directory: eval
+        # test_eve_driver is left out: its adapter never starts on the hosted runner (it passes on the
+        # owner's Mac), and EVE is the optional usability harness, not a release gate.
+        run: python -m unittest tests.test_adapter tests.test_check_gate tests.test_check_tasks tests.test_g7 tests.test_genesis_verifier tests.test_pass_rules tests.test_runner tests.test_scripts
+      - name: Containment check tests
+        working-directory: eval
+        run: python -m unittest discover -s containment -t . -p 'test_*.py'
   neural:
     # The optional neural memory model. Informational for now: it tells us on which systems the
     # ONNX runtime builds and the model loads, without holding up everything else.
@@ -68,9 +88,12 @@ jobs:
         run: cargo test --locked --features neural --lib -- --ignored neural --nocapture
   macos-app:
     # The native macOS app: Rust lints, Swift tests, the unsigned bundle and the upgrade test.
+    # Swift tests have no per-test deadline. A stream that never emits leaves this step
+    # running until GitHub kills the job. Bound it so a hang fails in minutes, not hours.
     name: macOS app
     if: github.event_name == 'pull_request'
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -79,6 +102,7 @@ jobs:
       - name: Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Swift tests
+        timeout-minutes: 20
         run: swift test --package-path macos/HeronMac
       - name: Build the unsigned app
         run: bash packaging/macos/build-app.sh --unsigned

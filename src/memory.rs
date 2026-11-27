@@ -35,6 +35,11 @@ const TRUSTED_SOURCES: &[&str] = &["user", "onboarding", "about", "agent", "auto
 /// other way). A save from any other source never does.
 const VOUCHING_SOURCES: &[&str] = &["user", "onboarding"];
 
+/// Whether a save from `source` starts confirmed.
+pub fn starts_confirmed(source: &str) -> bool {
+    TRUSTED_SOURCES.contains(&source)
+}
+
 /// What follows an item the learner (or a source's learning) saved but that waits for the user to
 /// confirm it in Memories, in place of reporting it as learned.
 pub const WAITING_NOTE: &str = " (waiting for your confirmation in Memories, not learned yet)";
@@ -216,6 +221,10 @@ impl Memory {
     /// earlier model under the same name, for example after the embedding model was changed in
     /// Settings. It cannot be compared with anything, so it is left out and queued for re-indexing.
     fn vectors(&self, embedder: &str, dims: usize, confirmed: Option<bool>) -> Result<Vec<(i64, Vec<f32>)>> {
+        let generation = self.store.embed_generation();
+        if let Some(rows) = self.store.cached_embeddings(embedder, confirmed, dims, generation) {
+            return Ok(rows);
+        }
         let mut out = vec![];
         for (id, blob) in self.store.memory_embeddings_where(embedder, confirmed)? {
             let v = from_blob(&blob);
@@ -225,7 +234,20 @@ impl Memory {
                 let _ = self.store.mark_embedding_stale(id);
             }
         }
+        if self.store.embed_generation() == generation {
+            self.store.store_embeddings(embedder, confirmed, dims, generation, &out);
+        }
         Ok(out)
+    }
+
+    /// The built-in feature hash of `text`, reused when the same text is hashed again.
+    fn cached_local(&self, text: &str) -> Vec<f32> {
+        if let Some(vector) = self.store.cached_hash_vector(text) {
+            return vector;
+        }
+        let vector = local_embed(text);
+        self.store.store_hash_vector(text, vector.clone());
+        vector
     }
 
     /// Bring older memories into the current embedder's space, a few at a time. Until a memory is
@@ -294,7 +316,7 @@ impl Memory {
             if same_words(&content, &row.content) {
                 near.push((row, 1.0));
             } else {
-                let sim = cosine(&built_in, &local_embed(&row.content));
+                let sim = cosine(&built_in, &self.cached_local(&row.content));
                 if sim >= DEDUPE_THRESHOLD {
                     near.push((row, sim));
                 }
@@ -447,7 +469,7 @@ impl Memory {
                 .list_memories(None, 3000)?
                 .iter()
                 .filter(|m| confirmed.is_none_or(|c| m.confirmed == c))
-                .map(|m| (m.id, cosine(&hq, &local_embed(&m.content))))
+                .map(|m| (m.id, cosine(&hq, &self.cached_local(&m.content))))
                 .filter(|(_, s)| *s > 0.12)
                 .collect();
             typo.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -518,9 +540,8 @@ impl Memory {
         );
         let resp = llm.chat(ChatRequest { messages: vec![Message::user(prompt)], tools: vec![], model: Some(model.to_string()), max_tokens: Some(600) }, &|_| {}).await?;
         let text = resp.message.text();
-        let Some(start) = text.find('[') else { return Ok(vec![]) };
-        let Some(end) = text.rfind(']') else { return Ok(vec![]) };
-        let items: Vec<serde_json::Value> = serde_json::from_str(&text[start..=end]).unwrap_or_default();
+        let Some(span) = crate::util::json_array_span(text) else { return Ok(vec![]) };
+        let items: Vec<serde_json::Value> = serde_json::from_str(span).unwrap_or_default();
         let mut learned = vec![];
         for it in items.iter().take(5) {
             let Some(content) = it["content"].as_str().filter(|c| c.len() > 8) else { continue };
@@ -561,6 +582,116 @@ mod tests {
 
     fn mem() -> Memory {
         Memory::new(Store::in_memory().unwrap(), None)
+    }
+
+    /// Release-only timing. Not a unit test. Run with
+    /// `cargo test --release --lib bench_embed_cache -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn bench_embed_cache() {
+        let m = mem();
+        let n = 2000;
+        for i in 0..n {
+            let content = format!("note {i}: the user files april receipts in the blue folder and reviews them on friday mornings with the accountant");
+            let emb = local_embed(&content);
+            m.store.insert_memory("fact", &content, "", 0.5, "user", Some(&to_blob(&emb)), true, crate::embed::HASH_TAG).unwrap();
+        }
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let mut cold = Vec::new();
+        let mut warm = Vec::new();
+        let mut search_cold = Vec::new();
+        let mut search_warm = Vec::new();
+        for i in 0..5 {
+            let extra = format!("touch {i}");
+            let emb = local_embed(&extra);
+            let id = m.store.insert_memory("fact", &extra, "", 0.4, "user", Some(&to_blob(&emb)), true, crate::embed::HASH_TAG).unwrap();
+            let t = std::time::Instant::now();
+            let rows = m.vectors(crate::embed::HASH_TAG, LOCAL_DIM, None).unwrap();
+            cold.push(t.elapsed());
+            let t = std::time::Instant::now();
+            let again = m.vectors(crate::embed::HASH_TAG, LOCAL_DIM, None).unwrap();
+            warm.push(t.elapsed());
+            assert_eq!(rows, again);
+            m.store.delete_memory(id).unwrap();
+        }
+        for i in 0..5 {
+            let extra = format!("search touch {i}");
+            let emb = local_embed(&extra);
+            let id = m.store.insert_memory("fact", &extra, "", 0.4, "user", Some(&to_blob(&emb)), true, crate::embed::HASH_TAG).unwrap();
+            let q = "april receipts accountant";
+            let t = std::time::Instant::now();
+            let found = runtime.block_on(m.search(q, 5)).unwrap();
+            search_cold.push(t.elapsed());
+            let t = std::time::Instant::now();
+            let found2 = runtime.block_on(m.search(q, 5)).unwrap();
+            search_warm.push(t.elapsed());
+            assert_eq!(found.iter().map(|item| item.id).collect::<Vec<_>>(), found2.iter().map(|item| item.id).collect::<Vec<_>>());
+            assert!(!found.is_empty());
+            m.store.delete_memory(id).unwrap();
+        }
+        let texts: Vec<String> = (0..n).map(|i| format!("route {i} via the north bridge on weekdays")).collect();
+        let mut hash_cold = Vec::new();
+        let mut hash_warm = Vec::new();
+        for _ in 0..5 {
+            let t = std::time::Instant::now();
+            for text in &texts {
+                std::hint::black_box(local_embed(text));
+            }
+            hash_cold.push(t.elapsed());
+            for text in &texts {
+                std::hint::black_box(m.cached_local(text));
+            }
+            let t = std::time::Instant::now();
+            for text in &texts {
+                std::hint::black_box(m.cached_local(text));
+            }
+            hash_warm.push(t.elapsed());
+        }
+        assert_eq!(m.cached_local(&texts[0]), local_embed(&texts[0]));
+        eprintln!("HERON_BENCH n={n} vectors_cold={cold:?}");
+        eprintln!("HERON_BENCH n={n} vectors_warm={warm:?}");
+        eprintln!("HERON_BENCH n={n} search_cold={search_cold:?}");
+        eprintln!("HERON_BENCH n={n} search_warm={search_warm:?}");
+        eprintln!("HERON_BENCH n={n} hash_cold={hash_cold:?}");
+        eprintln!("HERON_BENCH n={n} hash_warm={hash_warm:?}");
+    }
+
+    #[test]
+    fn a_repeated_read_returns_the_same_vectors_until_a_fact_changes() {
+        let m = mem();
+        for i in 0..40 {
+            let content = format!("note {i}: april receipts live in the blue folder");
+            let emb = local_embed(&content);
+            m.store.insert_memory("fact", &content, "", 0.5, "user", Some(&to_blob(&emb)), true, crate::embed::HASH_TAG).unwrap();
+        }
+        let first = m.vectors(crate::embed::HASH_TAG, LOCAL_DIM, None).unwrap();
+        let second = m.vectors(crate::embed::HASH_TAG, LOCAL_DIM, None).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(m.cached_local("april receipts"), local_embed("april receipts"));
+        let extra = local_embed("one more note");
+        m.store.insert_memory("fact", "one more note", "", 0.5, "user", Some(&to_blob(&extra)), true, crate::embed::HASH_TAG).unwrap();
+        assert_eq!(m.vectors(crate::embed::HASH_TAG, LOCAL_DIM, None).unwrap().len(), 41);
+        // A second handle on the same database shares the cache, and a write through it
+        // still shows up on the first handle.
+        let other = Memory::new(m.store.clone(), None);
+        let more = local_embed("shared handle");
+        other.store.insert_memory("fact", "shared handle", "", 0.5, "user", Some(&to_blob(&more)), true, crate::embed::HASH_TAG).unwrap();
+        assert_eq!(m.vectors(crate::embed::HASH_TAG, LOCAL_DIM, None).unwrap().len(), 42);
+    }
+
+    #[test]
+    fn a_read_at_a_new_vector_length_drops_the_old_vector_and_marks_it_stale() {
+        let m = mem();
+        let short = vec![1.0f32, 0.0, 0.0, 0.0];
+        let id = m.store.insert_memory("fact", "remote fact", "", 0.5, "user", Some(&to_blob(&short)), true, crate::embed::REMOTE_TAG).unwrap();
+        let cached = m.vectors(crate::embed::REMOTE_TAG, short.len(), None).unwrap();
+        assert_eq!(cached, vec![(id, short)]);
+        // The embedder now returns a longer vector. The cached 4-float row cannot answer that
+        // read: it is left out and queued for re-indexing, the same as a decode with no cache.
+        let again = m.vectors(crate::embed::REMOTE_TAG, 8, None).unwrap();
+        assert!(again.is_empty(), "a vector of the old length came back");
+        let queued = m.store.memories_to_reindex(crate::embed::REMOTE_TAG, 10).unwrap();
+        assert_eq!(queued.iter().map(|(row, _)| *row).collect::<Vec<_>>(), vec![id]);
     }
 
     #[test]

@@ -134,7 +134,9 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
     public func suggestions() async throws -> [Suggestion] { try await current().suggestions() }
     public func answerSuggestion(id: Int, answer: SuggestionAnswer) async throws { try await current().answerSuggestion(id: id, answer: answer) }
     public func memories(query: String?) async throws -> [Memory] { try await current().memories(query: query) }
-    public func addMemory(content: String, kind: String) async throws -> Int { try await current().addMemory(content: content, kind: kind) }
+    public func addMemory(content: String, kind: String, source: String, confirmed: Bool) async throws -> Int {
+        try await current().addMemory(content: content, kind: kind, source: source, confirmed: confirmed)
+    }
     public func confirmMemory(id: Int) async throws { try await current().confirmMemory(id: id) }
     public func deleteMemory(id: Int) async throws { try await current().deleteMemory(id: id) }
     public func tasks() async throws -> [TaskItem] { try await current().tasks() }
@@ -155,6 +157,7 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
     public func setOnboarded() async throws { try await current().setOnboarded() }
     public func settings() async throws -> CoreSettings { try await current().settings() }
     public func setUnattendedSubscription(_ allowed: Bool) async throws { try await current().setUnattendedSubscription(allowed) }
+    public func setCLIModel(_ model: String) async throws { try await current().setCLIModel(model) }
     public func setAwareness(_ enabled: Bool) async throws { try await current().setAwareness(enabled) }
     public func grants() async throws -> [Grant] { try await current().grants() }
     public func revokeGrant(rule: String) async throws { try await current().revokeGrant(rule: rule) }

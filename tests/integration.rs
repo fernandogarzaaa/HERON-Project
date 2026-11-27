@@ -280,6 +280,30 @@ async fn http_api_chat_approval_and_settings() {
     assert!(post("/api/memories", json!({"content": "The user plays the cello", "kind": "profile"})).await.unwrap().status().is_success());
     let found: Value = get("/api/memories?q=cello%20instrument", &token).await.unwrap().json().await.unwrap();
     assert_eq!(found.as_array().unwrap().len(), 1);
+    // Undo and edit in the app send a forgotten row back with its source: an outside fact stays
+    // unconfirmed instead of coming back as the user's own.
+    assert!(post("/api/memories", json!({"content": "Invoices go to billing at northwind dot test", "kind": "fact", "source": "email"})).await.unwrap().status().is_success());
+    let restored: Value = get("/api/memories?q=northwind%20invoices", &token).await.unwrap().json().await.unwrap();
+    let row = restored.as_array().unwrap().iter().find(|m| m["content"].as_str().unwrap().contains("northwind")).expect("restored row");
+    assert_eq!((row["source"].as_str(), row["confirmed"].as_bool()), (Some("email"), Some(false)), "{row}");
+    assert_eq!(post("/api/memories", json!({"content": "Some odd source name", "source": "Not A Source!"})).await.unwrap().status(), 400);
+    // A model-saved row that was still waiting for the owner comes back waiting too.
+    assert!(post("/api/memories", json!({"content": "The quarterly report lives at contoso dot test", "source": "agent", "confirmed": false})).await.unwrap().status().is_success());
+    let waiting: Value = get("/api/memories?q=contoso%20quarterly", &token).await.unwrap().json().await.unwrap();
+    let row = waiting.as_array().unwrap().iter().find(|m| m["content"].as_str().unwrap().contains("contoso")).expect("restored row");
+    assert_eq!(row["confirmed"].as_bool(), Some(false), "{row}");
+    // An outside row keeps its own source when it comes back waiting.
+    assert!(post("/api/memories", json!({"content": "Payroll questions go to fabrikam dot test", "source": "email", "confirmed": false})).await.unwrap().status().is_success());
+    let payroll: Value = get("/api/memories?q=fabrikam%20payroll", &token).await.unwrap().json().await.unwrap();
+    let row = payroll.as_array().unwrap().iter().find(|m| m["content"].as_str().unwrap().contains("fabrikam")).expect("restored row");
+    assert_eq!((row["source"].as_str(), row["confirmed"].as_bool()), (Some("email"), Some(false)), "{row}");
+    // What the owner adds themselves is still theirs, and a source name has a length limit.
+    assert!(post("/api/memories", json!({"content": "The user's bike is a green tandem", "confirmed": true})).await.unwrap().status().is_success());
+    let bike: Value = get("/api/memories?q=green%20tandem%20bike", &token).await.unwrap().json().await.unwrap();
+    let row = bike.as_array().unwrap().iter().find(|m| m["content"].as_str().unwrap().contains("tandem")).expect("added row");
+    assert_eq!((row["source"].as_str(), row["confirmed"].as_bool()), (Some("user"), Some(true)), "{row}");
+    assert_eq!(post("/api/memories", json!({"content": "A long source name", "source": "a".repeat(33)})).await.unwrap().status(), 400);
+    assert!(post("/api/memories", json!({"content": "A source name at the limit", "source": "a".repeat(32)})).await.unwrap().status().is_success());
     assert!(post("/api/tasks", json!({"title": "Tune the cello"})).await.unwrap().status().is_success());
     assert!(post("/api/schedules", json!({"prompt": "Practice reminder", "when": "daily 18:00"})).await.unwrap().status().is_success());
     let bad_when = post("/api/schedules", json!({"prompt": "x", "when": "sometime"})).await.unwrap();

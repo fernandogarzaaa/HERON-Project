@@ -111,6 +111,11 @@ pub trait Tool: Send + Sync {
     fn untrusted_output(&self) -> bool {
         false
     }
+    /// Whether this tool's errors can carry outside text (an MCP server's error result), not
+    /// only Heron's own messages.
+    fn untrusted_errors(&self) -> bool {
+        false
+    }
     /// The canonical path a file-reading call reads, for read tiers and folder grants. `None` for
     /// every tool that does not read files.
     fn read_target(&self, _args: &Value, _ctx: &ToolCtx) -> Option<PathBuf> {

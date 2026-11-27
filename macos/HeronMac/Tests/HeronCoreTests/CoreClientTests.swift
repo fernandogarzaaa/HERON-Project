@@ -22,6 +22,7 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         var token: String?
         var contentType: String?
         var body: String?
+        var timeout: TimeInterval = 0
     }
 
     nonisolated(unsafe) static var handler: (@Sendable (Seen) -> Reply)?
@@ -66,7 +67,7 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         let seen = Seen(method: request.httpMethod ?? "GET", path: url.path, query: url.query(percentEncoded: true),
                         token: request.value(forHTTPHeaderField: "x-heron-token"),
                         contentType: request.value(forHTTPHeaderField: "Content-Type"),
-                        body: body.map { String(decoding: $0, as: UTF8.self) })
+                        body: body.map { String(decoding: $0, as: UTF8.self) }, timeout: request.timeoutInterval)
         let reply: Reply = Self.lock.withLock {
             Self.requests.append(seen)
             return Self.handler?(seen) ?? Reply(404)
@@ -386,6 +387,24 @@ final class CoreClientTests: XCTestCase {
         XCTAssertEqual(try body(seen[2])["action"] as? String, "dismiss")
         XCTAssertEqual(try body(seen[3])["action"] as? String, "accept")
         XCTAssertEqual(try body(seen[4])["due"] as? String, "2026-11-30")
+    }
+
+    func testCLIModelIsSavedAsCliModel() async throws {
+        let client = makeClient { _ in .init(200, json: "{}") }
+        try await client.setCLIModel("opencode/deepseek-v4.1-flash-free")
+        let seen = StubProtocol.seen
+        XCTAssertEqual(seen.map(\.path), ["/api/settings"])
+        XCTAssertEqual(seen[0].method, "POST")
+        XCTAssertEqual(try body(seen[0]) as NSDictionary, ["cli_model": "opencode/deepseek-v4.1-flash-free"] as NSDictionary)
+    }
+
+    func testApprovingAParkedActionWaitsAsLongAsTheActionMayRun() async throws {
+        let client = makeClient { _ in .init(200, json: #"{"result":"ok"}"#) }
+        try await client.answerParked(id: 2, action: .approve)
+        try await client.setTaskDone(id: 3, done: true)
+        let seen = StubProtocol.seen
+        XCTAssertGreaterThanOrEqual(seen[0].timeout, 30 * 60, "an approved build or test run is not cut off after a minute")
+        XCTAssertLessThan(seen[1].timeout, 30 * 60, "other requests keep the short timeout")
     }
 
     func testSettingsRoutes() async throws {

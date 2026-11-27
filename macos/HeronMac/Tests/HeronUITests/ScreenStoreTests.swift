@@ -233,10 +233,57 @@ final class ScreenStoreTests: XCTestCase {
         let folder = ChatErrorCard.from(message: "x", code: "workspace_refused", provider: nil, version: nil)
         XCTAssertEqual(folder.actions, [.chooseFolder])
         XCTAssertTrue(folder.text.contains("holds secrets"))
-        let loggedOut = ChatErrorCard.from(message: "Claude Code is logged out", code: nil, provider: "Claude Code", version: nil)
+        let loggedOut = ChatErrorCard.from(message: "x", code: "cli_logged_out", provider: "Claude Code", version: nil, login: "claude auth login")
         XCTAssertEqual(loggedOut.actions, [.copyCommand("claude auth login"), .tryAgain])
         let other = ChatErrorCard.from(message: "The model timed out", code: nil, provider: nil, version: nil)
         XCTAssertEqual(other.title, "The model timed out", "never a generic 'Something went wrong'")
+    }
+
+    /// The owner picked OpenCode, its credit ran out, and the card told them to run `claude auth login`.
+    func testASignedOutCardUsesTheProviderInUse() {
+        let card = ChatErrorCard.from(message: "x", code: "cli_logged_out", provider: "OpenCode (router)", version: nil, login: "opencode auth login")
+        XCTAssertEqual(card.title, "OpenCode (router) is logged out")
+        XCTAssertEqual(card.text, "Run `opencode auth login` in Terminal, then send your message again.")
+        XCTAssertEqual(card.actions, [.copyCommand("opencode auth login"), .tryAgain])
+        // Without a login command, no command is made up: the card sends the owner to Settings › Model.
+        let bare = ChatErrorCard.from(message: "x", code: "cli_logged_out", provider: "OpenCode (router)", version: nil)
+        XCTAssertEqual(bare.actions, [.modelSettings, .tryAgain])
+        XCTAssertFalse(bare.text.contains("claude"))
+        // The hint is shown as words, never offered as a command.
+        let cline = ChatErrorCard.from(message: "x", code: "cli_logged_out", provider: "Cline", version: nil, hint: "cline auth <provider>")
+        XCTAssertEqual(cline.actions, [.modelSettings, .tryAgain])
+        XCTAssertEqual(cline.text, "To sign in: cline auth <provider>. Then send your message again, or pick another model in Settings.")
+    }
+
+    /// The core's recorded signed-out events, decoded and handled as the app does: `login:` survives into the
+    /// card as the command to copy, and a CLI with only a hint gets the Model settings button instead.
+    func testChatKeepsTheLoginOfASignedOutEvent() async throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let text = try String(contentsOf: url.appendingPathComponent("tests/fixtures/api/events-logged-out.jsonl"), encoding: .utf8)
+        let errors = try CoreWire.events(jsonLines: text).filter { if case .error = $0.kind { true } else { false } }
+        XCTAssertEqual(errors.count, 2)
+        var cards: [ChatErrorCard] = []
+        for recorded in errors {
+            let chat = ChatStore(client: try await makeClient())
+            await chat.send("hi")
+            let sid = try XCTUnwrap(chat.currentSessionID)
+            chat.handle(CoreEvent(sessionID: sid, runID: nil, kind: recorded.kind))
+            cards.append(try XCTUnwrap(chat.messages.last?.error))
+            XCTAssertFalse(chat.isRunning)
+        }
+        XCTAssertEqual(cards[0].title, "OpenCode (router) is logged out")
+        XCTAssertEqual(cards[0].actions, [.copyCommand("opencode auth login"), .tryAgain])
+        XCTAssertEqual(cards[1].actions, [.modelSettings, .tryAgain])
+        XCTAssertTrue(cards[1].text.contains("cline auth <provider>"))
+    }
+
+    /// A failure whose text only mentions signing out, as OpenCode's hint does, is shown as it is.
+    func testAMessageThatMentionsLoggedOutIsNotASignInCard() {
+        let message = "OpenCode (router) failed (exit 1): provider.quota: Insufficient balance. If OpenCode (router) is logged out: run `opencode auth login`."
+        let card = ChatErrorCard.from(message: message, code: nil, provider: nil, version: nil)
+        XCTAssertEqual(card.title, message)
+        XCTAssertEqual(card.actions, [.tryAgain])
     }
 
     func testFailingRunShowsTheErrorUnderTheReply() async throws {
@@ -376,6 +423,22 @@ final class ScreenStoreTests: XCTestCase {
         await store.undoForget()
         XCTAssertNil(store.lastForgotten)
         XCTAssertTrue(store.memories.contains { $0.content == victim.content })
+    }
+
+    func testUndoAndEditKeepAnOutsideMemoryUnconfirmed() async throws {
+        let client = try await makeClient()
+        let store = MemoryStore(client: client)
+        await store.load()
+        let outside = try XCTUnwrap(store.toCheck.first)
+        await store.forget(outside)
+        await store.undoForget()
+        let back = try XCTUnwrap(store.memories.first { $0.content == outside.content })
+        XCTAssertEqual(back.source, outside.source)
+        XCTAssertFalse(back.confirmed, "undo restores the row as it was, not as the user's own fact")
+        await store.edit(back, content: back.content + " (edited)")
+        let edited = try XCTUnwrap(store.memories.first { $0.content == back.content + " (edited)" })
+        XCTAssertEqual(edited.source, outside.source)
+        XCTAssertFalse(edited.confirmed, "editing an outside fact does not confirm it")
     }
 
     func testMemorySearchAndEmptyStates() async throws {
@@ -1064,6 +1127,21 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertFalse(store.sandboxOn)
     }
 
+    func testTheCLIModelIsSavedTrimmedAndKeptAfterReload() async throws {
+        let client = try await makeClient()
+        let store = SettingsStore(client: client)
+        await store.load()
+        XCTAssertEqual(store.activeCLIProvider?.id, "claude-cli", "the field belongs to the provider in use")
+        XCTAssertEqual(store.settings?.cliModel, "")
+        await store.setCLIModel("  opencode/deepseek-v4.1-flash-free \n")
+        XCTAssertEqual(store.settings?.cliModel, "opencode/deepseek-v4.1-flash-free")
+        await store.load()
+        XCTAssertEqual(store.settings?.cliModel, "opencode/deepseek-v4.1-flash-free", "saved in the core, not only on screen")
+        await store.setCLIModel("")
+        await store.load()
+        XCTAssertEqual(store.settings?.cliModel, "", "blank hands the choice back to the CLI")
+    }
+
     func testProviderRowTextFollowsTheVisualDoc() async throws {
         let client = try await makeClient()
         let list = try await client.providers()
@@ -1122,6 +1200,21 @@ final class ScreenStoreTests: XCTestCase {
         XCTAssertEqual(store.selectedProviderID, "claude-cli")
         let state = try await client.state()
         XCTAssertTrue(state.riskNoticeAccepted)
+    }
+
+    func test_experimentalProviderIsNeverRecommendedOrCalledTested() {
+        func p(_ id: String, experimental: Bool, active: Bool = false) -> ProviderStatus {
+            ProviderStatus(id: id, displayName: id, installed: true, version: "2.1.4", testedRange: ">=2.1.4 <3.0.0",
+                           inRange: true, loggedIn: true, experimental: experimental, versionAccepted: false,
+                           loginCommand: "\(id) login", authKind: "cli", isActive: active)
+        }
+        let opencode = p("opencode-cli", experimental: true, active: true)
+        let claude = p("claude-cli", experimental: false)
+        XCTAssertEqual(FirstRunStore.recommendedID(in: [opencode, claude]), "claude-cli")
+        XCTAssertNil(FirstRunStore.recommendedID(in: [opencode]), "an experimental provider alone gets no tag")
+        XCTAssertEqual(opencode.detailText, "Version 2.1.4 · experimental, not tested yet")
+        XCTAssertFalse(opencode.detailText.contains("tested range"))
+        XCTAssertEqual(claude.detailText, "Version 2.1.4 · tested")
     }
 
     func testFirstRunSandboxOffShowsTheOffCard() async throws {

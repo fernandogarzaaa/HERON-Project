@@ -32,9 +32,10 @@ public struct CoreEvent: Sendable, Equatable {
         case learned([String])
         case done(text: String, title: String?)
         case cancelled
-        /// `code` is `cli_version_untested` (with `provider` and `version`), `risk_notice_not_accepted`,
-        /// `workspace_refused`, or nil.
-        case error(message: String, code: String?, provider: String?, version: String?)
+        /// `code` is `cli_version_untested` (with `provider` and `version`), `cli_logged_out` (with
+        /// `provider`, the CLI's name; `login`, a command that runs as is, only when the CLI has one;
+        /// and `hint`, how to sign in, in words), `risk_notice_not_accepted`, `workspace_refused`, or nil.
+        case error(message: String, code: String?, provider: String?, version: String?, login: String? = nil, hint: String? = nil)
         case runEnd
         /// The client fell behind or asked for a `since` the ring no longer holds: reload, then continue.
         case resync(oldest: Int)

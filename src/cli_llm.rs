@@ -109,8 +109,12 @@ pub struct CliSpec {
     pub display_name: &'static str,
     /// Binary to resolve on PATH (or in the usual install dirs).
     pub binary: &'static str,
-    /// How the user logs in, shown in errors and `heron providers`.
+    /// How the user logs in, shown in errors and `heron providers`. Prose for some CLIs
+    /// ("qwen (then /auth)"), so it is never offered as a command to paste.
     pub login_command: &'static str,
+    /// The login as a command that pastes into Terminal and runs as is, when there is one. `None`
+    /// when signing in needs a choice or happens inside the CLI's own screen.
+    pub login_run: Option<&'static str>,
     /// Where to send the user when the binary is missing.
     pub install_hint: &'static str,
     /// Subscription, API key via the CLI's own config, free local model, or router.
@@ -205,6 +209,43 @@ impl std::fmt::Display for CliVersionUntested {
 }
 
 impl std::error::Error for CliVersionUntested {}
+
+/// A CLI provider is signed out. It carries the provider's own name and login, so the app's card
+/// tells the owner how to sign in to the provider in use, not to another one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CliLoggedOut {
+    pub id: String,
+    pub name: String,
+    /// The registry's runnable login ([`CliSpec::login_run`]): the only text the app may copy as a command.
+    pub login: Option<String>,
+    /// How to sign in, in words ([`CliSpec::login_command`]).
+    pub hint: String,
+    /// What the CLI printed, cut short.
+    pub said: String,
+}
+
+impl CliLoggedOut {
+    pub fn new(spec: &CliSpec, said: String) -> Self {
+        CliLoggedOut { id: spec.id.into(), name: spec.display_name.into(), login: spec.login_run.map(str::to_string), hint: spec.login_command.into(), said }
+    }
+}
+
+impl std::fmt::Display for CliLoggedOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} is logged out: run `{}`, then try again. (CLI said: {})", self.name, self.hint, self.said)
+    }
+}
+
+impl std::error::Error for CliLoggedOut {}
+
+/// A model name goes on the CLI's command line as one argument, so it must not read as a flag
+/// (`--dangerously-skip-permissions`) or carry a control character.
+pub fn check_cli_model(model: &str) -> Result<()> {
+    if model.trim_start().starts_with('-') || model.chars().any(char::is_control) {
+        bail!("the model name {model:?} can't start with - or hold control characters");
+    }
+    Ok(())
+}
 
 /// The kv key that records the one version of a CLI the user accepted.
 pub fn version_ok_key(id: &str) -> String {
@@ -395,22 +436,22 @@ pub const DEFERRED_FROM_TIER1: &[&str] = &["opencode-cli"];
 /// generic escape hatch for anything else (Crush, Amp, Kimi, Droid, `llm`).
 pub fn providers() -> Vec<CliSpec> {
     vec![
-        CliSpec { id: "claude-cli", display_name: "Claude Code (subscription)", binary: "claude", login_command: "claude auth login", install_hint: "npm install -g @anthropic-ai/claude-code", auth_kind: "Claude Pro/Max subscription", cost_note: "Draws on the plan's usage window; Agent SDK use drains it faster than the CLI directly.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CLAUDE_CONFIG_DIR"), config_dirs: &["~/.claude", "~/.claude.json"], credential_store: CredentialStore::MacosKeychain, supported: Some(VersionRange { min: (2, 1, 327), below: (3, 0, 0) }), input: PromptInput::Stdin, output: OutputKind::ClaudeStreamJson },
-        CliSpec { id: "codex-cli", display_name: "Codex (ChatGPT subscription)", binary: "codex", login_command: "codex login", install_hint: "npm install -g @openai/codex", auth_kind: "ChatGPT Plus/Pro/Team subscription", cost_note: "Draws on the ChatGPT plan. A stray OPENAI_API_KEY would flip billing to metered API; Heron removes it from the child env.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CODEX_HOME"), config_dirs: &["~/.codex"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (0, 169, 0), below: (1, 0, 0) }), input: PromptInput::Stdin, output: OutputKind::JsonLines },
-        CliSpec { id: "cursor-cli", display_name: "Cursor (subscription)", binary: "cursor-agent", login_command: "agent login", install_hint: "curl https://cursor.com/install -fsS | bash", auth_kind: "Cursor subscription", cost_note: "Draws on the Cursor plan's usage pool.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cursor"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "grok-cli", display_name: "Grok Build (subscription)", binary: "grok", login_command: "grok login", install_hint: "brew install --cask grok-build (macOS) or the Grok Build installer", auth_kind: "Grok Build subscription", cost_note: "Draws on the Grok plan.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.grok"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cache/opencode", "~/.config/opencode", "~/.local/share/opencode", "~/.local/state/opencode", "~/.opencode"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (2, 1, 4), below: (3, 0, 0) }), input: PromptInput::Arg, output: OutputKind::JsonLines },
-        CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini", "~/.antigravity"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonSingle },
-        CliSpec { id: "cline-cli", display_name: "Cline (router, free models)", binary: "cline", login_command: "cline auth <provider>", install_hint: "npm install -g cline", auth_kind: "Whatever Cline is configured with: cline / openai-codex / oca OAuth, API keys, Ollama", cost_note: "Free when routed to a free or local model. One-shot defaults to yolo, so this provider needs cli_allow_agent_tools = true.", experimental: true, needs_allow_agent_tools: true, config_dir_env: None, config_dirs: &["~/.cline"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
-        CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.copilot", "~/.config/github-copilot"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonLines },
-        CliSpec { id: "qwen-cli", display_name: "Qwen Code (paid key or local)", binary: "qwen", login_command: "qwen (then /auth)", install_hint: "npm install -g @qwen-code/qwen-code", auth_kind: "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.", cost_note: "Free with a local model; otherwise the upstream's price.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.qwen"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
-        CliSpec { id: "gemini-cli", display_name: "Gemini CLI (API key)", binary: "gemini", login_command: "gemini (then pick Gemini API Key)", install_hint: "npm install -g @google/gemini-cli", auth_kind: "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.", cost_note: "Free tier on the API key; otherwise Google's pricing.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
-        CliSpec { id: "pi-cli", display_name: "Pi (ACP agent)", binary: "pi", login_command: "pi (then sign in)", install_hint: "Install Pi from https://github.com/badlogic/pi", auth_kind: "Pi's own providers", cost_note: "Whatever Pi is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.pi"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "fx-cli", display_name: "fx (ACP agent)", binary: "fx", login_command: "fx login", install_hint: "Install fx from its releases", auth_kind: "fx's own providers", cost_note: "Whatever fx is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.fx"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "kiro-cli", display_name: "Kiro (ACP agent)", binary: "kiro-cli", login_command: "kiro-cli (then sign in)", install_hint: "Install Kiro CLI", auth_kind: "Kiro's own providers", cost_note: "Whatever Kiro is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.kiro"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "muse-cli", display_name: "Muse Code (ACP agent)", binary: "muse", login_command: "muse (then sign in)", install_hint: "Install Muse Code CLI", auth_kind: "Muse's own providers", cost_note: "Whatever Muse is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.muse"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
-        CliSpec { id: "goose-cli", display_name: "Goose (open source, local/BYOK)", binary: "goose", login_command: "goose configure", install_hint: "Install Goose from https://github.com/block/goose", auth_kind: "Local model or any provider Goose is configured with", cost_note: "Free with a local model. Runs its own tool loop, so this provider needs cli_allow_agent_tools = true.", experimental: true, needs_allow_agent_tools: true, config_dir_env: None, config_dirs: &["~/.config/goose"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
-        CliSpec { id: "custom-cli", display_name: "Custom CLI", binary: "", login_command: "See the CLI's own docs", install_hint: "Set [llm] cli_command to the binary", auth_kind: "Whatever the custom CLI uses", cost_note: "Whatever the custom CLI uses. Use for Crush, Amp, Kimi, Droid, llm, or anything else not listed.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &[], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Arg, output: OutputKind::Text },
+        CliSpec { id: "claude-cli", display_name: "Claude Code (subscription)", binary: "claude", login_command: "claude auth login", login_run: Some("claude auth login"), install_hint: "npm install -g @anthropic-ai/claude-code", auth_kind: "Claude Pro/Max subscription", cost_note: "Draws on the plan's usage window; Agent SDK use drains it faster than the CLI directly.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CLAUDE_CONFIG_DIR"), config_dirs: &["~/.claude", "~/.claude.json"], credential_store: CredentialStore::MacosKeychain, supported: Some(VersionRange { min: (2, 1, 327), below: (3, 0, 0) }), input: PromptInput::Stdin, output: OutputKind::ClaudeStreamJson },
+        CliSpec { id: "codex-cli", display_name: "Codex (ChatGPT subscription)", binary: "codex", login_command: "codex login", login_run: Some("codex login"), install_hint: "npm install -g @openai/codex", auth_kind: "ChatGPT Plus/Pro/Team subscription", cost_note: "Draws on the ChatGPT plan. A stray OPENAI_API_KEY would flip billing to metered API; Heron removes it from the child env.", experimental: false, needs_allow_agent_tools: false, config_dir_env: Some("CODEX_HOME"), config_dirs: &["~/.codex"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (0, 169, 0), below: (1, 0, 0) }), input: PromptInput::Stdin, output: OutputKind::JsonLines },
+        CliSpec { id: "cursor-cli", display_name: "Cursor (subscription)", binary: "cursor-agent", login_command: "agent login", login_run: None, install_hint: "curl https://cursor.com/install -fsS | bash", auth_kind: "Cursor subscription", cost_note: "Draws on the Cursor plan's usage pool.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cursor"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "grok-cli", display_name: "Grok Build (subscription)", binary: "grok", login_command: "grok login", login_run: Some("grok login"), install_hint: "brew install --cask grok-build (macOS) or the Grok Build installer", auth_kind: "Grok Build subscription", cost_note: "Draws on the Grok plan.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.grok"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "opencode-cli", display_name: "OpenCode (router)", binary: "opencode", login_command: "opencode auth login (or configure opencode.json)", login_run: Some("opencode auth login"), install_hint: "npm install -g @opencode/cli (2.x) or opencode (1.x)", auth_kind: "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama", cost_note: "Free when routed to a free model or a local model; otherwise the upstream's price.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.cache/opencode", "~/.config/opencode", "~/.local/share/opencode", "~/.local/state/opencode", "~/.opencode"], credential_store: CredentialStore::HomeFolder, supported: Some(VersionRange { min: (2, 1, 4), below: (3, 0, 0) }), input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "antigravity-cli", display_name: "Antigravity (Google account)", binary: "agy", login_command: "agy (then sign in with Google)", login_run: None, install_hint: "Install Antigravity CLI from https://antigravity.google/docs/getting-started", auth_kind: "Google account (successor to Gemini CLI for logins)", cost_note: "Google's pricing for the selected method.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini", "~/.antigravity"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonSingle },
+        CliSpec { id: "cline-cli", display_name: "Cline (router, free models)", binary: "cline", login_command: "cline auth <provider>", login_run: None, install_hint: "npm install -g cline", auth_kind: "Whatever Cline is configured with: cline / openai-codex / oca OAuth, API keys, Ollama", cost_note: "Free when routed to a free or local model. One-shot defaults to yolo, so this provider needs cli_allow_agent_tools = true.", experimental: true, needs_allow_agent_tools: true, config_dir_env: None, config_dirs: &["~/.cline"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "copilot-cli", display_name: "GitHub Copilot (subscription)", binary: "copilot", login_command: "copilot (then /login)", login_run: None, install_hint: "npm install -g @github/copilot", auth_kind: "GitHub Copilot subscription", cost_note: "Draws on the Copilot plan's credit pool.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.copilot", "~/.config/github-copilot"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonLines },
+        CliSpec { id: "qwen-cli", display_name: "Qwen Code (paid key or local)", binary: "qwen", login_command: "qwen (then /auth)", login_run: None, install_hint: "npm install -g @qwen-code/qwen-code", auth_kind: "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.", cost_note: "Free with a local model; otherwise the upstream's price.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.qwen"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
+        CliSpec { id: "gemini-cli", display_name: "Gemini CLI (API key)", binary: "gemini", login_command: "gemini (then pick Gemini API Key)", login_run: None, install_hint: "npm install -g @google/gemini-cli", auth_kind: "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.", cost_note: "Free tier on the API key; otherwise Google's pricing.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.gemini"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::FlagValue, output: OutputKind::JsonAuto },
+        CliSpec { id: "pi-cli", display_name: "Pi (ACP agent)", binary: "pi", login_command: "pi (then sign in)", login_run: None, install_hint: "Install Pi from https://github.com/badlogic/pi", auth_kind: "Pi's own providers", cost_note: "Whatever Pi is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.pi"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "fx-cli", display_name: "fx (ACP agent)", binary: "fx", login_command: "fx login", login_run: Some("fx login"), install_hint: "Install fx from its releases", auth_kind: "fx's own providers", cost_note: "Whatever fx is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.fx"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "kiro-cli", display_name: "Kiro (ACP agent)", binary: "kiro-cli", login_command: "kiro-cli (then sign in)", login_run: None, install_hint: "Install Kiro CLI", auth_kind: "Kiro's own providers", cost_note: "Whatever Kiro is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.kiro"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "muse-cli", display_name: "Muse Code (ACP agent)", binary: "muse", login_command: "muse (then sign in)", login_run: None, install_hint: "Install Muse Code CLI", auth_kind: "Muse's own providers", cost_note: "Whatever Muse is configured with.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &["~/.muse"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Flag, output: OutputKind::JsonSingle },
+        CliSpec { id: "goose-cli", display_name: "Goose (open source, local/BYOK)", binary: "goose", login_command: "goose configure", login_run: Some("goose configure"), install_hint: "Install Goose from https://github.com/block/goose", auth_kind: "Local model or any provider Goose is configured with", cost_note: "Free with a local model. Runs its own tool loop, so this provider needs cli_allow_agent_tools = true.", experimental: true, needs_allow_agent_tools: true, config_dir_env: None, config_dirs: &["~/.config/goose"], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Arg, output: OutputKind::JsonLines },
+        CliSpec { id: "custom-cli", display_name: "Custom CLI", binary: "", login_command: "See the CLI's own docs", login_run: None, install_hint: "Set [llm] cli_command to the binary", auth_kind: "Whatever the custom CLI uses", cost_note: "Whatever the custom CLI uses. Use for Crush, Amp, Kimi, Droid, llm, or anything else not listed.", experimental: true, needs_allow_agent_tools: false, config_dir_env: None, config_dirs: &[], credential_store: CredentialStore::HomeFolder, supported: None, input: PromptInput::Arg, output: OutputKind::Text },
     ]
 }
 
@@ -601,6 +642,7 @@ fn make_absolute(p: PathBuf) -> PathBuf {
     }
 }
 
+#[derive(Debug)]
 pub struct ProviderStatus {
     pub id: String,
     pub display_name: String,
@@ -615,7 +657,7 @@ pub struct ProviderStatus {
 /// Ask the CLI who it is logged in as, the T3 Code way. The probe never
 /// sends a model request and never starts a session: `claude auth status`
 /// reads the local credential store, `codex login status` reads the cached
-/// login token. Anything unexpected returns unknown, never a failure.
+/// login token. Output with no login words returns unknown, never logged out.
 /// Whole-word match on lowercased output, so "pro" does not match
 /// "profile" and "max" does not match "maximum".
 fn words_contain(lower: &str, word: &str) -> bool {
@@ -639,13 +681,15 @@ fn parse_login_output(spec_id: &str, out: &str) -> (Option<bool>, Option<String>
                 }
             }
             // "Not logged in" contains "logged in", so the negation check
-            // must come first.
-            let logged = (lower.contains("logged in")
-                || lower.contains("active account")
-                || lower.contains("authenticated"))
-                && !lower.contains("not logged in")
-                && !lower.contains("not authenticated")
-                && !lower.contains("no active account");
+            // must come first. Claude Code 2.1.330 dropped the words "logged
+            // in" from --text and prints "Login method: Claude Max account".
+            if ["not logged in", "not authenticated", "no active account", "logged out"].iter().any(|n| lower.contains(n)) {
+                return (Some(false), None);
+            }
+            let logged = ["logged in", "active account", "authenticated", "login method:"].iter().any(|w| lower.contains(w));
+            if !logged {
+                return (None, None);
+            }
             let plan = logged
                 .then(|| {
                     ["max", "pro", "team", "enterprise"]
@@ -654,23 +698,34 @@ fn parse_login_output(spec_id: &str, out: &str) -> (Option<bool>, Option<String>
                         .map(|p| format!("Claude {p}"))
                 })
                 .flatten();
-            (Some(logged), plan)
+            (Some(true), plan)
         }
         "codex-cli" => {
-            let logged = (lower.contains("logged in using chatgpt") || lower.contains("logged in"))
-                && !lower.contains("not logged in");
-            let plan = logged
-                .then(|| {
-                    ["plus", "pro", "team", "enterprise"]
-                        .iter()
-                        .find(|p| words_contain(&lower, p))
-                        .map(|p| format!("ChatGPT {p}"))
-                })
-                .flatten();
-            (Some(logged), plan)
+            if lower.contains("not logged in") || lower.contains("logged out") {
+                return (Some(false), None);
+            }
+            if !lower.contains("logged in") {
+                return (None, None);
+            }
+            let plan = ["plus", "pro", "team", "enterprise"]
+                .iter()
+                .find(|p| words_contain(&lower, p))
+                .map(|p| format!("ChatGPT {p}"));
+            (Some(true), plan)
         }
         _ => (None, None),
     }
+}
+
+/// The login state a status probe reports. Both streams count whatever the exit code, and a probe
+/// that exited non-zero without any positive "logged in" signal is logged out: the CLIs exit 1 when
+/// logged out, and the wording of what they print has changed between versions.
+fn login_state(spec_id: &str, out: &Captured) -> (Option<bool>, Option<String>) {
+    let parsed = parse_login_output(spec_id, &out.text);
+    if !out.ok && parsed.0 != Some(true) {
+        return (Some(false), None);
+    }
+    parsed
 }
 
 /// Did a login probe say, in so many words, that the CLI is logged out? A probe that failed for some
@@ -734,15 +789,15 @@ pub async fn probe_status(cfg: &Config, spec: &CliSpec) -> ProviderStatus {
     let version = run_capture(&llm, &path, &["--version"], 10)
         .await
         .ok()
-        .map(|o| o.trim().to_string())
+        .map(|o| o.text.trim().to_string())
         .filter(|s| !s.is_empty());
     let (logged_in, plan) = match spec.id {
         "claude-cli" => match run_capture(&llm, &path, &["auth", "status", "--text"], 20).await {
-            Ok(out) => parse_login_output("claude-cli", &out),
+            Ok(out) => login_state("claude-cli", &out),
             Err(_) => (None, None),
         },
         "codex-cli" => match run_capture(&llm, &path, &["login", "status"], 20).await {
-            Ok(out) => parse_login_output("codex-cli", &out),
+            Ok(out) => login_state("codex-cli", &out),
             Err(_) => (None, None),
         },
         _ => (None, None),
@@ -765,7 +820,7 @@ pub async fn probe_status(cfg: &Config, spec: &CliSpec) -> ProviderStatus {
 /// Run a probe of the CLI the way a turn runs it: in a fresh run folder (removed afterwards), with the
 /// allowlisted environment (`child_env`, which carries the account-folder override), inside the CLI's
 /// sandbox, and refused on macOS when there is no sandbox.
-async fn run_capture(llm: &CliLlm, path: &Path, args: &[&str], timeout_secs: u64) -> Result<String> {
+async fn run_capture(llm: &CliLlm, path: &Path, args: &[&str], timeout_secs: u64) -> Result<Captured> {
     let run_dir = make_run_folder()?;
     let _dir_guard = RemoveTempDirOnDrop { dir: run_dir.clone() };
     let (binary_dir, extra_read) = llm.binary_dirs(path);
@@ -776,8 +831,17 @@ async fn run_capture(llm: &CliLlm, path: &Path, args: &[&str], timeout_secs: u64
     llm.run_contained(path, args, timeout_secs, &run_dir, sandbox.as_ref()).await
 }
 
-/// Run a prepared command to completion with a timeout: its stdout on success, its stderr on failure.
-async fn capture(mut cmd: Command, path: &Path, timeout_secs: u64) -> Result<String> {
+/// What a probe printed and whether it exited 0. `text` is stdout when stdout has anything in it,
+/// otherwise stderr (`codex login status` answers on stderr); on a non-zero exit it is both, stdout
+/// first, because `claude auth status` prints "Not logged in" on stdout and exits 1.
+#[derive(Debug)]
+struct Captured {
+    ok: bool,
+    text: String,
+}
+
+/// Run a prepared command to completion with a timeout.
+async fn capture(mut cmd: Command, path: &Path, timeout_secs: u64) -> Result<Captured> {
     // Spawn explicitly instead of cmd.output(): wait_with_output takes
     // ownership of the child, so a timeout would leave a hung probe
     // running after the future is dropped. The chat path already kills
@@ -861,11 +925,14 @@ async fn capture(mut cmd: Command, path: &Path, timeout_secs: u64) -> Result<Str
             return Err(anyhow!("timed out"));
         }
     };
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    let ok = out.status.success();
+    let text = if ok {
+        let stream = if out.stdout.iter().all(u8::is_ascii_whitespace) { &out.stderr } else { &out.stdout };
+        String::from_utf8_lossy(stream).to_string()
     } else {
-        Ok(String::from_utf8_lossy(&out.stderr).to_string())
-    }
+format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    Ok(Captured { ok, text })
 }
 
 /// Tool-rules sentence added only when the request offers `web_fetch`, so a
@@ -1100,7 +1167,13 @@ fn decode_json_string(bytes: &[u8], text: &str, start: usize) -> Option<(String,
                         }
                         k += 4;
                     }
-                    other => out.push(other as char),
+                    other if other.is_ascii() => out.push(other as char),
+                    // An unknown escape before a letter outside ASCII: keep the whole letter.
+                    _ => {
+                        let ch = text[k + 1..].chars().next()?;
+                        out.push(ch);
+                        k += ch.len_utf8() - 1;
+                    }
                 }
                 k += 2;
             }
@@ -1227,13 +1300,42 @@ struct ProviderError {
     status: Option<u64>,
 }
 
+/// Does a failed CLI's lowercased output say the account is signed out? Each phrase must stand as
+/// its own words, so "author" is not "auth" and a path segment (`auth.json`, `/login/`) is not a
+/// sign-in word.
+fn names_a_sign_in_problem(lower: &str) -> bool {
+    const PHRASES: [&str; 12] = [
+        "auth", "oauth", "authentication", "authenticate", "unauthenticated", "not authenticated",
+        "unauthorized", "not logged in", "logged out", "login", "log in", "sign in",
+    ];
+    PHRASES.iter().any(|p| has_words(lower, p))
+}
+
+/// `phrase` occurs in `text` with no letter or digit touching either end, not inside a path.
+fn has_words(text: &str, phrase: &str) -> bool {
+    let b = text.as_bytes();
+    text.match_indices(phrase).any(|(i, _)| {
+        let end = i + phrase.len();
+        let before = i.checked_sub(1).map(|j| b[j]);
+        let after = b.get(end).copied();
+        let next = b.get(end + 1).copied();
+        let word = |c: Option<u8>| c.is_some_and(|c| c.is_ascii_alphanumeric());
+        !word(before)
+            && !word(after)
+            && before != Some(b'/')
+            && after != Some(b'/')
+            && !(after == Some(b'.') && word(next))
+    })
+}
+
 /// True when `text` names a provider limit by one of a fixed set of phrases, each on a word
 /// boundary (spec 35u). Loose word combinations such as "limit" with "rate" or "usage" do not
 /// count, and neither does a phrase inside a longer word: a real failure ("the rate of change
 /// exceeds the limit", "usage: heron --limit N", `RateLimiter`, `rate_limits`) must never be taken
 /// for a limit. "quota exceeded" right after "disk " or "disc " is a full disk quota, not a limit.
 fn names_a_provider_limit(text: &str) -> bool {
-    const PHRASES: [&str; 22] = [
+    const PHRASES: [&str; 23] = [
+        "insufficient balance",
         "rate limit",
         "rate-limit",
         "rate limited",
@@ -1330,7 +1432,7 @@ impl ProviderError {
     fn class(&self) -> ErrorClass {
         if self.status == Some(401) {
             ErrorClass::LoggedOut
-        } else if self.status == Some(429) || names_a_provider_limit(&format!("{} {}", self.kind, self.message)) {
+        } else if self.status == Some(429) || self.kind.eq_ignore_ascii_case("provider.quota") || names_a_provider_limit(&format!("{} {}", self.kind, self.message)) {
             ErrorClass::Limit
         } else if self.kind.to_lowercase().contains("auth") {
             ErrorClass::LoggedOut
@@ -1618,7 +1720,7 @@ impl CliLlm {
         if let Some(v) = self.version.lock().unwrap().clone() {
             return v;
         }
-        let out = self.run_contained(path, &["--version"], 10, run_dir, sandbox).await.unwrap_or_default().trim().to_string();
+        let out = self.run_contained(path, &["--version"], 10, run_dir, sandbox).await.map(|c| c.text).unwrap_or_default().trim().to_string();
         *self.version.lock().unwrap() = Some(out.clone());
         out
     }
@@ -1626,7 +1728,7 @@ impl CliLlm {
     /// Run the CLI briefly on the turn path (`--version`, a login check) the way the turn itself runs
     /// it: inside the turn's sandbox, with the allowlisted environment, in the run folder. API keys
     /// and Heron's other variables never reach it this way either.
-    async fn run_contained(&self, path: &Path, args: &[&str], timeout_secs: u64, run_dir: &Path, sandbox: Option<&(String, Vec<String>)>) -> Result<String> {
+    async fn run_contained(&self, path: &Path, args: &[&str], timeout_secs: u64, run_dir: &Path, sandbox: Option<&(String, Vec<String>)>) -> Result<Captured> {
         let mut cmd = match sandbox {
             Some((program, prefix)) => {
                 let mut c = Command::new(program);
@@ -1686,6 +1788,7 @@ impl CliLlm {
                 );
             }
         }
+        check_cli_model(model)?;
         let path = self.binary_path()?;
         let model = if self.spec.id == "claude-cli" {
             let base = if !model.is_empty() {
@@ -2139,14 +2242,14 @@ impl Accumulator {
 /// Kill a process group by id (Unix only). Best effort: the group may
 /// already be gone.
 #[cfg(unix)]
-fn kill_group(pgid: u32) {
+pub(crate) fn kill_group(pgid: u32) {
     unsafe {
         libc::killpg(pgid as libc::pid_t, libc::SIGKILL);
     }
 }
 
 #[cfg(not(unix))]
-fn kill_group(_pgid: u32) {}
+pub(crate) fn kill_group(_pgid: u32) {}
 
 /// Kill the provider's whole process tree: the group first, then the
 /// direct child. Used on timeout and on read errors, where the child is
@@ -2234,13 +2337,16 @@ impl CliLlm {
             write_opencode_config(&run_dir)?;
         }
         let prompt = render_prompt(&req);
-        // The agent routes simple and background requests to the fast model
-        // through ChatRequest.model; that override wins over cli_model, so
-        // the CLI actually runs the model the UI announces.
+        // The agent routes simple and background requests to the fast model through
+        // ChatRequest.model. Only an explicitly set fast_model is honoured: a request for any other
+        // name (side calls send `fast_model()`, which falls back to the HTTP `model`) runs cli_model,
+        // so a CLI is never asked for another provider's model.
+        let fast = self.cfg.llm.fast_model.trim();
         let model = req
             .model
             .as_deref()
-            .filter(|m| !m.trim().is_empty())
+            .map(str::trim)
+            .filter(|m| !fast.is_empty() && *m == fast)
             .unwrap_or(self.model.as_str());
         let (path, args) = self.argv(&prompt, model)?;
         let (binary_dir, extra_read) = self.binary_dirs(&path);
@@ -2407,34 +2513,32 @@ impl CliLlm {
                 // A failed exit is an error even when some text arrived:
                 // a partial reply must not be saved as a successful answer.
                 let logged_out = format!("{} is logged out: run `{}`", self.spec.display_name, self.spec.login_command);
+                let signed_out = || CliLoggedOut::new(&self.spec, preview.clone());
                 // claude-cli and codex-cli can say whether they are logged in; ask them.
                 if matches!(self.spec.id, "claude-cli" | "codex-cli") {
                     let probe: &[&str] = if self.spec.id == "claude-cli" { &["auth", "status", "--text"] } else { &["login", "status"] };
                     if let Ok(out) = self.run_contained(&path, probe, 20, &run_dir, sandbox.as_ref()).await {
-                        if says_logged_out(self.spec.id, &out) {
-                            bail!("{logged_out}, then try again. (CLI said: {preview})");
+                        if says_logged_out(self.spec.id, &out.text) {
+                            return Err(signed_out().into());
                         }
                     }
                 }
-                let limit_msg = |preview: &str| format!("{} refused the request: {}. The subscription's usage window may be exhausted; wait or check the plan.", self.spec.display_name, preview);
+                let limit_msg = |preview: &str| format!("{} refused the request: {}. The subscription's usage window may be exhausted, or the account's credit used up; wait, top up, or pick another model.", self.spec.display_name, preview);
                 match acc.provider_error.as_ref().map(ProviderError::class) {
-                    Some(ErrorClass::LoggedOut) => bail!("{logged_out}, then try again. (CLI said: {preview})"),
+                    Some(ErrorClass::LoggedOut) => return Err(signed_out().into()),
                     Some(ErrorClass::Limit) => bail!("{}", limit_msg(&preview)),
                     _ => {}
                 }
+                // A limit first: its text can hold a sign-in word ("see ~/.local/share/opencode/auth.json").
                 let lower = preview.to_lowercase();
-                if lower.contains("auth")
-                    || lower.contains("not logged in")
-                    || lower.contains("login")
-                    || lower.contains("unauthorized")
-                {
-                    bail!("{logged_out}, then try again. (CLI said: {preview})");
-                }
-                // A CLI with no login probe cannot say; the hint goes with the failure.
-                let hint = if parse_login_output(self.spec.id, "").0.is_none() { format!(" If {logged_out}.") } else { String::new() };
                 if names_a_provider_limit(&lower) {
                     bail!("{}", limit_msg(&preview));
                 }
+                if names_a_sign_in_problem(&lower) {
+                    return Err(signed_out().into());
+                }
+                // A CLI with no login probe cannot say; the hint goes with the failure.
+                let hint = if !matches!(self.spec.id, "claude-cli" | "codex-cli") { format!(" If {logged_out}.") } else { String::new() };
                 if text_len == 0 {
                     bail!("{} failed (exit {}): {}. Check `{}` and run `heron providers` to re-check the install.{hint}", self.spec.display_name, status.code().unwrap_or(-1), preview, self.spec.login_command);
                 }
@@ -2989,12 +3093,124 @@ mod tests {
     /// A fake `opencode` that prints `event` on stdout and exits 1 with an empty stderr.
     #[cfg(not(windows))]
     async fn opencode_failure_with(event: &str) -> String {
+        opencode_error_with(event).await.to_string()
+    }
+
+    /// The error itself, for checks on its type.
+    #[cfg(not(windows))]
+    async fn opencode_error_with(event: &str) -> anyhow::Error {
         let dir = tempfile::tempdir().unwrap();
         let bin = fake_bin(dir.path(), "opencode", &format!("#!/bin/sh\nprintf '%s\\n' '{event}'\nexit 1\n"));
         let mut cfg = test_cfg(dir.path(), "opencode-cli");
         cfg.llm.cli_command = bin.to_string_lossy().to_string();
         let llm = CliLlm::from_config(std::sync::Arc::new(cfg), None).unwrap();
-        llm.chat(hi(), &|_| {}).await.unwrap_err().to_string()
+        llm.chat(hi(), &|_| {}).await.unwrap_err()
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn a_signed_out_cli_names_its_own_login_command() {
+        let err = opencode_error_with(r#"{"type":"error","error":{"type":"provider.auth","message":"key expired","status":401}}"#).await;
+        let out = err.downcast_ref::<CliLoggedOut>().expect("a typed signed-out error");
+        assert_eq!((out.id.as_str(), out.login.as_deref()), ("opencode-cli", Some("opencode auth login")));
+        assert!(out.said.contains("provider.auth: key expired"), "{out:?}");
+        // The event the app gets is the one recorded in the fixture the Swift tests decode.
+        let v = crate::events::error_json(&err);
+        let recorded = logged_out_fixture().into_iter().find(|e| e["provider"] == "OpenCode (router)").unwrap();
+        for key in ["code", "provider", "login", "hint", "message"] {
+            assert_eq!(v[key], recorded[key], "{key}");
+        }
+    }
+
+    /// The error events in `tests/fixtures/api/events-logged-out.jsonl`, shared with the Mac app's tests.
+    fn logged_out_fixture() -> Vec<Value> {
+        include_str!("../tests/fixtures/api/events-logged-out.jsonl")
+            .lines()
+            .map(|l| serde_json::from_str::<Value>(l).unwrap())
+            .filter(|v| v["type"] == "error")
+            .collect()
+    }
+
+    #[test]
+    fn the_logged_out_fixture_is_what_the_core_sends() {
+        let events = logged_out_fixture();
+        assert_eq!(events.len(), 2);
+        for recorded in events {
+            let spec = providers().into_iter().find(|s| recorded["provider"] == s.display_name).expect("a registry row");
+            let message = recorded["message"].as_str().unwrap();
+            let said = message.split_once("(CLI said: ").unwrap().1.trim_end_matches(')');
+            let sent = crate::events::error_json(&CliLoggedOut::new(&spec, said.to_string()).into());
+            let keys = |v: &Value| v.as_object().unwrap().keys().filter(|k| !["run_id", "seq", "session_id"].contains(&k.as_str())).cloned().collect::<Vec<_>>();
+            assert_eq!(keys(&sent), keys(&recorded), "{}", spec.id);
+            for key in keys(&recorded) {
+                assert_eq!(sent[&key], recorded[&key], "{} {key}", spec.id);
+            }
+        }
+    }
+
+    #[test]
+    fn a_runnable_login_is_a_command_for_the_provider_s_own_binary() {
+        for spec in providers() {
+            let Some(run) = spec.login_run else { continue };
+            assert_eq!(run.split_whitespace().next(), Some(spec.binary), "{}", spec.id);
+            assert!(!run.contains(['(', ')', '<', '>']), "{} pastes prose: {run}", spec.id);
+            assert!(spec.login_command.starts_with(run), "{}: the hint and the command disagree", spec.id);
+        }
+        let run = |id: &str| spec_for(id).unwrap().login_run;
+        assert_eq!((run("claude-cli"), run("opencode-cli")), (Some("claude auth login"), Some("opencode auth login")));
+        // Signing in to these needs a choice or the CLI's own screen: no command to copy.
+        for id in ["cline-cli", "qwen-cli", "copilot-cli", "gemini-cli", "antigravity-cli", "custom-cli", "cursor-cli"] {
+            assert_eq!(run(id), None, "{id}");
+        }
+    }
+
+    /// A fake `opencode` that prints `stderr` on stderr and exits 1.
+    #[cfg(not(windows))]
+    async fn opencode_stderr_error(stderr: &str) -> anyhow::Error {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_bin(dir.path(), "opencode", &format!("#!/bin/sh\nprintf '%s\\n' '{stderr}' >&2\nexit 1\n"));
+        let mut cfg = test_cfg(dir.path(), "opencode-cli");
+        cfg.llm.cli_command = bin.to_string_lossy().to_string();
+        let llm = CliLlm::from_config(std::sync::Arc::new(cfg), None).unwrap();
+        llm.chat(hi(), &|_| {}).await.unwrap_err()
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn a_limit_that_mentions_auth_is_still_a_limit() {
+        for stderr in ["Insufficient balance (see ~/.local/share/opencode/auth.json)", "rate limit exceeded for author", "Rate limit exceeded: log in again after the window resets"] {
+            let err = opencode_stderr_error(stderr).await;
+            assert!(err.downcast_ref::<CliLoggedOut>().is_none(), "{stderr}: {err}");
+            assert!(err.to_string().contains("refused the request"), "{stderr}: {err}");
+        }
+        let err = opencode_stderr_error("Authentication failed: token expired").await;
+        assert!(err.downcast_ref::<CliLoggedOut>().is_some(), "{err}");
+        let err = opencode_stderr_error("could not parse the reply written by the author").await;
+        assert!(err.downcast_ref::<CliLoggedOut>().is_none() && err.to_string().contains("failed (exit 1)"), "{err}");
+    }
+
+    #[test]
+    fn sign_in_words_count_only_as_words() {
+        for yes in ["authentication failed", "401 unauthorized", "oauth token expired", "not logged in", "auth: token expired", "run opencode auth login", "please log in.", "login_required", "you are logged out", "sign in to continue"] {
+            assert!(names_a_sign_in_problem(yes), "{yes}");
+        }
+        for no in ["written by the author", "authorize the device", "the authority said no", "failed to read ~/.local/share/opencode/auth.json", "see /login/help", "check auth.json for the key", "loginx", "blog in", "design in progress", "author.name"] {
+            assert!(!names_a_sign_in_problem(no), "{no}");
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn an_empty_balance_is_a_limit_not_a_sign_in_problem() {
+        // What opencode printed on the owner's Mac when its pay-as-you-go credit was empty.
+        let event = r#"{"type":"error","error":{"type":"provider.quota","message":"Insufficient balance. This request is pay-as-you-go, billed to OpenCode Models credits."}}"#;
+        let err = opencode_error_with(event).await;
+        let text = err.to_string();
+        assert!(text.contains("refused the request") && text.contains("credit used up"), "{text}");
+        assert!(!text.contains("logged out") && err.downcast_ref::<CliLoggedOut>().is_none(), "{text}");
+        // The phrase alone, under a neutral type, is a limit too.
+        let text = opencode_failure_with(r#"{"type":"error","error":{"type":"provider.error","message":"Insufficient balance"}}"#).await;
+        assert!(text.contains("refused the request"), "{text}");
     }
 
     #[tokio::test]
@@ -3313,6 +3529,8 @@ mod tests {
 
     #[test]
     fn envelope_text_prefix_decodes_incrementally() {
+        // A stray backslash before a letter outside ASCII (LaTeX, a Windows path) keeps the letter.
+        assert_eq!(envelope_text_prefix("{\"text\": \"caf\\é \\→ ok\"}"), Some(("café → ok".to_string(), true)));
         assert_eq!(envelope_text_prefix(""), None);
         assert_eq!(envelope_text_prefix("{\"te"), None);
         assert_eq!(
@@ -3849,6 +4067,84 @@ mod tests {
     }
 
     #[test]
+    fn login_status_parsing_reads_current_cli_output() {
+        // Claude Code 2.1.330 `auth status --text`, captured live: no "logged in" words.
+        assert_eq!(
+            parse_login_output("claude-cli", "Login method: Claude Max account\nOrganization: someone's Organization\nEmail: someone@example.com\nSign-in ends: between 2026-12-18 and 2026-12-21"),
+            (Some(true), Some("Claude max".to_string()))
+        );
+        // Output with no login words at all says nothing about the login.
+        assert_eq!(parse_login_output("claude-cli", "Usage: claude auth status [options]"), (None, None));
+        assert_eq!(parse_login_output("codex-cli", ""), (None, None));
+        assert_eq!(parse_login_output("claude-cli", "Logged out"), (Some(false), None));
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn codex_probe_reads_a_login_printed_on_stderr() {
+        // codex-cli 0.169.0 prints "Logged in using ChatGPT" on stderr and nothing on stdout.
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"codex-cli 0.169.0\"\n  exit 0\nfi\necho 'Logged in using ChatGPT' >&2\nexit 0\n";
+        let bin = fake_bin(dir.path(), "codex", script);
+        let spec = spec_for("codex-cli").unwrap();
+        let Some(cfg) = probe_cfg(dir.path(), "codex-cli", &bin, "") else { return };
+        let probed = probe_status(&cfg, &spec).await;
+        assert_eq!(probed.logged_in, Some(true), "a login reported on stderr is still a login");
+    }
+
+    /// Probe a fake CLI whose `--version` works and whose login-status command runs `body`.
+    #[cfg(not(windows))]
+    async fn probe_fake_login(spec_id: &str, binary: &str, body: &str) -> Option<ProviderStatus> {
+        let dir = tempfile::tempdir().unwrap();
+        let script = format!("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"9.9.9\"\n  exit 0\nfi\n{body}\n");
+        let bin = fake_bin(dir.path(), binary, &script);
+        let spec = spec_for(spec_id).unwrap();
+        let cfg = probe_cfg(dir.path(), spec_id, &bin, "")?;
+        Some(probe_status(&cfg, &spec).await)
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn claude_probe_logged_out_on_stdout_with_exit_1_is_not_logged_in() {
+        // Claude Code prints "Not logged in" on stdout and exits 1 when logged out (confirmed live).
+        let Some(p) = probe_fake_login("claude-cli", "claude", "echo 'Not logged in'\nexit 1").await else { return };
+        assert_eq!(p.logged_in, Some(false), "{p:?}");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn codex_probe_logged_out_exit_1_is_not_logged_in_on_either_stream() {
+        // codex-rs `login status` prints "Not logged in" on stderr and exits 1; stdout must work too.
+        let Some(p) = probe_fake_login("codex-cli", "codex", "echo 'Not logged in' >&2\nexit 1").await else { return };
+        assert_eq!(p.logged_in, Some(false), "stderr: {p:?}");
+        let Some(p) = probe_fake_login("codex-cli", "codex", "echo 'Not logged in'\nexit 1").await else { return };
+        assert_eq!(p.logged_in, Some(false), "stdout: {p:?}");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn login_probe_non_zero_exit_without_a_logged_in_signal_is_logged_out() {
+        for (id, bin) in [("claude-cli", "claude"), ("codex-cli", "codex")] {
+            let Some(p) = probe_fake_login(id, bin, "echo 'something odd'\nexit 1").await else { return };
+            assert_eq!(p.logged_in, Some(false), "{id} with unrecognised output: {p:?}");
+            let Some(p) = probe_fake_login(id, bin, "exit 1").await else { return };
+            assert_eq!(p.logged_in, Some(false), "{id} with no output: {p:?}");
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn login_probe_still_reads_logged_in_on_either_stream() {
+        let Some(p) = probe_fake_login("claude-cli", "claude", "echo 'Login method: Claude Max account'").await else { return };
+        assert_eq!(p.logged_in, Some(true), "{p:?}");
+        let Some(p) = probe_fake_login("codex-cli", "codex", "echo 'Logged in using ChatGPT' >&2").await else { return };
+        assert_eq!(p.logged_in, Some(true), "{p:?}");
+        // Exit 0 with unrecognised output stays unknown, not logged out.
+        let Some(p) = probe_fake_login("claude-cli", "claude", "echo 'hello'").await else { return };
+        assert_eq!(p.logged_in, None, "{p:?}");
+    }
+
+    #[test]
     #[cfg(not(windows))]
     fn prompt_follows_the_value_flag_for_string_prompt_providers() {
         let dir = tempfile::tempdir().unwrap();
@@ -3985,7 +4281,7 @@ mod tests {
 
     #[tokio::test]
     #[cfg(not(windows))]
-    async fn request_model_override_wins_over_cli_model() {
+    async fn a_request_for_the_set_fast_model_wins_over_cli_model() {
         let dir = tempfile::tempdir().unwrap();
         // The fake answers with the argv it ran with (it cannot write outside its run folder).
         let script = "#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\"}' \"{\\\"type\\\":\\\"result\\\",\\\"subtype\\\":\\\"success\\\",\\\"result\\\":\\\"ran with $*\\\",\\\"usage\\\":{\\\"input_tokens\\\":11,\\\"output_tokens\\\":4}}\"\n";
@@ -3993,10 +4289,11 @@ mod tests {
         let mut cfg = test_cfg(dir.path(), "claude-cli");
         cfg.llm.cli_command = bin.to_string_lossy().to_string();
         cfg.llm.cli_model = "sonnet".to_string();
+        cfg.llm.fast_model = "haiku".to_string();
         let llm = CliLlm::from_config(std::sync::Arc::new(cfg.clone()), None).unwrap();
         let req = ChatRequest {
             messages: vec![Message::user("hi")],
-            model: Some("haiku".to_string()),
+            model: Some(" haiku ".to_string()),
             ..Default::default()
         };
         let r = llm.chat(req, &|_| {}).await.unwrap();
@@ -4012,6 +4309,48 @@ mod tests {
             !argv.contains("sonnet"),
             "the configured main model leaked into the override: {argv}"
         );
+    }
+
+    /// A fake `claude` that answers with the argv it ran with.
+    #[cfg(not(windows))]
+    async fn claude_argv_for(dir: &std::path::Path, cfg: impl FnOnce(&mut Config), model: Option<&str>) -> Result<String> {
+        let script = "#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\"}' \"{\\\"type\\\":\\\"result\\\",\\\"subtype\\\":\\\"success\\\",\\\"result\\\":\\\"ran with $*\\\",\\\"usage\\\":{\\\"input_tokens\\\":11,\\\"output_tokens\\\":4}}\"\n";
+        let bin = fake_bin(dir, "claude", script);
+        let mut c = test_cfg(dir, "claude-cli");
+        c.llm.cli_command = bin.to_string_lossy().to_string();
+        cfg(&mut c);
+        let llm = CliLlm::from_config(std::sync::Arc::new(c), None).unwrap();
+        let req = ChatRequest { messages: vec![Message::user("hi")], model: model.map(str::to_string), ..Default::default() };
+        Ok(llm.chat(req, &|_| {}).await?.message.text().to_string())
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn a_side_call_with_no_fast_model_runs_cli_model() {
+        let dir = tempfile::tempdir().unwrap();
+        // Compaction and the other side calls send `fast_model()`, which falls back to the HTTP model.
+        let side = Config::default().fast_model().to_string();
+        assert_eq!(side, "anthropic/claude-sonnet-5.5");
+        let argv = claude_argv_for(dir.path(), |c| c.llm.cli_model = "opus".into(), Some(&side)).await.unwrap();
+        assert!(argv.contains("--model claude-opus") && !argv.contains("anthropic/"), "the CLI ran with: {argv}");
+        // With a fast model set, a request for some other name still runs cli_model.
+        let argv = claude_argv_for(dir.path(), |c| { c.llm.cli_model = "opus".into(); c.llm.fast_model = "haiku".into(); }, Some(&side)).await.unwrap();
+        assert!(argv.contains("--model claude-opus") && !argv.contains("anthropic/"), "the CLI ran with: {argv}");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn a_model_name_that_reads_as_a_flag_never_reaches_the_cli() {
+        for bad in ["--dangerously-skip-permissions", " -p", "son\nnet", "a\u{7}b"] {
+            let dir = tempfile::tempdir().unwrap();
+            let err = claude_argv_for(dir.path(), |c| c.llm.cli_model = bad.into(), None).await.unwrap_err();
+            assert!(err.to_string().contains("can't start with -"), "{bad:?}: {err}");
+            // Through the fast-model route too.
+            let err = claude_argv_for(dir.path(), |c| c.llm.fast_model = bad.into(), Some(bad)).await.unwrap_err();
+            assert!(err.to_string().contains("can't start with -"), "{bad:?}: {err}");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        assert!(claude_argv_for(dir.path(), |c| c.llm.cli_model = "claude-sonnet-5-5".into(), None).await.is_ok());
     }
 
     #[tokio::test]
@@ -4143,7 +4482,7 @@ mod tests {
         let sandbox = crate::sandbox::wrap(&llm.cfg, &run_dir, &profile);
         let args: Vec<String> = [diary, token, run_dir.join("own.txt")].iter().map(|p| p.display().to_string()).collect();
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let out = llm.run_contained(&bin, &args, 30, &run_dir, sandbox.as_ref()).await.unwrap();
+        let out = llm.run_contained(&bin, &args, 30, &run_dir, sandbox.as_ref()).await.unwrap().text;
         assert!(out.contains("RUN-FOLDER-CONTENT") && out.contains("finished"), "the fake CLI ran and read its run folder: {out}");
         assert!(!out.contains("ASK-TIER-CONTENT"), "an Ask-tier file was readable: {out}");
         assert!(!out.contains("OTHER-CLI-CONTENT"), "another CLI's folder was readable: {out}");

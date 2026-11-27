@@ -319,10 +319,11 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
         }
     }
 
-    public func addMemory(content: String, kind: String) async throws -> Int {
+    public func addMemory(content: String, kind: String, source: String, confirmed: Bool) async throws -> Int {
         with { d in
             let id = (d.memories.map(\.id).max() ?? 0) + 1
-            d.memories.append(Memory(id: id, kind: kind, content: content, source: "user", confirmed: true, uses: 0, createdAt: now))
+            let trusted = confirmed && ["user", "onboarding", "about", "agent", "auto"].contains(source)
+            d.memories.append(Memory(id: id, kind: kind, content: content, source: source, confirmed: trusted, uses: 0, createdAt: now))
             return id
         }
     }
@@ -419,6 +420,8 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     public func selectProvider(id: String) async throws {
         try with { d in
             guard let p = d.providers.first(where: { $0.id == id }) else { throw CoreError.notFound }
+            // As the core does: a model name belongs to the CLI it was set for.
+            if !p.isActive { d.cliModel = "" }
             for i in d.providers.indices { d.providers[i].isActive = d.providers[i].id == id }
             d.activeModel = p.displayName
         }
@@ -433,11 +436,12 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
             if let failure = d.settingsFailure { d.settingsFailure = nil; throw failure }
             return CoreSettings(workspace: d.workspace, mode: d.mode, ruleNotices: d.ruleNotices,
                          allowSubscriptionUnattended: d.allowSubscriptionUnattended, connections: d.connections,
-                         awareness: d.awareness, phoneConnected: false)
+                         awareness: d.awareness, phoneConnected: false, cliModel: d.cliModel)
         }
     }
 
     public func setUnattendedSubscription(_ allowed: Bool) async throws { with { $0.allowSubscriptionUnattended = allowed } }
+    public func setCLIModel(_ model: String) async throws { with { $0.cliModel = model } }
     public func setAwareness(_ enabled: Bool) async throws { with { $0.awareness = enabled } }
     public func grants() async throws -> [Grant] { with { $0.grants } }
 

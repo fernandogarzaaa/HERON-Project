@@ -322,6 +322,7 @@ public enum CoreWire {
         struct Notice: Decodable { var rule: String; var notice: String }
         struct DTO: Decodable {
             var workspace: String; var mode: String; var ruleNotices: [Notice]; var allowUnattendedSubscription: Bool
+            var cliModel: String?
         }
         let d = try decode(DTO.self, data)
         struct Awareness: Decodable { var enabled: Bool }
@@ -330,7 +331,8 @@ public enum CoreWire {
                             allowSubscriptionUnattended: d.allowUnattendedSubscription,
                             connections: sources.map(connections) ?? [],
                             awareness: (try? awareness.map { try decode(Awareness.self, $0).enabled }) ?? false,
-                            phoneConnected: (try? telegram.map { try decode(Telegram.self, $0).paired }) ?? false)
+                            phoneConnected: (try? telegram.map { try decode(Telegram.self, $0).paired }) ?? false,
+                            cliModel: d.cliModel ?? "")
     }
 
     /// `GET /api/sources` as rows: one per place Heron can learn from.
@@ -461,7 +463,7 @@ public enum CoreWire {
         case "done": return make(.done(text: o["text"] as? String ?? "", title: o["title"] as? String))
         case "cancelled": return make(.cancelled)
         case "error":
-            return make(.error(message: o["message"] as? String ?? "", code: o["code"] as? String, provider: o["provider"] as? String, version: o["version"] as? String))
+            return make(.error(message: o["message"] as? String ?? "", code: o["code"] as? String, provider: o["provider"] as? String, version: o["version"] as? String, login: o["login"] as? String, hint: o["hint"] as? String))
         case "run_end": return make(.runEnd)
         case "resync": return Envelope(seq: nil, event: CoreEvent(seq: 0, kind: .resync(oldest: try int("oldest"))))
         default: return Envelope(seq: seq, event: nil)

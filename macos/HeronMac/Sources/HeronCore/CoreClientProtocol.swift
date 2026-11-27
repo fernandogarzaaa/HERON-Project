@@ -42,7 +42,7 @@ public protocol CoreClientProtocol: Sendable {
 
     // Memory, tasks, schedules, audit
     func memories(query: String?) async throws -> [Memory]                   // GET /api/memories
-    func addMemory(content: String, kind: String) async throws -> Int        // POST /api/memories
+    func addMemory(content: String, kind: String, source: String, confirmed: Bool) async throws -> Int  // POST /api/memories
     func confirmMemory(id: Int) async throws                                 // POST /api/memories/{id}/confirm
     func deleteMemory(id: Int) async throws                                  // DELETE /api/memories/{id}
     func tasks() async throws -> [TaskItem]                                  // GET /api/tasks
@@ -68,6 +68,7 @@ public protocol CoreClientProtocol: Sendable {
     // Settings
     func settings() async throws -> CoreSettings                             // GET /api/settings
     func setUnattendedSubscription(_ allowed: Bool) async throws             // POST /api/settings
+    func setCLIModel(_ model: String) async throws                           // POST /api/settings
     func setAwareness(_ enabled: Bool) async throws                          // POST /api/awareness
     func grants() async throws -> [Grant]                                    // GET /api/grants
     func revokeGrant(rule: String) async throws                              // DELETE /api/grants
@@ -99,4 +100,9 @@ public struct ChatStart: Sendable, Equatable {
         self.sessionID = sessionID
         self.runID = runID
     }
+}
+
+public extension CoreClientProtocol {
+    /// A memory the owner writes themselves.
+    func addMemory(content: String, kind: String) async throws -> Int { try await addMemory(content: content, kind: kind, source: "user", confirmed: true) }
 }

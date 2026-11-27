@@ -38,6 +38,7 @@ final class ModelDecodingTests: XCTestCase {
             "today.json": { _ = try CoreWire.today($0) },
             "events-approval.jsonl": { _ = try CoreWire.events(jsonLines: String(decoding: $0, as: UTF8.self)) },
             "events-error.jsonl": { _ = try CoreWire.events(jsonLines: String(decoding: $0, as: UTF8.self)) },
+            "events-logged-out.jsonl": { _ = try CoreWire.events(jsonLines: String(decoding: $0, as: UTF8.self)) },
         ]
         let names = try Fixtures.names()
         XCTAssertFalse(names.isEmpty, "no fixtures found at \(Fixtures.directory.path)")
@@ -334,6 +335,15 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(s.connections, [])
         XCTAssertFalse(s.awareness)
         XCTAssertFalse(s.phoneConnected)
+        XCTAssertEqual(s.cliModel, "", "the fixture's cli_model")
+    }
+
+    func testSettingsReadTheCLIModel() throws {
+        let json = #"{"workspace":"/w","mode":"ask","rule_notices":[],"allow_unattended_subscription":false,"cli_model":"opencode/beam-free"}"#
+        XCTAssertEqual(try CoreWire.settings(Data(json.utf8)).cliModel, "opencode/beam-free")
+        // An older core that doesn't send it: empty, so the CLI chooses.
+        let older = #"{"workspace":"/w","mode":"ask","rule_notices":[],"allow_unattended_subscription":false}"#
+        XCTAssertEqual(try CoreWire.settings(Data(older.utf8)).cliModel, "")
     }
 
     // MARK: Event recordings
@@ -382,6 +392,31 @@ final class ModelDecodingTests: XCTestCase {
         let json = #"{"seq":4,"session_id":"s","run_id":"r","type":"error","message":"m","code":"cli_version_untested","provider":"claude-cli","version":"2.3.0"}"#
         let e = try XCTUnwrap(CoreWire.envelope(Data(json.utf8)).event)
         XCTAssertEqual(e.kind, .error(message: "m", code: "cli_version_untested", provider: "claude-cli", version: "2.3.0"))
+    }
+
+    /// The core's own signed-out events (`the_logged_out_fixture_is_what_the_core_sends` checks this file in
+    /// Rust): a runnable `login` only where the CLI has one, and the prose as `hint`.
+    func testLoggedOutRecordingKeepsTheCommandApartFromTheHint() throws {
+        let errors = try CoreWire.events(jsonLines: try Fixtures.text("events-logged-out.jsonl")).filter {
+            if case .error = $0.kind { true } else { false }
+        }
+        XCTAssertEqual(errors.count, 2)
+        guard case .error(_, let code, let provider, _, let login, let hint) = errors[0].kind else { return XCTFail() }
+        XCTAssertEqual(code, "cli_logged_out")
+        XCTAssertEqual(provider, "OpenCode (router)")
+        XCTAssertEqual(login, "opencode auth login")
+        XCTAssertEqual(hint, "opencode auth login (or configure opencode.json)")
+        guard case .error(_, _, let cline, _, let noLogin, let clineHint) = errors[1].kind else { return XCTFail() }
+        XCTAssertEqual(cline, "Cline (router, free models)")
+        XCTAssertNil(noLogin)
+        XCTAssertEqual(clineHint, "cline auth <provider>")
+    }
+
+    /// The shape `events::error_json` sends for a signed-out CLI (its Rust test checks the same fields).
+    func testSignedOutErrorEventCarriesTheLoginCommand() throws {
+        let json = #"{"seq":5,"session_id":"s","run_id":"r","type":"error","message":"m","code":"cli_logged_out","provider":"OpenCode (router)","login":"opencode auth login"}"#
+        let e = try XCTUnwrap(CoreWire.envelope(Data(json.utf8)).event)
+        XCTAssertEqual(e.kind, .error(message: "m", code: "cli_logged_out", provider: "OpenCode (router)", version: nil, login: "opencode auth login"))
     }
 
     func testParkedLearnedModelNoticeAndCancelledEvents() throws {
