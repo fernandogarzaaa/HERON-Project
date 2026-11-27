@@ -128,7 +128,18 @@ pub fn is_public(ip: IpAddr) -> bool {
                 return is_public(IpAddr::V4(v4));
             }
             let s = v6.segments();
+            let v4_at = |hi: u16, lo: u16| IpAddr::V4(std::net::Ipv4Addr::from(((hi as u32) << 16) | lo as u32));
+            // NAT64 and 6to4 reach the IPv4 address they carry, so that address decides.
+            if s[0] == 0x64 && s[1] == 0xff9b && s[2..6] == [0, 0, 0, 0] {
+                return is_public(v4_at(s[6], s[7]));
+            }
+            if s[0] == 0x2002 {
+                return is_public(v4_at(s[1], s[2]));
+            }
             !(v6.is_loopback()
+                || s[..6] == [0, 0, 0, 0, 0, 0]
+                || (s[0] == 0x64 && s[1] == 0xff9b && s[2] == 1)
+                || (s[0] & 0xffc0) == 0xfec0
                 || v6.is_unspecified()
                 || v6.is_multicast()
                 || (s[0] & 0xfe00) == 0xfc00
@@ -288,7 +299,7 @@ async fn handle(mut client: TcpStream, allow: Arc<Vec<String>>, log: Arc<Mutex<V
         if let Some(port) = opts.upstream_port {
             addr.set_port(port);
         }
-        if let Ok(mut upstream) = TcpStream::connect(addr).await {
+        if let Ok(Ok(mut upstream)) = tokio::time::timeout(Duration::from_secs(10), TcpStream::connect(addr)).await {
             if upstream.write_all(&hello).await.is_ok() {
                 let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
             }
@@ -467,6 +478,8 @@ mod tests {
             "2606:4700::1111",
             "2001:4860:4860::8888",
             "2a00:1450::1",
+            "64:ff9b::808:808",
+            "2002:808:808::1",
         ] {
             assert!(is_public(ip.parse().unwrap()), "{ip}");
         }
@@ -495,6 +508,15 @@ mod tests {
             "::ffff:127.0.0.1",
             "::ffff:169.254.169.254",
             "2001:db8::1",
+            // Addresses that carry an IPv4 address inside: NAT64, 6to4 and the old IPv4-compatible form.
+            "64:ff9b::7f00:1",
+            "64:ff9b::a9fe:a9fe",
+            "64:ff9b:1::5db8:d822",
+            "2002:7f00:1::1",
+            "2002:a9fe:a9fe::1",
+            "::127.0.0.1",
+            "::8.8.8.8",
+            "fec0::1",
         ] {
             assert!(!is_public(ip.parse().unwrap()), "{ip}");
         }
