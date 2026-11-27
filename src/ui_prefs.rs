@@ -137,8 +137,8 @@ fn canonical<'a>(value: &str, allowed: &[&'a str], fallback: &'a str) -> &'a str
 pub fn system_prefers_dark() -> bool {
     #[cfg(target_os = "macos")]
     {
-        return command_stdout(&["defaults", "read", "-g", "AppleInterfaceStyle"])
-            .is_some_and(|text| text.to_lowercase().contains("dark"));
+        command_stdout(&["defaults", "read", "-g", "AppleInterfaceStyle"])
+            .is_some_and(|text| text.to_lowercase().contains("dark"))
     }
     #[cfg(target_os = "windows")]
     {
@@ -150,7 +150,7 @@ pub fn system_prefers_dark() -> bool {
             "/v",
             "AppsUseLightTheme",
         ]);
-        return text.is_some_and(|text| text.contains("0x0"));
+        text.is_some_and(|text| text.contains("0x0"))
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -188,12 +188,12 @@ pub fn system_prefers_dark() -> bool {
 pub fn system_reduce_motion() -> bool {
     #[cfg(target_os = "macos")]
     {
-        return command_stdout(&["defaults", "read", "-g", "AppleReduceMotion"])
-            .is_some_and(|text| text.trim() == "1");
+        command_stdout(&["defaults", "read", "-g", "AppleReduceMotion"])
+            .is_some_and(|text| text.trim() == "1")
     }
     #[cfg(target_os = "windows")]
     {
-        return false;
+        false
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
