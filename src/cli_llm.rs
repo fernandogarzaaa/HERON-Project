@@ -2139,14 +2139,14 @@ impl Accumulator {
 /// Kill a process group by id (Unix only). Best effort: the group may
 /// already be gone.
 #[cfg(unix)]
-fn kill_group(pgid: u32) {
+pub(crate) fn kill_group(pgid: u32) {
     unsafe {
         libc::killpg(pgid as libc::pid_t, libc::SIGKILL);
     }
 }
 
 #[cfg(not(unix))]
-fn kill_group(_pgid: u32) {}
+pub(crate) fn kill_group(_pgid: u32) {}
 
 /// Kill the provider's whole process tree: the group first, then the
 /// direct child. Used on timeout and on read errors, where the child is
