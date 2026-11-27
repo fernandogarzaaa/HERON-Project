@@ -90,6 +90,14 @@ public protocol CoreClientProtocol: Sendable {
     /// `DELETE /api/oauth/{provider}`: signs out and forgets what came from the account.
     func disconnectOAuth(provider: OAuthProviderID) async throws
     func usage() async throws -> UsageReport                                // GET /api/usage
+
+    // Sandbox
+    func toolchain() async throws -> ToolchainStatus                         // GET /api/toolchain
+    /// `POST /api/toolchain/trust {"since"}`: trusts the toolchain as it is now. `since` is the one the screen showed; a
+    /// toolchain that changed again after the owner looked is refused with a 409 (`CoreError.failed`).
+    func trustToolchain(since: Int?) async throws -> ToolchainStatus
+    /// `POST /api/settings`: replaces the egress mode, the allowed hosts, the denied local ports and the repeat limit.
+    func setSandbox(egress: String, hosts: [String], denyPorts: [Int], maxRepeats: Int) async throws
 }
 
 /// The `session` event that starts a run.

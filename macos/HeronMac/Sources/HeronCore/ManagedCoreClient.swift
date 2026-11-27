@@ -170,4 +170,9 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
     public func syncOAuth(provider: OAuthProviderID) async throws { try await current().syncOAuth(provider: provider) }
     public func disconnectOAuth(provider: OAuthProviderID) async throws { try await current().disconnectOAuth(provider: provider) }
     public func usage() async throws -> UsageReport { try await current().usage() }
+    public func toolchain() async throws -> ToolchainStatus { try await current().toolchain() }
+    public func trustToolchain(since: Int?) async throws -> ToolchainStatus { try await current().trustToolchain(since: since) }
+    public func setSandbox(egress: String, hosts: [String], denyPorts: [Int], maxRepeats: Int) async throws {
+        try await current().setSandbox(egress: egress, hosts: hosts, denyPorts: denyPorts, maxRepeats: maxRepeats)
+    }
 }

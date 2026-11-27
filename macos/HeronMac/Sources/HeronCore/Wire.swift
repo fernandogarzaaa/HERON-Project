@@ -323,6 +323,7 @@ public enum CoreWire {
         struct DTO: Decodable {
             var workspace: String; var mode: String; var ruleNotices: [Notice]; var allowUnattendedSubscription: Bool
             var cliModel: String?
+            var egress: String?; var egressAllow: [String]?; var denyLocalPorts: [Int]?; var maxRepeats: Int?
         }
         let d = try decode(DTO.self, data)
         struct Awareness: Decodable { var enabled: Bool }
@@ -332,7 +333,21 @@ public enum CoreWire {
                             connections: sources.map(connections) ?? [],
                             awareness: (try? awareness.map { try decode(Awareness.self, $0).enabled }) ?? false,
                             phoneConnected: (try? telegram.map { try decode(Telegram.self, $0).paired }) ?? false,
-                            cliModel: d.cliModel ?? "")
+                            cliModel: d.cliModel ?? "",
+                            egress: d.egress ?? "allowlist", egressAllow: d.egressAllow ?? [], denyLocalPorts: d.denyLocalPorts ?? [],
+                            maxRepeats: d.maxRepeats ?? 4)
+    }
+
+    /// `GET /api/toolchain`: `{"state"}`, plus `toolchains`, `files`, `since` and `during` when it changed.
+    public static func toolchain(_ data: Data) throws -> ToolchainStatus {
+        struct DTO: Decodable {
+            var state: String; var toolchains: [String]?; var files: [String]?; var since: Int?; var during: String?
+        }
+        let d = try decode(DTO.self, data)
+        guard let state = ToolchainStatus.State(rawValue: d.state) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "unknown toolchain state \(d.state)"))
+        }
+        return ToolchainStatus(state: state, toolchains: d.toolchains ?? [], files: d.files ?? [], since: d.since, during: d.during)
     }
 
     /// `GET /api/sources` as rows: one per place Heron can learn from.

@@ -203,6 +203,8 @@ pub fn router_with(app: Arc<App>, token: String, loopback_only: bool) -> Router 
         .route("/providers/{id}/accept-version", post(accept_provider_version))
         .route("/grants", get(list_grants).delete(revoke_grant))
         .route("/nevers", get(list_nevers).delete(remove_never))
+        .route("/toolchain", get(get_toolchain))
+        .route("/toolchain/trust", post(trust_toolchain))
         .layer(middleware::from_fn_with_state(state.clone(), auth));
     Router::new()
         .route("/", get(|| async { ([(header::CACHE_CONTROL, "no-store"), (header::HeaderName::from_static("content-security-policy"), "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")], Html(INDEX_HTML)) }))
@@ -252,6 +254,20 @@ pub async fn start_native_endpoint(app: Arc<App>) -> Result<Started> {
     start_endpoint(app, "127.0.0.1", 0).await
 }
 
+/// Every port a server in this process has bound. Sandboxed commands may not reach them.
+static BOUND_PORTS: Mutex<Vec<u16>> = Mutex::new(Vec::new());
+
+pub fn bound_ports() -> Vec<u16> {
+    BOUND_PORTS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+fn note_bound_port(port: u16) {
+    let mut ports = BOUND_PORTS.lock().unwrap_or_else(|e| e.into_inner());
+    if !ports.contains(&port) {
+        ports.push(port);
+    }
+}
+
 /// Bind and start serving in the background. Loopback-only checking follows the address bound.
 pub async fn start_endpoint(app: Arc<App>, bind: &str, port: u16) -> Result<Started> {
     let listener = match tokio::net::TcpListener::bind((bind, port)).await {
@@ -260,6 +276,7 @@ pub async fn start_endpoint(app: Arc<App>, bind: &str, port: u16) -> Result<Star
         Err(_) => tokio::net::TcpListener::bind((bind, 0)).await?,
     };
     let addr = listener.local_addr()?;
+    note_bound_port(addr.port());
     let token = new_token();
     let host = if addr.ip().is_unspecified() || addr.ip().is_loopback() { "127.0.0.1".to_string() } else { addr.ip().to_string() };
     let url = format!("http://{host}:{}/?token={token}", addr.port());
@@ -324,7 +341,8 @@ async fn get_settings(State(st): S) -> ApiResult {
         "mode": st.app.policy.mode().name(), "daemon_mode": cfg.permissions.daemon_mode, "auto_memory": cfg.agent.auto_memory,
         "neural_memory": cfg.agent.neural_memory, "neural_available": crate::embed::neural_built_in(),
         "browser": crate::browser::find(&cfg).map(|p| p.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()), "browser_visible": cfg.agent.browser_visible,
-        "workspace": st.app.workspace.display().to_string(), "home": cfg.home.display().to_string(),
+        "workspace": st.app.workspace.display().to_string(), "home": cfg.home.display().to_string(), "max_repeats": cfg.agent.max_repeats,
+        "egress": cfg.agent.egress, "egress_allow": cfg.agent.egress_allow, "deny_local_ports": cfg.agent.deny_local_ports,
         "allow_rules": st.app.policy.allow_rules(), "secret_storage": cfg.secret_storage(),
         "rule_notices": st.app.policy.rule_notices().into_iter().map(|(rule, notice)| json!({"rule": rule, "notice": notice})).collect::<Vec<_>>(),
         "mcp": st.app.mcp_status, "mcp_changed": st.app.mcp_pending.keys().collect::<Vec<_>>(),
@@ -450,7 +468,74 @@ fn apply_settings(body: &Value, cfg: &mut Config) -> std::result::Result<(), Api
     if let Some(v) = text("workspace").filter(|v| !v.is_empty()) {
         cfg.agent.workspace = v;
     }
+    if let Some(v) = body.get("max_repeats") {
+        let n = v.as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(|| bad("max_repeats must be 0 or at least 2."))?;
+        if n == 1 {
+            return Err(bad("max_repeats must be 0 or at least 2."));
+        }
+        cfg.agent.max_repeats = n;
+    }
+    if let Some(v) = body.get("egress") {
+        let v = v.as_str().map(str::trim).filter(|v| matches!(*v, "allowlist" | "open")).ok_or_else(|| bad("egress must be \"allowlist\" or \"open\"."))?;
+        cfg.agent.egress = v.to_string();
+    }
+    if let Some(v) = body.get("egress_allow") {
+        let entries = v.as_array().ok_or_else(|| bad("egress_allow must be a list of host names."))?;
+        let mut hosts = vec![];
+        for entry in entries {
+            let host = entry.as_str().map(|s| s.trim().to_string()).ok_or_else(|| bad(&format!("Not a host name: {entry}.")))?;
+            crate::egress::validate_host(&host).map_err(|e| bad(&e.to_string()))?;
+            hosts.push(host);
+        }
+        cfg.agent.egress_allow = hosts;
+    }
+    if let Some(v) = body.get("deny_local_ports") {
+        let entries = v.as_array().ok_or_else(|| bad("deny_local_ports must be a list of port numbers."))?;
+        let mut ports = vec![];
+        for entry in entries {
+            let port = entry.as_u64().and_then(|p| u16::try_from(p).ok()).ok_or_else(|| bad("deny_local_ports must be a list of port numbers."))?;
+            if port == 0 {
+                return Err(bad("Port 0 can't be denied."));
+            }
+            ports.push(port);
+        }
+        cfg.agent.deny_local_ports = ports;
+    }
     Ok(())
+}
+
+/// What the toolchain check found, for `GET /api/toolchain` and the trust that follows it.
+fn toolchain_json(state: &crate::toolchain::ToolchainState) -> Value {
+    match state {
+        crate::toolchain::ToolchainState::Trusted => json!({"state": "trusted"}),
+        crate::toolchain::ToolchainState::NoBaseline => json!({"state": "no_baseline"}),
+        crate::toolchain::ToolchainState::Changed { toolchains, files, since, during } => {
+            let files: Vec<String> = files.iter().map(|f| if toolchains.len() > 1 { format!("{}:{}", f.toolchain, f.path) } else { f.path.clone() }).collect();
+            json!({"state": "changed", "toolchains": toolchains, "files": files, "since": since, "during": during})
+        }
+    }
+}
+
+async fn get_toolchain(State(st): S) -> ApiResult {
+    let (store, home) = (st.app.store.clone(), crate::toolchain::user_home());
+    let state = tokio::task::spawn_blocking(move || crate::toolchain::check(&store, &home)).await.map_err(|e| anyhow::anyhow!("the toolchain check stopped: {e}"))?;
+    Ok(Json(toolchain_json(&state)))
+}
+
+#[derive(Deserialize)]
+struct TrustBody {
+    since: Option<i64>,
+}
+
+/// The owner trusts the toolchain as it is now. Only this authenticated route re-trusts it.
+async fn trust_toolchain(State(st): S, Json(b): Json<TrustBody>) -> ApiResult {
+    let (store, home) = (st.app.store.clone(), crate::toolchain::user_home());
+    let trusted = tokio::task::spawn_blocking(move || crate::toolchain::trust_current(&store, &home, b.since)).await.map_err(|e| anyhow::anyhow!("the toolchain check stopped: {e}"))?;
+    match trusted {
+        Ok(state) => Ok(Json(toolchain_json(&state))),
+        Err(e) if e.downcast_ref::<crate::toolchain::StaleSince>().is_some() => Err(ApiError(StatusCode::CONFLICT, e.to_string())),
+        Err(e) => Err(e.into()),
+    }
 }
 
 #[derive(Deserialize)]
@@ -574,6 +659,9 @@ struct WebApprover {
 
 #[async_trait]
 impl Approver for WebApprover {
+    fn live(&self) -> bool {
+        true
+    }
     async fn approve(&self, req: &ApprovalRequest) -> Approval {
         let app = &self.state.app;
         let id = uuid::Uuid::new_v4().simple().to_string();
@@ -730,7 +818,10 @@ async fn run_chat_turn(st: Arc<ServerState>, mut session: Session, message: Stri
     // Rules another Heron on this home revoked or added since this one last looked apply from here.
     st.app.reload_rules();
     let agent = st.app.agent(Arc::new(WebApprover { state: st.clone(), session_id: sid.clone(), run_id: run_id.clone() }));
-    let outcome = agent.run_turn(&mut session, &message, &st.app.sink_for(&sid, &run_id)).await;
+    // The frame ends before the outcome is published, so a protected-file notice reaches the stream.
+    let sink = st.app.sink_for(&sid, &run_id);
+    let frame = crate::agent::RunFrame::new(crate::agent::turn_run_id(&run_id), st.app.workspace.clone(), st.app.store.clone(), sink.clone());
+    let outcome = crate::agent::in_run(frame, agent.run_turn(&mut session, &message, &sink)).await;
     // Free the conversation before the (slower) background learning step.
     if !st.finish(&sid, &run_id) {
         return;
@@ -782,7 +873,8 @@ async fn cancel(State(st): S, Json(b): Json<SessionBody>) -> ApiResult {
         let entry = running.remove(&b.session_id);
         // Stopped before its approvals are dropped, so a refused approval cannot wake the run for one
         // more step.
-        if let Some((_, handle)) = &entry {
+        if let Some((run_id, handle)) = &entry {
+            crate::journal::request_cancel(&crate::agent::turn_run_id(run_id));
             handle.abort();
         }
         // A new chat must not register its approval between removing the
@@ -1333,7 +1425,17 @@ async fn answer_approval(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>
             Err(e) => Err(e.into()),
         },
         Some("dismiss") => {
-            st.app.store.resolve_approval(id, "dismissed", None)?;
+            // Dismiss is a claim, as approve is: a request already running or answered is left as it is.
+            let parked = st.app.store.get_approval(id);
+            if !st.app.store.dismiss_approval(id)? {
+                return Err(bad("That request is no longer waiting."));
+            }
+            if let Some(handler) = parked.as_ref().and_then(|p| crate::journal::resume_handler(&p.tool)) {
+                if let Some(resumer) = crate::journal::resumer(handler) {
+                    let subject = parked.as_ref().and_then(|p| serde_json::from_str::<Value>(&p.args).ok()).and_then(|a| a.get("subject").and_then(|s| s.as_str()).map(String::from)).unwrap_or_default();
+                    resumer.declined(&st.app, &subject);
+                }
+            }
             Ok(Json(json!({"dismissed": true})))
         }
         _ => Err(bad("Unknown action.")),
@@ -2325,6 +2427,193 @@ mod tests {
         assert_eq!(h.send("POST", "/approve", json!({"id": approval["id"], "decision": "once"})).await.status, 404);
         assert_eq!(h.json("GET", &format!("/sessions/{sid}"), Value::Null).await["busy"], false);
         assert_eq!(h.json("POST", "/cancel", json!({"session_id": sid})).await["cancelled"], false);
+    }
+
+    #[tokio::test]
+    async fn stop_marks_the_running_call_cancelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        cfg.ensure_home().unwrap();
+        let llm = scripted(vec![ScriptedLlm::tool_call("hang", json!({})), Message::assistant("never")]);
+        let mut app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), llm).await.unwrap();
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        let mut tools = crate::tools::ToolRegistry::builtin();
+        tools.register(Arc::new(crate::tools::FnTool {
+            name: "hang",
+            description: "Changes something, slowly.",
+            parameters: json!({"type": "object", "properties": {}}),
+            summary: |_| "hang".into(),
+            risk: |_, _| crate::permissions::Effect::LocalStateWrite,
+            detail: None,
+            untrusted: false,
+            target: None,
+            run: |_, _| Box::pin(std::future::pending()),
+        }));
+        app.tools = Arc::new(tools);
+        let h = serve_app(dir, Arc::new(app));
+        let state = |h: &Harness| -> Option<(String, Option<String>)> { h.app.store.with_conn(|c| Ok(rusqlite::OptionalExtension::optional(c.query_row("SELECT state, outcome FROM effects", [], |r| Ok((r.get(0)?, r.get(1)?))))?)).unwrap() };
+        let mut chat = h.chat(json!({"message": "do the slow thing"})).await;
+        let sid = chat.next().await.unwrap()["id"].as_str().unwrap().to_string();
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while state(&h).is_none() {
+            assert!(std::time::Instant::now() < deadline, "the call never started");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(state(&h).unwrap().0, "intent");
+        assert_eq!(h.json("POST", "/cancel", json!({"session_id": sid})).await["cancelled"], true);
+        let _ = chat.all().await;
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while state(&h).unwrap().0 == "intent" {
+            assert!(std::time::Instant::now() < deadline, "the row stayed open");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(state(&h).unwrap(), ("cancelled".to_string(), Some(crate::journal::STOPPED_TEXT.to_string())), "a Stop is never asked about again");
+        crate::journal::recover(&h.app.store, &h.app.cfg().home).unwrap();
+        assert!(h.app.store.pending_approvals().unwrap().is_empty());
+    }
+
+    #[derive(Default)]
+    struct Declines {
+        declined: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl crate::journal::Resumer for Declines {
+        async fn rerun(&self, _app: &App, subject: &str, _tainted: bool) -> Result<String> {
+            Ok(format!("re-queued {subject}"))
+        }
+        fn declined(&self, _app: &App, subject: &str) {
+            self.declined.lock().unwrap().push(subject.to_string());
+        }
+    }
+
+    /// An interrupted action, asked about again by recovery. Returns the approval id.
+    fn interrupted_action(app: &App, handler: &str, subject: &str) -> i64 {
+        let intent = crate::journal::Intent {
+            kind: crate::journal::Kind::Action,
+            name: handler.into(),
+            args: subject.into(),
+            args_hash: crate::journal::args_hash(&json!({ "subject": subject })),
+            summary: "Repair #3".into(),
+            risk: "exec".into(),
+            tainted: false,
+            session_id: "s".into(),
+            run_id: crate::journal::NO_RUN.into(),
+            origin: "selfheal".into(),
+            workspace: app.workspace.clone(),
+            label: Some("Repair #3".into()),
+        };
+        app.store.with_conn(|c| crate::journal::sql::insert_intent(c, &intent, "a-core-that-crashed")).unwrap();
+        crate::journal::recover(&app.store, &app.cfg().home).unwrap();
+        app.store.pending_approvals().unwrap().into_iter().find(|a| a.tool == crate::journal::resume_tool(handler)).unwrap().id
+    }
+
+    #[tokio::test]
+    async fn dismiss_of_resume_approval_reaches_declined() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let resumer = Arc::new(Declines::default());
+        crate::journal::register_resumer("test.server-declined", resumer.clone());
+        let id = interrupted_action(&h.app, "test.server-declined", "trigger-3");
+        assert_eq!(h.json("POST", &format!("/approvals/{id}"), json!({"action": "dismiss"})).await, json!({"dismissed": true}));
+        assert_eq!(*resumer.declined.lock().unwrap(), vec!["trigger-3".to_string()]);
+        assert_eq!(h.app.store.get_approval(id).unwrap().status, "dismissed");
+        let again = h.send("POST", &format!("/approvals/{id}"), json!({"action": "dismiss"})).await;
+        assert_eq!(again.status, 400);
+        assert_eq!(again.json().await["error"], "That request is no longer waiting.");
+        assert_eq!(resumer.declined.lock().unwrap().len(), 1, "a lost claim reaches nobody");
+    }
+
+    #[tokio::test]
+    async fn stale_dismiss_after_run_again_does_nothing() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let resumer = Arc::new(Declines::default());
+        crate::journal::register_resumer("test.server-stale", resumer.clone());
+        let id = interrupted_action(&h.app, "test.server-stale", "trigger-4");
+        assert_eq!(h.json("POST", &format!("/approvals/{id}"), json!({"action": "approve"})).await["result"], "re-queued trigger-4");
+        let stale = h.send("POST", &format!("/approvals/{id}"), json!({"action": "dismiss"})).await;
+        assert_eq!(stale.status, 400);
+        assert!(resumer.declined.lock().unwrap().is_empty(), "declined never follows a run again");
+        assert_eq!(h.app.store.get_approval(id).unwrap().status, "approved");
+
+        let running = h.app.store.park_approval("s", "task_add", "{\"title\":\"t\"}", "t", "", "state", false, "a job").unwrap();
+        assert!(h.app.store.claim_approval(running).unwrap());
+        assert_eq!(h.send("POST", &format!("/approvals/{running}"), json!({"action": "dismiss"})).await.status, 400);
+        assert_eq!(h.app.store.get_approval(running).unwrap().status, "running", "a dismiss no longer overwrites a running request");
+    }
+
+    #[tokio::test]
+    async fn max_repeats_one_is_refused() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let refused = h.send("POST", "/settings", json!({"max_repeats": 1})).await;
+        assert_eq!(refused.status, 400);
+        assert_eq!(refused.json().await["error"], "max_repeats must be 0 or at least 2.");
+        assert_eq!(h.app.cfg().agent.max_repeats, 4);
+        h.json("POST", "/settings", json!({"max_repeats": 0})).await;
+        assert_eq!(h.app.cfg().agent.max_repeats, 0);
+        h.json("POST", "/settings", json!({"max_repeats": 6})).await;
+        assert_eq!(h.json("GET", "/settings", Value::Null).await["max_repeats"], 6);
+        assert_eq!(h.send("POST", "/settings", json!({"max_repeats": "lots"})).await.status, 400);
+    }
+
+    #[tokio::test]
+    async fn egress_settings_round_trip_and_validate() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let before = h.json("GET", "/settings", Value::Null).await;
+        assert_eq!((before["egress"].clone(), before["egress_allow"].clone(), before["deny_local_ports"].clone()), (json!("allowlist"), json!(crate::egress::DEFAULT_ALLOW), json!([])));
+        let saved = h.json("POST", "/settings", json!({"egress": "open", "egress_allow": ["index.crates.io", " *.example.com "], "deny_local_ports": [8080, 9000]})).await;
+        assert_eq!((saved["egress"].clone(), saved["egress_allow"].clone(), saved["deny_local_ports"].clone()), (json!("open"), json!(["index.crates.io", "*.example.com"]), json!([8080, 9000])));
+        let again = h.json("GET", "/settings", Value::Null).await;
+        assert_eq!(again["egress_allow"], json!(["index.crates.io", "*.example.com"]));
+        assert_eq!(h.app.cfg().agent.deny_local_ports, vec![8080, 9000]);
+        let on_disk = std::fs::read_to_string(h.app.cfg().home.join("config.toml")).unwrap();
+        assert!(on_disk.contains("egress = \"open\"") && on_disk.contains("9000"), "{on_disk}");
+        for (body, error) in [
+            (json!({"egress": "closed"}), "egress must be \"allowlist\" or \"open\".".to_string()),
+            (json!({"egress": 1}), "egress must be \"allowlist\" or \"open\".".to_string()),
+            (json!({"egress_allow": ["github.com", "10.0.0.1"]}), "Not a host name: 10.0.0.1.".to_string()),
+            (json!({"egress_allow": ["https://github.com"]}), "Not a host name: https://github.com.".to_string()),
+            (json!({"egress_allow": [""]}), "Not a host name: .".to_string()),
+            (json!({"egress_allow": "github.com"}), "egress_allow must be a list of host names.".to_string()),
+            (json!({"deny_local_ports": [8080, 0]}), "Port 0 can't be denied.".to_string()),
+            (json!({"deny_local_ports": [70000]}), "deny_local_ports must be a list of port numbers.".to_string()),
+            (json!({"egress": "allowlist", "deny_local_ports": [0]}), "Port 0 can't be denied.".to_string()),
+        ] {
+            let refused = h.send("POST", "/settings", body.clone()).await;
+            assert_eq!(refused.status, 400, "{body}");
+            assert_eq!(refused.json().await["error"], error, "{body}");
+        }
+        let unchanged = h.json("GET", "/settings", Value::Null).await;
+        assert_eq!((unchanged["egress"].clone(), unchanged["egress_allow"].clone(), unchanged["deny_local_ports"].clone()), (json!("open"), json!(["index.crates.io", "*.example.com"]), json!([8080, 9000])), "a refused save changes nothing");
+    }
+
+    #[tokio::test]
+    async fn the_toolchain_endpoints_need_the_token() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        for token in [None, Some("wrong-token")] {
+            assert_eq!(h.send_with_token("POST", "/toolchain/trust", json!({"since": null}), token).await.status, 401, "{token:?}");
+            assert_eq!(h.send_with_token("GET", "/toolchain", Value::Null, token).await.status, 401, "{token:?}");
+        }
+    }
+
+    #[tokio::test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
+    async fn toolchain_trust_needs_the_token() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        assert_eq!(h.json("GET", "/toolchain", Value::Null).await, json!({"state": "trusted"}));
+        let record = json!({"toolchains": ["stable-x"], "files": [{"toolchain": "stable-x", "path": "bin/rustc"}], "since": 1763900000, "during": "cargo install --path .", "reported": true});
+        h.app.store.kv_set("toolchain:changed", &record.to_string()).unwrap();
+        assert_eq!(
+            h.json("GET", "/toolchain", Value::Null).await,
+            json!({"state": "changed", "toolchains": ["stable-x"], "files": ["bin/rustc"], "since": 1763900000, "during": "cargo install --path ."})
+        );
+        assert_eq!(h.send_with_token("POST", "/toolchain/trust", json!({"since": 1763900000}), None).await.status, 401);
+        assert_eq!(h.json("GET", "/toolchain", Value::Null).await["state"], "changed", "an unauthenticated trust changed nothing");
+        let stale = h.send("POST", "/toolchain/trust", json!({"since": 1763899999})).await;
+        assert_eq!(stale.status, 409);
+        assert_eq!(stale.json().await["error"], "The toolchain changed again since you looked. Check it again before you trust it.");
+        assert_eq!(h.json("POST", "/toolchain/trust", json!({"since": 1763900000})).await, json!({"state": "trusted"}));
+        assert_eq!(h.json("GET", "/toolchain", Value::Null).await, json!({"state": "trusted"}));
     }
 
     #[tokio::test]

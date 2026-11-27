@@ -317,6 +317,7 @@ private struct PermissionsTab: View {
                     }
                 }
             }
+            SandboxSection(store: store)
         }
     }
 }

@@ -243,7 +243,7 @@ pub const SCHEMA_VERSION: i64 = STEPS.len() as i64;
 type Step = fn(&Connection) -> Result<()>;
 
 /// One entry per data format, in order. Step N takes a database from format N-1 to format N.
-const STEPS: &[Step] = &[to_v1, to_v2, to_v3];
+const STEPS: &[Step] = &[to_v1, to_v2, to_v3, to_v4];
 
 /// Format 1: what Heron 0.1.0 shipped.
 const SCHEMA_V1: &str = r#"
@@ -603,6 +603,11 @@ fn to_v3(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// To format 4: the effect journal, which records each action before it runs.
+fn to_v4(conn: &Connection) -> Result<()> {
+    crate::journal::sql::step(conn)
+}
+
 fn row_to_memory(r: &rusqlite::Row) -> rusqlite::Result<MemoryItem> {
     Ok(MemoryItem {
         id: r.get(0)?,
@@ -814,6 +819,7 @@ impl Store {
     /// Housekeeping for a long-running process: fold the write-ahead log back into the main file so it
     /// cannot grow without limit, and let SQLite refresh its query statistics.
     pub fn maintain(&self) -> Result<()> {
+        self.with_conn(|c| crate::journal::sql::prune(c, now_ts() - crate::journal::RETAIN_SECS))?;
         let db = self.db();
         // Statistics first (that is itself a write), then the fold, so the log ends up empty.
         db.execute_batch("PRAGMA optimize;")?;
@@ -835,6 +841,14 @@ impl Store {
 
     fn db(&self) -> MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Run `f` on the connection while holding the store's lock, recovering a poisoned lock as
+    /// [`Store::db`] does. `f` must never call a `Store` method: the lock is a `std::sync::Mutex`,
+    /// which is not re-entrant, so such a call would deadlock.
+    #[allow(dead_code)]
+    pub(crate) fn with_conn<T>(&self, f: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
+        f(&mut self.db())
     }
 
     // ---------- sessions ----------
@@ -1236,12 +1250,26 @@ impl Store {
     }
 
     /// Requests that were being carried out when Heron last stopped. Whether they finished is not
-    /// known, so they are neither repeated nor reported as done: the user is told and decides.
-    pub fn recover_interrupted_approvals(&self) -> Result<usize> {
-        Ok(self.db().execute(
-            "UPDATE approvals SET status='unknown', result='Heron stopped while doing this, so it is not known whether it finished. Check before asking for it again.' WHERE status='running'",
-            [],
-        )?)
+    /// known, so they are neither repeated nor reported as done: the user is told and decides. The
+    /// ones in `skip` are left `running`: another live process is carrying them out.
+    pub fn recover_interrupted_approvals(&self, skip: &[i64]) -> Result<usize> {
+        let holes = vec!["?"; skip.len()].join(",");
+        let sql = format!(
+            "UPDATE approvals SET status='unknown', result='Heron stopped while doing this, so it is not known whether it finished. Check before asking for it again.' WHERE status='running'{}",
+            if skip.is_empty() { String::new() } else { format!(" AND id NOT IN ({holes})") }
+        );
+        Ok(self.db().execute(&sql, rusqlite::params_from_iter(skip))?)
+    }
+
+    /// Dismiss a waiting request. Like [`Store::claim_approval`], exactly one caller wins and only
+    /// while the request is still new: one that is running or already answered is left as it is.
+    pub fn dismiss_approval(&self, id: i64) -> Result<bool> {
+        Ok(self.db().execute("UPDATE approvals SET status='dismissed' WHERE id=? AND status='new'", [id])? == 1)
+    }
+
+    /// Put a claimed request back to waiting, with `reason` in its result, when nothing ran.
+    pub fn requeue_approval(&self, id: i64, reason: &str) -> Result<bool> {
+        Ok(self.db().execute("UPDATE approvals SET status='new', result=? WHERE id=? AND status='running'", params![reason, id])? == 1)
     }
 
     pub fn get_approval(&self, id: i64) -> Option<ParkedApproval> {
@@ -2205,7 +2233,7 @@ mod upgrade_tests {
             conn.execute("INSERT INTO audit(ts, session_id, tool, args, decision, result, hash) VALUES (101, 'abc123', 'write_file', 'notes.md', 'approved', 'ok', ?)", [&second]).unwrap();
         }
         let s = Store::open(&db).unwrap();
-        assert_eq!(s.schema_version().unwrap(), 3);
+        assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
         for (table, column) in [("audit", "provider"), ("audit", "cli_version"), ("audit", "hash_version"), ("sessions", "origin")] {
             assert!(has_column(&s.db(), table, column), "{table}.{column}");
         }
@@ -2230,6 +2258,57 @@ mod upgrade_tests {
         assert_eq!(s.verify_audit().unwrap(), (3, None));
     }
 
+    #[test]
+    fn to_v4_adds_effects_and_keeps_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("heron.db");
+        {
+            let mut conn = Connection::open(&db).unwrap();
+            migrate(&mut conn, &STEPS[..3]).unwrap();
+            assert_eq!(user_version(&conn).unwrap(), 3);
+            assert!(!has_column(&conn, "effects", "id"));
+            conn.execute_batch("INSERT INTO sessions(id, title, created_at, updated_at) VALUES ('abc123', 'Planning the trip', 100, 200);").unwrap();
+            conn.execute("INSERT INTO approvals(ts, session_id, tool, args, summary, detail, risk) VALUES (5, 'abc123', 'shell', '{}', 'ls', '', 'exec')", []).unwrap();
+        }
+        let s = Store::open(&db).unwrap();
+        assert_eq!(s.schema_version().unwrap(), 4);
+        assert_eq!(s.list_sessions(10).unwrap()[0].title, "Planning the trip");
+        assert_eq!(s.pending_approvals().unwrap()[0].summary, "ls");
+
+        let columns = "id started_at finished_at proc session_id run_id origin workspace kind name label args args_hash summary risk tainted child_pgid state outcome approval_id";
+        for column in columns.split(' ') {
+            assert!(has_column(&s.db(), "effects", column), "effects.{column}");
+        }
+        s.db()
+            .execute(
+                "INSERT INTO effects(started_at, proc, session_id, run_id, workspace, kind, name, args_hash, summary, risk) VALUES (1, 'p', 'abc123', 'r', '/w', 'tool', 'shell', 'h', 'ls', 'exec')",
+                [],
+            )
+            .unwrap();
+        let (state, origin, tainted, args): (String, String, i64, Option<String>) =
+            s.db().query_row("SELECT state, origin, tainted, args FROM effects", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).unwrap();
+        assert_eq!((state.as_str(), origin.as_str(), tainted, args), ("intent", "", 0, None));
+        let indexes: Vec<String> = s
+            .db()
+            .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='effects' AND name LIKE 'idx_%' ORDER BY name")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(indexes, ["idx_effects_approval", "idx_effects_call", "idx_effects_state"]);
+
+        let kept = copies(&db, "heron-before-upgrade-from-v3-");
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        let old = Connection::open(&kept[0]).unwrap();
+        assert_eq!(user_version(&old).unwrap(), 3);
+        assert!(!has_column(&old, "effects", "id"));
+        assert_eq!(old.query_row("SELECT count(*) FROM approvals", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+
+        to_v4(&s.db()).unwrap();
+        assert_eq!(s.db().query_row("SELECT count(*) FROM effects", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+    }
+
     /// If this fails you changed the schema. Do not edit an existing step: add a new one to `STEPS`
     /// (which raises `SCHEMA_VERSION`), then update the two values below together.
     #[test]
@@ -2238,7 +2317,124 @@ mod upgrade_tests {
         let s = Store::in_memory().unwrap();
         let text = shape(&s.db()).join("\n");
         let fingerprint: String = Sha256::digest(text.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
-        assert_eq!((SCHEMA_VERSION, fingerprint.as_str()), (3, "878cc8a2270e5e69"), "the schema is now:\n{text}");
+        assert_eq!((SCHEMA_VERSION, fingerprint.as_str()), (4, "fe10053791e96db9"), "the schema is now:\n{text}");
+    }
+
+    fn parked(s: &Store, n: usize) -> i64 {
+        s.park_approval("s", "shell", &format!("{{\"n\":{n}}}"), &format!("job {n}"), "", "exec", false, "test").unwrap()
+    }
+
+    #[test]
+    fn with_conn_runs_on_the_stores_connection_and_survives_a_poisoned_lock() {
+        let s = Store::in_memory().unwrap();
+        let id = parked(&s, 1);
+        let status: String = s.with_conn(|c| Ok(c.query_row("SELECT status FROM approvals WHERE id=?", [id], |r| r.get(0))?)).unwrap();
+        assert_eq!(status, "new");
+        s.with_conn(|c| Ok(c.execute("UPDATE approvals SET status='running'", [])?)).unwrap();
+        assert_eq!(s.get_approval(id).unwrap().status, "running");
+        assert!(s.with_conn::<()>(|_| anyhow::bail!("nope")).is_err());
+
+        let poisoner = s.clone();
+        let _ = std::thread::spawn(move || {
+            let _held = poisoner.db();
+            panic!("poison the lock");
+        })
+        .join();
+        assert_eq!(s.with_conn(|c| Ok(c.query_row("SELECT count(*) FROM approvals", [], |r| r.get::<_, i64>(0))?)).unwrap(), 1);
+    }
+
+    #[test]
+    fn dismiss_approval_wins_only_while_new() {
+        let s = Store::in_memory().unwrap();
+        let id = parked(&s, 1);
+        assert!(s.dismiss_approval(id).unwrap());
+        assert_eq!(s.get_approval(id).unwrap().status, "dismissed");
+        assert!(!s.dismiss_approval(id).unwrap(), "a second dismiss loses");
+        assert!(!s.dismiss_approval(id + 100).unwrap(), "no such request");
+        assert!(!s.claim_approval(id).unwrap(), "a dismissed request cannot be claimed");
+        assert!(s.pending_approvals().unwrap().is_empty());
+    }
+
+    #[test]
+    fn dismiss_of_a_running_approval_is_refused() {
+        let s = Store::in_memory().unwrap();
+        let running = parked(&s, 1);
+        assert!(s.claim_approval(running).unwrap());
+        assert!(!s.dismiss_approval(running).unwrap());
+        assert_eq!(s.get_approval(running).unwrap().status, "running");
+
+        let answered = parked(&s, 2);
+        s.resolve_approval(answered, "approved", Some("done")).unwrap();
+        assert!(!s.dismiss_approval(answered).unwrap());
+        let kept = s.get_approval(answered).unwrap();
+        assert_eq!((kept.status.as_str(), kept.result.as_deref()), ("approved", Some("done")));
+    }
+
+    #[test]
+    fn requeue_approval_sets_running_back_to_new() {
+        let s = Store::in_memory().unwrap();
+        let id = parked(&s, 1);
+        assert!(!s.requeue_approval(id, "too early").unwrap(), "a waiting request is not running");
+        assert_eq!(s.get_approval(id).unwrap().result, None);
+
+        assert!(s.claim_approval(id).unwrap());
+        assert!(s.requeue_approval(id, "This ran in /a, and Heron is now working in /b.").unwrap());
+        let back = s.get_approval(id).unwrap();
+        assert_eq!((back.status.as_str(), back.result.as_deref()), ("new", Some("This ran in /a, and Heron is now working in /b.")));
+        assert_eq!(s.pending_approvals().unwrap().len(), 1);
+        assert!(s.claim_approval(id).unwrap(), "it can be run again");
+
+        assert!(!s.requeue_approval(id + 100, "x").unwrap(), "no such request");
+        let done = parked(&s, 2);
+        s.resolve_approval(done, "failed", Some("boom")).unwrap();
+        assert!(!s.requeue_approval(done, "x").unwrap(), "an answered request stays answered");
+        assert_eq!(s.get_approval(done).unwrap().result.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn maintain_prunes_finished_rows_after_30_days() {
+        let s = Store::in_memory().unwrap();
+        let old = now_ts() - crate::journal::RETAIN_SECS - 60;
+        let recent = now_ts() - 60;
+        let waiting = parked(&s, 1);
+        let answered = parked(&s, 2);
+        s.resolve_approval(answered, "approved", None).unwrap();
+        let row = |state: &str, finished: i64, approval: Option<i64>| -> i64 {
+            s.with_conn(|c| {
+                c.execute(
+                    "INSERT INTO effects(started_at, finished_at, proc, session_id, run_id, workspace, kind, name, args_hash, summary, risk, state, approval_id) \
+                     VALUES (?1, ?1, 'p', 's', 'none', '/w', 'tool', 'shell', 'h', 'x', 'exec', ?2, ?3)",
+                    params![finished, state, approval],
+                )?;
+                Ok(c.last_insert_rowid())
+            })
+            .unwrap()
+        };
+        let gone = [row("done", old, None), row("failed", old, None), row("cancelled", old, None), row("asked", old, Some(answered)), row("asked", old, Some(9999))];
+        let kept = [row("done", recent, None), row("intent", old, None), row("interrupted", old, None), row("asked", old, Some(waiting))];
+        s.maintain().unwrap();
+        let ids: Vec<i64> = s.with_conn(|c| Ok(c.prepare("SELECT id FROM effects ORDER BY id")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?)).unwrap();
+        assert_eq!(ids, kept.to_vec());
+        assert!(gone.iter().all(|g| !ids.contains(g)));
+    }
+
+    #[test]
+    fn recover_interrupted_approvals_skips_listed_ids() {
+        let s = Store::in_memory().unwrap();
+        let (a, b, c, waiting) = (parked(&s, 1), parked(&s, 2), parked(&s, 3), parked(&s, 4));
+        for id in [a, b, c] {
+            assert!(s.claim_approval(id).unwrap());
+        }
+        assert_eq!(s.recover_interrupted_approvals(&[b]).unwrap(), 2);
+        let status = |id| s.get_approval(id).unwrap().status;
+        assert_eq!((status(a).as_str(), status(b).as_str(), status(c).as_str(), status(waiting).as_str()), ("unknown", "running", "unknown", "new"));
+        assert!(s.get_approval(a).unwrap().result.unwrap().contains("not known whether it finished"));
+        assert_eq!(s.get_approval(b).unwrap().result, None);
+
+        assert_eq!(s.recover_interrupted_approvals(&[b, 9999]).unwrap(), 0, "a listed id stays running");
+        assert_eq!(s.recover_interrupted_approvals(&[]).unwrap(), 1);
+        assert_eq!(status(b), "unknown");
+        assert_eq!(status(waiting), "new");
     }
 
     #[test]

@@ -1529,7 +1529,7 @@ impl App {
             // make the same job fire in a loop, two schedulers can never both run it, and a run that
             // is cut short stays on record.
             let Ok(Some(run)) = self.store.claim_due_job(job, crate::schedule::next_run(&job.cron, chrono::Local::now())) else { continue };
-            let status = self.run_job(job, None, false).await;
+            let status = self.run_job(job, Some(run), None, false).await;
             let _ = self.store.finish_job_run(run, status.as_str(), "");
             ran += 1;
         }
@@ -1567,8 +1567,18 @@ impl App {
     /// that is not done but kept in the "waiting for you" list. `event` describes what set off a trigger
     /// and is outside content, so a triggered job starts under the outside-content rule. `attended` is
     /// true only for "Run now": the user is there, so a subscription login is not held.
-    /// A refusal that is waiting for approval counts as done.
-    async fn run_job(&self, job: &crate::store::Schedule, event: Option<String>, attended: bool) -> RunStatus {
+    /// A refusal that is waiting for approval counts as done. `run` is the job's `job_runs` row,
+    /// when it has one; all of the job's work runs inside its run frame.
+    async fn run_job(&self, job: &crate::store::Schedule, run: Option<i64>, event: Option<String>, attended: bool) -> RunStatus {
+        let run_id = match run {
+            Some(id) => format!("job:{id}"),
+            None => format!("job:{}:{}", job.id, crate::events::new_run_id()),
+        };
+        let frame = crate::agent::RunFrame::new(run_id, self.workspace.clone(), self.store.clone(), crate::agent::null_sink());
+        crate::agent::in_run(frame, self.job_work(job, event, attended)).await
+    }
+
+    async fn job_work(&self, job: &crate::store::Schedule, event: Option<String>, attended: bool) -> RunStatus {
         // Checked before anything is written: no session row, no run record.
         if self.refuse_before_notice(job) {
             return RunStatus::RiskNoticeNotAccepted;
@@ -1733,7 +1743,7 @@ impl App {
     /// run is attended and never held.
     pub async fn run_now(&self, id: i64) -> Result<()> {
         let job = self.store.get_schedule(id).ok_or_else(|| anyhow::anyhow!("That job no longer exists."))?;
-        if self.run_job(&job, None, true).await == RunStatus::RiskNoticeNotAccepted {
+        if self.run_job(&job, None, None, true).await == RunStatus::RiskNoticeNotAccepted {
             return Err(crate::risk_notice::RiskNoticeNotAccepted.into());
         }
         Ok(())
@@ -1785,7 +1795,7 @@ impl App {
                 _ => None,
             };
             if let Some(event) = event {
-                self.run_job(&job, Some(event), false).await;
+                self.run_job(&job, None, Some(event), false).await;
                 fired += 1;
             }
         }
@@ -1794,6 +1804,11 @@ impl App {
 
     /// The user approved something that was parked while they were away: do exactly that one action now.
     pub async fn run_parked(&self, id: i64) -> Result<String> {
+        let frame = crate::agent::RunFrame::new(crate::journal::parked_run_id(id), self.workspace.clone(), self.store.clone(), crate::agent::null_sink());
+        crate::agent::in_run(frame, self.carry_out_parked(id)).await
+    }
+
+    async fn carry_out_parked(&self, id: i64) -> Result<String> {
         // As for a turn (Q15): nothing is carried out before the risk notice is accepted, and the
         // request stays waiting.
         crate::risk_notice::check(&self.store)?;
@@ -1804,6 +1819,19 @@ impl App {
             anyhow::bail!("That request is already being carried out or has been dealt with.");
         }
         self.reload_rules();
+        if let Some(handler) = crate::journal::resume_handler(&parked.tool) {
+            return self.resume_parked(&parked, handler).await;
+        }
+        // Run again on an interrupted call: a block is not final, so the user can fix its cause.
+        let asked_in = crate::journal::workspace_for(&self.store, id);
+        let block = |reason: String| -> Result<String> {
+            if asked_in.is_some() {
+                self.store.requeue_approval(id, &reason)?;
+            } else {
+                self.store.resolve_approval(id, "blocked", Some(&reason))?;
+            }
+            anyhow::bail!("Heron cannot do this: {reason}")
+        };
         let prepared = (|| -> Result<_> {
             let tool = self.tools.get(&parked.tool).ok_or_else(|| anyhow::anyhow!("The tool '{}' is no longer available.", parked.tool))?;
             let args: serde_json::Value = serde_json::from_str(&parked.args)?;
@@ -1816,6 +1844,12 @@ impl App {
                 return Err(e);
             }
         };
+        if let Some(then) = &asked_in {
+            let same = matches!((std::fs::canonicalize(then), std::fs::canonicalize(&self.workspace)), (Ok(a), Ok(b)) if a == b);
+            if !same {
+                return block(format!("This ran in {}, and Heron is now working in {}.", then.display(), self.workspace.display()));
+            }
+        }
         let agent = self.agent(Arc::new(DenyAll));
         let mut ctx = agent.tool_ctx(&parked.session_id);
         // The call keeps the taint it was parked with: a `remember` parked from a conversation that
@@ -1823,22 +1857,105 @@ impl App {
         // (`search_files`, `find_files`) also sees outside content that reached the conversation after
         // it was parked: once the conversation is tainted, its grants must not reach the call's
         // sandbox or open the walk's files.
-        let sees_conversation_grants = matches!(parked.tool.as_str(), "shell" | "search_files" | "find_files");
-        let tainted_now = sees_conversation_grants && self.store.kv_get(&format!("tainted:{}", parked.session_id)).is_some();
-        ctx.tainted = Arc::new(std::sync::atomic::AtomicBool::new(parked.tainted || tainted_now));
+        let tainted = parked.tainted || (sees_conversation_grants(&parked.tool) && self.session_tainted(&parked.session_id));
+        ctx.tainted = Arc::new(std::sync::atomic::AtomicBool::new(tainted));
         // Re-check against today's rules: what was allowed to be asked then may be blocked now.
         let risk = tool.risk(&args, &ctx);
         let (summary, target) = (tool.summary(&args), tool.read_target(&args, &ctx));
         let call = crate::permissions::Call { tool: &parked.tool, summary: &summary, effect: risk, read_target: target.as_deref() };
         if let crate::permissions::Verdict::Deny(reason) = self.policy.decide(&call, &ctx) {
-            self.store.resolve_approval(id, "blocked", Some(&reason))?;
+            let reason = if risk == crate::permissions::Effect::Refused { crate::permissions::refused_text(&parked.tool, &args, &ctx, reason) } else { reason };
+            return block(reason);
+        }
+        let limit = std::time::Duration::from_secs(self.cfg().agent.tool_timeout_secs.max(120));
+        let outcome = if risk.mutates() {
+            if let Some(frame) = crate::agent::current_run() {
+                frame.before_mutating_call(&parked.session_id, &self.cfg()).await;
+            }
+            let intent = crate::journal::Intent {
+                kind: crate::journal::Kind::Tool,
+                name: parked.tool.clone(),
+                args: args.to_string(),
+                args_hash: crate::journal::args_hash(&args),
+                summary: summary.clone(),
+                risk: risk.label().to_string(),
+                tainted,
+                session_id: parked.session_id.clone(),
+                run_id: crate::journal::parked_run_id(id),
+                origin: parked.origin.clone(),
+                workspace: self.workspace.clone(),
+                label: None,
+            };
+            match crate::journal::guarded(&self.store, &self.cfg().home, intent, limit, tool.call(&args, &ctx)).await {
+                crate::journal::Guarded::Ran(r) => r,
+                crate::journal::Guarded::NotRun(text) => {
+                    self.store.resolve_approval(id, "failed", Some(&text))?;
+                    anyhow::bail!("It did not work: {text}");
+                }
+            }
+        } else {
+            tokio::time::timeout(limit, tool.call(&args, &ctx)).await.unwrap_or_else(|_| Err(anyhow::anyhow!("it took too long and was stopped")))
+        };
+        let (status, text) = match outcome {
+            Ok(t) => ("approved", crate::util::truncate_middle(&t, 4000)),
+            Err(e) => ("failed", format!("{e:#}")),
+        };
+        self.store.audit(&parked.session_id, &parked.tool, &crate::util::redact_secrets(&preview(&parked.args, 600)), "approved-later", &crate::util::redact_secrets(&preview(&text, 300)));
+        self.store.resolve_approval(id, status, Some(&text))?;
+        if status == "failed" {
+            anyhow::bail!("It did not work: {text}");
+        }
+        Ok(text)
+    }
+
+    fn session_tainted(&self, session_id: &str) -> bool {
+        self.store.kv_get(&format!("tainted:{session_id}")).is_some()
+    }
+
+    /// **Run again** on an interrupted action: the taint, today's policy, then its resumer.
+    async fn resume_parked(&self, parked: &crate::store::ParkedApproval, handler: &str) -> Result<String> {
+        let id = parked.id;
+        let tainted = parked.tainted || (sees_conversation_grants(&parked.tool) && self.session_tainted(&parked.session_id));
+        let agent = self.agent(Arc::new(DenyAll));
+        let mut ctx = agent.tool_ctx(&parked.session_id);
+        ctx.tainted = Arc::new(std::sync::atomic::AtomicBool::new(tainted));
+        let call = crate::permissions::Call { tool: &parked.tool, summary: &parked.summary, effect: crate::permissions::Effect::ProcessExec, read_target: None };
+        if let crate::permissions::Verdict::Deny(reason) = self.policy.decide(&call, &ctx) {
+            self.store.requeue_approval(id, &reason)?;
             anyhow::bail!("Heron cannot do this: {reason}");
         }
-        let outcome = tokio::time::timeout(std::time::Duration::from_secs(self.cfg().agent.tool_timeout_secs.max(120)), tool.call(&args, &ctx)).await;
-        let (status, text) = match outcome {
-            Ok(Ok(t)) => ("approved", crate::util::truncate_middle(&t, 4000)),
-            Ok(Err(e)) => ("failed", format!("{e:#}")),
-            Err(_) => ("failed", "it took too long and was stopped".to_string()),
+        let Some(resumer) = crate::journal::resumer(handler) else {
+            let text = "This Heron can't resume this kind of action.";
+            self.store.resolve_approval(id, "failed", Some(text))?;
+            anyhow::bail!("{text}");
+        };
+        let subject = serde_json::from_str::<serde_json::Value>(&parked.args).ok().and_then(|a| a.get("subject").and_then(|s| s.as_str()).map(String::from)).unwrap_or_default();
+        let label: Option<String> = self
+            .store
+            .with_conn(|c| Ok(rusqlite::OptionalExtension::optional(c.query_row("SELECT label FROM effects WHERE approval_id=? AND state='asked' ORDER BY id LIMIT 1", [id], |r| r.get(0)))?.flatten()))
+            .unwrap_or(None);
+        if let Some(frame) = crate::agent::current_run() {
+            frame.before_mutating_call(&parked.session_id, &self.cfg()).await;
+        }
+        let intent = crate::journal::Intent {
+            kind: crate::journal::Kind::Action,
+            name: handler.to_string(),
+            args_hash: crate::journal::args_hash(&serde_json::json!({ "subject": subject })),
+            args: subject.clone(),
+            summary: label.clone().unwrap_or_else(|| parked.summary.clone()),
+            risk: "exec".into(),
+            tainted,
+            session_id: parked.session_id.clone(),
+            run_id: crate::journal::parked_run_id(id),
+            origin: parked.origin.clone(),
+            workspace: self.workspace.clone(),
+            label,
+        };
+        let limit = std::time::Duration::from_secs(self.cfg().agent.tool_timeout_secs.max(120));
+        let (status, text) = match crate::journal::guarded(&self.store, &self.cfg().home, intent, limit, resumer.rerun(self, &subject, tainted)).await {
+            crate::journal::Guarded::Ran(Ok(t)) => ("approved", crate::util::truncate_middle(&t, 4000)),
+            crate::journal::Guarded::Ran(Err(e)) => ("failed", format!("{e:#}")),
+            crate::journal::Guarded::NotRun(t) => ("failed", t),
         };
         self.store.audit(&parked.session_id, &parked.tool, &crate::util::redact_secrets(&preview(&parked.args, 600)), "approved-later", &crate::util::redact_secrets(&preview(&text, 300)));
         self.store.resolve_approval(id, status, Some(&text))?;
@@ -2101,7 +2218,9 @@ impl App {
             // user, so the session starts as if outside content were already in it (M-6).
             session.tainted.store(true, std::sync::atomic::Ordering::SeqCst);
             self.store.kv_set(&format!("tainted:{sid}"), "1")?;
-            agent.run_turn(&mut session, &brief, &self.sink_for(&sid, &run_id)).await.map(|text| (sid, text))
+            let sink = self.sink_for(&sid, &run_id);
+            let frame = crate::agent::RunFrame::new(crate::agent::turn_run_id(&run_id), self.workspace.clone(), self.store.clone(), sink.clone());
+            crate::agent::in_run(frame, agent.run_turn(&mut session, &brief, &sink)).await.map(|text| (sid, text))
         }
         .await;
         if !bus_sid.is_empty() {
@@ -2151,7 +2270,12 @@ impl App {
             return false;
         }
         // Anything that was mid-way when the previous owner stopped has an unknown outcome; say so.
-        let _ = self.store.recover_interrupted_approvals();
+        // A call the journal recorded is asked about again first, and a parked call another live
+        // process is still carrying out is left running.
+        if let Err(e) = crate::journal::recover(&self.store, &cfg.home) {
+            eprintln!("heron: the journal could not recover interrupted calls: {e:#}");
+        }
+        let _ = self.store.recover_interrupted_approvals(&crate::journal::live_parked_approvals(&self.store, &cfg.home));
         let _ = self.store.recover_interrupted_jobs(INTERRUPTED_JOB_NOTICE);
         *held = Some(BackgroundLock(file));
         true
@@ -2170,21 +2294,37 @@ impl App {
                 }
             }
             ticks += 1;
-            // Only one Heron runs reminders and jobs. If another already does, wait: this one takes
-            // over within a few seconds of the other stopping.
-            if self.own_background_work() {
-                self.run_due_schedules().await;
-            } else if !said {
+            if !self.scheduler_tick().await && !said {
                 said = true;
                 eprintln!("heron: another Heron on this computer is already running reminders and scheduled jobs; this one will take over if it stops.");
             }
             tokio::time::sleep(std::time::Duration::from_secs(20)).await;
         }
     }
+
+    /// One scheduler tick. Only one Heron runs reminders and jobs and recovers interrupted calls; if
+    /// another already does, this one waits and takes over within a few seconds of the other
+    /// stopping. Returns whether this one owns background work.
+    pub(crate) async fn scheduler_tick(&self) -> bool {
+        if !self.own_background_work() {
+            return false;
+        }
+        if let Err(e) = crate::journal::recover(&self.store, &self.cfg().home) {
+            eprintln!("heron: the journal could not recover interrupted calls: {e:#}");
+        }
+        self.run_due_schedules().await;
+        true
+    }
 }
 
 /// Most steps a run Heron started on its own may take.
 const SELF_STARTED_STEPS: usize = 15;
+
+/// Whether a parked call also counts outside content that reached its conversation after it was
+/// parked: a shell call, a folder walk, or a resumed action.
+fn sees_conversation_grants(tool: &str) -> bool {
+    matches!(tool, "shell" | "search_files" | "find_files") || crate::journal::resume_handler(tool).is_some()
+}
 
 /// Connects an automation's steps to the real tools and model.
 struct JobHost<'a> {
@@ -3711,7 +3851,7 @@ mod tests {
         // One that was mid-way when Heron stopped is reported as unknown, not repeated and not called done.
         let stuck = app.store.park_approval("s", "task_add", "{\"title\":\"send the report\"}", "send the report", "", "state", false, "test").unwrap();
         assert!(app.store.claim_approval(stuck).unwrap());
-        assert_eq!(app.store.recover_interrupted_approvals().unwrap(), 1);
+        assert_eq!(app.store.recover_interrupted_approvals(&[]).unwrap(), 1);
         assert_eq!(app.store.get_approval(stuck).unwrap().status, "unknown");
         assert!(app.run_parked(stuck).await.is_err());
         assert!(!app.store.list_tasks(None).unwrap().iter().any(|t| t.title == "send the report"));
@@ -4327,5 +4467,426 @@ mod tests {
         let saved = std::fs::read_to_string(cfg.home.join("config.toml")).unwrap();
         assert!(saved.contains("provider = \"http\""), "{saved}");
         assert_eq!(app.cfg().llm.provider, "http");
+    }
+
+    const CRASHED: &str = "a-core-that-crashed";
+
+    /// A tool call a crashed process left open: an `intent` row whose lease nobody holds.
+    fn crashed_row(app: &App, session: &str, tool: &str, args: &serde_json::Value, run_id: &str, workspace: &std::path::Path, tainted: bool) -> i64 {
+        let intent = crate::journal::Intent {
+            kind: crate::journal::Kind::Tool,
+            name: tool.into(),
+            args: args.to_string(),
+            args_hash: crate::journal::args_hash(args),
+            summary: app.tools.get(tool).map(|t| t.summary(args)).unwrap_or_default(),
+            risk: "write".into(),
+            tainted,
+            session_id: session.into(),
+            run_id: run_id.into(),
+            origin: "user".into(),
+            workspace: workspace.to_path_buf(),
+            label: None,
+        };
+        app.store.with_conn(|c| crate::journal::sql::insert_intent(c, &intent, CRASHED)).unwrap()
+    }
+
+    /// An action a crashed process left open.
+    fn crashed_action(app: &App, session: &str, handler: &str, subject: &str, workspace: &std::path::Path, tainted: bool) -> i64 {
+        let intent = crate::journal::Intent {
+            kind: crate::journal::Kind::Action,
+            name: handler.into(),
+            args: subject.into(),
+            args_hash: crate::journal::args_hash(&json!({ "subject": subject })),
+            summary: "Repair #12".into(),
+            risk: "exec".into(),
+            tainted,
+            session_id: session.into(),
+            run_id: crate::journal::NO_RUN.into(),
+            origin: "selfheal".into(),
+            workspace: workspace.to_path_buf(),
+            label: Some("Repair #12".into()),
+        };
+        app.store.with_conn(|c| crate::journal::sql::insert_intent(c, &intent, CRASHED)).unwrap()
+    }
+
+    /// The one waiting approval recovery made.
+    fn the_ask_again(app: &App) -> crate::store::ParkedApproval {
+        crate::journal::recover(&app.store, &app.cfg().home).unwrap();
+        let mut waiting = app.store.pending_approvals().unwrap();
+        assert_eq!(waiting.len(), 1, "{waiting:?}");
+        waiting.remove(0)
+    }
+
+    fn rows(app: &App) -> Vec<(String, String, String, bool)> {
+        app.store
+            .with_conn(|c| Ok(c.prepare("SELECT name, state, run_id, tainted FROM effects ORDER BY id")?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get::<_, i64>(3)? != 0)))?.collect::<rusqlite::Result<_>>()?))
+            .unwrap()
+    }
+
+    #[derive(Default)]
+    struct Recorder {
+        reruns: std::sync::Mutex<Vec<(String, bool)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::journal::Resumer for Recorder {
+        async fn rerun(&self, _app: &App, subject: &str, tainted: bool) -> Result<String> {
+            self.reruns.lock().unwrap().push((subject.to_string(), tainted));
+            Ok(format!("re-queued {subject}"))
+        }
+        fn declined(&self, _app: &App, _subject: &str) {}
+    }
+
+    fn recorder(handler: &'static str) -> Arc<Recorder> {
+        let r = Arc::new(Recorder::default());
+        crate::journal::register_resumer(handler, r.clone());
+        r
+    }
+
+    #[tokio::test]
+    async fn crash_mid_call_asks_again_after_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let session = Session::create(&app.store, "chat").unwrap();
+        let args = json!({"path": "notes.txt", "content": "x"});
+        let row = crashed_row(&app, &session.id, "write_file", &args, "turn:t1", &app.workspace, false);
+        let lease = app.cfg().home.join("journal").join(format!("{CRASHED}.lock"));
+        std::fs::create_dir_all(lease.parent().unwrap()).unwrap();
+        std::fs::write(&lease, "").unwrap();
+        assert!(app.store.pending_approvals().unwrap().is_empty());
+        assert!(app.own_background_work());
+        let waiting = app.store.pending_approvals().unwrap();
+        assert_eq!(waiting.len(), 1, "{waiting:?}");
+        let ask = &waiting[0];
+        assert_eq!(ask.summary, "notes.txt was interrupted. Run again?");
+        assert_eq!(ask.detail, format!("Heron stopped while doing this, in {}. It may or may not have finished. Check before running it again.", app.workspace.display()));
+        assert_eq!((ask.tool.as_str(), ask.args.as_str(), ask.origin.as_str()), ("write_file", args.to_string().as_str(), "interrupted: user"));
+        assert_eq!(rows(&app)[0].1, "asked");
+        assert!(!lease.exists(), "the crashed process's lease is swept");
+        app.run_parked(ask.id).await.unwrap();
+        assert_eq!(std::fs::read_to_string(app.workspace.join("notes.txt")).unwrap(), "x");
+        assert_eq!(app.store.get_approval(ask.id).unwrap().status, "approved");
+        let _ = row;
+    }
+
+    #[tokio::test]
+    async fn crashed_job_call_asks_again_with_its_job_run_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![ScriptedLlm::tool_call("write_file", json!({"path": "report.md", "content": "r"})), Message::assistant("done")]).await;
+        assert!(app.own_background_work());
+        app.store.add_schedule("report", "", "write the report", 1, "write_file:*").unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        let run: i64 = app.store.with_conn(|c| Ok(c.query_row("SELECT id FROM job_runs", [], |r| r.get(0))?)).unwrap();
+        let done = rows(&app);
+        assert_eq!(done.len(), 1);
+        assert_eq!((done[0].1.as_str(), done[0].2.clone()), ("done", format!("job:{run}")));
+        let args = json!({"path": "report.md", "content": "r"}).to_string();
+        app.store.with_conn(|c| Ok(c.execute("UPDATE effects SET state='intent', proc=?, args=?", rusqlite::params![CRASHED, args])?)).unwrap();
+        let ask = the_ask_again(&app);
+        assert_eq!((ask.tool.as_str(), ask.origin.as_str()), ("write_file", "interrupted: schedule"));
+        assert_eq!(rows(&app)[0].2, format!("job:{run}"));
+    }
+
+    #[tokio::test]
+    async fn automation_calls_share_the_job_run_frame() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let id = app.store.add_schedule("chores", "", "", 1, "").unwrap();
+        app.store
+            .set_schedule_workflow(id, &json!([{"id": "a", "do": "tool", "tool": "task_add", "args": {"title": "one"}}, {"id": "b", "do": "tool", "tool": "task_add", "args": {"title": "two"}}]).to_string())
+            .unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        let rows = rows(&app);
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        let run: i64 = app.store.with_conn(|c| Ok(c.query_row("SELECT id FROM job_runs", [], |r| r.get(0))?)).unwrap();
+        assert!(rows.iter().all(|r| r.2 == format!("job:{run}")), "{rows:?}");
+        app.run_now(id).await.unwrap();
+        let now: Vec<String> = self::rows(&app).into_iter().skip(2).map(|r| r.2).collect();
+        assert_eq!(now.len(), 2);
+        assert!(now[0].starts_with(&format!("job:{id}:")) && now[0] == now[1], "{now:?}");
+    }
+
+    fn with_plant_tool(app: &mut App) {
+        let mut tools = ToolRegistry::builtin();
+        tools.register(crate::agent::tests::plant_tool());
+        app.tools = Arc::new(tools);
+    }
+
+    fn assert_planted_report(app: &App, session: &str) {
+        let notice = crate::agent::tests::planted_notice(&app.workspace);
+        let inbox: Vec<_> = app.store.inbox(false, 50).unwrap().into_iter().filter(|i| i.title == "Protected files changed").collect();
+        assert_eq!(inbox.len(), 1, "{inbox:?}");
+        assert_eq!(inbox[0].body, notice);
+        let rows = crate::agent::tests::protect_rows(&app.store);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!((rows[0].session_id.as_str(), rows[0].decision.as_str()), (session, crate::agent::PROTECTED_CHANGED));
+    }
+
+    #[tokio::test]
+    async fn protected_change_in_an_automation_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = plain_app(dir.path(), vec![]).await;
+        with_plant_tool(&mut app);
+        let id = app.store.add_schedule("plant", "", "", 1, "").unwrap();
+        app.store.set_schedule_workflow(id, &json!([{"id": "a", "do": "tool", "tool": "plant", "args": {}}]).to_string()).unwrap();
+        assert_eq!(app.run_due_schedules().await, 1);
+        assert!(app.workspace.join(".envrc").exists(), "the step ran");
+        let session: String = app.store.with_conn(|c| Ok(c.query_row("SELECT session_id FROM effects WHERE name='plant'", [], |r| r.get(0))?)).unwrap();
+        assert_planted_report(&app, &session);
+    }
+
+    #[tokio::test]
+    async fn protected_change_in_run_parked_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = plain_app(dir.path(), vec![]).await;
+        with_plant_tool(&mut app);
+        let session = Session::create(&app.store, "chat").unwrap();
+        let id = app.store.park_approval(&session.id, "plant", "{}", "plant", "", "state", false, "a job").unwrap();
+        app.run_parked(id).await.unwrap();
+        assert!(app.workspace.join(".envrc").exists());
+        assert_eq!(app.store.get_approval(id).unwrap().status, "approved");
+        assert_planted_report(&app, &session.id);
+    }
+
+    #[tokio::test]
+    async fn ask_again_rerun_rechecks_current_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let session = Session::create(&app.store, "chat").unwrap();
+        crashed_row(&app, &session.id, "write_file", &json!({"path": "a.txt", "content": "x"}), "turn:t", &app.workspace, false);
+        let ask = the_ask_again(&app);
+        app.policy.add_deny("write_file:*").unwrap();
+        let err = app.run_parked(ask.id).await.unwrap_err().to_string();
+        assert!(err.contains("switched this ability off"), "{err}");
+        assert!(!app.workspace.join("a.txt").exists());
+        let back = app.store.get_approval(ask.id).unwrap();
+        assert_eq!(back.status, "new");
+        assert!(back.result.unwrap().contains("switched this ability off"));
+    }
+
+    #[tokio::test]
+    async fn ask_again_keeps_the_original_call_taint() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let session = Session::create(&app.store, "chat").unwrap();
+        let args = json!({"content": "The user's bank is Example Bank", "kind": "fact"});
+        crashed_row(&app, &session.id, "remember", &args, "turn:t", &app.workspace, true);
+        let ask = the_ask_again(&app);
+        assert!(ask.tainted);
+        app.run_parked(ask.id).await.unwrap();
+        let saved = app.store.list_memories(None, 10).unwrap().into_iter().find(|m| m.content.contains("Example Bank")).unwrap();
+        assert!(!saved.confirmed, "outside content stays unconfirmed");
+        assert!(rows(&app).last().unwrap().3, "the run again is journaled as tainted");
+    }
+
+    #[tokio::test]
+    async fn ask_again_in_another_workspace_is_blocked() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let elsewhere = dir.path().join("other");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let session = Session::create(&app.store, "chat").unwrap();
+        crashed_row(&app, &session.id, "write_file", &json!({"path": "a.txt", "content": "x"}), "turn:t", &elsewhere, false);
+        let ask = the_ask_again(&app);
+        assert!(app.run_parked(ask.id).await.is_err());
+        assert!(!app.workspace.join("a.txt").exists() && !elsewhere.join("a.txt").exists());
+        let back = app.store.get_approval(ask.id).unwrap();
+        assert_eq!(back.status, "new");
+        assert_eq!(back.result.unwrap(), format!("This ran in {}, and Heron is now working in {}.", elsewhere.display(), app.workspace.display()));
+    }
+
+    #[tokio::test]
+    async fn ask_again_workspace_check_compares_canonical_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let session = Session::create(&app.store, "chat").unwrap();
+        let dotted = app.workspace.join(".").join("sub").join("..");
+        std::fs::create_dir_all(app.workspace.join("sub")).unwrap();
+        crashed_row(&app, &session.id, "write_file", &json!({"path": "a.txt", "content": "x"}), "turn:t", &dotted, false);
+        let ask = the_ask_again(&app);
+        app.run_parked(ask.id).await.unwrap();
+        assert!(app.workspace.join("a.txt").exists(), "another name for the same folder passes");
+
+        let gone = dir.path().join("deleted-folder");
+        crashed_row(&app, &session.id, "write_file", &json!({"path": "b.txt", "content": "x"}), "turn:t", &gone, false);
+        let ask = the_ask_again(&app);
+        assert!(app.run_parked(ask.id).await.is_err(), "a folder that no longer exists fails the check");
+        assert!(!app.workspace.join("b.txt").exists());
+        assert_eq!(app.store.get_approval(ask.id).unwrap().status, "new");
+    }
+
+    #[tokio::test]
+    async fn blocked_run_again_goes_back_to_waiting() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let session = Session::create(&app.store, "chat").unwrap();
+        crashed_row(&app, &session.id, "write_file", &json!({"path": "a.txt", "content": "x"}), "turn:t", &app.workspace, false);
+        let ask = the_ask_again(&app);
+        let plain = app.store.park_approval(&session.id, "write_file", &json!({"path": "b.txt", "content": "y"}).to_string(), "b.txt", "", "write", false, "a job").unwrap();
+        app.policy.set_mode(Mode::ReadOnly);
+        assert!(app.run_parked(ask.id).await.is_err());
+        assert!(app.run_parked(plain).await.is_err());
+        let back = app.store.get_approval(ask.id).unwrap();
+        assert_eq!(back.status, "new", "an ask-again goes back to waiting");
+        assert!(back.result.unwrap().starts_with("read-only mode"));
+        assert_eq!(app.store.get_approval(plain).unwrap().status, "blocked", "any other parked call stays blocked");
+        app.policy.set_mode(Mode::Auto);
+        app.run_parked(ask.id).await.unwrap();
+        assert!(app.workspace.join("a.txt").exists(), "fixed the cause, it runs");
+    }
+
+    #[tokio::test]
+    async fn run_again_on_resume_approval_calls_rerun() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let resumer = recorder("test.rerun-calls");
+        let session = Session::create(&app.store, "chat").unwrap();
+        crashed_action(&app, &session.id, "test.rerun-calls", "trigger-7", &app.workspace, false);
+        let ask = the_ask_again(&app);
+        assert_eq!((ask.tool.as_str(), ask.summary.as_str()), ("resume:test.rerun-calls", "Repair #12 was interrupted. Run again?"));
+        assert_eq!(app.run_parked(ask.id).await.unwrap(), "re-queued trigger-7");
+        assert_eq!(*resumer.reruns.lock().unwrap(), vec![("trigger-7".to_string(), false)]);
+        assert_eq!(app.store.get_approval(ask.id).unwrap().status, "approved");
+        let rerun = rows(&app).pop().unwrap();
+        assert_eq!((rerun.0.as_str(), rerun.1.as_str(), rerun.2.clone()), ("test.rerun-calls", "done", crate::journal::parked_run_id(ask.id)));
+        assert!(app.run_parked(ask.id).await.is_err(), "it is carried out once");
+        assert_eq!(resumer.reruns.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn resume_approval_is_blocked_in_read_only_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let resumer = recorder("test.read-only");
+        let session = Session::create(&app.store, "chat").unwrap();
+        crashed_action(&app, &session.id, "test.read-only", "trigger-8", &app.workspace, false);
+        let ask = the_ask_again(&app);
+        app.policy.set_mode(Mode::ReadOnly);
+        assert!(app.run_parked(ask.id).await.is_err());
+        assert!(resumer.reruns.lock().unwrap().is_empty());
+        let back = app.store.get_approval(ask.id).unwrap();
+        assert_eq!(back.status, "new");
+        assert!(back.result.unwrap().starts_with("read-only mode"));
+    }
+
+    #[tokio::test]
+    async fn resume_approval_passes_current_taint_to_rerun() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let resumer = recorder("test.taint");
+        let session = Session::create(&app.store, "chat").unwrap();
+        crashed_action(&app, &session.id, "test.taint", "trigger-9", &app.workspace, false);
+        let ask = the_ask_again(&app);
+        assert!(!ask.tainted);
+        app.store.kv_set(&format!("tainted:{}", session.id), "1").unwrap();
+        app.run_parked(ask.id).await.unwrap();
+        assert_eq!(*resumer.reruns.lock().unwrap(), vec![("trigger-9".to_string(), true)]);
+        assert!(rows(&app).last().unwrap().3);
+    }
+
+    #[tokio::test]
+    async fn unknown_resumer_sets_failed_with_unknown_handler_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let session = Session::create(&app.store, "chat").unwrap();
+        crashed_action(&app, &session.id, "test.nobody-registered-this", "s", &app.workspace, false);
+        let ask = the_ask_again(&app);
+        assert!(app.run_parked(ask.id).await.is_err());
+        let failed = app.store.get_approval(ask.id).unwrap();
+        assert_eq!((failed.status.as_str(), failed.result.as_deref()), ("failed", Some("This Heron can't resume this kind of action.")));
+    }
+
+    #[tokio::test]
+    async fn resume_approval_skips_the_workspace_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let resumer = recorder("test.worktree");
+        let session = Session::create(&app.store, "chat").unwrap();
+        crashed_action(&app, &session.id, "test.worktree", "trigger-10", &dir.path().join("a-worktree-that-is-gone"), false);
+        let ask = the_ask_again(&app);
+        app.run_parked(ask.id).await.unwrap();
+        assert_eq!(resumer.reruns.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn interrupted_parked_approval_is_asked_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let session = Session::create(&app.store, "chat").unwrap();
+        let args = json!({"path": "a.txt", "content": "x"});
+        let parked = app.store.park_approval(&session.id, "write_file", &args.to_string(), "a.txt", "write a.txt", "write", false, "nightly").unwrap();
+        assert!(app.store.claim_approval(parked).unwrap());
+        crashed_row(&app, &session.id, "write_file", &args, &crate::journal::parked_run_id(parked), &app.workspace, false);
+        assert!(app.own_background_work());
+        let waiting = app.store.pending_approvals().unwrap();
+        assert_eq!(waiting.iter().map(|a| a.id).collect::<Vec<_>>(), vec![parked], "the original approval is reopened, and no second one made");
+        assert_eq!(waiting[0].summary, "a.txt was interrupted. Run again?");
+        crate::journal::recover(&app.store, &app.cfg().home).unwrap();
+        assert_eq!(app.store.pending_approvals().unwrap().len(), 1);
+        assert!(app.store.inbox(false, 10).unwrap().iter().all(|m| !m.body.contains("not known whether it finished")), "it is not also reported as unknown");
+    }
+
+    #[tokio::test]
+    async fn takeover_leaves_a_live_parked_call_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let session = Session::create(&app.store, "chat").unwrap();
+        let args = json!({"path": "a.txt", "content": "x"});
+        let live = app.store.park_approval(&session.id, "write_file", &args.to_string(), "a.txt", "", "write", false, "nightly").unwrap();
+        let stuck = app.store.park_approval(&session.id, "task_add", "{\"title\":\"t\"}", "t", "", "state", false, "nightly").unwrap();
+        assert!(app.store.claim_approval(live).unwrap() && app.store.claim_approval(stuck).unwrap());
+        let intent = crate::journal::Intent {
+            kind: crate::journal::Kind::Tool,
+            name: "write_file".into(),
+            args: args.to_string(),
+            args_hash: crate::journal::args_hash(&args),
+            summary: "a.txt".into(),
+            risk: "write".into(),
+            tainted: false,
+            session_id: session.id.clone(),
+            run_id: crate::journal::parked_run_id(live),
+            origin: "nightly".into(),
+            workspace: app.workspace.clone(),
+            label: None,
+        };
+        app.store.with_conn(|c| crate::journal::sql::insert_intent(c, &intent, crate::journal::proc_id())).unwrap();
+        assert!(app.own_background_work());
+        assert_eq!(app.store.get_approval(live).unwrap().status, "running", "a call a live process is carrying out is left alone");
+        assert_eq!(app.store.get_approval(stuck).unwrap().status, "unknown");
+    }
+
+    #[tokio::test]
+    async fn tick_recovery_runs_only_in_the_background_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.agent.auto_memory = false;
+        let store = Store::in_memory().unwrap();
+        let llm = Arc::new(ScriptedLlm::new(vec![]));
+        let owner = App::assemble(cfg.clone(), dir.path().join("ws"), store.clone(), llm.clone()).await.unwrap();
+        crate::risk_notice::accept_current(&store).unwrap();
+        assert!(owner.scheduler_tick().await);
+        let other = App::assemble(cfg, dir.path().join("ws"), store.clone(), llm).await.unwrap();
+        let session = Session::create(&store, "terminal").unwrap();
+        crashed_row(&owner, &session.id, "write_file", &json!({"path": "a.txt", "content": "x"}), "turn:t", &owner.workspace, false);
+        assert!(!other.scheduler_tick().await);
+        assert!(store.pending_approvals().unwrap().is_empty(), "only the owner recovers");
+        assert!(owner.scheduler_tick().await);
+        assert_eq!(store.pending_approvals().unwrap().len(), 1, "the owner's next tick asks");
+    }
+
+    #[tokio::test]
+    async fn parked_read_is_not_journaled() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = plain_app(dir.path(), vec![]).await;
+        let session = Session::create(&app.store, "chat").unwrap();
+        std::fs::write(app.workspace.join("notes.md"), "hi").unwrap();
+        let read = app.store.park_approval(&session.id, "list_dir", "{\"path\":\".\"}", ".", "", "read", false, "a job").unwrap();
+        app.run_parked(read).await.unwrap();
+        assert!(rows(&app).is_empty(), "a read is not journaled");
+        let write = app.store.park_approval(&session.id, "task_add", "{\"title\":\"t\"}", "t", "", "state", false, "a job").unwrap();
+        app.run_parked(write).await.unwrap();
+        let rows = rows(&app);
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].0.as_str(), rows[0].1.as_str(), rows[0].2.clone()), ("task_add", "done", crate::journal::parked_run_id(write)));
     }
 }

@@ -1,4 +1,1341 @@
 {
+  "HS-W1": {
+    "attempts": [
+      {
+        "attempt_id": "df54d1d65b3d4bf2b35fd79b0582cd98",
+        "ended_at": "2026-11-26T22:31:12.284081+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-26T22:13:45.429765+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/journal/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "bash eval/require-tests.sh --lib journal:: -- dead_process_intent_becomes_interrupted missing_lease_file_counts_as_dead a_live_process_intent_is_left_alone finished_rows_drop_their_arguments drop_after_a_cancel_request_writes_cancelled drop_without_a_cancel_request_writes_interrupted panic_inside_guarded_writes_failed timeout_inside_guarded_writes_failed failed_intent_insert_does_not_run_the_tool interrupted_tool_call_becomes_one_ask_again_approval ask_pass_commits_the_approval_and_the_row_together interrupted_calls_from_two_sessions_get_two_approvals interrupted_calls_with_different_taint_get_two_approvals interrupted_parked_call_reopens_its_own_approval parked_call_whose_approval_cannot_reopen_gets_a_new_one live_child_process_group_delays_the_ask interrupted_action_uses_its_label pending_ask_again_matches_session_tool_and_args pending_ask_again_sees_unrecovered_rows live_parked_approvals_lists_only_live_leases dead_lease_files_are_swept args_hash_ignores_key_order prune_keeps_open_rows asked_rows_prune_once_their_approval_is_answered && cargo test --locked --lib -- journal::",
+        "duration_ms": 2264,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W1_20261126T223109797667_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W1_20261126T223112062615_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
+    "id": "HS-W1",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/require-tests.sh --lib journal:: -- dead_process_intent_becomes_interrupted missing_lease_file_counts_as_dead a_live_process_intent_is_left_alone finished_rows_drop_their_arguments drop_after_a_cancel_request_writes_cancelled drop_without_a_cancel_request_writes_interrupted panic_inside_guarded_writes_failed timeout_inside_guarded_writes_failed failed_intent_insert_does_not_run_the_tool interrupted_tool_call_becomes_one_ask_again_approval ask_pass_commits_the_approval_and_the_row_together interrupted_calls_from_two_sessions_get_two_approvals interrupted_calls_with_different_taint_get_two_approvals interrupted_parked_call_reopens_its_own_approval parked_call_whose_approval_cannot_reopen_gets_a_new_one live_child_process_group_delays_the_ask interrupted_action_uses_its_label pending_ask_again_matches_session_tool_and_args pending_ask_again_sees_unrecovered_rows live_parked_approvals_lists_only_live_leases dead_lease_files_are_swept args_hash_ignores_key_order prune_keeps_open_rows asked_rows_prune_once_their_approval_is_answered && cargo test --locked --lib -- journal::",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W1, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Effect journal module: SQL functions, process leases, `guarded`, two-pass recovery, ask-again texts, the `Resumer` hook (\u00a71, file 1)"
+    },
+    "max_retries": 1,
+    "rejected_count": 2,
+    "removed": false,
+    "result": {
+      "attempt_id": "df54d1d65b3d4bf2b35fd79b0582cd98",
+      "base_commit": "93a803d7819a4ed27e1dc9d03d46071aeff6e088",
+      "changed_files": [
+        "src/journal/lease.rs",
+        "src/journal/mod.rs",
+        "src/journal/sql.rs"
+      ],
+      "commit": "284799fd30cfe745835b4fcdd5003119eb2fcba8",
+      "diff_stats": {
+        "src/journal/lease.rs": {
+          "added": 205,
+          "deleted": 0
+        },
+        "src/journal/mod.rs": {
+          "added": 1230,
+          "deleted": 0
+        },
+        "src/journal/sql.rs": {
+          "added": 199,
+          "deleted": 2
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "93a803d7819a4ed27e1dc9d03d46071aeff6e088",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "e76a9109c6985928b66085eb358042bb1dc77cab",
+        "result_commit": "284799fd30cfe745835b4fcdd5003119eb2fcba8",
+        "shipped_at": "2026-11-27T01:58:43.596858+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
+    "status": "done",
+    "title": "W1: Effect journal module: SQL functions, process leases, `guarded`, two-pass recove",
+    "version": 41,
+    "worktree": {
+      "base_branch": "feat/harness-safety",
+      "base_commit": "93a803d7819a4ed27e1dc9d03d46071aeff6e088",
+      "branch": "skein/HS-W1",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W1"
+    }
+  },
+  "HS-W2": {
+    "attempts": [
+      {
+        "attempt_id": "8f6f74782c28411ebdddd3b5dfd8b658",
+        "ended_at": "2026-11-26T22:15:40.486921+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-26T22:13:45.669298+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/repeat/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "bash eval/require-tests.sh --lib repeat:: -- identical_calls_stop_at_the_limit any_difference_resets_the_count limit_zero_disables_and_one_stops_immediately a_repeating_block_of_calls_is_a_loop failures_that_differ_only_in_digits_are_repeats same_call_count_is_three_after_three_identical_calls same_call_count_ignores_results shell_exit_code_line_counts_as_failure shell_timeout_counts_as_failure stop_text_uses_one_template && cargo test --locked --lib -- repeat::",
+        "duration_ms": 872,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W2_20261126T221539486936_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W2_20261126T221540360094_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
+    "id": "HS-W2",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/require-tests.sh --lib repeat:: -- identical_calls_stop_at_the_limit any_difference_resets_the_count limit_zero_disables_and_one_stops_immediately a_repeating_block_of_calls_is_a_loop failures_that_differ_only_in_digits_are_repeats same_call_count_is_three_after_three_identical_calls same_call_count_ignores_results shell_exit_code_line_counts_as_failure shell_timeout_counts_as_failure stop_text_uses_one_template && cargo test --locked --lib -- repeat::",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W2, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "`RepeatGuard` ported from anchor-harness `repeats.rs`, with the failure rule and one notice template (\u00a72, file 2)"
+    },
+    "max_retries": 1,
+    "rejected_count": 1,
+    "removed": false,
+    "result": {
+      "attempt_id": "8f6f74782c28411ebdddd3b5dfd8b658",
+      "base_commit": "730a48c5c1c0d3ed3f379c238c87f1ea22563485",
+      "changed_files": [
+        "src/repeat/mod.rs"
+      ],
+      "commit": "86f690240cbd352e88753f6ddcb13d90a4ade2cc",
+      "diff_stats": {
+        "src/repeat/mod.rs": {
+          "added": 281,
+          "deleted": 0
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "730a48c5c1c0d3ed3f379c238c87f1ea22563485",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "bf41c10c4b3a17502500bfaa3dc526981bc03476",
+        "result_commit": "86f690240cbd352e88753f6ddcb13d90a4ade2cc",
+        "shipped_at": "2026-11-27T01:58:43.995379+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
+    "status": "done",
+    "title": "W2: `RepeatGuard` ported from anchor-harness `repeats.rs`, with the failure rule and",
+    "version": 9,
+    "worktree": {
+      "base_branch": "feat/harness-safety",
+      "base_commit": "730a48c5c1c0d3ed3f379c238c87f1ea22563485",
+      "branch": "skein/HS-W2",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W2"
+    }
+  },
+  "HS-W3": {
+    "attempts": [
+      {
+        "attempt_id": "1c38979a8e1e4292901ac5d1d0612f79",
+        "ended_at": "2026-11-26T22:18:50.112040+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-26T22:13:45.903426+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/egress/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "bash eval/require-tests.sh --lib egress:: -- decisions head_parsing refuses_disallowed_tunnels_over_the_wire wildcard_needs_a_real_label_and_ips_are_refused_even_if_listed dropping_the_proxy_closes_its_port oversized_request_head_is_dropped sni_is_read_from_a_client_hello client_hello_parser_edges only_public_addresses_are_reachable allowlisted_names_resolving_to_internal_addresses_are_refused the_tls_server_name_must_match_the_connect_host rules_deny_outbound_ip_except_loopback deny_local_port_overrides_loopback rules_deny_the_resolver_socket daemon_sockets_are_denied blocked_hosts_are_named_once_with_their_reason default_list_excludes_crates_io host_entries_are_validated && cargo test --locked --lib -- egress::",
+        "duration_ms": 2388,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W3_20261126T221847602665_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W3_20261126T221850002382_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
+    "id": "HS-W3",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/require-tests.sh --lib egress:: -- decisions head_parsing refuses_disallowed_tunnels_over_the_wire wildcard_needs_a_real_label_and_ips_are_refused_even_if_listed dropping_the_proxy_closes_its_port oversized_request_head_is_dropped sni_is_read_from_a_client_hello client_hello_parser_edges only_public_addresses_are_reachable allowlisted_names_resolving_to_internal_addresses_are_refused the_tls_server_name_must_match_the_connect_host rules_deny_outbound_ip_except_loopback deny_local_port_overrides_loopback rules_deny_the_resolver_socket daemon_sockets_are_denied blocked_hosts_are_named_once_with_their_reason default_list_excludes_crates_io host_entries_are_validated && cargo test --locked --lib -- egress::",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W3, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Egress proxy ported from anchor-harness `proxy.rs`, Seatbelt network rules, proxy env, blocked-host notes (\u00a73.2, file 3). Supervisor"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "1c38979a8e1e4292901ac5d1d0612f79",
+      "base_commit": "122636bc958fab94a639dc98eb783c5796a9c6e7",
+      "changed_files": [
+        "src/egress/mod.rs",
+        "src/egress/proxy.rs",
+        "src/egress/proxy/net.rs"
+      ],
+      "commit": "19e69a982d25d3406a974149f70748be7a35b132",
+      "diff_stats": {
+        "src/egress/mod.rs": {
+          "added": 274,
+          "deleted": 0
+        },
+        "src/egress/proxy.rs": {
+          "added": 506,
+          "deleted": 0
+        },
+        "src/egress/proxy/net.rs": {
+          "added": 120,
+          "deleted": 0
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "122636bc958fab94a639dc98eb783c5796a9c6e7",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "6ab9d897d31f32989fe7bca66339fe09c5540887",
+        "result_commit": "19e69a982d25d3406a974149f70748be7a35b132",
+        "shipped_at": "2026-11-27T01:58:44.417043+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
+    "status": "done",
+    "title": "W3: Egress proxy ported from anchor-harness `proxy.rs`, Seatbelt network rules, prox",
+    "version": 15,
+    "worktree": {
+      "base_branch": "feat/harness-safety",
+      "base_commit": "122636bc958fab94a639dc98eb783c5796a9c6e7",
+      "branch": "skein/HS-W3",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W3"
+    }
+  },
+  "HS-W4": {
+    "attempts": [
+      {
+        "attempt_id": "30b76b8bed7840b7b399fdd9a011186a",
+        "ended_at": "2026-11-26T22:30:49.147790+00:00",
+        "error": "",
+        "holder": "agent-3",
+        "outcome": "done",
+        "started_at": "2026-11-26T22:15:40.633334+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/protect/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "bash eval/require-tests.sh --lib protect:: -- scan_finds_repos_and_names_at_any_depth_but_skips_big_dirs file_tools_refuse_protected_names_and_git apply_protects_existing_repos_and_names snapshots_see_changes_to_protected_entries_only a_new_repository_may_hold_only_samples_and_plain_config claude_home_items_and_mcp_servers_are_snapshotted git_config_keys_are_parsed git_config_keys_on_the_header_line_are_seen a_quote_in_a_repo_path_keeps_the_profile_valid protected_names_match_at_any_depth git_file_resolves_to_common_dir git_component_in_a_write_path_is_protected new_repo_with_sample_hooks_is_not_a_change cloned_repo_with_branch_and_remote_keys_is_not_a_change new_repo_with_hooks_path_is_a_change default_heron_home_files_are_protected_when_heron_home_is_overridden heron_home_folder_itself_is_not_protected rules_return_repo_paths_for_refused_ancestors hooks_rule_allows_sample_names workspace_path_is_escaped_in_rules home_rules_only_cover_paths_inside_writable_folders scan_stops_at_the_limit_and_says_so truncated_scan_is_a_change snapshot_leaves_out_heron_db_and_leases snapshot_diff_reports_paths_only refusal_for_names_the_path_and_label a_write_under_claude_worktrees_is_allowed && cargo test --locked --lib -- protect::",
+        "duration_ms": 1707,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W4_20261126T223047344918_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W4_20261126T223049053512_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
+    "id": "HS-W4",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/require-tests.sh --lib protect:: -- scan_finds_repos_and_names_at_any_depth_but_skips_big_dirs file_tools_refuse_protected_names_and_git apply_protects_existing_repos_and_names snapshots_see_changes_to_protected_entries_only a_new_repository_may_hold_only_samples_and_plain_config claude_home_items_and_mcp_servers_are_snapshotted git_config_keys_are_parsed git_config_keys_on_the_header_line_are_seen a_quote_in_a_repo_path_keeps_the_profile_valid protected_names_match_at_any_depth git_file_resolves_to_common_dir git_component_in_a_write_path_is_protected new_repo_with_sample_hooks_is_not_a_change cloned_repo_with_branch_and_remote_keys_is_not_a_change new_repo_with_hooks_path_is_a_change default_heron_home_files_are_protected_when_heron_home_is_overridden heron_home_folder_itself_is_not_protected rules_return_repo_paths_for_refused_ancestors hooks_rule_allows_sample_names workspace_path_is_escaped_in_rules home_rules_only_cover_paths_inside_writable_folders scan_stops_at_the_limit_and_says_so truncated_scan_is_a_change snapshot_leaves_out_heron_db_and_leases snapshot_diff_reports_paths_only refusal_for_names_the_path_and_label a_write_under_claude_worktrees_is_allowed && cargo test --locked --lib -- protect::",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W4, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Protected list ported from anchor-harness `protect.rs`, `is_protected`, Seatbelt write rules, the bounded scan, snapshots and diff (\u00a73.1, \u00a73.3, file 4). Supervisor"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "30b76b8bed7840b7b399fdd9a011186a",
+      "base_commit": "00b920abd11c62070cae9bf944853ec974c502fc",
+      "changed_files": [
+        "src/protect/mod.rs",
+        "src/protect/scan.rs"
+      ],
+      "commit": "b987ba1faa65d337d11e3f9c3e0396a274d70d3d",
+      "diff_stats": {
+        "src/protect/mod.rs": {
+          "added": 1197,
+          "deleted": 0
+        },
+        "src/protect/scan.rs": {
+          "added": 179,
+          "deleted": 0
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "00b920abd11c62070cae9bf944853ec974c502fc",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "9d08ef018119e103023ce9fd0a536ec29c0054b3",
+        "result_commit": "b987ba1faa65d337d11e3f9c3e0396a274d70d3d",
+        "shipped_at": "2026-11-27T01:58:44.875560+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
+    "status": "done",
+    "title": "W4: Protected list ported from anchor-harness `protect.rs`, `is_protected`, Seatbelt",
+    "version": 35,
+    "worktree": {
+      "base_branch": "feat/harness-safety",
+      "base_commit": "00b920abd11c62070cae9bf944853ec974c502fc",
+      "branch": "skein/HS-W4",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W4"
+    }
+  },
+  "HS-W5": {
+    "attempts": [
+      {
+        "attempt_id": "bfa2ac3e8b46401e9dd6ea5ffd33394d",
+        "ended_at": "2026-11-26T22:23:58.992526+00:00",
+        "error": "",
+        "holder": "agent-1",
+        "outcome": "done",
+        "started_at": "2026-11-26T22:18:50.306301+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/toolchain/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [],
+    "evidence": [
+      {
+        "command": "bash eval/require-tests.sh --lib toolchain:: -- changed_binary_is_reported libexec_change_is_reported touch_without_content_change_stays_trusted new_toolchain_folder_is_a_change rust_src_and_docs_are_ignored names_rust_tool_finds_cargo_after_a_pipe names_rust_tool_skips_env_and_assignments changed_toolchain_is_read_denied no_baseline_adds_no_denies change_is_noticed_once trust_current_makes_state_trusted exported_baseline_imports_into_another_store export_without_a_baseline_fails import_refuses_a_malformed_or_existing_baseline trust_with_a_stale_since_is_refused stat_refresh_skips_a_file_that_changed_while_hashing && cargo test --locked --lib -- toolchain::",
+        "duration_ms": 888,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W5_20261126T222357881888_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W5_20261126T222358771806_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
+    "id": "HS-W5",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/require-tests.sh --lib toolchain:: -- changed_binary_is_reported libexec_change_is_reported touch_without_content_change_stays_trusted new_toolchain_folder_is_a_change rust_src_and_docs_are_ignored names_rust_tool_finds_cargo_after_a_pipe names_rust_tool_skips_env_and_assignments changed_toolchain_is_read_denied no_baseline_adds_no_denies change_is_noticed_once trust_current_makes_state_trusted exported_baseline_imports_into_another_store export_without_a_baseline_fails import_refuses_a_malformed_or_existing_baseline trust_with_a_stale_since_is_refused stat_refresh_skips_a_file_that_changed_while_hashing && cargo test --locked --lib -- toolchain::",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W5, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Toolchain manifest, stat-then-hash check, trust, `names_rust_tool`, `seatbelt_denies`, baseline export and import (\u00a73.4, file 5). Manual hold: added to the graph only after the owner answers OQ1, and only under its default (Pre-S3)"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "bfa2ac3e8b46401e9dd6ea5ffd33394d",
+      "base_commit": "c686205b5013d71404cb1f7fb90620e17b82983b",
+      "changed_files": [
+        "src/toolchain/mod.rs"
+      ],
+      "commit": "f229e237a98f3e0dee0588937c246dace0e1de24",
+      "diff_stats": {
+        "src/toolchain/mod.rs": {
+          "added": 756,
+          "deleted": 0
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "c686205b5013d71404cb1f7fb90620e17b82983b",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "18f7076342e962456d12735cafc9a2b4042c1a40",
+        "result_commit": "f229e237a98f3e0dee0588937c246dace0e1de24",
+        "shipped_at": "2026-11-27T01:58:45.267751+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
+    "status": "done",
+    "title": "W5: Toolchain manifest, stat-then-hash check, trust, `names_rust_tool`, `seatbelt_de",
+    "version": 15,
+    "worktree": {
+      "base_branch": "feat/harness-safety",
+      "base_commit": "c686205b5013d71404cb1f7fb90620e17b82983b",
+      "branch": "skein/HS-W5",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W5"
+    }
+  },
+  "HS-W6a": {
+    "attempts": [
+      {
+        "attempt_id": "67edf00e469b4871b8869ab8a11765de",
+        "ended_at": "2026-11-26T23:01:14.657157+00:00",
+        "error": "backend timed out after 1800.0s (holder=agent-2); see evidence",
+        "holder": "agent-2",
+        "outcome": "timeout",
+        "started_at": "2026-11-26T22:31:13.650709+00:00"
+      },
+      {
+        "attempt_id": "45fff5deab0547c38610cd123eed871c",
+        "ended_at": "2026-11-26T23:09:31.904363+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-26T23:02:28.124367+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "HS-W1",
+      "HS-W2",
+      "HS-W4",
+      "HS-W5"
+    ],
+    "evidence": [
+      {
+        "command": "bash eval/harness-safety/check.sh w6a w6a-toolchain",
+        "duration_ms": 17343,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W6a_20261126T230914449565_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W6a_20261126T230931794062_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: watch whether the supervisor's run of `check.sh` passes those 7 tests.",
+    "id": "HS-W6a",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/harness-safety/check.sh w6a w6a-toolchain",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W6a, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Phase 1 wiring: `maintain` prune, `RunFrame`, `execute_call` journal, OQ9 gate and loop guard, transcript text, recovery calls, `run_parked` with `resume:` and the workspace check, `classify_path` and the protected-file text, the Stop flag, the toolchain in the shell and profile, the toolchain and dismiss API (files 6 to 12 and 15, W6a parts). Supervisor"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "45fff5deab0547c38610cd123eed871c",
+      "base_commit": "1a174ada29d4db9fb7e65a4ca3779d6215977f3b",
+      "changed_files": [
+        "src/agent.rs",
+        "src/app.rs",
+        "src/main.rs",
+        "src/permissions.rs",
+        "src/sandbox.rs",
+        "src/server.rs",
+        "src/store.rs",
+        "src/telegram.rs",
+        "src/toolchain/mod.rs",
+        "src/tools/fs.rs",
+        "src/tools/shell.rs"
+      ],
+      "commit": "bffb5f320049ae65234f1c432439ff5f4cf5c8ef",
+      "diff_stats": {
+        "src/agent.rs": {
+          "added": 716,
+          "deleted": 15
+        },
+        "src/app.rs": {
+          "added": 540,
+          "deleted": 21
+        },
+        "src/main.rs": {
+          "added": 3,
+          "deleted": 0
+        },
+        "src/permissions.rs": {
+          "added": 140,
+          "deleted": 0
+        },
+        "src/sandbox.rs": {
+          "added": 48,
+          "deleted": 7
+        },
+        "src/server.rs": {
+          "added": 212,
+          "deleted": 4
+        },
+        "src/store.rs": {
+          "added": 28,
+          "deleted": 0
+        },
+        "src/telegram.rs": {
+          "added": 77,
+          "deleted": 5
+        },
+        "src/toolchain/mod.rs": {
+          "added": 20,
+          "deleted": 0
+        },
+        "src/tools/fs.rs": {
+          "added": 9,
+          "deleted": 0
+        },
+        "src/tools/shell.rs": {
+          "added": 244,
+          "deleted": 8
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "1a174ada29d4db9fb7e65a4ca3779d6215977f3b",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "408cdf699629542d773d902fc909ea4cf52fef0d",
+        "result_commit": "bffb5f320049ae65234f1c432439ff5f4cf5c8ef",
+        "shipped_at": "2026-11-27T01:59:11.152630+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
+    "status": "done",
+    "title": "W6a: Phase 1 wiring: `maintain` prune, `RunFrame`, `execute_call` journal, OQ9 gate a",
+    "version": 82,
+    "worktree": {
+      "base_branch": "skein/HS-W6a__integrate-base",
+      "base_commit": "1a174ada29d4db9fb7e65a4ca3779d6215977f3b",
+      "branch": "skein/HS-W6a",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W6a"
+    }
+  },
+  "HS-W6a__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "b8c1dc0c361c487ebe50e87269f16970",
+        "ended_at": "2026-11-26T22:31:13.545134+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-26T22:31:12.796197+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "HS-W1",
+      "HS-W2",
+      "HS-W4",
+      "HS-W5"
+    ],
+    "evidence": [
+      {
+        "command": "git merge 86f690240cbd352e88753f6ddcb13d90a4ade2cc b987ba1faa65d337d11e3f9c3e0396a274d70d3d f229e237a98f3e0dee0588937c246dace0e1de24",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['284799fd30cfe745835b4fcdd5003119eb2fcba8', '86f690240cbd352e88753f6ddcb13d90a4ade2cc', 'b987ba1faa65d337d11e3f9c3e0396a274d70d3d', 'f229e237a98f3e0dee0588937c246dace0e1de24'] into skein/HS-W6a__integrate-base.",
+    "id": "HS-W6a__integrate",
+    "integration_for": "HS-W6a",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['HS-W1', 'HS-W2', 'HS-W4', 'HS-W5'] into one base branch for HS-W6a."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "284799fd30cfe745835b4fcdd5003119eb2fcba8",
+      "changed_files": [],
+      "commit": "1a174ada29d4db9fb7e65a4ca3779d6215977f3b",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Integrate parents of HS-W6a",
+    "version": 3,
+    "worktree": {
+      "base_branch": "284799fd30cfe745835b4fcdd5003119eb2fcba8",
+      "branch": "skein/HS-W6a__integrate-base",
+      "path": null
+    }
+  },
+  "HS-W6b": {
+    "attempts": [
+      {
+        "attempt_id": "5f04320f96f14521941a77d105d95ba0",
+        "ended_at": "2026-11-26T23:35:47.346080+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-26T23:09:32.841924+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "opus"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "HS-W3",
+      "HS-W6a"
+    ],
+    "evidence": [
+      {
+        "command": "bash eval/harness-safety/check.sh w6a w6a-toolchain w6b",
+        "duration_ms": 17745,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W6b_20261126T233529480703_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W6b_20261126T233547227969_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Language server \"plugin:rust-analyzer-lsp:rust-analyzer\" couldn't start. Start claude --debug in a terminal and have Claude work on a file that server handles. The debug log may have the reason.",
+    "id": "HS-W6b",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/harness-safety/check.sh w6a w6a-toolchain w6b",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W6b, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Phase 2 wiring, after PT-E1 passes: egress in the shell and profile, the Seatbelt protect rules, the run-end rehash and report, the egress settings and bound ports (files 7 to 12, W6b parts). Supervisor"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "5f04320f96f14521941a77d105d95ba0",
+      "base_commit": "1a13be5e73a20561b1697964ecb3d56ee4ad16c0",
+      "changed_files": [
+        "src/agent.rs",
+        "src/app.rs",
+        "src/sandbox.rs",
+        "src/server.rs",
+        "src/tools/shell.rs"
+      ],
+      "commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "diff_stats": {
+        "src/agent.rs": {
+          "added": 148,
+          "deleted": 21
+        },
+        "src/app.rs": {
+          "added": 42,
+          "deleted": 0
+        },
+        "src/sandbox.rs": {
+          "added": 114,
+          "deleted": 8
+        },
+        "src/server.rs": {
+          "added": 78,
+          "deleted": 3
+        },
+        "src/tools/shell.rs": {
+          "added": 224,
+          "deleted": 2
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "1a13be5e73a20561b1697964ecb3d56ee4ad16c0",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "9ad6e431444b9b404759e631b677c593e88fdc22",
+        "result_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+        "shipped_at": "2026-11-27T01:59:11.477838+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
+    "status": "done",
+    "title": "W6b: Phase 2 wiring, after PT-E1 passes: egress in the shell and profile, the Seatbel",
+    "version": 58,
+    "worktree": {
+      "base_branch": "skein/HS-W6b__integrate-base",
+      "base_commit": "1a13be5e73a20561b1697964ecb3d56ee4ad16c0",
+      "branch": "skein/HS-W6b",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W6b"
+    }
+  },
+  "HS-W6b__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "17cd4d20a7a54b4c97ec709226a9e2fc",
+        "ended_at": "2026-11-26T23:09:32.740696+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-26T23:09:32.303334+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "HS-W3",
+      "HS-W6a"
+    ],
+    "evidence": [
+      {
+        "command": "git merge bffb5f320049ae65234f1c432439ff5f4cf5c8ef",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['19e69a982d25d3406a974149f70748be7a35b132', 'bffb5f320049ae65234f1c432439ff5f4cf5c8ef'] into skein/HS-W6b__integrate-base.",
+    "id": "HS-W6b__integrate",
+    "integration_for": "HS-W6b",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['HS-W3', 'HS-W6a'] into one base branch for HS-W6b."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "19e69a982d25d3406a974149f70748be7a35b132",
+      "changed_files": [],
+      "commit": "1a13be5e73a20561b1697964ecb3d56ee4ad16c0",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "done",
+    "title": "Integrate parents of HS-W6b",
+    "version": 3,
+    "worktree": {
+      "base_branch": "19e69a982d25d3406a974149f70748be7a35b132",
+      "branch": "skein/HS-W6b__integrate-base",
+      "path": null
+    }
+  },
+  "HS-W7": {
+    "attempts": [
+      {
+        "attempt_id": "da4bb62e0d1d48bda085d8e75335f761",
+        "ended_at": "2026-11-26T23:37:25.046030+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-26T23:35:47.486140+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "docs/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "HS-W6b"
+    ],
+    "evidence": [
+      {
+        "command": "bash eval/harness-safety/check-w7.sh",
+        "duration_ms": 247,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W7_20261126T233724683518_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W7_20261126T233724932486_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Nothing is committed. Next: run `bash eval/harness-safety/check-w7.sh` yourself to confirm.",
+    "id": "HS-W7",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/harness-safety/check-w7.sh",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W7, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Threat-model entries, one per Risks row; the egress section of the CLI providers guide; Harness2's Pre-5 edits (file 14)"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "da4bb62e0d1d48bda085d8e75335f761",
+      "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "changed_files": [
+        "docs/cli-providers.md",
+        "docs/designs/heron-harness2.md",
+        "docs/engineering/SECURITY_THREAT_MODEL.md"
+      ],
+      "commit": "44d232cb7ae5fc7cab08da0e759d89b0b946c0ce",
+      "diff_stats": {
+        "docs/cli-providers.md": {
+          "added": 49,
+          "deleted": 0
+        },
+        "docs/designs/heron-harness2.md": {
+          "added": 6,
+          "deleted": 1
+        },
+        "docs/engineering/SECURITY_THREAT_MODEL.md": {
+          "added": 152,
+          "deleted": 1
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+        "diverged": false,
+        "forced": false,
+        "merge_commit": "d7f8c0c8bd9ebc5c5c7e4c962a6fd72a4f095a6a",
+        "result_commit": "44d232cb7ae5fc7cab08da0e759d89b0b946c0ce",
+        "shipped_at": "2026-11-27T01:59:11.790426+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
+    "status": "done",
+    "title": "W7: Threat-model entries, one per Risks row; the egress section of the CLI providers",
+    "version": 8,
+    "worktree": {
+      "base_branch": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "branch": "skein/HS-W7",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W7"
+    }
+  },
+  "HS-W8": {
+    "attempts": [
+      {
+        "attempt_id": "872ae70e670243faaef4b6618a0b32a1",
+        "ended_at": "2026-11-26T23:43:39.638815+00:00",
+        "error": "",
+        "holder": "agent-2",
+        "outcome": "done",
+        "started_at": "2026-11-26T23:37:25.179332+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_build_swift",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "macos/HeronMac/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "HS-W6b"
+    ],
+    "evidence": [
+      {
+        "command": "bash eval/harness-safety/check-w8.sh default",
+        "duration_ms": 3446,
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W8_20261126T234336080861_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_swift>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-W8_20261126T234339528690_adapter.log"
+      }
+    ],
+    "handoff_note": "Done. Verification passed. Last output: Next: run `bash eval/harness-safety/check-w8.sh default` outside the sandbox. Expect the `never-long-rows-light` and `NotificationTests` failures above to show up in the full `swift test` run, not in the filtered one.",
+    "id": "HS-W8",
+    "integration_for": null,
+    "intent": {
+      "completion": "bash eval/harness-safety/check-w8.sh default",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row W8, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Mac app Settings \u203a Sandbox: egress mode and lists, toolchain state and Trust, all three `CoreClientProtocol` conformers (file 13). Supervisor"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "attempt_id": "872ae70e670243faaef4b6618a0b32a1",
+      "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "changed_files": [
+        "macos/HeronMac/Sources/HeronCore/CoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/CoreClientProtocol.swift",
+        "macos/HeronMac/Sources/HeronCore/ManagedCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/Models.swift",
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift",
+        "macos/HeronMac/Sources/HeronCore/PreviewData.swift",
+        "macos/HeronMac/Sources/HeronCore/Wire.swift",
+        "macos/HeronMac/Sources/HeronUI/Stores/SettingsAndFirstRunStores.swift",
+        "macos/HeronMac/Sources/HeronUI/Views/SettingsView.swift",
+        "macos/HeronMac/Tests/HeronCoreTests/CoreClientTests.swift",
+        "macos/HeronMac/Tests/HeronUITests/__Snapshots__/never-long-dark.macos27.png",
+        "macos/HeronMac/Sources/HeronUI/Views/SandboxViews.swift",
+        "macos/HeronMac/Tests/HeronUITests/SandboxSettingsTests.swift"
+      ],
+      "commit": "bd72e1cfb8b20ebb29ed34e638860d87c4af8814",
+      "diff_stats": {
+        "macos/HeronMac/Sources/HeronCore/CoreClient.swift": {
+          "added": 13,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/CoreClientProtocol.swift": {
+          "added": 8,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/ManagedCoreClient.swift": {
+          "added": 5,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/Models.swift": {
+          "added": 40,
+          "deleted": 2
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewCoreClient.swift": {
+          "added": 76,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronCore/PreviewData.swift": {
+          "added": 11,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronCore/Wire.swift": {
+          "added": 16,
+          "deleted": 1
+        },
+        "macos/HeronMac/Sources/HeronUI/Stores/SettingsAndFirstRunStores.swift": {
+          "added": 97,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/SandboxViews.swift": {
+          "added": 159,
+          "deleted": 0
+        },
+        "macos/HeronMac/Sources/HeronUI/Views/SettingsView.swift": {
+          "added": 1,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronCoreTests/CoreClientTests.swift": {
+          "added": 49,
+          "deleted": 0
+        },
+        "macos/HeronMac/Tests/HeronUITests/SandboxSettingsTests.swift": {
+          "added": 110,
+          "deleted": 0
+        }
+      }
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "9552627d2dddf6241ccb8057a6e76998041a86ec",
+        "result_commit": "bd72e1cfb8b20ebb29ed34e638860d87c4af8814",
+        "shipped_at": "2026-11-27T01:59:12.212280+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
+    "status": "done",
+    "title": "W8: Mac app Settings \u203a Sandbox: egress mode and lists, toolchain state and Trust, al",
+    "version": 17,
+    "worktree": {
+      "base_branch": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "branch": "skein/HS-W8",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-W8"
+    }
+  },
+  "HS-verify": {
+    "attempts": [
+      {
+        "attempt_id": "66d71b2cb86341d99623c7dcfdb1d945",
+        "ended_at": "2026-11-27T00:54:04.962715+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-26T23:43:40.666855+00:00"
+      },
+      {
+        "attempt_id": "f5da5176c236406890cd338c37a0c2ae",
+        "ended_at": "2026-11-27T01:57:03.106512+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-27T00:55:19.099388+00:00"
+      }
+    ],
+    "attempts_used": 1,
+    "backend": "claude_build_rust",
+    "backend_config": {
+      "effort": "high",
+      "model": "sonnet"
+    },
+    "blast_radius": [
+      "src/**"
+    ],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "HS-W6b",
+      "HS-W7",
+      "HS-W8"
+    ],
+    "evidence": [
+      {
+        "command": "cargo test --locked && cargo build --locked --features desktop --bins && cargo clippy --locked --all-targets -- -D warnings && swift test --package-path macos/HeronMac && testteeth run --base main --fail-under 70",
+        "duration_ms": 3600036,
+        "exit_code": 124,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-verify_20261127T005703018121_0.log"
+      },
+      {
+        "command": "<adapter:claude_build_rust>",
+        "exit_code": 0,
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-verify_20261127T015703068998_adapter.log"
+      }
+    ],
+    "handoff_note": "completion command failed (adapter exit=0); see evidence",
+    "id": "HS-verify",
+    "integration_for": null,
+    "intent": {
+      "completion": "cargo test --locked && cargo build --locked --features desktop --bins && cargo clippy --locked --all-targets -- -D warnings && swift test --package-path macos/HeronMac && testteeth run --base main --fail-under 70",
+      "constraints": "Toolchain: cargo, swift. No new dependencies unless the doc names them. Do not edit docs/designs/heron-harness-safety.md or other units' scopes. Owner invariants must hold: sandbox on by default; a tainted conversation's grants never reach shell; 'never' rules are lifted only in the app; memory never trusts outside content. Non-goals: heron-harness2.md's work, Linux/Windows sandboxes beyond not breaking them, opencode. No narrating comments. Each test must fail without the code it covers. ref/anchor-harness/ holds the anchor-harness sources at daed7ef for the ports.",
+      "context": "Spec: docs/designs/heron-harness-safety.md, Work units row verify, and the sections it cites. Read the whole spec section for your unit before writing code.",
+      "goal": "Full suites, the desktop build, lint, and the test-quality gate on the branch; adds tests for surviving mutants. Supervisor"
+    },
+    "max_retries": 1,
+    "rejected_count": 0,
+    "removed": false,
+    "result": null,
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {},
+    "status": "failed",
+    "title": "verify: Full suites, the desktop build, lint, and the test-quality gate on the branch; a",
+    "version": 270,
+    "worktree": {
+      "base_branch": "skein/HS-verify__integrate-base",
+      "base_commit": "1c47275909a16462cc52d7cc64092d31d18a77d1",
+      "branch": "skein/HS-verify",
+      "path": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/worktrees/HS-verify"
+    }
+  },
+  "HS-verify__integrate": {
+    "attempts": [
+      {
+        "attempt_id": "21bec2e0a4ed49358057d8a006a49cd0",
+        "ended_at": "2026-11-26T23:43:40.563684+00:00",
+        "error": "",
+        "holder": "skein-auto-merge",
+        "outcome": "done",
+        "started_at": "2026-11-26T23:43:40.052233+00:00"
+      }
+    ],
+    "attempts_used": 0,
+    "backend": "claude_code",
+    "backend_config": {},
+    "blast_radius": [],
+    "change_policy": "warn",
+    "claim": {
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
+    },
+    "depends_on": [
+      "HS-W6b",
+      "HS-W7",
+      "HS-W8"
+    ],
+    "evidence": [
+      {
+        "command": "git merge 44d232cb7ae5fc7cab08da0e759d89b0b946c0ce bd72e1cfb8b20ebb29ed34e638860d87c4af8814",
+        "exit_code": 0,
+        "output_ref": null
+      }
+    ],
+    "handoff_note": "Auto-merged ['de9ba72cfc87a1a5c1fedbb55c530f151aacd425', '44d232cb7ae5fc7cab08da0e759d89b0b946c0ce', 'bd72e1cfb8b20ebb29ed34e638860d87c4af8814'] into skein/HS-verify__integrate-base.",
+    "id": "HS-verify__integrate",
+    "integration_for": "HS-verify",
+    "intent": {
+      "completion": "git branch --list",
+      "constraints": "Do not change parent branches; only produce the integration branch.",
+      "context": "Use deterministic git merge; resolve conflicts if automatic merge fails.",
+      "goal": "Merge parent branches ['HS-W6b', 'HS-W7', 'HS-W8'] into one base branch for HS-verify."
+    },
+    "max_retries": 3,
+    "rejected_count": 0,
+    "removed": false,
+    "result": {
+      "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "changed_files": [],
+      "commit": "1c47275909a16462cc52d7cc64092d31d18a77d1",
+      "diff_stats": {}
+    },
+    "retry_at": null,
+    "retry_backoff_seconds": 60.0,
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "d7950685134aad20e4d0cce4df59cfe036bc5f08",
+        "result_commit": "1c47275909a16462cc52d7cc64092d31d18a77d1",
+        "shipped_at": "2026-11-27T01:59:12.642014+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
+    "status": "done",
+    "title": "Integrate parents of HS-verify",
+    "version": 4,
+    "worktree": {
+      "base_branch": "de9ba72cfc87a1a5c1fedbb55c530f151aacd425",
+      "branch": "skein/HS-verify__integrate-base",
+      "path": null
+    }
+  },
   "SYNC10": {
     "attempts": [
       {

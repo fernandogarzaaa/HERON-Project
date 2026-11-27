@@ -14,10 +14,25 @@
   "cli_model": "",
   "cli_subscription": {},
   "daemon_mode": "ask",
+  "deny_local_ports": [],
+  "egress": "allowlist",
+  "egress_allow": [
+    "index.crates.io",
+    "static.crates.io",
+    "static.rust-lang.org",
+    "github.com",
+    "codeload.github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+    "pypi.org",
+    "files.pythonhosted.org",
+    "registry.npmjs.org"
+  ],
   "fallback_models": "",
   "fast_model": "",
   "home": "/tmp/heron-fixture/home",
   "key_source": "none",
+  "max_repeats": 4,
   "mcp": [],
   "mcp_changed": [],
   "mode": "ask",
@@ -46,7 +61,7 @@
     {
       "auth": "Cursor subscription",
       "cost": "Draws on the Cursor plan's usage pool.",
-      "experimental": false,
+      "experimental": true,
       "id": "cursor-cli",
       "login": "agent login",
       "name": "Cursor (subscription)"
@@ -62,7 +77,7 @@
     {
       "auth": "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama",
       "cost": "Free when routed to a free model or a local model; otherwise the upstream's price.",
-      "experimental": false,
+      "experimental": true,
       "id": "opencode-cli",
       "login": "opencode auth login (or configure opencode.json)",
       "name": "OpenCode (router)"
@@ -70,7 +85,7 @@
     {
       "auth": "Google account (successor to Gemini CLI for logins)",
       "cost": "Google's pricing for the selected method.",
-      "experimental": false,
+      "experimental": true,
       "id": "antigravity-cli",
       "login": "agy (then sign in with Google)",
       "name": "Antigravity (Google account)"
@@ -86,7 +101,7 @@
     {
       "auth": "GitHub Copilot subscription",
       "cost": "Draws on the Copilot plan's credit pool.",
-      "experimental": false,
+      "experimental": true,
       "id": "copilot-cli",
       "login": "copilot (then /login)",
       "name": "GitHub Copilot (subscription)"
@@ -94,7 +109,7 @@
     {
       "auth": "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.",
       "cost": "Free with a local model; otherwise the upstream's price.",
-      "experimental": false,
+      "experimental": true,
       "id": "qwen-cli",
       "login": "qwen (then /auth)",
       "name": "Qwen Code (paid key or local)"
@@ -102,7 +117,7 @@
     {
       "auth": "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.",
       "cost": "Free tier on the API key; otherwise Google's pricing.",
-      "experimental": false,
+      "experimental": true,
       "id": "gemini-cli",
       "login": "gemini (then pick Gemini API Key)",
       "name": "Gemini CLI (API key)"

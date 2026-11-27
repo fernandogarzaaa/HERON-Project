@@ -1,5 +1,17 @@
 import Foundation
 
+/// One `setSandbox` call the preview client saw (a test hook).
+public struct PreviewSandboxRequest: Sendable, Equatable {
+    public var egress: String
+    public var hosts: [String]
+    public var denyPorts: [Int]
+    public var maxRepeats: Int
+
+    public init(egress: String, hosts: [String], denyPorts: [Int], maxRepeats: Int) {
+        self.egress = egress; self.hosts = hosts; self.denyPorts = denyPorts; self.maxRepeats = maxRepeats
+    }
+}
+
 /// A `CoreClientProtocol` backed by in-memory sample data. It drives the app shell in U4a, and stays for
 /// previews and tests after U4b adds the live client. Replies are scripted: ask for a "draft" or a "file"
 /// and a tool call waits for approval; say "fail" and the run ends with an `error`.
@@ -436,7 +448,8 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
             if let failure = d.settingsFailure { d.settingsFailure = nil; throw failure }
             return CoreSettings(workspace: d.workspace, mode: d.mode, ruleNotices: d.ruleNotices,
                          allowSubscriptionUnattended: d.allowSubscriptionUnattended, connections: d.connections,
-                         awareness: d.awareness, phoneConnected: false, cliModel: d.cliModel)
+                         awareness: d.awareness, phoneConnected: false, cliModel: d.cliModel,
+                         egress: d.egress, egressAllow: d.egressAllow, denyLocalPorts: d.denyLocalPorts, maxRepeats: d.maxRepeats)
         }
     }
 
@@ -545,6 +558,68 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     }
 
     public func usage() async throws -> UsageReport { with { $0.usage } }
+
+    // MARK: Sandbox
+
+    /// Sets what `GET /api/toolchain` serves (a test hook).
+    public func setToolchain(_ status: ToolchainStatus) { with { $0.toolchain = status } }
+
+    /// Every `since` a `trustToolchain` call carried, in order (a test hook).
+    public var toolchainTrustRequests: [Int?] { with { $0.toolchainTrustRequests } }
+
+    /// Every `setSandbox` call, in order (a test hook).
+    public var sandboxRequests: [PreviewSandboxRequest] { with { $0.sandboxRequests } }
+
+    public func toolchain() async throws -> ToolchainStatus {
+        try with { d in
+            if let failure = d.toolchainFailure { d.toolchainFailure = nil; throw failure }
+            return d.toolchain
+        }
+    }
+
+    /// Makes the next `toolchain()` read fail with `error` (a test hook).
+    public func failNextToolchainRead(with error: CoreError) { with { $0.toolchainFailure = error } }
+
+    /// As the core does: a `since` that is no longer the recorded one is refused with its sentence, and the toolchain stays as it was.
+    public func trustToolchain(since: Int?) async throws -> ToolchainStatus {
+        try with { d in
+            d.toolchainTrustRequests.append(since)
+            if let recorded = d.toolchain.since, d.toolchain.state == .changed, since != recorded {
+                throw CoreError.failed("The toolchain changed again since you looked. Check it again before you trust it.")
+            }
+            d.toolchain = ToolchainStatus(state: .trusted)
+            return d.toolchain
+        }
+    }
+
+    /// Checks the fields as the core does (same sentences), then keeps them.
+    public func setSandbox(egress: String, hosts: [String], denyPorts: [Int], maxRepeats: Int) async throws {
+        try with { d in
+            d.sandboxRequests.append(PreviewSandboxRequest(egress: egress, hosts: hosts, denyPorts: denyPorts, maxRepeats: maxRepeats))
+            guard egress == "allowlist" || egress == "open" else { throw CoreError.failed("egress must be \"allowlist\" or \"open\".") }
+            guard maxRepeats != 1, maxRepeats >= 0 else { throw CoreError.failed("max_repeats must be 0 or at least 2.") }
+            guard !denyPorts.contains(0) else { throw CoreError.failed("Port 0 can't be denied.") }
+            guard denyPorts.allSatisfy({ $0 <= 65535 }) else { throw CoreError.failed("deny_local_ports must be a list of port numbers.") }
+            for host in hosts where !Self.isHostName(host) { throw CoreError.failed("Not a host name: \(host).") }
+            d.egress = egress
+            d.egressAllow = hosts
+            d.denyLocalPorts = denyPorts
+            d.maxRepeats = maxRepeats
+        }
+    }
+
+    /// The core's rule for an allowlist entry: dot-separated letters, digits and hyphens, or `*.` and a name of two labels or more.
+    static func isHostName(_ entry: String) -> Bool {
+        let wildcard = entry.hasPrefix("*.")
+        let name = wildcard ? String(entry.dropFirst(2)) : entry
+        let labels = name.split(separator: ".", omittingEmptySubsequences: false)
+        func labelOK(_ l: Substring) -> Bool {
+            !l.isEmpty && l.count <= 63 && !l.hasPrefix("-") && !l.hasSuffix("-")
+                && l.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }
+        }
+        return name.count <= 253 && labels.allSatisfy(labelOK)
+            && !(labels.last?.allSatisfy(\.isNumber) ?? true) && (!wildcard || labels.count >= 2)
+    }
 
     // MARK: Scripted runs
 

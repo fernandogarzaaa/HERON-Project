@@ -7,6 +7,12 @@ pub fn now_ts() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
+/// The SHA-256 of `bytes`, as 64 lower-case hex digits.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Rough token estimate (≈4 chars/token) — good enough for budgeting.
 pub fn estimate_tokens(s: &str) -> usize {
     s.len() / 4 + 1
@@ -123,6 +129,12 @@ pub fn fmt_ts(ts: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sha256_hex_matches_the_published_vectors() {
+        assert_eq!(sha256_hex(b""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        assert_eq!(sha256_hex(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    }
 
     #[test]
     fn json_array_span_finds_the_outer_array_or_nothing() {

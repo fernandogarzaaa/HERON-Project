@@ -226,11 +226,16 @@ struct Running {
 
 impl Shared {
     /// Halt the reply in progress, including a question it is waiting on. The halted reply, if
-    /// there was one; its task may still be finishing the step it was in.
-    fn halt(&self) -> Option<Running> {
+    /// there was one; its task may still be finishing the step it was in. `user_stop` is true for
+    /// the user's `/stop` or `/pause`: a call it cuts short is then recorded as stopped by them, not
+    /// interrupted.
+    fn halt(&self, user_stop: bool) -> Option<Running> {
         self.pending.lock().unwrap().take();
         let running = self.running.lock().unwrap().take();
         if let Some(r) = &running {
+            if user_stop {
+                crate::journal::request_cancel(&crate::agent::turn_run_id(&r.run_id));
+            }
             r.handle.abort();
         }
         running
@@ -253,7 +258,7 @@ impl Shared {
 /// and `run_end`, once its task has stopped, so nothing of that run follows `run_end`. True if
 /// there was one.
 async fn stop_reply(app: &App, shared: &Shared) -> bool {
-    let Some(r) = shared.halt() else { return false };
+    let Some(r) = shared.halt(true) else { return false };
     let _ = r.done.await;
     app.events.publish(&r.session_id, &r.run_id, json!({"type": "cancelled"}));
     app.publish_run_end(&r.session_id, &r.run_id);
@@ -267,7 +272,7 @@ async fn stop_reply(app: &App, shared: &Shared) -> bool {
 struct AbortAgentsOnDrop(Arc<Shared>, crate::events::EventBus);
 impl Drop for AbortAgentsOnDrop {
     fn drop(&mut self) {
-        let Some(r) = self.0.halt() else { return };
+        let Some(r) = self.0.halt(false) else { return };
         let events = self.1.clone();
         let end = async move {
             let _ = r.done.await;
@@ -289,6 +294,9 @@ struct TelegramApprover {
 
 #[async_trait]
 impl Approver for TelegramApprover {
+    fn live(&self) -> bool {
+        true
+    }
     async fn approve(&self, req: &ApprovalRequest) -> Approval {
         if req.risk.high() || req.tainted {
             let why = if req.tainted { "Heron has read outside content in this conversation" } else { "it is a risky action" };
@@ -561,7 +569,9 @@ fn start_reply(app: &Arc<App>, bot: &Bot, shared: &Arc<Shared>, chat: i64, mut s
         app.reload_rules();
         let input = turn_input(&app.store, &session, &text, forwarded);
         let agent = app.agent(Arc::new(TelegramApprover { bot: bot.clone(), chat, shared: shared.clone() }));
-        let outcome = agent.run_turn(&mut session, &input, &app.sink_for(&sid, &run_id)).await;
+        let sink = app.sink_for(&sid, &run_id);
+        let frame = crate::agent::RunFrame::new(crate::agent::turn_run_id(&run_id), app.workspace.clone(), app.store.clone(), sink.clone());
+        let outcome = crate::agent::in_run(frame, agent.run_turn(&mut session, &input, &sink)).await;
         // A stop that got here first ends the run on the bus.
         if !shared.finish(n) {
             return;
@@ -1215,6 +1225,68 @@ mod tests {
         assert!(kinds.len() >= 3, "{kinds:?}");
         assert_eq!(&kinds[kinds.len() - 2..], ["cancelled", "run_end"], "{kinds:?}");
         assert_eq!(kinds.iter().filter(|k| **k == "run_end").count(), 1, "{kinds:?}");
+    }
+
+    #[tokio::test]
+    async fn telegram_stop_marks_the_running_call_cancelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = App::assemble(Config { home: dir.path().join("home"), ..Default::default() }, dir.path().join("ws"), Store::in_memory().unwrap(), Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
+        let state = |id: i64| -> String { app.store.with_conn(|c| Ok(c.query_row("SELECT state FROM effects WHERE id=?", [id], |r| r.get(0))?)).unwrap() };
+        // A reply whose mutating call is running when it is halted. Returns the call's effects row.
+        let start = |shared: &Arc<Shared>, run: &str| {
+            let (app_store, home, ws) = (app.store.clone(), app.cfg().home.clone(), app.workspace.clone());
+            let frame = crate::agent::RunFrame::new(crate::agent::turn_run_id(run), ws.clone(), app_store.clone(), crate::agent::null_sink());
+            let run_id = crate::agent::turn_run_id(run);
+            let (opened, row) = oneshot::channel::<()>();
+            let task = tokio::spawn(crate::agent::in_run(frame, async move {
+                let intent = crate::journal::Intent {
+                    kind: crate::journal::Kind::Tool,
+                    name: "shell".into(),
+                    args: "{}".into(),
+                    args_hash: "h".into(),
+                    summary: "sleep 600".into(),
+                    risk: "exec".into(),
+                    tainted: false,
+                    session_id: "s".into(),
+                    run_id,
+                    origin: "telegram".into(),
+                    workspace: ws,
+                    label: None,
+                };
+                let _ = crate::journal::guarded(&app_store, &home, intent, Duration::from_secs(600), async move {
+                    let _ = opened.send(());
+                    std::future::pending::<anyhow::Result<String>>().await
+                })
+                .await;
+            }));
+            let (stopped, done) = oneshot::channel();
+            let handle = task.abort_handle();
+            tokio::spawn(async move {
+                let _stopped = stopped;
+                let _ = task.await;
+            });
+            *shared.running.lock().unwrap() = Some(Running { n: 1, session_id: "s".into(), run_id: run.into(), handle, done });
+            row
+        };
+        let last_row = || -> i64 { app.store.with_conn(|c| Ok(c.query_row("SELECT MAX(id) FROM effects", [], |r| r.get(0))?)).unwrap() };
+
+        let shared = Arc::<Shared>::default();
+        start(&shared, "tg-stop").await.unwrap();
+        let stopped_row = last_row();
+        assert!(stop_reply(&app, &shared).await, "there was a reply to stop");
+        assert_eq!(state(stopped_row), "cancelled", "/stop is the user's Stop");
+        assert!(!crate::journal::cancel_requested(&crate::agent::turn_run_id("tg-stop")), "the frame clears its Stop flag");
+
+        let shared = Arc::<Shared>::default();
+        start(&shared, "tg-gateway").await.unwrap();
+        let cut_row = last_row();
+        drop(AbortAgentsOnDrop(shared.clone(), crate::events::EventBus::new()));
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while state(cut_row) == "intent" {
+            assert!(std::time::Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(state(cut_row), "interrupted", "a gateway stop is not the user's Stop");
     }
 
     #[tokio::test]

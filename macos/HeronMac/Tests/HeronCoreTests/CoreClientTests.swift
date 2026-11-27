@@ -438,6 +438,55 @@ final class CoreClientTests: XCTestCase {
         XCTAssertFalse(s.awareness)
     }
 
+    func testSandboxSettingsPostEveryValueToTheSettingsRoute() async throws {
+        let client = makeClient { _ in .init(200, json: "{}") }
+        try await client.setSandbox(egress: "open", hosts: ["github.com", "*.crates.io"], denyPorts: [5432], maxRepeats: 0)
+        let seen = try XCTUnwrap(StubProtocol.seen.first)
+        XCTAssertEqual([seen.method, seen.path], ["POST", "/api/settings"])
+        let sent = try body(seen)
+        XCTAssertEqual(sent["egress"] as? String, "open")
+        XCTAssertEqual(sent["egress_allow"] as? [String], ["github.com", "*.crates.io"])
+        XCTAssertEqual(sent["deny_local_ports"] as? [Int], [5432])
+        XCTAssertEqual(sent["max_repeats"] as? Int, 0)
+    }
+
+    func testSettingsReadTheSandboxFieldsAndDefaultThemForAnOlderCore() async throws {
+        let withFields = #"{"workspace":"~/Work","mode":"ask","rule_notices":[],"allow_unattended_subscription":false,"egress":"open","egress_allow":["a.example.com"],"deny_local_ports":[9000],"max_repeats":0}"#
+        var s = try await makeClient { _ in .init(200, json: withFields) }.settings()
+        XCTAssertEqual([s.egress, s.egressAllow.joined(), s.denyLocalPorts.map(String.init).joined(), String(s.maxRepeats)], ["open", "a.example.com", "9000", "0"])
+        let without = #"{"workspace":"~/Work","mode":"ask","rule_notices":[],"allow_unattended_subscription":false}"#
+        s = try await makeClient { _ in .init(200, json: without) }.settings()
+        XCTAssertEqual([s.egress, String(s.egressAllow.count), String(s.denyLocalPorts.count), String(s.maxRepeats)], ["allowlist", "0", "0", "4"])
+    }
+
+    func testToolchainReadsAChangedStateAndTrustSendsTheSinceItShowed() async throws {
+        let changed = #"{"state":"changed","toolchains":["stable-x"],"files":["bin/rustc"],"since":1763900000,"during":"cargo install --path ."}"#
+        let client = makeClient { seen in seen.method == "GET" ? .init(200, json: changed) : .init(200, json: #"{"state":"trusted"}"#) }
+        let status = try await client.toolchain()
+        XCTAssertEqual(status, ToolchainStatus(state: .changed, toolchains: ["stable-x"], files: ["bin/rustc"], since: 1763900000, during: "cargo install --path ."))
+        let trusted = try await client.trustToolchain(since: status.since)
+        XCTAssertEqual(trusted, ToolchainStatus(state: .trusted))
+        let seen = StubProtocol.seen
+        XCTAssertEqual(seen.map(\.path), ["/api/toolchain", "/api/toolchain/trust"])
+        XCTAssertEqual(try body(seen[1])["since"] as? Int, 1763900000)
+    }
+
+    func testTrustWithoutASinceSendsNull() async throws {
+        let client = makeClient { _ in .init(200, json: #"{"state":"no_baseline"}"#) }
+        let status = try await client.trustToolchain(since: nil)
+        XCTAssertEqual(status.state, .noBaseline)
+        XCTAssertTrue(try body(try XCTUnwrap(StubProtocol.seen.first))["since"] is NSNull)
+    }
+
+    func testTrustRefusedForAStaleSinceCarriesTheCoresSentence() async throws {
+        let sentence = "The toolchain changed again since you looked. Check it again before you trust it."
+        let client = makeClient { _ in .init(409, json: #"{"error":"\#(sentence)"}"#) }
+        do {
+            _ = try await client.trustToolchain(since: 1)
+            XCTFail("a stale trust must throw")
+        } catch { XCTAssertEqual(error as? CoreError, .failed(sentence)) }
+    }
+
     func testPausingASingleScheduleIsAKnownGap() async throws {
         let client = makeClient { _ in .init(200) }
         do { try await client.setScheduleEnabled(id: 1, enabled: false); XCTFail("expected an error") } catch {

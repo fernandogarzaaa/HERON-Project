@@ -5,7 +5,8 @@
 #
 # Runs `cargo test --locked <selection> -- --list` and exits 1, naming the test, unless each
 # <name> equals the last `::` component of a listed test exactly, so `a_test` does not match
-# `a_test_in_the_sandbox`. Exit 2 is a usage error. Set CARGO to use another cargo binary.
+# `a_test_in_the_sandbox`. When cargo fails to list, its stderr is printed first. Exit 2 is a usage
+# error. Set CARGO to use another cargo binary.
 set -eo pipefail
 
 selection=()
@@ -23,7 +24,10 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
-if ! listing="$("${CARGO:-cargo}" test --locked ${selection[@]+"${selection[@]}"} -- --list 2>/dev/null)"; then
+errors="$(mktemp "${TMPDIR:-/tmp}/require-tests.XXXXXX")"
+trap 'rm -f "$errors"' EXIT
+if ! listing="$("${CARGO:-cargo}" test --locked ${selection[@]+"${selection[@]}"} -- --list 2>"$errors")"; then
+  cat "$errors" >&2
   echo "require-tests: 'cargo test --locked ${selection[*]-} -- --list' failed" >&2
   exit 1
 fi

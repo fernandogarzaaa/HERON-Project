@@ -687,8 +687,15 @@ public struct CoreSettings: Sendable, Equatable {
     public var phoneConnected: Bool
     /// `[llm] cli_model`: the model a CLI provider is asked for. Empty lets the CLI pick its own.
     public var cliModel: String
+    /// `allowlist` (a sandboxed command reaches only `egressAllow`) or `open`.
+    public var egress: String
+    public var egressAllow: [String]
+    public var denyLocalPorts: [Int]
+    /// How many identical calls in a row stop a turn; 0 keeps only the nudge.
+    public var maxRepeats: Int
 
-    public init(workspace: String, mode: PermissionMode, ruleNotices: [RuleNotice], allowSubscriptionUnattended: Bool, connections: [ConnectionInfo], awareness: Bool, phoneConnected: Bool, cliModel: String = "") {
+    public init(workspace: String, mode: PermissionMode, ruleNotices: [RuleNotice], allowSubscriptionUnattended: Bool, connections: [ConnectionInfo], awareness: Bool, phoneConnected: Bool,
+                cliModel: String = "", egress: String = "allowlist", egressAllow: [String] = [], denyLocalPorts: [Int] = [], maxRepeats: Int = 4) {
         self.workspace = workspace
         self.mode = mode
         self.ruleNotices = ruleNotices
@@ -697,6 +704,37 @@ public struct CoreSettings: Sendable, Equatable {
         self.awareness = awareness
         self.phoneConnected = phoneConnected
         self.cliModel = cliModel
+        self.egress = egress
+        self.egressAllow = egressAllow
+        self.denyLocalPorts = denyLocalPorts
+        self.maxRepeats = maxRepeats
+    }
+}
+
+/// `GET /api/toolchain` and the answer of `POST /api/toolchain/trust`: whether the Rust toolchain a sandboxed command can
+/// reach is still the one the owner trusted.
+public struct ToolchainStatus: Sendable, Equatable {
+    public enum State: String, Sendable, Equatable {
+        case trusted
+        case noBaseline = "no_baseline"
+        case changed
+    }
+
+    public var state: State
+    public var toolchains: [String]
+    /// What changed, as the core names it (`bin/rustc`, or `stable-x:bin/rustc` with several toolchains).
+    public var files: [String]
+    /// Unix seconds of the change. `trustToolchain(since:)` sends it back, so a change after the owner looked is refused.
+    public var since: Int?
+    /// The command that was running when the change was seen.
+    public var during: String?
+
+    public init(state: State, toolchains: [String] = [], files: [String] = [], since: Int? = nil, during: String? = nil) {
+        self.state = state
+        self.toolchains = toolchains
+        self.files = files
+        self.since = since
+        self.during = during
     }
 }
 

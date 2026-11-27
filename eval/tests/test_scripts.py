@@ -93,6 +93,13 @@ class RequireTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("failed", proc.stderr)
 
+    def test_a_failing_cargo_stderr_is_shown_before_the_summary_line(self):
+        self.write_cargo("echo 'error[E0425]: cannot find value `nope` in this scope' >&2\nexit 101")
+        proc = self.require("--lib", "--", "read_verdict_table")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("error[E0425]: cannot find value `nope`", proc.stderr)
+        self.assertLess(proc.stderr.index("E0425"), proc.stderr.index("require-tests:"))
+
     def test_usage_errors_exit_2(self):
         self.assertEqual(self.require("--lib").returncode, 2)
         self.assertEqual(self.require("--lib", "--").returncode, 2)

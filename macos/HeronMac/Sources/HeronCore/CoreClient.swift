@@ -368,6 +368,19 @@ public final class CoreClient: CoreClientProtocol, Sendable {
     public func disconnectSource(id: String) async throws { try await send("DELETE", "/sources/\(segment(id))") }
 
     public func usage() async throws -> UsageReport { try CoreWire.usage(try await send("GET", "/usage")) }
+
+    // MARK: Sandbox
+
+    public func toolchain() async throws -> ToolchainStatus { try CoreWire.toolchain(try await send("GET", "/toolchain")) }
+
+    public func trustToolchain(since: Int?) async throws -> ToolchainStatus {
+        let body: [String: Any] = ["since": since.map { $0 as Any } ?? NSNull()]
+        return try CoreWire.toolchain(try await send("POST", "/toolchain/trust", body: body))
+    }
+
+    public func setSandbox(egress: String, hosts: [String], denyPorts: [Int], maxRepeats: Int) async throws {
+        try await send("POST", "/settings", body: ["egress": egress, "egress_allow": hosts, "deny_local_ports": denyPorts, "max_repeats": maxRepeats])
+    }
 }
 
 private struct CodingKeyName: CodingKey {

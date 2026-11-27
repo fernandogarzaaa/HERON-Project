@@ -137,6 +137,17 @@ struct PreviewData {
     var allowSubscriptionUnattended = false
     var cliModel = ""
     var awareness = true
+    var egress = "allowlist"
+    var egressAllow = [
+        "index.crates.io", "static.crates.io", "static.rust-lang.org", "github.com", "codeload.github.com",
+        "objects.githubusercontent.com", "release-assets.githubusercontent.com", "pypi.org", "files.pythonhosted.org", "registry.npmjs.org",
+    ]
+    var denyLocalPorts: [Int] = []
+    var maxRepeats = 4
+    var toolchain = ToolchainStatus(state: .trusted)
+    var toolchainTrustRequests: [Int?] = []
+    var toolchainFailure: CoreError?
+    var sandboxRequests: [PreviewSandboxRequest] = []
 
     /// Stands in for `docs/ACCEPTED_RISKS.md`. The real text comes from `GET /api/risk-notice` and is never rewritten.
     static let riskText = """
