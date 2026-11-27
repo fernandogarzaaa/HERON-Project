@@ -20,6 +20,11 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     /// Approvals a run is waiting on, as `GET /api/approvals/live` returns them.
     private var liveRequests: [String: ApprovalRequest] = [:]
     private var beforeSendReturns: (@Sendable (String) async -> Void)?
+    private var beforeStateReturns: (@Sendable () async -> Void)?
+    private var sendFailure: CoreError?
+    private var cancelFailure: CoreError?
+    private var pinned: Set<String> = []
+    private var archived: Set<String> = []
 
     /// - Parameters:
     ///   - pace: the pause between scripted events. Zero in tests, a little in the running app.
@@ -42,12 +47,47 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     /// returns, as a real core can deliver events before its `/api/chat` response.
     public func runBeforeSendReturns(_ body: (@Sendable (String) async -> Void)?) { lock.withLock { beforeSendReturns = body } }
 
+    /// Runs `body` once, before the next `state()` answers. A real core's scheduler can publish while the app is still loading. Later `state()` calls do not run it again.
+    public func runBeforeStateReturns(_ body: (@Sendable () async -> Void)?) { lock.withLock { beforeStateReturns = body } }
+
+    /// Publishes a `notification` event, as the core does for a finished job.
+    public func publishNotification(title: String, body: String) {
+        publish("", "", .notification(title: title, body: body))
+    }
+
     /// The risk register changed while a screen was open.
     public func simulateRiskNoticeChange() {
         with { $0.riskNotice.version += 1; $0.riskNotice.acceptedVersion = nil }
     }
 
     public func setSandbox(_ kind: String) { with { $0.sandbox = kind } }
+
+    /// What a core restart does to a conversation mid-reply: the run is gone without a `run_end`, its live
+    /// approvals are gone, what it saved stays (so `session(id:)` reports it `interrupted`), and the event
+    /// stream comes back with `resync`.
+    public func simulateCoreRestart() {
+        let stranded = lock.withLock { () -> [CheckedContinuation<ApprovalDecision, Never>] in
+            for sid in activeRuns { data.sessions[sid]?.detail.interrupted = true }
+            activeRuns.removeAll()
+            liveRequests.removeAll()
+            defer { waiters.removeAll() }
+            return waiters.values.map(\.continuation)
+        }
+        // The scripted runs see they are no longer active and publish nothing more.
+        stranded.forEach { $0.resume(returning: .deny) }
+        publish(nil, nil, .resync(oldest: lock.withLock { seq } + 1))
+    }
+
+    /// Every `sendMessage` throws `error` until it is set back to nil.
+    public func failSends(with error: CoreError?) { lock.withLock { sendFailure = error } }
+
+    /// Every `cancel` throws `error` until it is set back to nil.
+    public func failCancels(with error: CoreError?) { lock.withLock { cancelFailure = error } }
+
+    /// Sets what `/api/state` serves as `model` and `model_label` (`servesLabel: false` omits the label, as an older core does).
+    public func setModel(_ model: String, label: String?, servesLabel: Bool = true) {
+        with { $0.activeModel = model; $0.modelLabel = label; $0.servesModelLabel = servesLabel }
+    }
 
     /// Adds the long demo conversation (`PreviewDemo.longSession`) so a screen can show a transcript that
     /// overflows. It is not part of the sample data, so no other test sees it.
@@ -61,6 +101,30 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
 
     /// Makes the next `removeNever` fail with `error`, as a core that can't write `config.toml` would.
     public func failNextNeverRemoval(with error: CoreError) { with { $0.neverRemovalFailure = error } }
+
+    /// Makes the next `connectSource` or `disconnectSource` fail with `error`, as a core that can't reach a mail server would.
+    public func failNextSourceChange(with error: CoreError) { with { $0.sourceFailure = error } }
+    /// The next `settings()` read fails (the rows can't be refreshed after a connect).
+    public func failNextSettingsRead(with error: CoreError) { with { $0.settingsFailure = error } }
+
+    /// Marks a provider as having (or lacking) an OAuth client in this build.
+    public func setOAuthConfigured(_ provider: OAuthProviderID, _ configured: Bool) {
+        with { d in if let i = d.oauth.firstIndex(where: { $0.provider == provider }) { d.oauth[i].clientConfigured = configured } }
+    }
+
+    /// The signed-in "browser" finishes the sign-in after this many `oauthAccounts()` polls (default 2). Nil: never.
+    public func completeSignIn(afterPolls polls: Int?, address: String = "sam@example.com") {
+        with { $0.oauthPollsLeft = polls; $0.oauthAddress = address }
+    }
+
+    public func failNextOAuthStart(with error: CoreError) { with { $0.oauthStartFailure = error } }
+    public func failNextOAuthSync(with error: CoreError) { with { $0.oauthSyncFailure = error } }
+
+    /// Providers `syncOAuth` was called for, oldest first.
+    public var oauthSyncs: [OAuthProviderID] { with { $0.oauthSyncs } }
+
+    /// Every request `connectSource` has accepted or refused, oldest first.
+    public var sourceRequests: [SourceConnection] { with { $0.sourceRequests } }
 
     /// Adds a short conversation whose reply holds very long tool output (`PreviewDemo.longToolOutput`).
     public func seedLongToolOutputConversation(id: String = "s-tool") {
@@ -77,8 +141,14 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     // MARK: State and conversations
 
     public func state() async throws -> CoreState {
-        with { d in
-            CoreState(name: d.persona.name, version: "1.0.0-preview", model: d.activeModel, mode: d.mode,
+        let hook = lock.withLock { () -> (@Sendable () async -> Void)? in
+            let hook = beforeStateReturns
+            beforeStateReturns = nil
+            return hook
+        }
+        if let hook { await hook() }
+        return with { d in
+            CoreState(name: d.persona.name, version: "1.0.0-preview", model: d.activeModel, modelLabel: d.servesModelLabel ? (d.modelLabel ?? d.activeModel) : nil, mode: d.mode,
                       workspace: d.workspace, paused: d.paused, waiting: d.parked.filter { $0.status == "pending" }.count,
                       unread: d.inbox.filter { !$0.read }.count, memories: d.memories.count, onboarded: d.onboarded,
                       riskNoticeAccepted: d.riskNotice.acceptedVersion == d.riskNotice.version,
@@ -86,8 +156,35 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
         }
     }
 
-    public func sessions() async throws -> [SessionSummary] {
-        with { d in d.sessions.values.sorted { $0.summary.updatedAt > $1.summary.updatedAt }.map(\.summary) }
+    /// As the core lists them: no empty sessions, pinned first, then the most recent.
+    public func sessions() async throws -> [SessionSummary] { listed(archived: false) }
+
+    public func archivedSessions() async throws -> [SessionSummary] { listed(archived: true) }
+
+    private func listed(archived wanted: Bool) -> [SessionSummary] {
+        lock.withLock {
+            data.sessions.values
+                .filter { $0.summary.messages > 0 && archived.contains($0.summary.id) == wanted }
+                .sorted { $0.summary.updatedAt > $1.summary.updatedAt }
+                .map { s in
+                    var summary = s.summary
+                    summary.pinned = pinned.contains(summary.id)
+                    summary.archived = wanted
+                    return summary
+                }
+                .enumerated().sorted { ($0.element.pinned ? 0 : 1, $0.offset) < ($1.element.pinned ? 0 : 1, $1.offset) }.map(\.element)
+        }
+    }
+
+    public func updateSession(id: String, title: String?, pinned pin: Bool?, archived archive: Bool?) async throws {
+        let name = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let name, name.isEmpty || name.count > 120 { throw CoreError.failed(name.isEmpty ? "A conversation needs a name." : "Keep the name to 120 characters.") }
+        try lock.withLock {
+            guard data.sessions[id] != nil else { throw CoreError.notFound }
+            if let name { data.sessions[id]?.summary.title = name; data.sessions[id]?.detail.title = name }
+            if let pin { if pin { pinned.insert(id) } else { pinned.remove(id) } }
+            if let archive { if archive { archived.insert(id) } else { archived.remove(id) } }
+        }
     }
 
     public func session(id: String) async throws -> SessionDetail {
@@ -102,10 +199,15 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
 
     public func deleteSession(id: String) async throws {
         if lock.withLock({ activeRuns.contains(id) }) { throw CoreError.failed("Stop the running reply before deleting this conversation.") }
-        with { _ = $0.sessions.removeValue(forKey: id) }
+        lock.withLock {
+            data.sessions.removeValue(forKey: id)
+            pinned.remove(id)
+            archived.remove(id)
+        }
     }
 
     public func sendMessage(sessionID: String?, message: String, title: String?) async throws -> ChatStart {
+        if let failure = lock.withLock({ sendFailure }) { throw failure }
         let accepted = with { $0.riskNotice.acceptedVersion == $0.riskNotice.version }
         guard accepted else { throw CoreError.riskNoticeNotAccepted }
         let sid = sessionID ?? "s-\(UUID().uuidString.prefix(8).lowercased())"
@@ -129,12 +231,17 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     }
 
     public func cancel(sessionID: String) async throws -> Bool {
+        if let failure = lock.withLock({ cancelFailure }) { throw failure }
         let wasActive = lock.withLock { activeRuns.contains(sessionID) }
         guard wasActive else { return false }
         // Release a run that waits for an approval, then end it.
         let ids = lock.withLock { Array(waiters.keys) }
         for id in ids where lock.withLock({ waiters[id]?.sid == sessionID }) { resolveWaiter(id, .deny, event: "cancelled") }
-        _ = lock.withLock { activeRuns.remove(sessionID) }
+        // As on the core: the stopped reply is kept unfinished, so the conversation reopens as `interrupted`.
+        lock.withLock {
+            activeRuns.remove(sessionID)
+            data.sessions[sessionID]?.detail.interrupted = true
+        }
         publish(sessionID, nil, .cancelled)
         publish(sessionID, nil, .runEnd)
         return true
@@ -322,8 +429,9 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     // MARK: Settings
 
     public func settings() async throws -> CoreSettings {
-        with { d in
-            CoreSettings(workspace: d.workspace, mode: d.mode, ruleNotices: d.ruleNotices,
+        try with { d in
+            if let failure = d.settingsFailure { d.settingsFailure = nil; throw failure }
+            return CoreSettings(workspace: d.workspace, mode: d.mode, ruleNotices: d.ruleNotices,
                          allowSubscriptionUnattended: d.allowSubscriptionUnattended, connections: d.connections,
                          awareness: d.awareness, phoneConnected: false)
         }
@@ -347,6 +455,88 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
             if let failure = d.neverRemovalFailure { d.neverRemovalFailure = nil; throw failure }
             guard d.nevers.contains(where: { $0.rule == rule }) else { throw CoreError.notFound }
             d.nevers.removeAll { $0.rule == rule }
+        }
+    }
+
+    /// Checks the fields as the core does (same sentences), then marks the row connected.
+    public func connectSource(_ source: SourceConnection) async throws {
+        try with { d in
+            d.sourceRequests.append(source)
+            if let failure = d.sourceFailure { d.sourceFailure = nil; throw failure }
+            func filled(_ text: String) -> Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            let detail: String
+            switch source {
+            case .documents(let path):
+                guard filled(path) else { throw CoreError.failed("Enter the folder that holds your notes or documents.") }
+                detail = "\(countPhrase(1, "folder")), \(countPhrase(12, "file")) indexed"
+            case .calendar(let url):
+                guard filled(url) else { throw CoreError.failed("Paste your calendar's private ICS link.") }
+                detail = "\(countPhrase(8, "item")) indexed"
+            case .email(let host, let username, let password, _, _):
+                guard filled(host) else { throw CoreError.failed("Enter your mail server, for example imap.gmail.com.") }
+                guard filled(username) else { throw CoreError.failed("Enter your email address.") }
+                guard filled(password) else { throw CoreError.failed("Enter the app password for this account.") }
+                detail = username
+            case .computer:
+                detail = "\(countPhrase(20, "item")) indexed"
+            case .localCalendar(let events):
+                detail = "\(countPhrase(events.count, "event")) indexed"
+            case .localMail(let messages):
+                detail = "\(countPhrase(messages.count, "message")) indexed"
+            }
+            guard let i = d.connections.firstIndex(where: { $0.id == source.sourceID }) else { throw CoreError.notFound }
+            d.connections[i].connected = true
+            d.connections[i].detail = detail
+        }
+    }
+
+    public func disconnectSource(id: String) async throws {
+        try with { d in
+            if let failure = d.sourceFailure { d.sourceFailure = nil; throw failure }
+            guard let i = d.connections.firstIndex(where: { $0.id == id }) else { throw CoreError.notFound }
+            d.connections[i].connected = false
+            d.connections[i].detail = "Not connected"
+        }
+    }
+
+    public func oauthAccounts() async throws -> [OAuthAccount] {
+        with { d in
+            if let provider = d.pendingOAuth, let left = d.oauthPollsLeft {
+                if left <= 1 {
+                    if let i = d.oauth.firstIndex(where: { $0.provider == provider }) { d.oauth[i].connected = true; d.oauth[i].account = d.oauthAddress }
+                    d.pendingOAuth = nil
+                    d.oauthPollsLeft = nil
+                } else {
+                    d.oauthPollsLeft = left - 1
+                }
+            }
+            return d.oauth
+        }
+    }
+
+    public func startOAuth(provider: OAuthProviderID) async throws -> URL {
+        try with { d in
+            if let failure = d.oauthStartFailure { d.oauthStartFailure = nil; throw failure }
+            guard d.oauth.first(where: { $0.provider == provider })?.clientConfigured == true else {
+                throw CoreError.failed("This build has no public desktop OAuth client ID.")
+            }
+            d.pendingOAuth = provider
+            return URL(string: "https://accounts.example.com/consent?provider=\(provider.rawValue)")!
+        }
+    }
+
+    public func syncOAuth(provider: OAuthProviderID) async throws {
+        try with { d in
+            d.oauthSyncs.append(provider)
+            if let failure = d.oauthSyncFailure { d.oauthSyncFailure = nil; throw failure }
+        }
+    }
+
+    public func disconnectOAuth(provider: OAuthProviderID) async throws {
+        try with { d in
+            guard let i = d.oauth.firstIndex(where: { $0.provider == provider && $0.connected }) else { throw CoreError.notFound }
+            d.oauth[i].connected = false
+            d.oauth[i].account = nil
         }
     }
 

@@ -20,6 +20,10 @@ pub const OUTSIDE_SOURCES: &[&str] = &[
     // Provider-derived email/calendar is still untrusted outside content.
     // Preserve the provider name for account-specific erasure and audit.
     "google_email", "google_calendar", "microsoft_email", "microsoft_calendar",
+    // Events the Mac app read from the Calendar app: invitations still carry other people's words.
+    "calendar_local",
+    // Messages the Mac app read from the Mail app: written by other people, like every email source.
+    "mail_local",
 ];
 
 /// Sources whose saves start confirmed. An allowlist, so a source nobody has thought about starts
@@ -687,6 +691,8 @@ mod tests {
             ("google_calendar", "Google events"),
             ("microsoft_email", "Microsoft inbox"),
             ("microsoft_calendar", "Microsoft events"),
+            ("calendar_local", "Mac Calendar events"),
+            ("mail_local", "Mac Mail messages"),
         ] {
             let fact = format!("An external {label} record claims the user has a special discount.");
             let result = m.save(&fact, "fact", "", 0.5, source).await.unwrap();
