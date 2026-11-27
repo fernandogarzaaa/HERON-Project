@@ -47,7 +47,7 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     /// returns, as a real core can deliver events before its `/api/chat` response.
     public func runBeforeSendReturns(_ body: (@Sendable (String) async -> Void)?) { lock.withLock { beforeSendReturns = body } }
 
-    /// Runs `body` before `state()` answers, as a real core's scheduler can publish while the app is still loading.
+    /// Runs `body` once, before the next `state()` answers. A real core's scheduler can publish while the app is still loading. Later `state()` calls do not run it again.
     public func runBeforeStateReturns(_ body: (@Sendable () async -> Void)?) { lock.withLock { beforeStateReturns = body } }
 
     /// Publishes a `notification` event, as the core does for a finished job.
@@ -141,7 +141,12 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     // MARK: State and conversations
 
     public func state() async throws -> CoreState {
-        if let hook = lock.withLock({ beforeStateReturns }) { await hook() }
+        let hook = lock.withLock { () -> (@Sendable () async -> Void)? in
+            let hook = beforeStateReturns
+            beforeStateReturns = nil
+            return hook
+        }
+        if let hook { await hook() }
         return with { d in
             CoreState(name: d.persona.name, version: "1.0.0-preview", model: d.activeModel, modelLabel: d.servesModelLabel ? (d.modelLabel ?? d.activeModel) : nil, mode: d.mode,
                       workspace: d.workspace, paused: d.paused, waiting: d.parked.filter { $0.status == "pending" }.count,
