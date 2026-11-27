@@ -249,7 +249,8 @@ impl Drop for GroupGuard {
 /// The toolchain check, on a blocking thread: it may hash files.
 async fn toolchain_state(ctx: &ToolCtx, user_home: &std::path::Path) -> crate::toolchain::ToolchainState {
     let (store, home) = (ctx.store.clone(), user_home.to_path_buf());
-    tokio::task::spawn_blocking(move || crate::toolchain::check(&store, &home)).await.unwrap_or_default()
+    let checked = tokio::task::spawn_blocking(move || crate::toolchain::check(&store, &home)).await;
+    checked.unwrap_or_else(|_| crate::toolchain::check_failed(user_home))
 }
 
 /// The check after a command, and the notice when it found a change it has not reported yet.

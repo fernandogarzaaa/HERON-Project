@@ -20,6 +20,7 @@ const NEW_TOOLCHAIN: &str = "(new toolchain)";
 const REMOVED_TOOLCHAIN: &str = "(removed)";
 const UNREADABLE: &str = "(unreadable)";
 const BASELINE_UNREADABLE: &str = "(baseline unreadable)";
+const CHECK_FAILED: &str = "(check failed)";
 const COMMAND_CHARS: usize = 200;
 const SHOWN_FILES: usize = 5;
 const RUST_TOOLS: [&str; 7] = ["cargo", "rustc", "rustup", "rustdoc", "rustfmt", "clippy-driver", "rust-analyzer"];
@@ -179,6 +180,11 @@ fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf, Stat)>) -> io::Re
             walk(&e.path(), &rel, out)?;
         } else if md.is_file() {
             out.push((rel, e.path(), stat_of(&md)));
+        } else if md.file_type().is_symlink() {
+            // A link is recorded with the stat of what it points at, so a change there is seen. A link
+            // to a folder, or to nothing, can't be hashed, and that counts as a change.
+            let target = fs::metadata(e.path()).ok().filter(|t| t.is_file()).unwrap_or(md);
+            out.push((rel, e.path(), stat_of(&target)));
         }
     }
     Ok(())
@@ -232,11 +238,23 @@ fn write_record(store: &Store, rec: &Record) {
 }
 
 fn unreadable_baseline(user_home: &Path) -> BTreeSet<ChangedFile> {
+    every_toolchain_as(user_home, BASELINE_UNREADABLE)
+}
+
+fn every_toolchain_as(user_home: &Path, label: &str) -> BTreeSet<ChangedFile> {
     let mut toolchains = installed(user_home);
     if toolchains.is_empty() {
         toolchains.push(String::new());
     }
-    toolchains.into_iter().map(|toolchain| ChangedFile { toolchain, path: BASELINE_UNREADABLE.into() }).collect()
+    toolchains.into_iter().map(|toolchain| ChangedFile { toolchain, path: label.into() }).collect()
+}
+
+/// The state to act on when the check itself could not finish: every toolchain counts as changed, so
+/// nothing is trusted that was not checked. Nothing is recorded; the next check decides again.
+pub fn check_failed(user_home: &Path) -> ToolchainState {
+    let files: Vec<ChangedFile> = every_toolchain_as(user_home, CHECK_FAILED).into_iter().collect();
+    let toolchains = files.iter().map(|f| f.toolchain.clone()).collect();
+    ToolchainState::Changed { toolchains, files, since: now_ts(), during: None }
 }
 
 /// Compare the toolchains on disk with `baseline`. Only a file whose stat data differs is hashed.
@@ -536,6 +554,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn changed_binary_is_reported() {
         let f = Fixture::new();
         assert_eq!(f.check(), ToolchainState::Trusted);
@@ -547,6 +566,35 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn a_new_symlink_in_a_toolchain_is_a_change() {
+        let f = Fixture::new();
+        f.check();
+        let outside = f.home.join("evil");
+        fs::write(&outside, "evil 1").unwrap();
+        std::os::unix::fs::symlink(&outside, f.path(TC, "bin/cargo-x")).unwrap();
+        let state = f.check();
+        assert_eq!(changed_paths(&state), vec!["bin/cargo-x"]);
+        // Once trusted, what the link points at changing is seen too, not only the link.
+        let ToolchainState::Changed { since, .. } = state else { unreachable!() };
+        trust_current(&f.store, &f.home, Some(since)).unwrap();
+        assert_eq!(f.check(), ToolchainState::Trusted);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(&outside, "evil 2, longer").unwrap();
+        assert_eq!(changed_paths(&f.check()), vec!["bin/cargo-x"]);
+    }
+
+    #[test]
+    fn a_check_that_panics_fails_closed() {
+        let f = Fixture::new();
+        let state = check_failed(&f.home);
+        assert_eq!(changed_paths(&state), vec![CHECK_FAILED]);
+        let ToolchainState::Changed { toolchains, .. } = state else { unreachable!() };
+        assert_eq!(toolchains, vec![TC]);
+    }
+
+    #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn libexec_change_is_reported() {
         let f = Fixture::new();
         f.check();
@@ -555,6 +603,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn touch_without_content_change_stays_trusted() {
         let f = Fixture::new();
         f.check();
@@ -570,6 +619,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn new_toolchain_folder_is_a_change() {
         let f = Fixture::new();
         f.check();
@@ -579,6 +629,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn rust_src_and_docs_are_ignored() {
         let f = Fixture::new();
         f.check();
@@ -588,6 +639,13 @@ mod tests {
         f.write(TC, "share/doc/rust/new.html", "new");
         assert_eq!(f.check(), ToolchainState::Trusted);
         assert!(f.baseline().toolchains[TC].keys().all(|k| !k.starts_with("share/doc") && !k.starts_with("lib/rustlib/src")));
+    }
+
+    #[test]
+    #[cfg(not(unix))]
+    fn off_unix_the_toolchain_is_always_trusted() {
+        let f = Fixture::new();
+        assert!(matches!(check(&f.store, &f.home), ToolchainState::Trusted));
     }
 
     #[test]
@@ -619,6 +677,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn changed_toolchain_is_read_denied() {
         let f = Fixture::new();
         f.write("beta-aarch64-apple-darwin", "bin/rustc", "beta 1");
@@ -640,6 +699,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn change_is_noticed_once() {
         let f = Fixture::new();
         let before = f.check();
@@ -655,6 +715,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn trust_current_makes_state_trusted() {
         let f = Fixture::new();
         f.check();
@@ -668,6 +729,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn exported_baseline_imports_into_another_store() {
         let f = Fixture::new();
         f.check();
@@ -686,6 +748,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn import_refuses_a_malformed_or_existing_baseline() {
         let f = Fixture::new();
         f.check();
@@ -704,6 +767,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn trust_with_a_stale_since_is_refused() {
         let f = Fixture::new();
         f.check();
@@ -720,6 +784,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn stat_refresh_skips_a_file_that_changed_while_hashing() {
         let f = Fixture::new();
         f.check();
@@ -744,6 +809,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn a_reverted_file_stays_changed_until_trusted() {
         let f = Fixture::new();
         f.check();
@@ -754,6 +820,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn an_unreadable_baseline_is_a_change() {
         let f = Fixture::new();
         f.store.kv_set(BASELINE_KEY, "{broken").unwrap();
@@ -762,6 +829,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn the_refusal_names_the_toolchain_and_files() {
         let f = Fixture::new();
         f.check();
