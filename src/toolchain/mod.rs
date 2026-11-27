@@ -142,8 +142,33 @@ fn stat_of(md: &fs::Metadata) -> Stat {
     }
 }
 
+/// The SHA-256 of a regular file. A symlink is recorded as `link:<target>`, plus the hash of what it
+/// points at when that is a regular file, so a link to a folder or to nothing still has an entry.
 fn hash_file(path: &Path) -> io::Result<String> {
-    let mut file = fs::File::open(path)?;
+    if !fs::symlink_metadata(path)?.file_type().is_symlink() {
+        return hash_regular(path);
+    }
+    let target = fs::read_link(path)?;
+    Ok(match hash_regular(path) {
+        Ok(sha) => format!("link:{}:{sha}", target.display()),
+        Err(_) => format!("link:{}", target.display()),
+    })
+}
+
+/// Opened without blocking, and read only once the open file is known to be a regular file: a FIFO
+/// or a device would otherwise hang the check.
+fn hash_regular(path: &Path) -> io::Result<String> {
+    let mut opts = fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NONBLOCK);
+    }
+    let mut file = opts.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"));
+    }
     let mut sha = Sha256::new();
     let mut buf = vec![0u8; 1 << 20];
     loop {
@@ -582,6 +607,55 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
         fs::write(&outside, "evil 2, longer").unwrap();
         assert_eq!(changed_paths(&f.check()), vec!["bin/cargo-x"]);
+    }
+
+    /// `f()` on another thread, failing the test if it hasn't returned in 10 seconds.
+    #[cfg(unix)]
+    fn within_10s<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(f());
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(10)).expect("hung")
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn links_to_folders_and_nowhere_still_make_a_baseline() {
+        let f = Fixture::new();
+        std::os::unix::fs::symlink(f.path(TC, "lib"), f.path(TC, "bin/lib-link")).unwrap();
+        std::os::unix::fs::symlink(f.home.join("missing"), f.path(TC, "bin/dangling")).unwrap();
+        assert_eq!(f.check(), ToolchainState::Trusted);
+        let files = &f.baseline().toolchains[TC];
+        assert!(files.contains_key("bin/lib-link") && files.contains_key("bin/dangling"), "{:?}", files.keys());
+        // Pointing one somewhere else is a change.
+        fs::remove_file(f.path(TC, "bin/dangling")).unwrap();
+        std::os::unix::fs::symlink(f.home.join("elsewhere"), f.path(TC, "bin/dangling")).unwrap();
+        assert_eq!(changed_paths(&f.check()), vec!["bin/dangling"]);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_link_to_a_fifo_or_device_does_not_hang_the_check() {
+        let f = Fixture::new();
+        let fifo = f.home.join("fifo");
+        let c = std::ffi::CString::new(fifo.to_string_lossy().as_bytes()).unwrap();
+        // SAFETY: a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        std::os::unix::fs::symlink(&fifo, f.path(TC, "bin/fifo")).unwrap();
+        std::os::unix::fs::symlink("/dev/zero", f.path(TC, "bin/zero")).unwrap();
+        let (store, home) = (f.store.clone(), f.home.clone());
+        assert_eq!(within_10s(move || check(&store, &home)), ToolchainState::Trusted);
+        // A trusted link to a file, swapped for one to the FIFO.
+        let target = f.home.join("real");
+        fs::write(&target, "x").unwrap();
+        std::os::unix::fs::symlink(&target, f.path(TC, "bin/swap")).unwrap();
+        let ToolchainState::Changed { since, .. } = f.check() else { panic!("a new link is a change") };
+        trust_current(&f.store, &f.home, Some(since)).unwrap();
+        fs::remove_file(f.path(TC, "bin/swap")).unwrap();
+        std::os::unix::fs::symlink(&fifo, f.path(TC, "bin/swap")).unwrap();
+        let (store, home) = (f.store.clone(), f.home.clone());
+        assert_eq!(changed_paths(&within_10s(move || check(&store, &home))), vec!["bin/swap"]);
     }
 
     #[test]
