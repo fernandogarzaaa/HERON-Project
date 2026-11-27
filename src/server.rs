@@ -149,7 +149,7 @@ pub fn router_with(app: Arc<App>, token: String, loopback_only: bool) -> Router 
     let api = Router::new()
         .route("/state", get(get_state))
         .route("/sessions", get(list_sessions).post(new_session))
-        .route("/sessions/{id}", get(get_session).delete(delete_session))
+        .route("/sessions/{id}", get(get_session).post(update_session).delete(delete_session))
         .route("/chat", post(chat))
         .route("/approve", post(approve))
         .route("/cancel", post(cancel))
@@ -245,6 +245,13 @@ pub async fn start(app: Arc<App>, bind: &str, port: u16) -> Result<(String, toki
     Ok((started.url, started.task))
 }
 
+/// The Mac app's core (`heron serve --print-endpoint`): loopback, a free port, and the app attached
+/// before the scheduler starts, so the owner's notifications go to the app from the first job on.
+pub async fn start_native_endpoint(app: Arc<App>) -> Result<Started> {
+    app.attach_native_app();
+    start_endpoint(app, "127.0.0.1", 0).await
+}
+
 /// Bind and start serving in the background. Loopback-only checking follows the address bound.
 pub async fn start_endpoint(app: Arc<App>, bind: &str, port: u16) -> Result<Started> {
     let listener = match tokio::net::TcpListener::bind((bind, port)).await {
@@ -276,12 +283,21 @@ async fn get_state(State(st): S) -> ApiResult {
     let unread = st.app.store.inbox(true, 100)?.len();
     let usage = st.app.usage.lock().unwrap().clone();
     Ok(Json(json!({
-        "name": cfg.agent.name, "version": env!("CARGO_PKG_VERSION"), "model": cfg.llm.model, "mode": st.app.policy.mode().name(),
+        "name": cfg.agent.name, "version": env!("CARGO_PKG_VERSION"), "model": cfg.llm.model, "model_label": model_label(&cfg), "mode": st.app.policy.mode().name(),
         "workspace": st.app.workspace.display().to_string(), "has_key": cfg.api_key().is_some() || is_local(&cfg.llm.base_url) || crate::llm::is_demo(&cfg), "demo": crate::llm::is_demo(&cfg),
         "memories": st.app.store.memory_count(), "unread": unread, "paused": st.app.paused(), "waiting": st.app.store.pending_approvals()?.len(), "onboarded": st.app.store.kv_get("onboarded").is_some(), "suggestions": st.app.store.list_suggestions(true, 50)?.len(), "mcp": st.app.mcp_status, "usage": usage,
         "tools": st.app.tools.names().len(), "os": std::env::consts::OS, "sandbox": crate::sandbox::active(&cfg).name(),
         "risk_notice_accepted": crate::risk_notice::accepted(&st.app.store), "risk_notice_required": crate::risk_notice::required(),
     })))
+}
+
+/// What the app shows as "the model": the CLI provider's short name ("Claude Code") when a CLI
+/// provider is in use, since `llm.model` is then unused, and the model name otherwise.
+fn model_label(cfg: &Config) -> String {
+    match crate::cli_llm::spec_for(&cfg.llm.provider) {
+        Some(spec) => spec.display_name.split(" (").next().unwrap_or(spec.display_name).to_string(),
+        None => cfg.llm.model.clone(),
+    }
 }
 
 fn is_local(base_url: &str) -> bool {
@@ -447,8 +463,78 @@ async fn set_mode(State(st): S, Json(b): Json<ModeBody>) -> ApiResult {
 
 // ---------- sessions ----------
 
-async fn list_sessions(State(st): S) -> ApiResult {
-    Ok(Json(json!(st.app.store.list_sessions(100)?)))
+#[derive(Deserialize)]
+struct SessionsQuery {
+    archived: Option<bool>,
+}
+
+/// The sidebar's conversations, pinned ones first, then the most recent. A session with no saved
+/// message is left out: there is nothing in it to open. `?archived=true` lists the archived ones instead.
+async fn list_sessions(State(st): S, Query(q): Query<SessionsQuery>) -> ApiResult {
+    use crate::store::SessionFlag;
+    let want_archived = q.archived.unwrap_or(false);
+    let pinned = st.app.store.sessions_with_flag(SessionFlag::Pinned)?;
+    let archived = st.app.store.sessions_with_flag(SessionFlag::Archived)?;
+    let mut out: Vec<Value> = st
+        .app
+        .store
+        .list_sessions(500)?
+        .into_iter()
+        .filter(|s| s.messages > 0 && archived.contains(&s.id) == want_archived)
+        .take(100)
+        .map(|s| {
+            let mut v = json!(s);
+            v["pinned"] = json!(pinned.contains(&s.id));
+            v["archived"] = json!(want_archived);
+            v
+        })
+        .collect();
+    // Stable, so the most recent stay first within each group.
+    out.sort_by_key(|v| v["pinned"] != true);
+    Ok(Json(json!(out)))
+}
+
+#[derive(Deserialize)]
+struct SessionUpdate {
+    title: Option<String>,
+    pinned: Option<bool>,
+    archived: Option<bool>,
+}
+
+const MAX_SESSION_TITLE_CHARS: usize = 120;
+
+/// Rename, pin or archive one conversation. The id must match exactly. The whole request is checked
+/// before anything is written.
+async fn update_session(State(st): S, Path(id): Path<String>, Json(b): Json<SessionUpdate>) -> ApiResult {
+    use crate::store::SessionFlag;
+    if st.app.store.resolve_session(&id).ok().as_deref() != Some(id.as_str()) {
+        return Err(ApiError(StatusCode::NOT_FOUND, "That conversation no longer exists.".into()));
+    }
+    let title = b.title.as_deref().map(str::trim);
+    if let Some(t) = title {
+        if t.is_empty() {
+            return Err(bad("A conversation needs a name."));
+        }
+        if t.chars().count() > MAX_SESSION_TITLE_CHARS {
+            return Err(bad(&format!("Keep the name to {MAX_SESSION_TITLE_CHARS} characters.")));
+        }
+    }
+    let store = &st.app.store;
+    if let Some(t) = title {
+        store.set_session_title(&id, t)?;
+    }
+    if let Some(on) = b.pinned {
+        store.set_session_flag(&id, SessionFlag::Pinned, on)?;
+    }
+    if let Some(on) = b.archived {
+        store.set_session_flag(&id, SessionFlag::Archived, on)?;
+    }
+    Ok(Json(json!({
+        "id": id,
+        "title": store.session_title(&id),
+        "pinned": store.sessions_with_flag(SessionFlag::Pinned)?.contains(&id),
+        "archived": store.sessions_with_flag(SessionFlag::Archived)?.contains(&id),
+    })))
 }
 
 async fn new_session(State(st): S) -> ApiResult {
@@ -1352,6 +1438,7 @@ async fn get_oauth_status(State(st): S) -> ApiResult {
                 crate::oauth::Provider::Google => option_env!("HERON_GOOGLE_OAUTH_CLIENT_ID").is_some(),
                 crate::oauth::Provider::Microsoft => option_env!("HERON_MICROSOFT_OAUTH_CLIENT_ID").is_some(),
             },
+            "account": if p.connected(&cfg) { crate::oauth::account_name(&cfg, *p) } else { None },
             "read_only": true
         })).collect();
     Ok(Json(json!({"providers": providers})))
@@ -1483,8 +1570,14 @@ async fn get_sources(State(st): S) -> ApiResult {
         "about": {"saved": learned("onboarding"), "indexed": store.knowledge_count("about"), "learned": learned("about")},
         "computer": {"connected": store.knowledge_count("computer") > 0, "indexed": store.knowledge_count("computer"), "learned": learned("computer")},
         "documents": {"connected": !cfg.sources.folders.is_empty(), "folders": cfg.sources.folders, "indexed": store.knowledge_count("documents"), "learned": learned("documents")},
-        "calendar": {"connected": !hosts.is_empty() || google || microsoft, "hosts": hosts, "indexed": store.knowledge_count("calendar") + oauth_calendar_count, "learned": learned("calendar")},
-        "email": {"connected": cfg.sources.email.is_some() || google || microsoft, "address": cfg.sources.email.as_ref().map(|e| e.username.clone()), "indexed": store.knowledge_count("email") + oauth_email_count, "learned": learned("email")},
+        "calendar": {"connected": !hosts.is_empty() || google || microsoft, "hosts": hosts, "indexed": store.knowledge_count("calendar") + oauth_calendar_count, "learned": learned("calendar"),
+            // The link-based calendar on its own: Google/Microsoft accounts are separate sources with their own state.
+            "ics_connected": !hosts.is_empty(), "ics_indexed": store.knowledge_count("calendar")},
+        "calendar_local": {"connected": store.kv_get("calendar_local").is_some(), "indexed": store.knowledge_count("calendar_local"), "learned": learned("calendar_local")},
+        "email": {"connected": cfg.sources.email.is_some() || google || microsoft, "address": cfg.sources.email.as_ref().map(|e| e.username.clone()), "indexed": store.knowledge_count("email") + oauth_email_count, "learned": learned("email"),
+            // The password-based mailbox (iCloud, or any IMAP server) on its own, independent of the Google/Microsoft accounts.
+            "imap_connected": cfg.sources.email.is_some(), "imap_host": cfg.sources.email.as_ref().map(|e| e.host.clone()), "imap_indexed": store.knowledge_count("email")},
+        "mail_local": {"connected": store.kv_get("mail_local").is_some(), "indexed": store.knowledge_count("mail_local"), "learned": learned("mail_local")},
         "oauth": {"google": google, "microsoft": microsoft},
     })))
 }
@@ -1547,6 +1640,18 @@ async fn connect_source(State(st): S, Path(name): Path<String>, Json(b): Json<Va
             app.update_config(ConfigChange::edit(|c| c.sources.email = Some(email)))?;
             json!({"indexed": crate::sources::sync_email(app).await?})
         }
+        // Events the Mac app read with EventKit. Outside content, like every calendar source.
+        "calendar_local" => {
+            let events: Vec<crate::sources::LocalEvent> = serde_json::from_value(b.get("events").cloned().unwrap_or(Value::Null))
+                .map_err(|_| bad("The calendar events were not in the expected format."))?;
+            json!({"indexed": crate::sources::sync_calendar_local(app, events)?})
+        }
+        // Messages the Mac app read from the Mail app over Apple Events. Outside content, like every email source.
+        "mail_local" => {
+            let mail: Vec<crate::sources::LocalMail> = serde_json::from_value(b.get("messages").cloned().unwrap_or(Value::Null))
+                .map_err(|_| bad("The messages were not in the expected format."))?;
+            json!({"indexed": crate::sources::sync_mail_local(app, mail)?})
+        }
         _ => return Err(ApiError(StatusCode::NOT_FOUND, "Unknown source.".into())),
     };
     Ok(Json(result))
@@ -1570,12 +1675,9 @@ async fn disconnect_source(State(st): S, Path(name): Path<String>) -> ApiResult 
         return Err(bad("Disconnect Google or Microsoft under Settings > Google and Microsoft accounts to remove its data."));
     }
     let cfg = st.app.cfg();
-    // OAuth consent covers both mail and calendar. Do not silently claim that
-    // clicking a legacy source's Disconnect button revoked an OAuth account.
-    if (name == "email" || name == "calendar") &&
-        (crate::oauth::Provider::Google.connected(&cfg) || crate::oauth::Provider::Microsoft.connected(&cfg)) {
-        return Err(bad("An OAuth account is still connected. Disconnect Google or Microsoft under Settings > Google and Microsoft accounts first."));
-    }
+    // The password-based mailbox and the link-based calendar are their own sources. Disconnecting them touches only
+    // what they hold ("email" and "calendar" rows), never a signed-in Google or Microsoft account, which has
+    // its own Disconnect and its own sources (google_email, microsoft_calendar, ...).
     match name.as_str() {
         "email" => cfg.store_secret("email_password", "")?,
         "calendar" => cfg.store_secret("calendar_links", "")?,
@@ -1587,6 +1689,9 @@ async fn disconnect_source(State(st): S, Path(name): Path<String>) -> ApiResult 
         "documents" => c.sources.folders.clear(),
         _ => {}
     }))?;
+    if name == "calendar_local" || name == "mail_local" {
+        st.app.store.kv_delete(&name)?;
+    }
     let items = st.app.store.clear_knowledge(&name)?;
     let memories = st.app.store.delete_memories_by_source(&name)?;
     Ok(Json(json!({"removed_items": items, "removed_memories": memories})))
@@ -1675,6 +1780,123 @@ mod tests {
         let served = router(app.clone(), "test-token".into());
         tokio::spawn(async move { axum::serve(Pipes(incoming), served).await });
         Harness { dir, app, connect }
+    }
+
+    #[tokio::test]
+    async fn mac_mail_connects_shows_and_disconnects_without_touching_other_mailboxes() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        assert_eq!(h.json("GET", "/sources", Value::Null).await["mail_local"]["connected"], false);
+        let now = crate::util::now_ts();
+        h.app.store.upsert_knowledge("google_email", "g1", "Invoice from Acme", "Please pay", now).unwrap();
+        let sent = json!({"messages": [
+            {"id": "<a@x>", "from": "Dana <d@example.com>", "subject": "Invoice", "date": now, "account": "iCloud", "body": "Please pay"},
+            {"id": "<a@x>", "from": "Dana <d@example.com>", "subject": "Invoice", "date": now, "account": "Outlook", "body": "Please pay"}]});
+        assert_eq!(h.json("POST", "/sources/mail_local", sent).await["indexed"], 1, "one message in two accounts is one");
+        let after = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!((after["mail_local"]["connected"].clone(), after["mail_local"]["indexed"].clone()), (json!(true), json!(1)));
+        assert_eq!(after["email"]["imap_connected"], false, "it is not the IMAP mailbox");
+        // Untrusted: facts learned from it start unconfirmed, same as google_email.
+        assert!(crate::memory::OUTSIDE_SOURCES.contains(&"mail_local") && crate::memory::OUTSIDE_SOURCES.contains(&"google_email"));
+        assert_eq!(h.send("POST", "/sources/mail_local", json!({"messages": "nope"})).await.status, 400);
+        assert_eq!(h.send("POST", "/sources/mail_local", json!({})).await.status, 400, "no messages key is not a sync");
+        let gone = h.json("DELETE", "/sources/mail_local", Value::Null).await;
+        assert_eq!(gone["removed_items"], 1);
+        let end = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(end["mail_local"]["connected"], false);
+        assert_eq!(h.app.store.knowledge_count("mail_local"), 0);
+        assert_eq!(h.app.store.knowledge_count("google_email"), 1);
+    }
+
+    #[tokio::test]
+    async fn mac_calendar_events_connect_show_and_disconnect() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let before = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(before["calendar_local"]["connected"], false);
+        let soon = crate::util::now_ts() + 3600;
+        let sent = json!({"events": [{"uid": "e1", "title": "Dentist", "start": soon, "end": soon + 1800, "all_day": false, "location": "Main St"}]});
+        assert_eq!(h.json("POST", "/sources/calendar_local", sent).await["indexed"], 1);
+        let after = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(after["calendar_local"]["connected"], true);
+        assert_eq!(after["calendar_local"]["indexed"], 1);
+        // Outside content: its learned facts start unconfirmed (OUTSIDE_SOURCES), and the events are never in the prompt.
+        assert!(crate::memory::OUTSIDE_SOURCES.contains(&"calendar_local"));
+        let bad_shape = h.send("POST", "/sources/calendar_local", json!({"events": "nope"})).await;
+        assert_eq!(bad_shape.status, 400);
+        assert_eq!(h.send("POST", "/sources/calendar_local", json!({})).await.status, 400, "no events key is not a sync");
+        let gone = h.json("DELETE", "/sources/calendar_local", Value::Null).await;
+        assert_eq!(gone["removed_items"], 1);
+        let end = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(end["calendar_local"]["connected"], false);
+        assert_eq!(h.app.store.knowledge_count("calendar_local"), 0);
+    }
+
+    /// A signed-in Google account and a password-based mailbox side by side: connecting the second is
+    /// not refused, each reports its own state, they are searched together, and each disconnects alone.
+    #[tokio::test]
+    async fn password_mailbox_and_oauth_account_coexist_with_independent_state() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let cfg = (*h.app.cfg()).clone();
+        let _forget = (ForgetSecret(cfg.clone(), "oauth_google_refresh_token"), ForgetSecret(cfg.clone(), "email_password"));
+        cfg.store_secret("oauth_google_refresh_token", "refresh").unwrap();
+        let now = crate::util::now_ts();
+        h.app.store.upsert_knowledge("google_email", "g1", "Invoice from Acme", "Please pay the Acme invoice", now).unwrap();
+        h.app.store.upsert_knowledge("google_calendar", "g2", "Acme review", "When: soon", now + 60).unwrap();
+        let before = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(before["email"]["connected"], true, "the combined flag still counts the account");
+        assert_eq!(before["email"]["imap_connected"], false, "but the password mailbox is not connected");
+        assert_eq!(before["calendar"]["ics_connected"], false);
+        assert_eq!(before["oauth"]["google"], true);
+
+        // Connecting the mailbox is not refused because Google is connected.
+        assert_eq!(connect_mail_while(&h, async {}).await, 200);
+        let both = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(both["email"]["imap_connected"], true);
+        assert_eq!(both["email"]["imap_host"], "127.0.0.1");
+        assert_eq!(both["oauth"]["google"], true, "Google is untouched");
+        h.app.store.upsert_knowledge("email", "m1", "Invoice from Beta", "Please pay the Beta invoice", now).unwrap();
+        // Both mailboxes are read together.
+        let found = crate::sources::search(&h.app.store, "invoice", Some("email"), 10).unwrap();
+        assert!(found.contains("[google_email] Invoice from Acme") && found.contains("[email] Invoice from Beta"), "{found}");
+        assert!(crate::sources::search(&h.app.store, "invoice", None, 10).unwrap().contains("Acme"));
+
+        // Disconnecting the mailbox leaves the Google account, its data and its connection.
+        assert_eq!(h.send("DELETE", "/sources/email", Value::Null).await.status, 200, "no longer refused because an account is connected");
+        let after = h.json("GET", "/sources", Value::Null).await;
+        assert_eq!(after["email"]["imap_connected"], false);
+        assert_eq!(after["oauth"]["google"], true);
+        assert_eq!(h.app.store.knowledge_count("email"), 0);
+        assert_eq!(h.app.store.knowledge_count("google_email"), 1);
+        assert_eq!(h.app.store.knowledge_count("google_calendar"), 1);
+        // The link calendar is just as independent of the account calendars.
+        h.app.store.upsert_knowledge("calendar", "c1", "Dentist", "When: soon", now + 120).unwrap();
+        assert_eq!(h.send("DELETE", "/sources/calendar", Value::Null).await.status, 200);
+        assert_eq!(h.app.store.knowledge_count("calendar"), 0);
+        assert_eq!(h.app.store.knowledge_count("google_calendar"), 1);
+    }
+
+    #[test]
+    fn model_label_names_the_cli_provider_or_the_model() {
+        let mut cfg = Config::default();
+        cfg.llm.model = "gpt-4o".into();
+        assert_eq!(model_label(&cfg), "gpt-4o", "the default http provider shows its model");
+        cfg.llm.provider = "claude-cli".into();
+        assert_eq!(model_label(&cfg), "Claude Code", "a CLI provider shows its short name, not llm.model");
+        cfg.llm.provider = "codex-cli".into();
+        assert_eq!(model_label(&cfg), "Codex");
+        cfg.llm.provider = "custom-cli".into();
+        assert_eq!(model_label(&cfg), "Custom CLI", "a name with no suffix is kept whole");
+    }
+
+    #[tokio::test]
+    async fn state_serves_the_model_label() {
+        let h = harness(scripted(vec![]), true, |c| {
+            c.llm.model = "gpt-4o".into();
+            c.llm.provider = "claude-cli".into();
+        })
+        .await;
+        let state = h.json("GET", "/state", Value::Null).await;
+        assert_eq!(state["model"], "gpt-4o");
+        assert_eq!(state["model_label"], "Claude Code");
     }
 
     fn scripted(answers: Vec<Message>) -> Arc<dyn Llm> {
@@ -3911,6 +4133,49 @@ mod tests {
         assert_eq!(h.send("POST", &approve, json!({"action": "approve"})).await.status, 400, "and only once");
     }
 
+    /// Start a core on a fresh home with one notify-only automation already due, and return the
+    /// `notification` events its first scheduler tick put on the bus, and the Inbox titles.
+    async fn first_tick_notifications(native: bool) -> (Vec<Value>, Vec<String>) {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), scripted(vec![])).await.unwrap());
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        let id = app.store.add_schedule("digest", "", "automation", 1, "").unwrap();
+        app.store.set_schedule_workflow(id, &json!([{"id": "tell", "do": "notify", "text": "All done."}]).to_string()).unwrap();
+        let mut bus = app.events.subscribe(Some(0));
+        let started = if native { start_native_endpoint(app.clone()).await.unwrap() } else { start_endpoint(app.clone(), "127.0.0.1", 0).await.unwrap() };
+        let mut inbox = vec![];
+        for _ in 0..100 {
+            inbox = app.store.inbox(true, 10).unwrap().into_iter().map(|m| m.title).collect();
+            if !inbox.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let mut notes = vec![];
+        while let Ok(Some(crate::events::Item::Event(e))) = tokio::time::timeout(Duration::from_millis(150), bus.next()).await {
+            if e.kind() == "notification" {
+                notes.push(e.json.clone());
+            }
+        }
+        started.task.abort();
+        (notes, inbox)
+    }
+
+    #[tokio::test]
+    async fn the_mac_apps_core_sends_notifications_to_the_app_from_the_first_tick() {
+        let (notes, inbox) = first_tick_notifications(true).await;
+        assert_eq!(inbox, vec!["digest".to_string()]);
+        assert_eq!(notes, vec![json!({"type": "notification", "title": "digest", "body": "All done."})]);
+    }
+
+    #[tokio::test]
+    async fn plain_serve_has_no_app_attached_so_notifications_stay_in_the_inbox() {
+        let (notes, inbox) = first_tick_notifications(false).await;
+        assert_eq!(inbox, vec!["digest".to_string()], "the job ran and its notice is in the Inbox");
+        assert!(notes.is_empty(), "{notes:?}");
+    }
+
     #[tokio::test]
     async fn print_endpoint_line_has_port_token_and_owner() {
         let dir = tempfile::tempdir().unwrap();
@@ -3980,5 +4245,90 @@ mod tests {
         }
         assert_eq!(kinds.len(), crate::events::LIVE_CAPACITY + 12);
         assert_eq!(&kinds[kinds.len() - 2..], ["done", "run_end"]);
+    }
+
+    /// A conversation the user can see: one saved message is enough.
+    fn saved_session(h: &Harness, text: &str) -> String {
+        let id = h.app.store.create_session("", "user").unwrap();
+        h.app.store.append_message(&id, &Message::user(text)).unwrap();
+        h.app.store.set_session_title(&id, text).unwrap();
+        id
+    }
+
+    fn listed(v: &Value) -> Vec<(String, bool, bool)> {
+        v.as_array().unwrap().iter().map(|s| (s["id"].as_str().unwrap().to_string(), s["pinned"] == true, s["archived"] == true)).collect()
+    }
+
+    /// The sidebar lists conversations, not empty sessions: one left by a turn that failed its first
+    /// checks, or by an earlier app that saved one for every "New conversation", has nothing to show.
+    #[tokio::test]
+    async fn session_list_leaves_out_sessions_with_no_messages() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        h.app.store.create_session("", "user").unwrap();
+        h.app.store.create_session("", "user").unwrap();
+        let kept = saved_session(&h, "Prep my day");
+        assert_eq!(listed(&h.json("GET", "/sessions", Value::Null).await), vec![(kept, false, false)]);
+        assert_eq!(h.app.store.list_sessions(100).unwrap().len(), 3, "the empty ones are hidden, not deleted");
+    }
+
+    #[tokio::test]
+    async fn sessions_can_be_renamed_pinned_and_archived() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let a = saved_session(&h, "look at my downloads folder");
+        let b = saved_session(&h, "remind me in 1 minute");
+
+        let reply = h.json("POST", &format!("/sessions/{a}"), json!({"pinned": true})).await;
+        assert_eq!(reply, json!({"id": a, "title": "look at my downloads folder", "pinned": true, "archived": false}));
+        let list = listed(&h.json("GET", "/sessions", Value::Null).await);
+        assert_eq!(list[0], (a.clone(), true, false), "pinned first: {list:?}");
+        assert_eq!(list[1], (b.clone(), false, false));
+
+        let reply = h.json("POST", &format!("/sessions/{a}"), json!({"title": "  Downloads cleanup  "})).await;
+        assert_eq!(reply["title"], "Downloads cleanup");
+        assert_eq!(reply["pinned"], true, "a rename keeps the pin");
+        assert_eq!(h.app.store.session_title(&a), "Downloads cleanup");
+
+        h.json("POST", &format!("/sessions/{b}"), json!({"archived": true})).await;
+        assert_eq!(listed(&h.json("GET", "/sessions", Value::Null).await), vec![(a.clone(), true, false)]);
+        assert_eq!(listed(&h.json("GET", "/sessions?archived=true", Value::Null).await), vec![(b.clone(), false, true)]);
+
+        h.json("POST", &format!("/sessions/{b}"), json!({"archived": false})).await;
+        h.json("POST", &format!("/sessions/{a}"), json!({"pinned": false})).await;
+        let mut list = listed(&h.json("GET", "/sessions", Value::Null).await);
+        list.sort();
+        let mut want = vec![(a, false, false), (b, false, false)];
+        want.sort();
+        assert_eq!(list, want);
+        assert!(listed(&h.json("GET", "/sessions?archived=true", Value::Null).await).is_empty());
+    }
+
+    /// A bad request changes nothing, not even the parts of it that were fine.
+    #[tokio::test]
+    async fn session_update_refuses_bad_names_and_unknown_conversations() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let a = saved_session(&h, "Prep my day");
+        for title in ["", "   ", &"x".repeat(121)] {
+            let refused = h.send("POST", &format!("/sessions/{a}"), json!({"title": title, "pinned": true})).await;
+            assert_eq!(refused.status, 400, "{title:?}");
+        }
+        assert_eq!(h.app.store.session_title(&a), "Prep my day");
+        assert_eq!(listed(&h.json("GET", "/sessions", Value::Null).await), vec![(a.clone(), false, false)], "the pin was not applied");
+        let at_limit = "y".repeat(120);
+        assert_eq!(h.json("POST", &format!("/sessions/{a}"), json!({"title": at_limit})).await["title"], at_limit);
+        assert_eq!(h.send("POST", "/sessions/nope", json!({"pinned": true})).await.status, 404);
+        // An id is matched exactly here: a prefix of one never renames it.
+        assert_eq!(h.send("POST", &format!("/sessions/{}", &a[..4]), json!({"title": "other"})).await.status, 404);
+        assert_eq!(h.app.store.session_title(&a), at_limit);
+    }
+
+    #[tokio::test]
+    async fn deleting_a_session_drops_its_pin_and_archive() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let a = saved_session(&h, "Prep my day");
+        h.json("POST", &format!("/sessions/{a}"), json!({"pinned": true, "archived": true})).await;
+        assert_eq!(h.json("DELETE", &format!("/sessions/{a}"), Value::Null).await["ok"], true);
+        assert_eq!(h.app.store.kv_get(&format!("pinned:{a}")), None);
+        assert_eq!(h.app.store.kv_get(&format!("archived:{a}")), None);
+        assert!(listed(&h.json("GET", "/sessions?archived=true", Value::Null).await).is_empty());
     }
 }
