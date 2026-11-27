@@ -56,7 +56,7 @@ struct HeronApp: App {
 
     init() {
         let runtime = Runtime()
-        let model = AppModel(client: runtime.client)
+        let model = AppModel(client: runtime.client, notifier: UserNotificationPoster())
         runtime.start(model: model)
         _model = State(initialValue: model)
     }
