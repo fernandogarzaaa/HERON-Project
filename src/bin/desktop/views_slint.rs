@@ -230,6 +230,7 @@ fn schedule_row(s: &logic::ScheduleItem) -> Option<ScheduleRow> {
         has_last_run: s.last_run.is_some(),
         uses_model: s.uses_model.unwrap_or(false),
         may: may_value(&s.allow).into(),
+        enabled: s.enabled,
     })
 }
 
@@ -443,7 +444,12 @@ pub fn refresh_reminders(ui: Weak<MainWindow>, ctrl: &Arc<ViewsController>) {
             tokio::join!(ctrl.bridge.list_schedules(), ctrl.bridge.get_inbox());
         let Ok(all) = schedules_res else { return };
         let Ok(inbox) = inbox_res else { return };
-        let schedules: Vec<logic::ScheduleItem> = all.into_iter().filter(|s| s.enabled).collect();
+        // A finished one-shot is disabled and has no next time. Leave those
+        // out. A job the user paused still has a next time, or a trigger.
+        let schedules: Vec<logic::ScheduleItem> = all
+            .into_iter()
+            .filter(|s| s.enabled || s.next_run.is_some() || s.trigger.is_some())
+            .collect();
         let rows: Vec<ScheduleRow> = schedules.iter().filter_map(schedule_row).collect();
         let delivered: Vec<InboxRow> = inbox.iter().map(inbox_row).collect();
         let schedules_empty: SharedString = if schedules.is_empty() {
@@ -1111,6 +1117,19 @@ pub fn bind_window(window: &MainWindow, ctrl: &Arc<ViewsController>) {
                     });
                 }
             }
+        });
+    });
+    let weak = window.as_weak();
+    let c = ctrl.clone();
+    window.on_reminders_set_schedule_enabled(move |id, enabled| {
+        let ctrl = c.clone();
+        let rt = ctrl.rt.clone();
+        let weak = weak.clone();
+        rt.spawn(async move {
+            if ctrl.bridge.set_schedule_enabled(id as i64, enabled).await.is_err() {
+                return;
+            }
+            refresh_reminders(weak, &ctrl);
         });
     });
     let weak = window.as_weak();

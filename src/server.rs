@@ -1110,6 +1110,12 @@ fn grants_for(may: &str) -> Option<&'static str> {
 
 /// Change what a job may do while unattended. Only the user can do this, here.
 async fn update_schedule(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>) -> ApiResult {
+    if let Some(enabled) = b.get("enabled").and_then(|v| v.as_bool()) {
+        if !st.app.store.set_schedule_enabled(id, enabled)? {
+            return Err(ApiError(StatusCode::NOT_FOUND, "That job no longer exists.".into()));
+        }
+        return Ok(Json(json!({"ok": true, "enabled": enabled})));
+    }
     let may = b.get("may").and_then(|m| m.as_str()).and_then(grants_for).ok_or_else(|| bad("Unknown permission level."))?;
     if !st.app.store.set_schedule_allow(id, may)? {
         return Err(ApiError(StatusCode::NOT_FOUND, "That job no longer exists.".into()));

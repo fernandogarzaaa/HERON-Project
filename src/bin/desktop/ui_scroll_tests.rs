@@ -167,6 +167,7 @@ fn fill_with_long_content(ui: &MainWindow) {
                 has_last_run: true,
                 uses_model: true,
                 may: "read".into(),
+                enabled: true,
             })
             .collect(),
     ));
