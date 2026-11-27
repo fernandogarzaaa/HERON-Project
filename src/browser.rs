@@ -239,7 +239,7 @@ async fn start(cfg: &Config) -> Result<Live> {
     // The port file can appear before the socket accepts a connection. One attempt then
     // reports a timeout even though the browser is still starting, which Windows CI hits.
     let conn = loop {
-        if began.elapsed() > Duration::from_secs(30) {
+        if began.elapsed() > Duration::from_secs(60) {
             let _ = child.kill().await;
             bail!("the browser ({}) did not start in time", program.display());
         }
