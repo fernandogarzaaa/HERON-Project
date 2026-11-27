@@ -6,7 +6,8 @@ import Foundation
 /// and token, so this forwards each call to a `CoreClient` made for the current endpoint:
 /// * a call made while the core is starting **waits** for its endpoint (it doesn't fail, or the first
 ///   `state()` would fail and first run would be skipped);
-/// * once the core has stopped for good, calls fail with a clear message instead of waiting;
+/// * once the core has stopped for good, calls fail with `CoreError.coreStopped` instead of waiting, except
+///   `sendMessage`: a message is the user asking Heron to work, so it starts the core once more and waits;
 /// * `events(since:)` reconnects through whichever endpoint is current, so a restart shows up as the
 ///   `resync` the new core's bus sends for the old position.
 public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
@@ -60,7 +61,7 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
                 client = nil
                 down = details
                 defer { waiting.removeAll() }
-                return (Array(waiting.values), .failure(CoreError.failed(details)))
+                return (Array(waiting.values), .failure(CoreError.coreStopped(details: details)))
             }
         }
         if let outcome { woken.forEach { $0.resume(with: outcome) } }
@@ -73,7 +74,7 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
             try await withCheckedThrowingContinuation { continuation in
                 let immediate: Result<CoreClient, Error>? = lock.withLock {
                     if let client { return .success(client) }
-                    if let down { return .failure(CoreError.failed(down)) }
+                    if let down { return .failure(CoreError.coreStopped(details: down)) }
                     waiting[id] = continuation
                     return nil
                 }
@@ -83,6 +84,20 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
             let c = lock.withLock { waiting.removeValue(forKey: id) }
             c?.resume(throwing: CancellationError())
         }
+    }
+
+    /// Like `current()`, but a core that stopped for good is started again first (the "Restart Heron's core"
+    /// button, pressed for the user). If it stops again, this fails with `coreStopped`, and it is not retried.
+    func currentStartingIfStopped() async throws -> CoreClient {
+        let restart = lock.withLock { () -> Bool in
+            guard down != nil else { return false }
+            // Cleared here, not when `.starting` comes through the watcher, so the wait below is for the new core.
+            down = nil
+            client = nil
+            return true
+        }
+        if restart { process.restart() }
+        return try await current()
     }
 
     // MARK: Events
@@ -99,8 +114,12 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
     public func sessions() async throws -> [SessionSummary] { try await current().sessions() }
     public func session(id: String) async throws -> SessionDetail { try await current().session(id: id) }
     public func deleteSession(id: String) async throws { try await current().deleteSession(id: id) }
+    public func archivedSessions() async throws -> [SessionSummary] { try await current().archivedSessions() }
+    public func updateSession(id: String, title: String?, pinned: Bool?, archived: Bool?) async throws {
+        try await current().updateSession(id: id, title: title, pinned: pinned, archived: archived)
+    }
     public func sendMessage(sessionID: String?, message: String, title: String?) async throws -> ChatStart {
-        try await current().sendMessage(sessionID: sessionID, message: message, title: title)
+        try await currentStartingIfStopped().sendMessage(sessionID: sessionID, message: message, title: title)
     }
     public func cancel(sessionID: String) async throws -> Bool { try await current().cancel(sessionID: sessionID) }
     public func approve(id: String, decision: ApprovalDecision) async throws { try await current().approve(id: id, decision: decision) }

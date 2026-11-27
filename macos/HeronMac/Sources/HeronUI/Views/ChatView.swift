@@ -100,8 +100,9 @@ struct ChatView: View {
                     .accessibilityLabel("Message")
                 if chat.isRunning {
                     Button { Task { await chat.stop() } } label: { Image(systemName: "stop.circle.fill").font(.title2) }
-                        .buttonStyle(.plain).foregroundStyle(theme.accent)
-                        .accessibilityLabel("Stop Heron").help("Stop (Esc)")
+                        .buttonStyle(.plain).foregroundStyle(chat.isStopping ? theme.ink3 : theme.accent)
+                        .disabled(chat.isStopping)
+                        .accessibilityLabel(chat.isStopping ? "Stopping Heron" : "Stop Heron").help(chat.isStopping ? "Stopping…" : "Stop (Esc)")
                 } else {
                     Button { Task { await chat.send() } } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }
                         .buttonStyle(.plain).foregroundStyle(chat.canSend ? theme.accent : theme.ink3)
@@ -269,7 +270,7 @@ struct ErrorCardView: View {
             Button("Copy command") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(c, forType: .string) }
                 .buttonStyle(HButtonStyle(.secondary))
         case .tryAgain:
-            Button("Try again") { Task { await model.chat.send(model.chat.messages.last(where: { $0.role == .user })?.text) } }
+            Button("Try again") { Task { await model.chat.retry() } }
                 .buttonStyle(HButtonStyle(.secondary))
         case .continueUntested(let provider, let version):
             Button("Continue with \(version)") {
