@@ -1270,7 +1270,15 @@ async fn list_live_approvals(State(st): S) -> ApiResult {
 
 async fn answer_approval(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>) -> ApiResult {
     match b.get("action").and_then(|a| a.as_str()) {
-        Some("approve") => match st.app.run_parked(id).await {
+        // Carried out on its own task: a client that stops waiting (a timeout, a closed window) must
+        // not cancel the action halfway and leave it marked as running.
+        Some("approve") => match tokio::spawn({
+            let app = st.app.clone();
+            async move { app.run_parked(id).await }
+        })
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("the approved action stopped unexpectedly: {e}")))
+        {
             Ok(result) => Ok(Json(json!({"result": result}))),
             // As for `/api/chat` (Q15): the request stays waiting until the notice is accepted.
             Err(e) if e.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some() => Err(ApiError(StatusCode::PRECONDITION_REQUIRED, "risk_notice_not_accepted".into())),
@@ -4141,6 +4149,58 @@ mod tests {
         assert_eq!(std::fs::read_to_string(h.app.workspace.join("later.txt")).unwrap(), "carried out");
         assert!(h.app.store.pending_approvals().unwrap().is_empty());
         assert_eq!(h.send("POST", &approve, json!({"action": "approve"})).await.status, 400, "and only once");
+    }
+
+    /// An approved action that takes a while, as a build or a test run does.
+    struct Slow;
+
+    #[async_trait]
+    impl crate::tools::Tool for Slow {
+        fn name(&self) -> &str {
+            "slow_step"
+        }
+        fn description(&self) -> &str {
+            "test: takes half a second"
+        }
+        fn parameters(&self) -> Value {
+            crate::tools::schema(json!({}), &[])
+        }
+        fn summary(&self, _args: &Value) -> String {
+            "slow step".into()
+        }
+        fn risk(&self, _args: &Value, _ctx: &crate::tools::ToolCtx) -> crate::permissions::Effect {
+            crate::permissions::Effect::WorkspaceWrite
+        }
+        async fn call(&self, _args: &Value, _ctx: &crate::tools::ToolCtx) -> Result<String> {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            Ok("slow step finished".into())
+        }
+    }
+
+    #[tokio::test]
+    async fn an_approved_action_finishes_after_the_client_gives_up_waiting() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let mut app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), scripted(vec![])).await.unwrap();
+        let mut tools = crate::tools::ToolRegistry::builtin();
+        tools.register(Arc::new(Slow));
+        app.tools = Arc::new(tools);
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        let h = serve_app(dir, Arc::new(app));
+        let sid = h.app.store.create_session("build", "user").unwrap();
+        let id = h.app.store.park_approval(&sid, "slow_step", "{}", "slow step", "slow step", crate::permissions::Effect::WorkspaceWrite.label(), false, "build").unwrap();
+        // The app's request gives up (its timeout, a closed window) while the action is still going.
+        assert!(tokio::time::timeout(Duration::from_millis(100), h.send("POST", &format!("/approvals/{id}"), json!({"action": "approve"}))).await.is_err());
+        let mut status = String::new();
+        for _ in 0..40 {
+            status = h.app.store.get_approval(id).unwrap().status;
+            if status != "running" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(status, "approved", "the action ran to the end and recorded its outcome");
     }
 
     /// Start a core on a fresh home with one notify-only automation already due, and return the

@@ -25,7 +25,11 @@ public final class CoreClient: CoreClientProtocol, Sendable {
 
     // MARK: Transport
 
-    private func urlRequest(_ method: String, _ path: String, query: [URLQueryItem] = [], body: [String: Any]? = nil) throws -> URLRequest {
+    /// Longer than any approved action may run in the core (its tool timeout).
+    static let approvedActionTimeout: TimeInterval = 30 * 60
+
+    private func urlRequest(_ method: String, _ path: String, query: [URLQueryItem] = [], body: [String: Any]? = nil,
+                            timeout: TimeInterval? = nil) throws -> URLRequest {
         var components = URLComponents(url: base, resolvingAgainstBaseURL: false)!
         components.percentEncodedPath = "/api" + path // segments are already percent-encoded by `segment`
         if !query.isEmpty {
@@ -37,6 +41,7 @@ public final class CoreClient: CoreClientProtocol, Sendable {
         }
         var request = URLRequest(url: components.url!)
         request.httpMethod = method
+        if let timeout { request.timeoutInterval = timeout }
         request.setValue(endpoint.token, forHTTPHeaderField: "x-heron-token")
         if let body {
             // axum's `Json` extractor rejects a body without this header.
@@ -53,8 +58,8 @@ public final class CoreClient: CoreClientProtocol, Sendable {
     /// Sends the request and returns the body of a 2xx answer; any other status becomes a `CoreError`.
     @discardableResult
     private func send(_ method: String, _ path: String, query: [URLQueryItem] = [], body: [String: Any]? = nil,
-                      conflict: CoreError? = nil) async throws -> Data {
-        let (data, response) = try await transport(try urlRequest(method, path, query: query, body: body))
+                      conflict: CoreError? = nil, timeout: TimeInterval? = nil) async throws -> Data {
+        let (data, response) = try await transport(try urlRequest(method, path, query: query, body: body, timeout: timeout))
         guard (200..<300).contains(response.statusCode) else { throw Self.error(status: response.statusCode, body: data, conflict: conflict) }
         return data
     }
@@ -205,7 +210,8 @@ public final class CoreClient: CoreClientProtocol, Sendable {
     public func liveApprovals() async throws -> [ApprovalRequest] { try CoreWire.liveApprovals(try await send("GET", "/approvals/live")) }
 
     public func answerParked(id: Int, action: ParkedAction) async throws {
-        try await send("POST", "/approvals/\(id)", body: ["action": action.rawValue])
+        // The core answers once the approved action has run, and a build or a test run takes minutes.
+        try await send("POST", "/approvals/\(id)", body: ["action": action.rawValue], timeout: Self.approvedActionTimeout)
     }
 
     // MARK: Mode and pause
