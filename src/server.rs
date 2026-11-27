@@ -2552,6 +2552,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     async fn toolchain_trust_needs_the_token() {
         let h = harness(scripted(vec![]), true, |_| {}).await;
         for token in [None, Some("wrong-token")] {

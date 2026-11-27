@@ -178,6 +178,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "Seatbelt rules are written for unix paths")]
     fn daemon_sockets_are_denied() {
         let r = rules(&[], &home(), Some(PathBuf::from("/private/var/run/com.apple.launchd.AbC/Listeners")));
         for path in [

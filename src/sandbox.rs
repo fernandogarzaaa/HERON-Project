@@ -902,6 +902,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "the toolchain check runs only on unix")]
     fn changed_toolchain_is_denied_in_the_profile() {
         let home = PathBuf::from("/Users/someone");
         let ws = home.join("project-toolchain-test");

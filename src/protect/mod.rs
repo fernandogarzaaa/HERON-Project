@@ -683,7 +683,7 @@ mod tests {
     }
 
     fn ws_paths(ws: &Path, changes: &[ProtectedChange]) -> Vec<String> {
-        changes.iter().map(|c| format!("{}:{:?}", c.path.strip_prefix(ws).unwrap().display(), c.kind)).collect()
+        changes.iter().map(|c| format!("{}:{:?}", c.path.strip_prefix(ws).unwrap().display().to_string().replace('\\', "/"), c.kind)).collect()
     }
 
     fn rules_for(ws: &Path) -> (String, Vec<PathBuf>) {
@@ -763,7 +763,10 @@ mod tests {
         assert_eq!(r.path, ws.join(".envrc"));
         assert_eq!(
             r.message(),
-            "Refused: /work/proj/.envrc is a protected file (an editor or agent settings folder, which runs code later). Heron's file tools can't change it in any mode."
+            format!(
+                "Refused: {} is a protected file (an editor or agent settings folder, which runs code later). Heron's file tools can't change it in any mode.",
+                ws.join(".envrc").display()
+            )
         );
     }
 
@@ -786,6 +789,7 @@ mod tests {
 
         let root = real_path(d.path());
         let home = Path::new("/nonexistent-home");
+        // The shell rules are Seatbelt's, so they only exist where the shell is sandboxed.
         for p in [
             ".claude/settings.json",
             ".CLAUDE/settings.json",
@@ -803,7 +807,10 @@ mod tests {
             "a/b/.claude/worktrees/w/c",
             "src/a.rs",
             ".github/workflows/ci.yml",
-        ] {
+        ]
+        .into_iter()
+        .filter(|_| cfg!(unix))
+        {
             let full = root.join(p);
             assert_eq!(denied_by(&rules, &full.to_string_lossy()), is_protected(&full, &root, home, &[]), "{p}: the shell and the file tools agree\n{rules}");
         }
@@ -866,6 +873,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "Seatbelt rules are written for unix paths")]
     fn apply_protects_existing_repos_and_names() {
         let d = tree(&[".git/config", ".git/hooks/", "wt/.git", ".idea/x", "sub/.envrc"]);
         let ws = d.path();
@@ -930,6 +938,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "Seatbelt rules are written for unix paths")]
     fn workspace_path_is_escaped_in_rules() {
         let d = tempfile::tempdir().unwrap();
         let ws = d.path().join("a+b (c).d\"e");
@@ -958,6 +967,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "Seatbelt rules are written for unix paths")]
     fn home_rules_only_cover_paths_inside_writable_folders() {
         let ws = tree(&["a.txt"]);
         let home = tree(&["Library/LaunchAgents/x.plist", ".zshrc"]);

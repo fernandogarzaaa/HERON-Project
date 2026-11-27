@@ -88,9 +88,15 @@ async fn the_tls_server_name_must_match_the_connect_host() {
         s.write_all(&hello[..10]).await.unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
         s.write_all(&hello[10..]).await.unwrap();
+        // A match is waited for: Windows tries `localhost` as ::1 first, and a refused connection there
+        // takes about two seconds before 127.0.0.1 is tried.
+        let reached = || got.lock().unwrap().iter().any(|b| b == &hello);
+        let t0 = std::time::Instant::now();
         tokio::time::sleep(Duration::from_millis(200)).await;
-        let reached = got.lock().unwrap().iter().any(|b| b == &hello);
-        assert_eq!(reached, ok, "sni {sni:?}");
+        while ok && !reached() && t0.elapsed() < Duration::from_secs(10) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(reached(), ok, "sni {sni:?}");
     }
     let mut s = connect_through(&proxy, "localhost").await;
     read_some(&mut s).await;

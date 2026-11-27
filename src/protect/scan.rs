@@ -138,12 +138,16 @@ mod tests {
         ]);
         // 6 entries at the top, 2 in sub, 1 each in sub/deep, wt and src; node_modules and target are
         // counted, not entered.
+        // The order a folder lists its entries in differs between file systems, so only the counts are
+        // checked, never which entries a cut scan reached.
         let entries = 11;
-        assert!(!scan_limited(d.path(), entries).truncated, "exactly at the limit");
-        let cut = scan_limited(d.path(), entries - 1);
-        assert!(cut.truncated);
-        assert!(scan_limited(d.path(), 1).truncated);
-        assert!(cut.repos.len() < 2 || cut.named.len() < 2, "the cut scan did not see everything: {cut:?}");
+        let full = scan_limited(d.path(), entries);
+        assert!(!full.truncated, "exactly at the limit");
+        assert_eq!((full.repos.len(), full.named.len()), (2, 2), "{full:?}");
+        assert!(scan_limited(d.path(), entries - 1).truncated);
+        let one = scan_limited(d.path(), 1);
+        assert!(one.truncated);
+        assert!(one.repos.len() + one.named.len() <= 1, "the scan went on past its limit: {one:?}");
         assert_eq!(SCAN_LIMIT, 100_000);
     }
 
