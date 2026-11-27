@@ -1092,9 +1092,17 @@
         "holder": "agent-2",
         "outcome": "failed",
         "started_at": "2026-11-26T23:43:40.666855+00:00"
+      },
+      {
+        "attempt_id": "f5da5176c236406890cd338c37a0c2ae",
+        "ended_at": "2026-11-27T01:57:03.106512+00:00",
+        "error": "completion command failed (adapter exit=0); see evidence",
+        "holder": "agent-2",
+        "outcome": "failed",
+        "started_at": "2026-11-27T00:55:19.099388+00:00"
       }
     ],
-    "attempts_used": 0,
+    "attempts_used": 1,
     "backend": "claude_build_rust",
     "backend_config": {
       "effort": "high",
@@ -1105,15 +1113,15 @@
     ],
     "change_policy": "warn",
     "claim": {
-      "attempt_id": "f5da5176c236406890cd338c37a0c2ae",
-      "base_branch": "skein/HS-verify__integrate-base",
-      "claim_token": "5f812b3cad4f42bd9d8004eef6dc2d55",
-      "claimed_at": "2026-11-27T00:55:19.099388+00:00",
-      "holder": "agent-2",
-      "last_heartbeat": "2026-11-27T00:55:19.099388+00:00",
-      "node_version": 145,
-      "ttl_seconds": 1800,
-      "worker_id": "agent-2"
+      "attempt_id": null,
+      "base_branch": null,
+      "claim_token": null,
+      "claimed_at": null,
+      "holder": null,
+      "last_heartbeat": null,
+      "node_version": null,
+      "ttl_seconds": null,
+      "worker_id": null
     },
     "depends_on": [
       "HS-W6b",
@@ -1123,14 +1131,14 @@
     "evidence": [
       {
         "command": "cargo test --locked && cargo build --locked --features desktop --bins && cargo clippy --locked --all-targets -- -D warnings && swift test --package-path macos/HeronMac && testteeth run --base main --fail-under 70",
-        "duration_ms": 3600049,
+        "duration_ms": 3600036,
         "exit_code": 124,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-verify_20261126T235404769427_0.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-verify_20261127T005703018121_0.log"
       },
       {
         "command": "<adapter:claude_build_rust>",
         "exit_code": 0,
-        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-verify_20261127T005404828732_adapter.log"
+        "output_ref": "/Users/inan/Documents/PERSONAL/HERON-Project/.claude/worktrees/peaceful-goodall-2303aa/.skein/evidence/HS-verify_20261127T015703068998_adapter.log"
       }
     ],
     "handoff_note": "completion command failed (adapter exit=0); see evidence",
@@ -1149,9 +1157,9 @@
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
     "shipped": {},
-    "status": "claimed",
+    "status": "failed",
     "title": "verify: Full suites, the desktop build, lint, and the test-quality gate on the branch; a",
-    "version": 147,
+    "version": 270,
     "worktree": {
       "base_branch": "skein/HS-verify__integrate-base",
       "base_commit": "1c47275909a16462cc52d7cc64092d31d18a77d1",
