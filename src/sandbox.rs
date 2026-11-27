@@ -388,6 +388,41 @@ pub fn git_config_files(cfg: &Config, home: &Path, workdir: &Path) -> Vec<PathBu
     out
 }
 
+/// The temporary folder shell commands get as `TMPDIR`: their own, so the sockets they make there
+/// work while other programs' sockets in the user's temporary folder stay out of reach.
+pub fn shell_tmpdir() -> PathBuf {
+    // On macOS the user's temporary folder is too long for a socket address, so Python's
+    // multiprocessing would fall back to `/tmp`, where other programs' sockets are. A short folder
+    // of the user's own keeps those sockets in reach of the command and nothing else.
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let uid = unsafe { libc::getuid() };
+        let dir = PathBuf::from(format!("/private/tmp/heron-{uid}"));
+        let _ = std::fs::create_dir(&dir);
+        if let Ok(meta) = std::fs::symlink_metadata(&dir) {
+            if meta.is_dir() && meta.uid() == uid && std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).is_ok() {
+                return dir;
+            }
+        }
+    }
+    let dir = std::env::temp_dir().join("heron-shell");
+    let _ = std::fs::create_dir_all(&dir);
+    dunce::canonicalize(&dir).unwrap_or(dir)
+}
+
+/// Local sockets act with the owner's keys without any key file being read (ssh-agent, gpg-agent,
+/// Docker, tmux, password managers). A command may reach only name lookup, the system log, and
+/// sockets in the working folder or its own temporary folder (Python's multiprocessing puts its
+/// own there too: see `shell_tmpdir`). Never `/tmp/pymp-*`: other programs' multiprocessing servers
+/// listen there and run what they are sent.
+fn local_sockets(workdir: &Path) -> String {
+    let own: String = [workdir.to_path_buf(), shell_tmpdir()].iter().map(|d| format!(" (remote unix-socket (subpath {}))", sbpl_quote(d))).collect();
+    format!(
+        "(deny network-outbound (remote unix-socket))\n(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")) (remote unix-socket (path-literal \"/private/var/run/syslog\")){own})\n"
+    )
+}
+
 /// The Seatbelt profile for one command or CLI. Seatbelt applies the last rule that matches, so the
 /// order is the design: deny reads under the user roots, allow metadata everywhere, allow the readable
 /// set, deny writes except the writable set, then deny Refused paths and secrets again (writes too,
@@ -432,6 +467,7 @@ pub fn seatbelt_profile(cfg: &Config, home: &Path, workdir: &Path, profile: &Pro
             p.push_str(&secrets());
             let names: Vec<String> = KEYCHAIN_SERVICES.iter().map(|n| format!(" (global-name \"{n}\")")).collect();
             p.push_str(&format!("(deny mach-lookup{})\n", names.concat()));
+            p.push_str(&local_sockets(workdir));
             p.push_str(&launch);
         }
         Profile::Cli { spec, binary_dir, extra_read } => {
@@ -600,6 +636,32 @@ mod tests {
         // The two left out on purpose.
         assert!(crate::permissions::is_secret_path(Path::new("/etc/shadow")) && !seatbelt("/etc/shadow"));
         assert!(!seatbelt("/dev/null") && !seatbelt("/dev/urandom"));
+    }
+
+    /// SBPL text with every quoted string removed (honouring `\\` and `\"` escapes), so what is left
+    /// is the rules themselves.
+    fn sbpl_outside_strings(text: &str) -> String {
+        let (mut out, mut chars, mut quoted) = (String::new(), text.chars(), false);
+        while let Some(c) = chars.next() {
+            match (quoted, c) {
+                (true, '\\') => {
+                    chars.next();
+                }
+                (_, '"') => quoted = !quoted,
+                (false, c) => out.push(c),
+                (true, _) => {}
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_quote_in_the_working_folder_cannot_add_rules_to_the_socket_deny() {
+        let workdir = Path::new("/tmp/w\") (allow default) (x \"");
+        let text = local_sockets(workdir);
+        assert!(text.contains(&sbpl_quote(workdir)), "{text}");
+        assert!(!sbpl_outside_strings(&text).contains("allow default"), "the folder name became a rule:\n{text}");
+        assert!(sbpl_outside_strings(&format!("(subpath \"{}\")", workdir.display())).contains("allow default"), "the check sees an injection");
     }
 
     #[test]

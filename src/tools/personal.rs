@@ -20,6 +20,19 @@ fn state(_: &Value, _: &ToolCtx) -> Effect {
     Effect::LocalStateWrite
 }
 
+/// Every field a task change would write, for the approval card.
+fn task_detail(what: &str, a: &Value) -> String {
+    let mut out = what.to_string();
+    for key in ["title", "notes", "status", "priority", "due", "owner"] {
+        if let Some(v) = a.get(key).filter(|v| !v.is_null()) {
+            // One line per field: a newline inside a value cannot pose as another field.
+            let value = v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()).replace(['\n', '\r'], " ⏎ ");
+            out.push_str(&format!("\n{key}: {}", crate::util::truncate_middle(&value, 300)));
+        }
+    }
+    out
+}
+
 fn field(key: &'static str) -> impl Fn(&Value) -> String {
     move |a| a.get(key).map(|v| v.as_str().map(|s| s.to_string()).unwrap_or_else(|| v.to_string())).unwrap_or_default()
 }
@@ -370,7 +383,13 @@ pub fn tools() -> Vec<FnTool> {
             parameters: schema(json!({"id": {"type": "integer"}}), &["id"]),
             summary: |a| format!("#{}", field("id")(a)),
             risk: state,
-            detail: None,
+            detail: Some(|a, c| {
+                let id = a.get("id").and_then(|v| v.as_i64()).unwrap_or_default();
+                match c.store.get_memory(id).ok().flatten() {
+                    Some(m) => format!("Forget memory #{id}: {}", crate::util::truncate_middle(&m.content, 300)),
+                    None => format!("Forget memory #{id} (not found)"),
+                }
+            }),
             untrusted: false,
             target: None,
             run: |a, c| Box::pin(forget(a, c)),
@@ -381,7 +400,7 @@ pub fn tools() -> Vec<FnTool> {
             parameters: schema(json!({"title": {"type": "string"}, "notes": {"type": "string"}, "priority": {"type": "integer", "description": "1 high, 2 normal, 3 low"}, "due": {"type": "string", "description": "YYYY-MM-DD or YYYY-MM-DD HH:MM"}, "owner": {"type": "string", "enum": ["user", "heron"], "description": "heron = something you have taken on and will follow up yourself; user (default) = the user's own to-do"}}), &["title"]),
             summary: |a| field("title")(a),
             risk: state,
-            detail: None,
+            detail: Some(|a, _| task_detail("Add task", a)),
             untrusted: false,
             target: None,
             run: |a, c| Box::pin(task_add(a, c)),
@@ -403,7 +422,7 @@ pub fn tools() -> Vec<FnTool> {
             parameters: schema(json!({"id": {"type": "integer"}, "status": {"type": "string", "enum": ["open", "in_progress", "done", "deleted"]}, "title": {"type": "string"}, "notes": {"type": "string"}, "priority": {"type": "integer"}, "due": {"type": "string"}}), &["id"]),
             summary: |a| format!("#{} {}", field("id")(a), field("status")(a)),
             risk: state,
-            detail: None,
+            detail: Some(|a, _| task_detail(&format!("Update task #{}", field("id")(a)), a)),
             untrusted: false,
             target: None,
             run: |a, c| Box::pin(task_update(a, c)),
@@ -524,6 +543,24 @@ mod tests {
     use crate::memory::Memory;
     use crate::store::Store;
     use std::sync::Arc;
+
+    #[test]
+    fn the_approval_card_shows_what_a_task_or_memory_change_would_write() {
+        use crate::tools::Tool as _;
+        let store = Store::in_memory().unwrap();
+        let ctx = ToolCtx { workspace: ".".into(), memory: Memory::new(store.clone(), None), store, session_id: "s".into(), cfg: Arc::new(Config::default()), tainted: Default::default(), seen_urls: Default::default() };
+        let tool = |name: &str| tools().into_iter().find(|t| t.name == name).unwrap();
+        let update = json!({"id": 4, "title": "Wire the deposit", "notes": "to account at bank.test", "due": "2026-12-01"});
+        let shown = tool("task_update").detail(&update, &ctx);
+        for part in ["Wire the deposit", "to account at bank.test", "2026-12-01"] {
+            assert!(shown.contains(part), "{part} missing from {shown}");
+        }
+        let add = tool("task_add").detail(&json!({"title": "Call Sam", "notes": "about the contract", "owner": "heron"}), &ctx);
+        assert!(add.contains("about the contract") && add.contains("heron"), "{add}");
+        // A newline inside a value cannot pose as another field on the card.
+        let forged = tool("task_update").detail(&json!({"id": 1, "title": "Tidy up\ndue: never"}), &ctx);
+        assert_eq!(forged.lines().filter(|l| l.starts_with("due:")).count(), 0, "{forged}");
+    }
 
     /// `recent_activity` reports what the observer already noticed and never runs the observer itself,
     /// which would write to the store.
