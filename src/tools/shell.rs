@@ -42,6 +42,7 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
     let candidates: Vec<(&str, &[&str])> = if chosen.is_empty() { candidates.to_vec() } else { vec![(chosen.as_str(), chosen_flags)] };
     let grants = sandbox_grants(ctx);
     let sandboxed = crate::sandbox::active(&ctx.cfg) != crate::sandbox::Kind::None;
+    let seatbelt = crate::sandbox::active(&ctx.cfg) == crate::sandbox::Kind::Seatbelt;
     let user_home = crate::toolchain::user_home();
     let toolchain = if sandboxed { toolchain_state(ctx, &user_home).await } else { Default::default() };
     if crate::toolchain::names_rust_tool(command) {
@@ -49,7 +50,15 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
             anyhow::bail!("{refusal}");
         }
     }
-    let sandbox = crate::sandbox::wrap(&ctx.cfg, &ctx.workspace, &crate::sandbox::Profile::Shell { grants, protect: Default::default(), egress: None, toolchain: toolchain.clone() });
+    let proxy = if seatbelt && ctx.cfg.agent.egress != "open" {
+        Some(start_proxy(ctx.cfg.agent.egress_allow.clone()).await.map_err(|_| anyhow::anyhow!(PROXY_FAILED))?)
+    } else {
+        None
+    };
+    let protect = if seatbelt { scan_workspace(&ctx.workspace).await } else { Default::default() };
+    let scan_cut = protect.truncated;
+    let egress = proxy.as_ref().map(|p| crate::sandbox::EgressRules { deny_ports: denied_ports(&ctx.cfg, p.port) });
+    let sandbox = crate::sandbox::wrap(&ctx.cfg, &ctx.workspace, &crate::sandbox::Profile::Shell { grants, protect, egress, toolchain: toolchain.clone() });
     // The classifier cannot see what a command reads at run time, so it cannot stand in for the
     // sandbox: on macOS, no sandbox means no shell.
     if sandbox.is_none() && crate::sandbox::required() {
@@ -78,6 +87,9 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
         if crate::sandbox::active(&ctx.cfg) == crate::sandbox::Kind::Seatbelt {
             let tmp = crate::sandbox::shell_tmpdir();
             cmd.env("TMPDIR", &tmp).env("TMP", &tmp).env("TEMP", &tmp);
+        }
+        if let Some(proxy) = &proxy {
+            cmd.envs(crate::egress::proxy_env(proxy.port));
         }
         #[cfg(unix)]
         cmd.process_group(0); // so a timeout kills the whole process tree, not just the shell
@@ -132,6 +144,7 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
             if sandboxed {
                 push_note(&mut text, toolchain_note(ctx, &user_home, &toolchain, command).await);
             }
+            push_note(&mut text, sandbox_note(proxy.as_ref(), scan_cut));
             return Ok(text);
         }
     };
@@ -162,7 +175,51 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
     if sandboxed {
         push_note(&mut text, toolchain_note(ctx, &user_home, &toolchain, command).await);
     }
+    push_note(&mut text, sandbox_note(proxy.as_ref(), scan_cut));
     Ok(text)
+}
+
+/// Shown when the egress proxy can't start: the command is refused rather than run unfiltered.
+const PROXY_FAILED: &str = "Heron couldn't start its network filter, so this command was not run.";
+
+/// Appended when the protect scan stopped at its limit.
+const SCAN_CUT: &str = "[protect] This folder has more than 100,000 entries. Repositories past that point are checked only after the run.";
+
+#[cfg(test)]
+tokio::task_local! {
+    /// Set by a test to make the egress proxy fail to start.
+    pub(crate) static PROXY_FAILS: bool;
+}
+
+async fn start_proxy(allow: Vec<String>) -> std::io::Result<crate::egress::EgressProxy> {
+    #[cfg(test)]
+    if PROXY_FAILS.try_with(|f| *f).unwrap_or(false) {
+        return Err(std::io::Error::other("the test stopped the proxy"));
+    }
+    crate::egress::start(allow).await
+}
+
+/// The repositories and protected names of the working folder, scanned fresh for each command so a
+/// repository one command makes is protected in the next. A scan that fails counts as cut off.
+async fn scan_workspace(workspace: &std::path::Path) -> crate::protect::Scan {
+    let ws = workspace.to_path_buf();
+    tokio::task::spawn_blocking(move || crate::protect::scan(&ws)).await.unwrap_or_else(|_| crate::protect::Scan { truncated: true, ..Default::default() })
+}
+
+/// The loopback ports a command may not reach: Heron's API ports, this process's own servers and the
+/// owner's list. The command's own proxy is never among them.
+fn denied_ports(cfg: &crate::config::Config, proxy: u16) -> Vec<u16> {
+    let mut ports = vec![cfg.server.port];
+    ports.extend(crate::server::bound_ports());
+    ports.extend(cfg.agent.deny_local_ports.iter().copied());
+    ports.retain(|p| *p != proxy);
+    ports
+}
+
+/// The proxy's blocked hosts and the scan's cut-off, after the command.
+fn sandbox_note(proxy: Option<&crate::egress::EgressProxy>, scan_cut: bool) -> Option<String> {
+    let lines: Vec<String> = [proxy.and_then(|p| crate::egress::blocked_note(&p.decisions())), scan_cut.then(|| SCAN_CUT.to_string())].into_iter().flatten().collect();
+    (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
 /// Kills the command's process group when the call is dropped before the command ended, as the
@@ -654,6 +711,171 @@ pub(crate) mod tests {
 
     pub(crate) fn q(p: &std::path::Path) -> String {
         format!("'{}'", p.display().to_string().replace('\'', "'\\''"))
+    }
+
+    /// Run `command` with a timeout, so a connection the sandbox fails to stop can't hang the test.
+    async fn sh_within(ctx: &ToolCtx, command: &str, secs: u64) -> String {
+        run(&json!({"command": command, "timeout_secs": secs}), ctx).await.unwrap()
+    }
+
+    /// A Perl script in the working folder, run as `perl <name>`: it keeps the quoting out of the command.
+    fn script(ctx: &ToolCtx, name: &str, body: &str) -> String {
+        std::fs::write(ctx.workspace.join(name), body).unwrap();
+        format!("perl {name}")
+    }
+
+    fn with_cfg(ctx: &ToolCtx, change: impl FnOnce(&mut Config)) -> ToolCtx {
+        let mut cfg = (*ctx.cfg).clone();
+        change(&mut cfg);
+        ToolCtx { cfg: Arc::new(cfg), ..ctx.clone() }
+    }
+
+    /// Whether a sandboxed command connected to a loopback port, through bash's `/dev/tcp`.
+    fn probe_port(port: u16) -> String {
+        format!("(exec 3<>/dev/tcp/127.0.0.1/{port}) 2>/dev/null && echo OPEN-{port} || echo SHUT-{port}")
+    }
+
+    #[tokio::test]
+    async fn sandboxed_curl_to_unlisted_host_is_blocked_and_named() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let out = sh_within(&ctx, "curl -sS -m 20 -o /dev/null https://example.com/; echo curl-rc=$?", 60).await;
+        let line = "[network] blocked example.com:443: not on the sandbox's egress allowlist. Don't work around this; tell the user, who can add the host in Settings › Sandbox.";
+        assert!(out.contains(line), "{out}");
+        assert_eq!(out.matches("[network] blocked").count(), 1, "{out}");
+        assert!(out.contains("curl-rc=") && !out.contains("curl-rc=0"), "{out}");
+        let direct = sh_within(&ctx, "curl -sS -m 10 --noproxy '*' -o /dev/null https://1.1.1.1/; echo curl-rc=$?", 60).await;
+        assert!(direct.contains("curl-rc=") && !direct.contains("curl-rc=0"), "a direct connection got out: {direct}");
+        assert!(!direct.contains("[network]"), "nothing reached the proxy: {direct}");
+    }
+
+    #[tokio::test]
+    async fn loopback_test_server_is_reachable() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let own = script(
+            &ctx,
+            "own.pl",
+            "use IO::Socket::INET;\nmy $s = IO::Socket::INET->new(Listen => 1, LocalAddr => '127.0.0.1', LocalPort => 0) or die \"bind: $!\\n\";\nIO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $s->sockport) or die \"connect: $!\\n\";\nprint \"OWN-SERVER-OK\\n\";\n",
+        );
+        let out = sh_within(&ctx, &format!("{}; {own}; (exec 3<>/dev/tcp/1.1.1.1/443) 2>&1; echo direct-rc=$?", probe_port(port)), 60).await;
+        assert!(out.contains(&format!("OPEN-{port}")), "a server in the test process: {out}");
+        assert!(out.contains("OWN-SERVER-OK"), "a server the command starts itself: {out}");
+        assert!(out.contains("Operation not permitted") && !out.contains("direct-rc=0"), "only loopback is open: {out}");
+    }
+
+    #[tokio::test]
+    async fn dns_lookup_fails_in_sandbox() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let resolver = script(&ctx, "resolver.pl", "use IO::Socket::UNIX;\nIO::Socket::UNIX->new(Peer => '/private/var/run/mDNSResponder') or die \"connect: $!\\n\";\nprint \"RESOLVER-REACHED\\n\";\n");
+        let lookup = script(&ctx, "lookup.pl", "use Socket;\nmy ($err) = Socket::getaddrinfo('example.com', '443');\nprint $err ? \"LOOKUP-FAILED\\n\" : \"RESOLVED\\n\";\n");
+        let out = sh_within(&ctx, &format!("{resolver}; {lookup}"), 60).await;
+        assert!(out.contains("connect: Operation not permitted") && !out.contains("RESOLVER-REACHED"), "{out}");
+        assert!(out.contains("LOOKUP-FAILED") && !out.contains("RESOLVED"), "{out}");
+        let open = sh_within(&with_cfg(&ctx, |c| c.agent.egress = "open".into()), &resolver, 60).await;
+        assert!(open.contains("RESOLVER-REACHED"), "with egress open the resolver is reachable, so the deny above is the allowlist's: {open}");
+    }
+
+    #[tokio::test]
+    async fn shell_write_to_git_hook_is_denied() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let ws = ctx.workspace.clone();
+        assert!(std::process::Command::new("git").args(["init", "-q"]).current_dir(&ws).status().unwrap().success());
+        let config = std::fs::read_to_string(ws.join(".git/config")).unwrap();
+        let out = sh(
+            &ctx,
+            "echo evil > .git/hooks/pre-commit; echo '[core] hooksPath = /tmp' >> .git/config; mv .git/hooks h; echo sample > .git/hooks/pre-push.sample; \
+             GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t git -c commit.gpgsign=false commit -q --allow-empty -m x && echo COMMITTED",
+        )
+        .await;
+        assert!(!ws.join(".git/hooks/pre-commit").exists(), "{out}");
+        assert_eq!(std::fs::read_to_string(ws.join(".git/config")).unwrap(), config, "{out}");
+        assert!(ws.join(".git/hooks").is_dir() && !ws.join("h").exists(), "the hooks folder can't be renamed: {out}");
+        assert!(out.contains("Operation not permitted"), "{out}");
+        assert_eq!(std::fs::read_to_string(ws.join(".git/hooks/pre-push.sample")).unwrap().trim(), "sample", "git's samples stay writable: {out}");
+        assert!(out.contains("COMMITTED"), "git itself still works: {out}");
+        let made = sh(&ctx, "mkdir sub && cd sub && git init -q && echo evil > .git/hooks/post-checkout; ls .git/hooks/post-checkout").await;
+        assert!(!ws.join("sub/.git/hooks/post-checkout").exists(), "a repository made in the command gets no hook either: {made}");
+    }
+
+    #[tokio::test]
+    async fn own_api_port_is_denied_in_the_profile() {
+        let (dir, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let app = crate::app::App::assemble((*ctx.cfg).clone(), ctx.workspace.clone(), Store::in_memory().unwrap(), Arc::new(crate::llm::ScriptedLlm::new(vec![]))).await.unwrap();
+        let started = crate::server::start_endpoint(Arc::new(app), "127.0.0.1", 0).await.unwrap();
+        let listen = || std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let (configured, listed, other) = (listen(), listen(), listen());
+        let port = |l: &std::net::TcpListener| l.local_addr().unwrap().port();
+        let ctx = with_cfg(&ctx, |c| {
+            c.server.port = port(&configured);
+            c.agent.deny_local_ports = vec![port(&listed)];
+        });
+        let ports = [started.port, port(&configured), port(&listed), port(&other)];
+        let command: Vec<String> = ports.iter().map(|p| probe_port(*p)).collect();
+        let out = sh_within(&ctx, &command.join("; "), 60).await;
+        for denied in &ports[..3] {
+            assert!(out.contains(&format!("SHUT-{denied}")), "{denied}: {out}");
+        }
+        assert!(out.contains(&format!("OPEN-{}", ports[3])), "other loopback ports stay open: {out}");
+        let open = sh_within(&with_cfg(&ctx, |c| c.agent.egress = "open".into()), &probe_port(started.port), 60).await;
+        assert!(open.contains(&format!("OPEN-{}", started.port)), "the port deny is the allowlist's: {open}");
+        started.task.abort();
+        drop(dir);
+    }
+
+    #[tokio::test]
+    async fn proxy_that_cannot_start_refuses_the_command() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let marker = ctx.workspace.join("marker.txt");
+        let args = json!({"command": "echo ran > marker.txt"});
+        let err = PROXY_FAILS.scope(true, run(&args, &ctx)).await.unwrap_err();
+        assert_eq!(err.to_string(), PROXY_FAILED);
+        assert!(!marker.exists(), "nothing ran");
+        let open = with_cfg(&ctx, |c| c.agent.egress = "open".into());
+        PROXY_FAILS.scope(true, run(&args, &open)).await.unwrap();
+        assert!(marker.exists(), "with egress open no proxy is needed");
+    }
+
+    #[tokio::test]
+    async fn ca_bundles_stay_readable_under_the_secret_rules() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let certifi = ctx.workspace.join("venv/lib/certifi/cacert.pem");
+        std::fs::create_dir_all(certifi.parent().unwrap()).unwrap();
+        std::fs::write(&certifi, "PUBLIC-CA-BUNDLE").unwrap();
+        std::fs::write(ctx.workspace.join("server.pem"), "PRIVATE-KEY-SECRET").unwrap();
+        let bundles: Vec<&str> = crate::sandbox::CA_BUNDLES.iter().copied().filter(|b| std::fs::read(b).is_ok()).collect();
+        assert!(bundles.contains(&"/etc/ssl/cert.pem"), "{bundles:?}");
+        for bundle in &bundles {
+            let out = sh(&ctx, &format!("head -c 64 {bundle} > /dev/null && echo READ-OK || echo READ-DENIED")).await;
+            assert!(out.contains("READ-OK"), "{bundle}: {out}");
+        }
+        assert!(sh(&ctx, "cat venv/lib/certifi/cacert.pem").await.contains("PUBLIC-CA-BUNDLE"));
+        let key = sh(&ctx, "cat server.pem").await;
+        assert!(!key.contains("SECRET") && key.contains("[exit code"), "other .pem files stay secret: {key}");
+        let write = sh(&ctx, "echo changed >> venv/lib/certifi/cacert.pem").await;
+        assert!(write.contains("Operation not permitted"), "the bundles are opened for reading only: {write}");
+        assert_eq!(std::fs::read_to_string(&certifi).unwrap(), "PUBLIC-CA-BUNDLE");
     }
 
     #[tokio::test]
@@ -1305,7 +1527,7 @@ pub(crate) mod tests {
         // The profile: every ancestor of a Refused path inside the working folder is write-denied.
         let planned = home.join(format!(".heron-rename-test-{}/project", uuid::Uuid::new_v4().simple()));
         let text = crate::sandbox::seatbelt_profile(&settings(&planned), &home, &planned, &crate::sandbox::Profile::Shell { grants: vec![], protect: Default::default(), egress: None, toolchain: Default::default() });
-        let ancestors = text.lines().find(|l| l.starts_with("(deny file-write* (literal")).unwrap_or_else(|| panic!("no ancestor rule:\n{text}"));
+        let ancestors = text.lines().find(|l| l.starts_with("(deny file-write* (literal") && l.contains(&format!("(literal \"{}\")", planned.join("a/b").display()))).unwrap_or_else(|| panic!("no ancestor rule:\n{text}"));
         for a in [planned.join("a/b"), planned.join("a"), planned.join("data"), planned.clone()] {
             assert!(ancestors.contains(&format!("(literal \"{}\")", a.display())), "{} can be renamed: {ancestors}", a.display());
         }

@@ -254,6 +254,20 @@ pub async fn start_native_endpoint(app: Arc<App>) -> Result<Started> {
     start_endpoint(app, "127.0.0.1", 0).await
 }
 
+/// Every port a server in this process has bound. Sandboxed commands may not reach them.
+static BOUND_PORTS: Mutex<Vec<u16>> = Mutex::new(Vec::new());
+
+pub fn bound_ports() -> Vec<u16> {
+    BOUND_PORTS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+fn note_bound_port(port: u16) {
+    let mut ports = BOUND_PORTS.lock().unwrap_or_else(|e| e.into_inner());
+    if !ports.contains(&port) {
+        ports.push(port);
+    }
+}
+
 /// Bind and start serving in the background. Loopback-only checking follows the address bound.
 pub async fn start_endpoint(app: Arc<App>, bind: &str, port: u16) -> Result<Started> {
     let listener = match tokio::net::TcpListener::bind((bind, port)).await {
@@ -262,6 +276,7 @@ pub async fn start_endpoint(app: Arc<App>, bind: &str, port: u16) -> Result<Star
         Err(_) => tokio::net::TcpListener::bind((bind, 0)).await?,
     };
     let addr = listener.local_addr()?;
+    note_bound_port(addr.port());
     let token = new_token();
     let host = if addr.ip().is_unspecified() || addr.ip().is_loopback() { "127.0.0.1".to_string() } else { addr.ip().to_string() };
     let url = format!("http://{host}:{}/?token={token}", addr.port());
@@ -327,6 +342,7 @@ async fn get_settings(State(st): S) -> ApiResult {
         "neural_memory": cfg.agent.neural_memory, "neural_available": crate::embed::neural_built_in(),
         "browser": crate::browser::find(&cfg).map(|p| p.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()), "browser_visible": cfg.agent.browser_visible,
         "workspace": st.app.workspace.display().to_string(), "home": cfg.home.display().to_string(), "max_repeats": cfg.agent.max_repeats,
+        "egress": cfg.agent.egress, "egress_allow": cfg.agent.egress_allow, "deny_local_ports": cfg.agent.deny_local_ports,
         "allow_rules": st.app.policy.allow_rules(), "secret_storage": cfg.secret_storage(),
         "rule_notices": st.app.policy.rule_notices().into_iter().map(|(rule, notice)| json!({"rule": rule, "notice": notice})).collect::<Vec<_>>(),
         "mcp": st.app.mcp_status, "mcp_changed": st.app.mcp_pending.keys().collect::<Vec<_>>(),
@@ -452,6 +468,32 @@ fn apply_settings(body: &Value, cfg: &mut Config) -> std::result::Result<(), Api
             return Err(bad("max_repeats must be 0 or at least 2."));
         }
         cfg.agent.max_repeats = n;
+    }
+    if let Some(v) = body.get("egress") {
+        let v = v.as_str().map(str::trim).filter(|v| matches!(*v, "allowlist" | "open")).ok_or_else(|| bad("egress must be \"allowlist\" or \"open\"."))?;
+        cfg.agent.egress = v.to_string();
+    }
+    if let Some(v) = body.get("egress_allow") {
+        let entries = v.as_array().ok_or_else(|| bad("egress_allow must be a list of host names."))?;
+        let mut hosts = vec![];
+        for entry in entries {
+            let host = entry.as_str().map(|s| s.trim().to_string()).ok_or_else(|| bad(&format!("Not a host name: {entry}.")))?;
+            crate::egress::validate_host(&host).map_err(|e| bad(&e.to_string()))?;
+            hosts.push(host);
+        }
+        cfg.agent.egress_allow = hosts;
+    }
+    if let Some(v) = body.get("deny_local_ports") {
+        let entries = v.as_array().ok_or_else(|| bad("deny_local_ports must be a list of port numbers."))?;
+        let mut ports = vec![];
+        for entry in entries {
+            let port = entry.as_u64().and_then(|p| u16::try_from(p).ok()).ok_or_else(|| bad("deny_local_ports must be a list of port numbers."))?;
+            if port == 0 {
+                return Err(bad("Port 0 can't be denied."));
+            }
+            ports.push(port);
+        }
+        cfg.agent.deny_local_ports = ports;
     }
     Ok(())
 }
@@ -737,10 +779,9 @@ async fn run_chat(st: Arc<ServerState>, session: Session, message: String, run_i
     use futures_util::FutureExt;
     let sid = session.id.clone();
     let stage = Arc::new(Mutex::new(RunStage::Running));
-    let frame = crate::agent::RunFrame::new(crate::agent::turn_run_id(&run_id), st.app.workspace.clone(), st.app.store.clone(), st.app.sink_for(&sid, &run_id));
     // A panic in the turn must still free the conversation and end its stream, or every new
     // message to it is refused as busy until Heron restarts.
-    let finished = std::panic::AssertUnwindSafe(crate::agent::in_run(frame, run_chat_turn(st.clone(), session, message, run_id.clone(), stage.clone()))).catch_unwind().await;
+    let finished = std::panic::AssertUnwindSafe(run_chat_turn(st.clone(), session, message, run_id.clone(), stage.clone())).catch_unwind().await;
     if finished.is_ok() {
         return;
     }
@@ -771,7 +812,10 @@ async fn run_chat_turn(st: Arc<ServerState>, mut session: Session, message: Stri
     // Rules another Heron on this home revoked or added since this one last looked apply from here.
     st.app.reload_rules();
     let agent = st.app.agent(Arc::new(WebApprover { state: st.clone(), session_id: sid.clone(), run_id: run_id.clone() }));
-    let outcome = agent.run_turn(&mut session, &message, &st.app.sink_for(&sid, &run_id)).await;
+    // The frame ends before the outcome is published, so a protected-file notice reaches the stream.
+    let sink = st.app.sink_for(&sid, &run_id);
+    let frame = crate::agent::RunFrame::new(crate::agent::turn_run_id(&run_id), st.app.workspace.clone(), st.app.store.clone(), sink.clone());
+    let outcome = crate::agent::in_run(frame, agent.run_turn(&mut session, &message, &sink)).await;
     // Free the conversation before the (slower) background learning step.
     if !st.finish(&sid, &run_id) {
         return;
@@ -2474,6 +2518,37 @@ mod tests {
         h.json("POST", "/settings", json!({"max_repeats": 6})).await;
         assert_eq!(h.json("GET", "/settings", Value::Null).await["max_repeats"], 6);
         assert_eq!(h.send("POST", "/settings", json!({"max_repeats": "lots"})).await.status, 400);
+    }
+
+    #[tokio::test]
+    async fn egress_settings_round_trip_and_validate() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let before = h.json("GET", "/settings", Value::Null).await;
+        assert_eq!((before["egress"].clone(), before["egress_allow"].clone(), before["deny_local_ports"].clone()), (json!("allowlist"), json!(crate::egress::DEFAULT_ALLOW), json!([])));
+        let saved = h.json("POST", "/settings", json!({"egress": "open", "egress_allow": ["index.crates.io", " *.example.com "], "deny_local_ports": [8080, 9000]})).await;
+        assert_eq!((saved["egress"].clone(), saved["egress_allow"].clone(), saved["deny_local_ports"].clone()), (json!("open"), json!(["index.crates.io", "*.example.com"]), json!([8080, 9000])));
+        let again = h.json("GET", "/settings", Value::Null).await;
+        assert_eq!(again["egress_allow"], json!(["index.crates.io", "*.example.com"]));
+        assert_eq!(h.app.cfg().agent.deny_local_ports, vec![8080, 9000]);
+        let on_disk = std::fs::read_to_string(h.app.cfg().home.join("config.toml")).unwrap();
+        assert!(on_disk.contains("egress = \"open\"") && on_disk.contains("9000"), "{on_disk}");
+        for (body, error) in [
+            (json!({"egress": "closed"}), "egress must be \"allowlist\" or \"open\".".to_string()),
+            (json!({"egress": 1}), "egress must be \"allowlist\" or \"open\".".to_string()),
+            (json!({"egress_allow": ["github.com", "10.0.0.1"]}), "Not a host name: 10.0.0.1.".to_string()),
+            (json!({"egress_allow": ["https://github.com"]}), "Not a host name: https://github.com.".to_string()),
+            (json!({"egress_allow": [""]}), "Not a host name: .".to_string()),
+            (json!({"egress_allow": "github.com"}), "egress_allow must be a list of host names.".to_string()),
+            (json!({"deny_local_ports": [8080, 0]}), "Port 0 can't be denied.".to_string()),
+            (json!({"deny_local_ports": [70000]}), "deny_local_ports must be a list of port numbers.".to_string()),
+            (json!({"egress": "allowlist", "deny_local_ports": [0]}), "Port 0 can't be denied.".to_string()),
+        ] {
+            let refused = h.send("POST", "/settings", body.clone()).await;
+            assert_eq!(refused.status, 400, "{body}");
+            assert_eq!(refused.json().await["error"], error, "{body}");
+        }
+        let unchanged = h.json("GET", "/settings", Value::Null).await;
+        assert_eq!((unchanged["egress"].clone(), unchanged["egress_allow"].clone(), unchanged["deny_local_ports"].clone()), (json!("open"), json!(["index.crates.io", "*.example.com"]), json!([8080, 9000])), "a refused save changes nothing");
     }
 
     #[tokio::test]
