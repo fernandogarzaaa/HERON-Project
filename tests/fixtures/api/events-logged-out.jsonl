@@ -1,0 +1,5 @@
+{"id":"session-1","run_id":"run-1","seq":1,"session_id":"session-1","type":"session"}
+{"code":"cli_logged_out","hint":"opencode auth login (or configure opencode.json)","login":"opencode auth login","message":"OpenCode (router) is logged out: run `opencode auth login (or configure opencode.json)`, then try again. (CLI said: provider.auth: key expired)","provider":"OpenCode (router)","run_id":"run-1","seq":2,"session_id":"session-1","type":"error"}
+{"run_id":"run-1","seq":3,"session_id":"session-1","type":"run_end"}
+{"code":"cli_logged_out","hint":"cline auth <provider>","message":"Cline (router, free models) is logged out: run `cline auth <provider>`, then try again. (CLI said: 401 Unauthorized)","provider":"Cline (router, free models)","run_id":"run-2","seq":4,"session_id":"session-1","type":"error"}
+{"run_id":"run-2","seq":5,"session_id":"session-1","type":"run_end"}

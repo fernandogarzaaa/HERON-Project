@@ -203,6 +203,9 @@ private struct ModelTab: View {
             }
             Text("Heron never stores your CLI password. It runs the app you're signed in to, inside the sandbox, with its own tools turned off.")
                 .font(HeronFont.callout).foregroundStyle(theme.ink2)
+            if let active = store.activeCLIProvider {
+                CLIModelField(store: store, providerName: active.displayName)
+            }
             VStack(alignment: .leading, spacing: Spacing.s1) {
                 Toggle("Let schedules use a subscription login", isOn: Binding(get: { store.settings?.allowSubscriptionUnattended ?? false },
                                                                                set: { v in Task { await store.setUnattended(v) } }))
@@ -219,6 +222,33 @@ private struct ModelTab: View {
         default: p.detailText
         }
     }
+}
+
+/// `[llm] cli_model` for the CLI in use. Saved on Return or when the field loses focus.
+private struct CLIModelField: View {
+    let store: SettingsStore
+    let providerName: String
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+    @Environment(\.heronTheme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.s1) {
+            SectionLabel("Model")
+            TextField("Let \(providerName) choose", text: $draft)
+                .textFieldStyle(.roundedBorder).frame(maxWidth: 360)
+                .focused($focused)
+                .onSubmit { save() }
+                .onChange(of: focused) { _, isFocused in if !isFocused { save() } }
+                .accessibilityLabel("Model for \(providerName)")
+            Text("The model name as \(providerName) writes it, for example opencode/deepseek-v4.1-flash-free or anthropic/claude-sonnet-5-5. Leave it empty and \(providerName) uses its own default, which may be a paid model.")
+                .font(HeronFont.callout).foregroundStyle(theme.ink2).fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear { draft = store.settings?.cliModel ?? "" }
+        .onChange(of: store.settings?.cliModel) { _, saved in if !focused { draft = saved ?? "" } }
+    }
+
+    private func save() { Task { await store.setCLIModel(draft) } }
 }
 
 private struct PermissionsTab: View {

@@ -53,12 +53,27 @@ final class PreviewCoreClientTests: XCTestCase {
         XCTAssertTrue(events.contains { if case .toolStart(_, "write_file", _, _) = $0.kind { true } else { false } })
     }
 
+    /// As the core does: a model set for one CLI is dropped when another is picked, and kept when the same one is.
+    func testPickingAnotherProviderClearsTheModel() async throws {
+        let c = try await client()
+        let providers = try await c.providers()
+        let active = try XCTUnwrap(providers.first { $0.isActive })
+        let other = try XCTUnwrap(providers.first { !$0.isActive })
+        try await c.setCLIModel("opencode/big-pickle")
+        try await c.selectProvider(id: active.id)
+        let kept = try await c.settings().cliModel
+        XCTAssertEqual(kept, "opencode/big-pickle")
+        try await c.selectProvider(id: other.id)
+        let cleared = try await c.settings().cliModel
+        XCTAssertEqual(cleared, "")
+    }
+
     func testFailureRunEndsWithAnErrorAndRunEnd() async throws {
         let c = try await client()
         let stream = c.events(since: nil)
         _ = try await c.sendMessage(sessionID: nil, message: "please fail", title: nil)
         let events = try await collect(stream)
-        let error = events.compactMap { e -> (String?, String?)? in if case .error(_, let code, _, let version) = e.kind { (code, version) } else { nil } }.first
+        let error = events.compactMap { e -> (String?, String?)? in if case .error(_, let code, _, let version, _, _) = e.kind { (code, version) } else { nil } }.first
         XCTAssertEqual(error?.0, "cli_version_untested")
         XCTAssertEqual(error?.1, "3.0.1")
         if case .runEnd = events.last?.kind {} else { XCTFail("the last event of every run is run_end") }

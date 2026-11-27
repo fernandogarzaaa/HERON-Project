@@ -405,6 +405,16 @@ public final class SettingsStore {
         do { try await client.acceptProviderVersion(id: provider.id, version: version); await load() } catch { self.error = describe(error) }
     }
 
+    /// The CLI provider in use, if one is: the Model field applies to it.
+    public var activeCLIProvider: ProviderStatus? { providers.first { $0.isActive } }
+
+    /// Saves the model the CLI provider is asked for. Blank lets the CLI choose; spaces around it are dropped.
+    public func setCLIModel(_ model: String) async {
+        let model = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard model != settings?.cliModel else { return }
+        do { try await client.setCLIModel(model); settings?.cliModel = model } catch { self.error = describe(error) }
+    }
+
     public func setUnattended(_ allowed: Bool) async {
         do { try await client.setUnattendedSubscription(allowed); settings?.allowSubscriptionUnattended = allowed } catch { self.error = describe(error) }
     }

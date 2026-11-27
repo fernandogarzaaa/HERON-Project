@@ -158,7 +158,7 @@ public final class CoreClient: CoreClientProtocol, Sendable {
                 guard let event = try? CoreWire.envelope(Data(sse.data.utf8)).event else { continue }
                 switch event.kind {
                 case .session(let id, let runID): return ChatStart(sessionID: id, runID: runID)
-                case .error(let text, _, _, _): throw CoreError.failed(text)
+                case .error(let text, _, _, _, _, _): throw CoreError.failed(text)
                 default: continue
                 }
             }
@@ -317,6 +317,10 @@ public final class CoreClient: CoreClientProtocol, Sendable {
         async let awareness = try? send("GET", "/awareness")
         async let telegram = try? send("GET", "/telegram")
         return try CoreWire.settings(try await main, sources: await sources, awareness: await awareness, telegram: await telegram)
+    }
+
+    public func setCLIModel(_ model: String) async throws {
+        try await send("POST", "/settings", body: ["cli_model": model])
     }
 
     public func setUnattendedSubscription(_ allowed: Bool) async throws {
