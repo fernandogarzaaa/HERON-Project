@@ -26,6 +26,7 @@ export component RemindersView inherits Rectangle {
     in property <string> last-run-title: "";
     callback add-schedule(string, string, string, bool);
     callback cancel-schedule(int);
+    callback set-schedule-enabled(int, bool);
     callback run-schedule-now(int);
     callback set-schedule-may(int, string);
     callback show-last-run(int);
@@ -145,6 +146,10 @@ export component RemindersView inherits Rectangle {
                     HorizontalBox {
                         padding: 0px;
                         spacing: 8px;
+                        Button { reduce-motion: root.reduce-motion;
+                            text: row.enabled ? "Pause" : "Resume";
+                            clicked => { root.set-schedule-enabled(row.id, !row.enabled); }
+                        }
                         Button { reduce-motion: root.reduce-motion;
                             text: "Run now";
                             clicked => { root.run-schedule-now(row.id); }

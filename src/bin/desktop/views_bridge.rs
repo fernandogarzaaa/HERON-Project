@@ -210,6 +210,18 @@ impl logic::ViewsBridge for HeronViewsBridge {
         id_of(&value)
     }
 
+    async fn set_schedule_enabled(&self, id: i64, enabled: bool) -> logic::BridgeResult<()> {
+        self.client
+            .api(
+                Method::POST,
+                &format!("/api/schedules/{id}"),
+                Some(serde_json::json!({"enabled": enabled})),
+            )
+            .await
+            .map_err(err)?;
+        Ok(())
+    }
+
     async fn set_schedule_may(&self, id: i64, may: &str) -> logic::BridgeResult<()> {
         self.client
             .api(

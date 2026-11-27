@@ -1303,6 +1303,12 @@ impl Store {
         Ok(())
     }
 
+    /// Pause or resume a job without deleting it. A paused job is not due.
+    /// Resume leaves its next time as it was, so an overdue job can run again.
+    pub fn set_schedule_enabled(&self, id: i64, enabled: bool) -> Result<bool> {
+        Ok(self.db().execute("UPDATE schedules SET enabled=? WHERE id=?", params![enabled as i64, id])? > 0)
+    }
+
     pub fn record_schedule_run(&self, id: i64, result: &str, tokens: u64) -> Result<()> {
         self.db().execute("UPDATE schedules SET last_result=?, last_tokens=?, last_run=? WHERE id=?", params![result, tokens as i64, now_ts(), id])?;
         Ok(())
@@ -2036,6 +2042,11 @@ mod tests {
         s.advance_schedule(sc, None).unwrap();
         assert!(s.due_schedules(i64::MAX).unwrap().is_empty());
         assert!(!s.list_schedules().unwrap()[0].enabled);
+        assert!(s.set_schedule_enabled(sc, true).unwrap());
+        assert!(s.list_schedules().unwrap()[0].enabled);
+        assert!(s.set_schedule_enabled(sc, false).unwrap());
+        assert!(s.due_schedules(i64::MAX).unwrap().is_empty(), "a paused job is not due");
+        assert!(!s.set_schedule_enabled(sc + 99, true).unwrap());
 
         let first = s.save_checkpoint("s", "/a", Some(b"old"), Some("abc")).unwrap();
         assert_eq!(s.last_checkpoint("s").unwrap(), Some((first, "/a".into(), Some(b"old".to_vec()), Some("abc".into()))));

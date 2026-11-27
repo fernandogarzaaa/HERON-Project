@@ -235,6 +235,7 @@ export component MainWindow inherits Window {
     in-out property <string> reminders-last-run-title: "";
     callback reminders-add-schedule(string, string, string, bool);
     callback reminders-cancel-schedule(int);
+    callback reminders-set-schedule-enabled(int, bool);
     callback reminders-run-schedule-now(int);
     callback reminders-set-schedule-may(int, string);
     callback reminders-show-last-run(int);
@@ -727,6 +728,7 @@ export component MainWindow inherits Window {
                     last-run-title: root.reminders-last-run-title;
                     add-schedule(a0, a1, a2, a3) => { root.reminders-add-schedule(a0, a1, a2, a3); }
                     cancel-schedule(a0) => { root.reminders-cancel-schedule(a0); }
+                    set-schedule-enabled(a0, a1) => { root.reminders-set-schedule-enabled(a0, a1); }
                     run-schedule-now(a0) => { root.reminders-run-schedule-now(a0); }
                     set-schedule-may(a0, a1) => { root.reminders-set-schedule-may(a0, a1); }
                     show-last-run(a0) => { root.reminders-show-last-run(a0); }

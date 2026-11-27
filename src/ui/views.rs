@@ -697,6 +697,9 @@ pub fn schedule_meta(item: &ScheduleItem) -> String {
     } else {
         cron_text(&item.cron)
     };
+    if !item.enabled {
+        meta.insert_str(0, "Paused. ");
+    }
     meta.push_str(&format!(" — {}", may_text(&item.allow)));
     if item.quiet {
         meta.push_str(", speaks up only when needed");
@@ -798,6 +801,7 @@ pub trait ViewsBridge: Send + Sync {
         quiet: bool,
     ) -> BridgeResult<i64>;
     async fn set_schedule_may(&self, id: i64, may: &str) -> BridgeResult<()>;
+    async fn set_schedule_enabled(&self, id: i64, enabled: bool) -> BridgeResult<()>;
     async fn run_schedule_now(&self, id: i64) -> BridgeResult<()>;
     async fn schedule_runs(&self, id: i64) -> BridgeResult<Vec<ScheduleRun>>;
     async fn delete_schedule(&self, id: i64) -> BridgeResult<()>;
@@ -841,7 +845,7 @@ pub struct ViewsState {
     pub memories: Vec<MemoryItem>,
     pub memory_query: String,
     pub tasks: Vec<TaskItem>,
-    /// Only enabled schedules, as the Reminders view shows them.
+    /// Every schedule, including paused ones. A paused job stays in the list.
     pub schedules: Vec<ScheduleItem>,
     pub inbox: Vec<InboxItem>,
     pub awareness: Option<Awareness>,
@@ -900,8 +904,12 @@ impl ViewsState {
     }
 
     pub async fn refresh_reminders(&mut self, bridge: &dyn ViewsBridge) -> BridgeResult<()> {
-        let all = bridge.list_schedules().await?;
-        self.schedules = all.into_iter().filter(|s| s.enabled).collect();
+        self.schedules = bridge
+            .list_schedules()
+            .await?
+            .into_iter()
+            .filter(|s| s.enabled || s.next_run.is_some() || s.trigger.is_some())
+            .collect();
         self.inbox = bridge.get_inbox().await?;
         Ok(())
     }
@@ -1196,6 +1204,9 @@ mod tests {
             schedule_meta(&s),
             "Every day at 8:00 AM. Next: Nov 14, 8:00 AM — read only. Last ran Nov 13, 8:00 AM, used 1240 tokens"
         );
+        let mut paused = s.clone();
+        paused.enabled = false;
+        assert!(schedule_meta(&paused).starts_with("Paused. "));
         assert_eq!(schedule_title(&s), "Brief me");
         assert_eq!(schedule_kind_tag(&s), None);
     }
