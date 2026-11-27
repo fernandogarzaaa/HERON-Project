@@ -645,7 +645,7 @@ pub fn unconfirmed_origin_label(source: &str) -> &'static str {
 /// The meta line under a memory row. Mirrors `loadMemory` exactly,
 /// including the "not used in over a month" rule.
 pub fn memory_meta(item: &MemoryItem, now_ts: i64) -> String {
-    if item.confirmed {
+    let mut meta = if item.confirmed {
         let mut meta = format!(
             "{}, {}",
             confirmed_source_label(&item.source),
@@ -660,7 +660,16 @@ pub fn memory_meta(item: &MemoryItem, now_ts: i64) -> String {
             "Picked up from {}, not confirmed by you. Heron treats it as possibly wrong.",
             unconfirmed_origin_label(&item.source)
         )
+    };
+    // Search results carry a score. The list of all memories does not.
+    if let Some(score) = item.score {
+        meta.push_str(if score >= 0.75 {
+            ". Recalled because it was close to your search"
+        } else {
+            ". Recalled as a loose match for your search"
+        });
     }
+    meta
 }
 
 /// The meta line under a task row: owner badge, due date, notes, joined
@@ -1155,6 +1164,10 @@ mod tests {
         m.confirmed = false;
         m.source = "email".to_string();
         assert!(memory_meta(&m, now).starts_with("Picked up from your email"));
+        m.score = Some(0.9);
+        assert!(memory_meta(&m, now).ends_with("close to your search"));
+        m.score = Some(0.4);
+        assert!(memory_meta(&m, now).ends_with("a loose match for your search"));
     }
 
     #[test]
