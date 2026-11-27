@@ -26,6 +26,7 @@ import { UsageView } from "views/usage.slint";
 import { OnboardingView } from "views/onboarding.slint";
 import { SettingsView, ToolItem, McpLine, ConnectorLine } from "views/settings.slint";
 import { SourceItem } from "components/source_card.slint";
+import { CommandPalette } from "components/command_palette.slint";
 import { SessionRow, MemoryRow, TaskRow, ScheduleRow, RunStepRow, InboxRow, SuggestionRow, SimpleRow, AuditRow, UsageDayRow, ModelRow } from "views/common.slint";
 
 // About dialog. A separate exported Dialog component: a Dialog nested in
@@ -437,6 +438,9 @@ export component MainWindow inherits Window {
     callback open-settings();
     // Opens the About dialog (a separate native window, shown from Rust).
     callback show-about();
+    // Ctrl+K / Cmd+K. The shell captures the shortcut so it works
+    // whichever view has focus. Rust can open it in a headless frame.
+    in-out property <bool> palette-open: false;
     // Programmatic copy: the shell has no Slint copy API, so Rust copies
     // through the arboard crate (see the bridge contract).
     callback copy-requested(string);
@@ -447,6 +451,10 @@ export component MainWindow inherits Window {
             MenuItem {
                 title: "New conversation";
                 activated => { root.new-session(); }
+            }
+            MenuItem {
+                title: "Go to…";
+                activated => { root.palette-open = true; }
             }
         }
         // Do not advertise an inert Edit > Copy command. The old menu
@@ -561,6 +569,7 @@ export component MainWindow inherits Window {
                     open-link(url) => { root.open-link(url); }
                     open-settings => { root.open-settings(); }
                     new-session => { root.new-session(); }
+                    open-palette => { root.palette-open = true; }
                     continue-turn => { root.continue-turn(); }
                     use-starter(s) => { root.use-starter(s); }
                     try-demo => { root.try-demo(); }
@@ -909,13 +918,27 @@ export component MainWindow inherits Window {
                     busy: root.busy;
                     hint: root.busy
                         ? "Heron is working. Press Esc or Stop to halt it."
-                        : "Enter to send, Shift+Enter for a new line";
+                        : "Enter to send, Shift+Enter for a new line, Ctrl+K to go somewhere";
                     reduce-motion: root.reduce-motion;
                     send-message(t) => { root.send-message(t); }
                     cancel-reply => { root.cancel-reply(); }
                     new-session => { root.new-session(); }
+                    open-palette => { root.palette-open = true; }
                 }
             }
         }
+    }
+
+    palette := CommandPalette {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        open <=> root.palette-open;
+        sessions: root.sidebar-sessions;
+        reduce-motion: root.reduce-motion;
+        go(view) => { root.sidebar-navigate(view); }
+        new-conversation => { root.sidebar-new-conversation(); }
+        open-session(id) => { root.sidebar-open-session(id); }
     }
 }

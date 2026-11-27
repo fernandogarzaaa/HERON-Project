@@ -6,7 +6,7 @@
 
 A personal AI agent that runs on your own Mac, with a full command-line interface. Written in Rust. macOS is the only qualified platform for the research preview. Windows and Linux builds still exist, but they are unqualified: the preview's security checks, risk notice and task tests cover macOS only.
 
-![Heron asking permission before writing a file](docs/screenshots/conversation-approval.png)
+![Heron asking permission before writing a file](docs/screenshots/mac-approval.png)
 
 Heron reads and writes files, runs commands, searches and reads the web, keeps long-term memory about you, manages your tasks, and runs reminders and recurring jobs on a schedule — with every action gated by a permission system and recorded in an audit log.
 
@@ -44,11 +44,17 @@ Heron reads and writes files, runs commands, searches and reads the web, keeps l
 
 ## Install
 
-Heron v1 is a research preview, qualified on macOS only. For a first install on a Mac, follow [Getting started on a Mac](docs/getting-started-mac.md): it takes you from installing a CLI to a first reply. Downloads are on the [releases page](https://github.com/fernandogarzaaa/HERON-Project/releases). The one-line installers below are still pinned to v0.3.1, the last beta, so they install that beta, not the preview. The installers check the download against the published checksums before installing anything.
+Heron v1 is a research preview, qualified on macOS only. **No v1 release has been published yet.** The preview ships after the owner's 14-day trial (G9) and the [release checklist](docs/release-checklist.md). Until then, build it from source as shown below, then follow [Getting started on a Mac](docs/getting-started-mac.md): it takes you from installing a CLI to a first reply. The [releases page](https://github.com/fernandogarzaaa/HERON-Project/releases) and the one-line installers below still carry v0.3.1, the last beta, not the preview. The installers check the download against the published checksums before installing anything.
 
 **macOS** (Apple silicon and Intel, macOS 14 or later; the qualified platform)
 
-Download `Heron-macos-universal.dmg`, open it, and drag Heron onto Applications. The preview build is signed and notarized, so it opens with a normal double-click.
+To build the preview yourself (needs Rust and Xcode 15.3 or later), run this from the repository root, then drag `dist/Heron.app` onto Applications:
+
+```bash
+./packaging/macos/build-app.sh --unsigned
+```
+
+That build has an ad-hoc signature, not a notarized one, so macOS may ask you to allow it the first time, under System Settings › Privacy & Security. When the preview is released, its `Heron-macos-universal.dmg` will be signed and notarized and open with a normal double-click.
 
 The v0.3.1 one-line installer:
 

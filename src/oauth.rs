@@ -188,22 +188,90 @@ pub async fn finish(cfg: &Config, pending: Pending, code: &str) -> Result<()> {
 
 /// Who signed in, from the ID token the token endpoint returned over TLS (OpenID Connect Core
 /// 3.1.3.7 allows skipping the signature check then). It must have been issued to this app.
-fn account_subject(client_id: &str, token: &Value) -> Result<String> {
+fn account_subject(provider: Provider, client_id: &str, token: &Value) -> Result<String> {
     let unreadable = || anyhow!("The provider did not say which account signed in. Connect again.");
     let payload = token.get("id_token").and_then(Value::as_str)
         .and_then(|jwt| jwt.split('.').nth(1)).ok_or_else(unreadable)?;
     let bytes = URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).map_err(|_| unreadable())?;
     let claims: Value = serde_json::from_slice(&bytes).map_err(|_| unreadable())?;
-    let for_us = match &claims["aud"] {
-        Value::String(aud) => aud == client_id,
-        Value::Array(auds) => auds.iter().any(|aud| aud == client_id),
+
+    // The token endpoint is reached over authenticated TLS, which lets this
+    // public client rely on TLS for issuer authentication instead of fetching
+    // signing keys. OIDC still requires validating the issuer, audience and
+    // expiration claims before using the subject to bind a stored account.
+    let issuer = claims.get("iss").and_then(Value::as_str).unwrap_or_default();
+    let issuer_valid = match provider {
+        Provider::Google => matches!(issuer, "https://accounts.google.com" | "accounts.google.com"),
+        Provider::Microsoft => {
+            let tenant = claims.get("tid").and_then(Value::as_str).unwrap_or_default();
+            let parsed = Url::parse(issuer);
+            let segments = parsed.as_ref().ok()
+                .and_then(Url::path_segments)
+                .map(|parts| parts.collect::<Vec<_>>())
+                .unwrap_or_default();
+            uuid::Uuid::parse_str(tenant).is_ok()
+                && parsed.as_ref().is_ok_and(|url| {
+                    url.scheme() == "https"
+                        && url.host_str() == Some("login.microsoftonline.com")
+                        && url.port().is_none()
+                        && url.username().is_empty()
+                        && url.password().is_none()
+                        && url.query().is_none()
+                        && url.fragment().is_none()
+                })
+                && segments.len() == 2
+                && segments[0].eq_ignore_ascii_case(tenant)
+                && segments[1] == "v2.0"
+        }
+    };
+    if !issuer_valid {
+        bail!("The provider returned an ID token from an unexpected issuer. Connect again.");
+    }
+
+    let for_us = match claims.get("aud") {
+        Some(Value::String(aud)) => aud == client_id,
+        // This client trusts no additional audience. Reject multi-audience
+        // tokens rather than accepting an untrusted audience beside our ID.
+        Some(Value::Array(auds)) => auds.len() == 1 && auds[0].as_str() == Some(client_id),
         _ => false,
     };
-    if !for_us {
+    if !for_us || claims.get("azp").is_some_and(|azp| azp.as_str() != Some(client_id)) {
         bail!("This sign-in was issued to a different app. Connect again.");
     }
-    claims["sub"].as_str().filter(|sub| !sub.is_empty() && sub.len() <= 255)
-        .map(str::to_string).ok_or_else(unreadable)
+
+    let now = Utc::now().timestamp();
+    let exp = claims.get("exp").and_then(Value::as_i64).ok_or_else(unreadable)?;
+    let iat = claims.get("iat").and_then(Value::as_i64).ok_or_else(unreadable)?;
+    let nbf = claims.get("nbf")
+        .map(|value| value.as_i64().ok_or_else(unreadable))
+        .transpose()?;
+    if exp <= now
+        || exp <= iat
+        || iat > now.saturating_add(300)
+        || nbf.is_some_and(|not_before| not_before > now.saturating_add(60) || not_before >= exp)
+    {
+        bail!("The provider returned an expired, not-yet-valid, or invalid ID token. Connect again.");
+    }
+
+    let subject = claims["sub"].as_str()
+        .filter(|sub| !sub.is_empty() && sub.len() <= 255)
+        .ok_or_else(unreadable)?;
+    match provider {
+        // Google's issuer is global and stable; preserve existing Google
+        // subject keys so existing Google connections do not need migration.
+        Provider::Google => Ok(subject.to_string()),
+        // Microsoft uses tenant-specific issuers. OIDC sub is only unique
+        // within its issuer, so persist the validated issuer with the subject.
+        Provider::Microsoft => {
+            let tenant = claims.get("tid").and_then(Value::as_str).ok_or_else(unreadable)?;
+            let tenant = uuid::Uuid::parse_str(tenant).map_err(|_| unreadable())?;
+            Ok(format!(
+                "heron-oidc-v1:https://login.microsoftonline.com/{}/v2.0:{}",
+                tenant,
+                subject
+            ))
+        }
+    }
 }
 
 /// The address to show for the connected account (not secret): the ID token's `email`, or Microsoft's
@@ -231,6 +299,8 @@ fn admit(connected: bool, stored_subject: Option<&str>, subject: &str) -> Result
     match (connected, stored_subject) {
         (false, _) => Ok(Admit::Fresh),
         (true, Some(stored)) if stored == subject => Ok(Admit::SameAccount),
+        (true, Some(stored)) if subject.starts_with("heron-oidc-v1:") && !stored.starts_with("heron-oidc-v1:") =>
+            bail!("This Microsoft connection has a legacy tenant-unqualified identity. Disconnect it first, then reconnect; Heron cannot safely infer its original tenant."),
         (true, Some(_)) => bail!("You signed in with a different account from the one connected. Sign in with that account, or disconnect it first."),
         (true, None) => bail!("This connection was made before Heron recorded which account it belongs to. Disconnect it, then connect again."),
     }
@@ -255,7 +325,7 @@ fn install(cfg: &Config, provider: Provider, client_id: &str, token: &Value) -> 
     let refresh = token.get("refresh_token").and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| anyhow!("No offline access was granted. Remove the existing app consent and connect again."))?;
-    let subject = account_subject(client_id, token)?;
+    let subject = account_subject(provider, client_id, token)?;
     // Store the nonsecret client ID too so token refresh still works after an app restart.
     // The refresh token is not sent to the desktop frontend or an agent tool.
     // A different account needs an explicit Disconnect first. Holding
@@ -547,19 +617,116 @@ mod tests {
         format!("e30.{}.signature", URL_SAFE_NO_PAD.encode(claims.to_string()))
     }
 
-    #[test]
-    fn the_signed_in_account_comes_from_an_id_token_issued_to_this_app() {
-        let token = |claims| serde_json::json!({"id_token": id_token(claims)});
-        use serde_json::json;
-        assert_eq!(account_subject("app", &token(json!({"aud": "app", "sub": "user-1"}))).unwrap(), "user-1");
-        assert_eq!(account_subject("app", &token(json!({"aud": ["other", "app"], "sub": "user-1"}))).unwrap(), "user-1");
-        assert!(account_subject("app", &token(json!({"aud": "other", "sub": "user-1"}))).unwrap_err().to_string().contains("different app"));
-        assert!(account_subject("app", &token(json!({"aud": ["other"], "sub": "user-1"}))).is_err());
-        let long = "x".repeat(256);
-        for bad in [json!({}), json!({"id_token": "no-dots"}), json!({"id_token": "a.!!!.c"}), json!({"id_token": "a.bm90LWpzb24.c"}),
-                    token(json!({"aud": "app"})), token(json!({"aud": "app", "sub": ""})), token(json!({"aud": "app", "sub": long}))] {
-            assert!(account_subject("app", &bad).is_err(), "{bad}");
+    fn valid_claims(provider: Provider, client_id: &str, subject: &str) -> Value {
+        let now = Utc::now().timestamp();
+        let mut claims = serde_json::json!({
+            "aud": client_id,
+            "sub": subject,
+            "iat": now,
+            "exp": now + 3600
+        });
+        match provider {
+            Provider::Google => claims["iss"] = serde_json::json!("https://accounts.google.com"),
+            Provider::Microsoft => {
+                let tenant = "11111111-2222-3333-4444-555555555555";
+                claims["tid"] = serde_json::json!(tenant);
+                claims["iss"] = serde_json::json!(format!("https://login.microsoftonline.com/{tenant}/v2.0"));
+            }
         }
+        claims
+    }
+
+    #[test]
+    fn the_signed_in_account_comes_from_a_valid_provider_id_token() {
+        let token = |claims| serde_json::json!({"id_token": id_token(claims)});
+        assert_eq!(
+            account_subject(Provider::Google, "app", &token(valid_claims(Provider::Google, "app", "user-1"))).unwrap(),
+            "user-1"
+        );
+        assert_eq!(
+            account_subject(Provider::Microsoft, "app", &token(valid_claims(Provider::Microsoft, "app", "user-2"))).unwrap(),
+            "heron-oidc-v1:https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0:user-2"
+        );
+
+        let mut wrong_issuer = valid_claims(Provider::Google, "app", "user-1");
+        wrong_issuer["iss"] = serde_json::json!("https://attacker.example");
+        assert!(account_subject(Provider::Google, "app", &token(wrong_issuer)).unwrap_err().to_string().contains("issuer"));
+
+        let mut expired = valid_claims(Provider::Google, "app", "user-1");
+        expired["exp"] = serde_json::json!(Utc::now().timestamp() - 1);
+        assert!(account_subject(Provider::Google, "app", &token(expired)).unwrap_err().to_string().contains("expired"));
+
+        let mut wrong_tenant = valid_claims(Provider::Microsoft, "app", "user-1");
+        wrong_tenant["iss"] = serde_json::json!("https://login.microsoftonline.com/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/v2.0");
+        assert!(account_subject(Provider::Microsoft, "app", &token(wrong_tenant)).unwrap_err().to_string().contains("issuer"));
+
+        let mut multiple_audiences = valid_claims(Provider::Google, "app", "user-1");
+        multiple_audiences["aud"] = serde_json::json!(["other", "app"]);
+        assert!(account_subject(Provider::Google, "app", &token(multiple_audiences)).is_err());
+
+        let mut wrong_azp = valid_claims(Provider::Google, "app", "user-1");
+        wrong_azp["azp"] = serde_json::json!("other-app");
+        assert!(account_subject(Provider::Google, "app", &token(wrong_azp)).is_err());
+
+        let mut future_issued = valid_claims(Provider::Google, "app", "user-1");
+        future_issued["iat"] = serde_json::json!(Utc::now().timestamp() + 301);
+        assert!(account_subject(Provider::Google, "app", &token(future_issued)).is_err());
+
+        let mut not_yet_valid = valid_claims(Provider::Microsoft, "app", "user-2");
+        not_yet_valid["nbf"] = serde_json::json!(Utc::now().timestamp() + 61);
+        assert!(account_subject(Provider::Microsoft, "app", &token(not_yet_valid))
+            .unwrap_err().to_string().contains("not-yet-valid"));
+
+        let mut malformed_not_before = valid_claims(Provider::Microsoft, "app", "user-2");
+        malformed_not_before["nbf"] = serde_json::json!("tomorrow");
+        assert!(account_subject(Provider::Microsoft, "app", &token(malformed_not_before)).is_err());
+
+        let mut valid_not_before = valid_claims(Provider::Microsoft, "app", "user-2");
+        valid_not_before["nbf"] = serde_json::json!(Utc::now().timestamp() - 1);
+        assert_eq!(
+            account_subject(Provider::Microsoft, "app", &token(valid_not_before)).unwrap(),
+            "heron-oidc-v1:https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0:user-2"
+        );
+
+        let long = "x".repeat(256);
+        for bad in [
+            serde_json::json!({}),
+            serde_json::json!({"id_token": "no-dots"}),
+            serde_json::json!({"id_token": "a.!!!.c"}),
+            serde_json::json!({"id_token": "a.bm90LWpzb24.c"}),
+            token(valid_claims(Provider::Google, "other", "user-1")),
+            token(valid_claims(Provider::Google, "app", "")),
+            token(valid_claims(Provider::Google, "app", &long)),
+        ] {
+            assert!(account_subject(Provider::Google, "app", &bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn microsoft_account_identity_is_qualified_by_tenant_issuer() {
+        let token = |claims| serde_json::json!({"id_token": id_token(claims)});
+        let first = account_subject(
+            Provider::Microsoft,
+            "app",
+            &token(valid_claims(Provider::Microsoft, "app", "same-subject")),
+        ).unwrap();
+
+        let mut other_tenant = valid_claims(Provider::Microsoft, "app", "same-subject");
+        other_tenant["tid"] = serde_json::json!("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        other_tenant["iss"] = serde_json::json!(
+            "https://login.microsoftonline.com/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/v2.0"
+        );
+        let second = account_subject(Provider::Microsoft, "app", &token(other_tenant)).unwrap();
+
+        assert_ne!(first, second, "the same sub from different tenant issuers is a different account");
+        assert!(admit(true, Some(&first), &second).is_err());
+        assert!(
+            admit(true, Some("same-subject"), &second)
+                .unwrap_err()
+                .to_string()
+                .contains("legacy tenant-unqualified identity"),
+            "legacy bare-subject records must require an explicit disconnect"
+        );
     }
 
     #[test]
@@ -599,7 +766,7 @@ mod tests {
         }).to_string()).unwrap();
         let app = App::assemble(cfg, dir.path().join("ws"), crate::store::Store::in_memory().unwrap(), std::sync::Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
         let p = Provider::Google;
-        let token = json!({"scope": p.scopes(), "refresh_token": "new-refresh", "id_token": id_token(json!({"aud": "new-cid", "sub": "user-1"}))});
+        let token = json!({"scope": p.scopes(), "refresh_token": "new-refresh", "id_token": id_token(valid_claims(p, "new-cid", "user-1"))});
         assert!(install(&app.cfg(), p, "new-cid", &token).is_err());
         let cfg = app.cfg();
         assert_eq!(cfg.secret("oauth_google_client_id").as_deref(), Some("old-cid"));
@@ -618,7 +785,7 @@ mod tests {
         let cfg = Config { home: dir.path().join("oauth-vault-qualification"), ..Default::default() };
         let app = App::assemble(cfg, dir.path().join("ws"), crate::store::Store::in_memory().unwrap(), std::sync::Arc::new(ScriptedLlm::new(vec![]))).await.unwrap();
         let p = Provider::Google;
-        let token = |refresh: &str, sub: &str| json!({"scope": p.scopes(), "refresh_token": refresh, "id_token": id_token(json!({"aud": "cid", "sub": sub}))});
+        let token = |refresh: &str, sub: &str| json!({"scope": p.scopes(), "refresh_token": refresh, "id_token": id_token(valid_claims(p, "cid", sub))});
         install(&app.cfg(), p, "cid", &token("first-refresh", "user-1")).unwrap();
         let epoch = p.account_epoch(&app.cfg()).unwrap();
         app.store.replace_knowledge_snapshot(p.mail_source(), &[("m1".into(), "Invoice".into(), "Due Friday".into(), 1)]).unwrap();

@@ -1,0 +1,170 @@
+// Go to a place or a recent conversation. Ctrl+K or Cmd+K opens it.
+// The first match is what Enter runs. Gold is not used here: this is
+// navigation, not "waiting for you".
+
+import { Theme } from "theme.slint";
+import { SessionRow } from "../views/common.slint";
+
+component PaletteRow inherits Rectangle {
+    in property <string> title;
+    in property <string> hint;
+    in property <bool> mark;
+    in property <bool> shown: true;
+    in property <bool> reduce-motion: false;
+    callback clicked();
+    visible: shown;
+    height: shown ? 32px : 0px;
+    border-radius: 8px;
+    background: mark ? Theme.slate-soft : (touch.has-hover ? Theme.hover : transparent);
+    animate background { duration: reduce-motion ? 0ms : 120ms; easing: ease-out; }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+        alignment: center;
+        Text { text: title; font-size: 14px; color: Theme.ink; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+        Text { text: hint; font-size: 12px; color: Theme.muted; vertical-alignment: center; }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+export component CommandPalette inherits Rectangle {
+    in-out property <bool> open: false;
+    in property <[SessionRow]> sessions;
+    in property <bool> reduce-motion: false;
+    callback go(string);
+    callback new-conversation();
+    callback open-session(string);
+
+    in-out property <string> query: "";
+    property <string> active: "new";
+    property <float> reveal: 0;
+    property <bool> shown: open || reveal > 0.02;
+
+    forward-focus: field;
+    visible: shown;
+
+    animate reveal { duration: reduce-motion ? 0ms : 180ms; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+    function hit(title: string, alias: string) -> bool {
+        if (query == "") { return true; }
+        if (title.to-lowercase().starts-with(query.to-lowercase())) { return true; }
+        alias != "" && alias.to-lowercase().starts-with(query.to-lowercase())
+    }
+
+    // The sidebar keeps recent conversations in order. The first eight
+    // are enough for a keyboard jump; the rest stay in the sidebar.
+    function first-session() -> string {
+        if (sessions.length > 0 && hit(sessions[0].title, "")) { return sessions[0].id; }
+        if (sessions.length > 1 && hit(sessions[1].title, "")) { return sessions[1].id; }
+        if (sessions.length > 2 && hit(sessions[2].title, "")) { return sessions[2].id; }
+        if (sessions.length > 3 && hit(sessions[3].title, "")) { return sessions[3].id; }
+        if (sessions.length > 4 && hit(sessions[4].title, "")) { return sessions[4].id; }
+        if (sessions.length > 5 && hit(sessions[5].title, "")) { return sessions[5].id; }
+        if (sessions.length > 6 && hit(sessions[6].title, "")) { return sessions[6].id; }
+        if (sessions.length > 7 && hit(sessions[7].title, "")) { return sessions[7].id; }
+        ""
+    }
+
+    function choose() {
+        if (hit("New conversation", "new")) { active = "new"; return; }
+        if (hit("Conversation", "chat")) { active = "chat"; return; }
+        if (hit("Getting to know you", "onboarding")) { active = "onboarding"; return; }
+        if (hit("Awareness", "awareness")) { active = "awareness"; return; }
+        if (hit("Memory", "memory")) { active = "memory"; return; }
+        if (hit("Tasks", "tasks")) { active = "tasks"; return; }
+        if (hit("Reminders", "reminders")) { active = "reminders"; return; }
+        if (hit("Usage", "usage")) { active = "usage"; return; }
+        if (hit("Activity log", "activity")) { active = "activity"; return; }
+        if (hit("Settings", "settings")) { active = "settings"; return; }
+        active = first-session();
+    }
+
+    function activate() {
+        if (active == "new") { new-conversation(); }
+        else if (active == "chat" || active == "onboarding" || active == "awareness" || active == "memory" || active == "tasks" || active == "reminders" || active == "usage" || active == "activity" || active == "settings") { go(active); }
+        else if (active != "") { open-session(active); }
+        open = false;
+    }
+
+    changed open => {
+        if (open) {
+            query = "";
+            reveal = 1;
+            choose();
+            field.focus();
+        } else {
+            reveal = 0;
+        }
+    }
+    changed query => { choose(); }
+
+    scrim := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: Theme.ink;
+        opacity: 0.28 * reveal;
+        TouchArea { clicked => { root.open = false; } }
+    }
+
+    card := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 64px + (1 - reveal) * 10px;
+        width: min(440px, parent.width - 48px);
+        height: self.preferred-height;
+        background: Theme.raised;
+        border-color: Theme.border-strong;
+        border-width: 1px;
+        border-radius: 12px;
+        opacity: reveal;
+        drop-shadow-blur: reduce-motion ? 0px : 18px;
+        drop-shadow-color: #00000033;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            field := TextInput {
+                width: parent.width;
+                height: 28px;
+                single-line: true;
+                font-size: 16px;
+                color: Theme.ink;
+                text <=> root.query;
+                key-pressed(event) => {
+                    if (event.text == Key.Escape || (event.text == "k" && (event.modifiers.control || event.modifiers.meta))) {
+                        root.open = false;
+                        accept
+                    } else if ((event.text == Key.Return || event.text == "\n") && !event.repeat) {
+                        root.choose();
+                        root.activate();
+                        accept
+                    } else {
+                        reject
+                    }
+                }
+            }
+            Text {
+                text: query == "" ? "Places and recent conversations" : "Enter opens the first match";
+                font-size: 12px;
+                color: Theme.muted;
+            }
+            if hit("New conversation", "new"): PaletteRow { reduce-motion: root.reduce-motion; title: "New conversation"; hint: "Start fresh"; mark: active == "new"; clicked => { root.active = "new"; root.activate(); } }
+            if hit("Conversation", "chat"): PaletteRow { reduce-motion: root.reduce-motion; title: "Conversation"; hint: "Chat"; mark: active == "chat"; clicked => { root.active = "chat"; root.activate(); } }
+            if hit("Getting to know you", "onboarding"): PaletteRow { reduce-motion: root.reduce-motion; title: "Getting to know you"; hint: "Onboarding"; mark: active == "onboarding"; clicked => { root.active = "onboarding"; root.activate(); } }
+            if hit("Awareness", "awareness"): PaletteRow { reduce-motion: root.reduce-motion; title: "Awareness"; hint: "What Heron noticed"; mark: active == "awareness"; clicked => { root.active = "awareness"; root.activate(); } }
+            if hit("Memory", "memory"): PaletteRow { reduce-motion: root.reduce-motion; title: "Memory"; hint: "Facts Heron keeps"; mark: active == "memory"; clicked => { root.active = "memory"; root.activate(); } }
+            if hit("Tasks", "tasks"): PaletteRow { reduce-motion: root.reduce-motion; title: "Tasks"; hint: "Things to do"; mark: active == "tasks"; clicked => { root.active = "tasks"; root.activate(); } }
+            if hit("Reminders", "reminders"): PaletteRow { reduce-motion: root.reduce-motion; title: "Reminders"; hint: "Schedules"; mark: active == "reminders"; clicked => { root.active = "reminders"; root.activate(); } }
+            if hit("Usage", "usage"): PaletteRow { reduce-motion: root.reduce-motion; title: "Usage"; hint: "Tokens and limits"; mark: active == "usage"; clicked => { root.active = "usage"; root.activate(); } }
+            if hit("Activity log", "activity"): PaletteRow { reduce-motion: root.reduce-motion; title: "Activity log"; hint: "What was allowed"; mark: active == "activity"; clicked => { root.active = "activity"; root.activate(); } }
+            if hit("Settings", "settings"): PaletteRow { reduce-motion: root.reduce-motion; title: "Settings"; hint: "Appearance and access"; mark: active == "settings"; clicked => { root.active = "settings"; root.activate(); } }
+            for session in sessions: PaletteRow { reduce-motion: root.reduce-motion;
+                shown: root.hit(session.title, "");
+                title: session.title;
+                hint: "Conversation";
+                mark: active == session.id;
+                clicked => { root.active = session.id; root.activate(); }
+            }
+        }
+    }
+}

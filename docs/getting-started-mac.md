@@ -46,12 +46,19 @@ commands from the [Tier 1 table](cli-providers.md#tier-1-clis) instead.
 
 ## 2. Install Heron
 
-1. Download `Heron-macos-universal.dmg` from the
-   [releases page](https://github.com/fernandogarzaaa/HERON-Project/releases).
-2. Open the DMG and drag **Heron** onto **Applications**.
-3. Open Heron from Applications. The build is signed and notarized, so it
-   opens with a normal double-click. You don't need the right-click "Open"
-   workaround.
+No v1 release has been published yet, so build the app from source for now.
+You need Rust and Xcode 15.3 or later.
+
+1. From the repository root, run `./packaging/macos/build-app.sh --unsigned`.
+2. Drag `dist/Heron.app` onto **Applications**.
+3. Open Heron from Applications. This build has an ad-hoc signature, not a
+   notarized one, so the first time macOS may ask you to allow it under
+   System Settings › Privacy & Security.
+
+When the preview is released, you'll download `Heron-macos-universal.dmg`
+from the [releases page](https://github.com/fernandogarzaaa/HERON-Project/releases)
+instead. That build will be signed and notarized and open with a normal
+double-click.
 
 ## 3. Accept the risk notice
 
