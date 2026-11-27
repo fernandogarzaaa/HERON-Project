@@ -473,7 +473,7 @@ pub fn tools() -> Vec<FnTool> {
         },
         FnTool {
             name: "search_knowledge",
-            description: "Search what the user connected during onboarding: their email (recent inbox), calendar, and notes/documents. Read-only. Use it for questions like 'what did Maria say about Friday', 'when is my dentist appointment', or 'find my notes on the Acme project'.",
+            description: "Search what the user connected in Settings › Connections: their email (recent inbox), calendar, and notes/documents. Read-only. Use it for questions like 'what did Maria say about Friday', 'when is my dentist appointment', or 'find my notes on the Acme project'.",
             parameters: schema(json!({"query": {"type": "string"}, "source": {"type": "string", "enum": ["all", "email", "calendar", "documents", "about", "computer"]}, "limit": {"type": "integer"}}), &["query"]),
             summary: |a| field("query")(a),
             risk: safe,

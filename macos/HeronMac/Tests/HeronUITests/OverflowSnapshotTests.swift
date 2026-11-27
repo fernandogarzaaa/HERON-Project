@@ -38,6 +38,22 @@ final class OverflowSnapshotTests: XCTestCase {
         try assertScrollingSnapshot(ChatView(model: model, expandSteps: true), name: "overflow-chat-tool-output-light", size: pageSize)
     }
 
+    /// A conversation whose reply the core restart cut off, with a new prompt typed: the box keeps its one-line
+    /// height, Send (not Stop) shows, and the transcript keeps the rest of the page.
+    func testAnUnfinishedConversationTakesANewPromptLight() async throws {
+        let client = PreviewCoreClient()
+        try await client.acceptRiskNotice(version: 3)
+        let model = AppModel(client: client, preferences: DisplayPreferences(defaults: UserDefaults(suiteName: "heron.tests.\(UUID().uuidString)")!), userFirstName: "Sam")
+        let stream = client.events(since: nil)
+        await model.chat.send("Draft a reply to Maria")
+        for await event in stream { model.chat.handle(event); if case .approval = event.kind { break } }
+        client.simulateCoreRestart()
+        model.chat.coreWentAway()
+        model.chat.composer = "Try that again"
+        XCTAssertTrue(model.chat.canSend)
+        try assertScrollingSnapshot(ChatView(model: model), name: "chat-unfinished-new-prompt-light", size: pageSize)
+    }
+
     // MARK: Risk notice
 
     func testLongRiskListScrollsInsideTheBoxAndTheFooterStaysVisibleLight() throws {
