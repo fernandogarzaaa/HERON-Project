@@ -394,7 +394,7 @@ Heron behaves exactly as today until the owner makes a second agent.
 | `browser` | `browser_*` |
 | `skills` | `use_skill`, limited to the profile's `skills` list |
 | `delegate` | `delegate` |
-| `admin` | `save_automation`, `update_persona`, `save_skill`, `propose_agent`, `run_shortcut`. **Default agent only in P1** |
+| `admin` | `save_automation`, `update_persona`, `save_skill`; F5's `run_shortcut` joins when F5 merges. **Default agent only in P1** |
 
 MCP servers are named one by one in `mcp`. A new agent made in the Agents screen starts with `web` and `memory`, `mode_ceiling = ask` and `memory_scope = shared` (PQ6).
 
@@ -405,10 +405,11 @@ MCP servers are named one by one in `mcp`. A new agent made in the Agents screen
 For every turn, `agents::effective_scope(global_mode, agent, surface) -> Scope` computes one `Scope`. It is a pure function in `src/agents/scope.rs`, so it can be tested without a model.
 
 *   **Tools:** the agent's set, intersected with the registry. Global "nevers" still deny at step 2 of `decide`, unchanged.
-*   **Mode:** the lowest of the global mode and the agent's ceiling. Channel ceilings come in the P2 delta.
+*   **Mode:** the lowest of the global mode, the agent's ceiling and, for voice, `ask`.
 *   **The voice flag.** A mode ceiling alone doesn't make everything ask: standing allow rules apply in every mode (`permissions.rs:416`), untainted web egress is allowed even in `readonly` (`:433`), and local state writes run unasked in `ask` (`:437`). Step 6 of `decide` (`:395`) already asks for every call that changes something or sends something out (`mutates() || sends_out()`), in every mode, before the allow rules. So a voice turn sets one `Scope` flag, `heard: bool`, which `decide` treats like `tainted` at step 6, and which `may_grant_for_conversation` treats as "no conversation grants at all". It does not mark the session tainted, so a typed turn afterwards runs as usual. A voice turn therefore shows a card for every change and every send, and plain reads still run.
-*   **Surface ceilings** stay for the P2 channels. In P1 the only surface rule is the `heard` flag.
-*   **Rules:** the agent's own never and ask rules, from `agents::agent_rules(agent)`, are added to the turn's `Policy` when it is built ([§2](#2-action-rules)).
+*   **The voice surface also caps the mode at `ask`.** The `heard` flag covers changes and sends; the cap also makes an outside read ask in `yolo` (`permissions.rs:428-433`). Ceilings for channels come in the P2 delta.
+*   **How a turn's policy is built.** A default-agent turn that isn't a voice turn keeps today's shared live `Arc<Policy>` (`app.rs:1212-1226`), unchanged. Any other turn gets the same live policy plus an `Overlay {scope, nevers, asks, ceiling, heard}`, and `decide_with(call, ctx, Some(&overlay))` applies it on top of the live rules at call time. No policy is copied, so mode changes, new rules and revocations reach a running turn as they do today, and **Always** still lands on the live policy (`agent.rs:654-656`).
+*   **Rules:** the agent's own never and ask rules, from `agents::agent_rules(agent)`, travel in the turn's `Overlay` ([§2](#2-action-rules)).
 *   **Memory:** the agent's memory scope.
 
 **A `delegate` child keeps its parent's `Scope`.** The child is a clone of the parent agent, so its `Policy`, tool filter, memory handle and `heard` flag are the parent's. No P1 code path builds a wider scope for a child.
@@ -419,7 +420,7 @@ For every turn, `agents::effective_scope(global_mode, agent, surface) -> Scope` 
 2.  `Policy::decide` gains step 2b, right after the never rules at step 2. A tool not in `scope.tools` returns `Verdict::Deny("<tool> is not one of <name>'s tools")`. This catches a model that names a tool it wasn't offered, and a workflow `tool` step that names an out-of-scope tool.
 3.  `delegate` never reaches `decide`: `execute_call` hands it to `Agent::delegate` first (`agent.rs:621-622`). So `execute_call` checks `scope.tools` for `delegate` before that hand-off, and refuses with the same message and an audit row.
 
-Mode is enforced by building the turn's `Policy` with the effective mode, the way jobs (`app.rs:1544-1551`) and proactive work (`app.rs:416-420`) already swap the policy for one run.
+Mode is enforced by the overlay's ceiling, read at each call against the live mode. Jobs (`app.rs:1549`) and proactive work (`app.rs:2034`) keep building their own policies, as today.
 
 #### 1.3 Addressing: how a message finds its agent
 
@@ -450,7 +451,7 @@ Mode is enforced by building the turn's `Policy` with the effective mode, the wa
 
 **The scope lives in the memory handle, not in each caller.**
 
-*   Each turn's `ToolCtx.memory` is a `Memory` bound to `(scope, agent id)` through `Memory::scoped(scope, id)`.
+*   Each turn's `ToolCtx.memory` is a `Memory` bound to its scope through `Memory::scoped(scope)`, where `MemoryScope` carries the agent id.
 *   Every memory query in `src/memory.rs` and `src/store.rs` takes that binding, so no path can be missed. That covers:
     *   the ranked search (FTS and vector), which also feeds the 12 relevant memories in the prompt (`agent.rs:380`);
     *   `core()`, `list` and `get`;
@@ -462,7 +463,7 @@ Mode is enforced by building the turn's `Policy` with the effective mode, the wa
 *   An id outside the readable pools behaves as if it doesn't exist.
 *   **Writes stay in the agent's write pool.** Updating, superseding and deleting touch only rows in the agent's write pool: the shared pool for a `shared` agent, its own pool for `own` and `private`. So an `own` agent reads shared memories but can't change or `forget` them. When it learns a fact that is a near-duplicate of a shared row, it saves nothing. When it learns one close to a row in another agent's pool, it can't see that row, so it adds a row to its own pool and leaves the other alone.
 *   **Scope `none`:** `recall` returns "Memory is off for <name>.", and `remember` and `forget` are refused with the same text.
-*   The store functions without a scope stay, for the Memory screen and the owner's API only. A test lists every call site of the unscoped functions and fails if a tool or the agent loop uses one.
+*   The owner's Memory screen and CLI use `Memory::owner()`, a handle with `PoolFilter::All`, so the owner's search still finds every pool. The test `pool_all_not_used_by_tools` fails if a tool or the agent loop uses `PoolFilter::All`.
 
 
 **Who moves memories between pools.** Only the owner, with the Memory screen's agent filter and **Move to shared**. The model never chooses the pool.
@@ -501,7 +502,7 @@ Skill trust for imports is an existing gap: bodies are trusted, and `declared_to
 *   **Approval cards name the agent.** `ApprovalRequest` gains `agent: {id, name}`, and the card's title is "Lux wants to …".
 *   **The audit row names the agent.** The `audit` table gains a nullable `agent` column, and new rows use hash version 3, which covers it, the way version 2 added `provider` and `cli_version` (`store.rs:1312-1321`). `verify_audit` checks each row with its own version's formula, as it does today. The `decision` values are unchanged, so the Slint view that maps them (`ui/views.rs:584`) keeps working. Rows with no agent hash `agent` as the empty string, length-prefixed after `cli_version` like the v2 fields (`store.rs:18-20`). A `delegate` row's `decision` is `delegated`.
 *   **Grants follow the thread.** With one agent per thread, today's key `grants:{session_id}` already belongs to one agent, and `sandbox::read_grants_from` (`sandbox.rs:500`) keeps reading it unchanged.
-*   **"Always" writes to the live policy.** When the default agent's card gets **Always**, the rule is added to the app's live policy (`app.policy`), not to the turn's copy, so it applies to every later turn. Never and ask rules added in Settings mid-turn apply from the turn's next model step, when the turn re-reads the live rules.
+*   **Rules changed mid-turn.** No turn holds a copy of the policy ([§1.2](#12-effective-scope)), so a never, ask or allow rule changed in Settings applies to the turn's next call.
 *   **"Always" only from the default agent.** "Always" adds a global allow rule (`agent.rs:650-664`), which would loosen every agent. So an approval card in another agent's turn offers **Allow once**, **Allow for this conversation** and **Deny**, never **Always**. This keeps PQ4: no agent's turn can loosen a rule.
 
 #### 1.8 Sharing (Grok-style bots): P3
@@ -562,7 +563,7 @@ The app reads both keys from `GET /api/features`.
     *   `409 name_taken`;
     *   `409 {"error":"default_agent"}` when `DELETE` targets `heron`.
 
-**Ask rules.** `GET /api/ask-rules`, `POST /api/ask-rules {rule}` and `DELETE /api/ask-rules {rule}`, built the way `GET/DELETE /api/nevers` is (`server.rs:205`, fixture `nevers.json`), with entries `{rule, tool, in_file}`. `POST` validates the glob as `tool_setting_matcher` does and returns `400 {"error":"bad_rule"}` for a bad one. `/api/nevers` stays as it is. An agent's own rules travel in its agent JSON.
+**Ask rules.** `GET /api/ask-rules`, `POST /api/ask-rules {rule}` and `DELETE /api/ask-rules {rule}`, built the way `GET/DELETE /api/nevers` is (`server.rs:205`, fixture `nevers.json`), with entries `{rule, tool, in_file}`. `POST` validates the glob with `compile_rule` (`permissions.rs:211`), as `add_deny` does, and returns `400 {"error":"bad_rule"}` for a bad one. `/api/nevers` stays as it is. An agent's own rules travel in its agent JSON.
 
 **Chat.**
 
@@ -590,19 +591,19 @@ Today the owner has modes, allow rules and "never" rules (deny rules, `permissio
 
 **P1 adds one verdict, `ask`, to the same store and the same matcher.** It adds no second rule system.
 
-*   **Storage.** `config.toml` gains `permissions.ask`, a list of globs beside `allow` and `deny` (`SavedRules`, `config.rs:34-36`). Losing an ask rule loosens Heron the way losing a never rule does, so ask rules copy the deny rules' last-good kv mirror in full: the mirror key, `heron doctor`'s repair, the refusal to start when the mirror is damaged, and the reconciliation when the config changes (`app.rs:354-366`, `:434-459`, `:491-495`, `:637-671`, `:747-760`, `:916-930`). Writes go through the existing `update_config` path (`app.rs:817-823`).
-*   **Every policy sees them.** Background runs build their own policies: jobs (`app.rs:1549`, `:1551`), proactive work (`:2034`) and social posting (`:3575`). Rather than change `Policy::new` at about 30 call sites, `decide` reads the global ask rules from the live policy, `ctx.store.live_policy()` (`permissions.rs:407`), which `app.rs:808` sets for every clone of the app's store. The turn's own policy holds only the agent's ask rules. The test `ask_rule_applies_in_job_and_proactive_runs` checks both paths. The same read makes a rule added in Settings apply to the next call in a running turn.
+*   **Storage.** `config.toml` gains `permissions.ask`, a list of globs beside `allow` and `deny` (`SavedRules`, `config.rs:34-36`). Losing an ask rule loosens Heron the way losing a never rule does, so ask rules copy the deny rules' last-good kv mirror in full. On `main` that is: `DENY_KEY` and its last-good key (`app.rs:354-366`), `members` (`:342-345`), `read_config_rules` (`:307`), the start refusal and repair (`:434-459`, `:491-495`, `:637-671`), `kept_damaged_nevers` and `KEPT_KV` (`:464-479`, `:508`), the mirror at start (`:747-760`), the write-back in `save_config_now` (`:858-867`), `nevers_now` and `lift_never_now` (`:1126`, `:1160`), the reconciliation in `take_config_rules_held` (`:1371-1457`, with `ConfigSeen`), `saved_nevers` and `change_saved_nevers` (`:916-930`), and `Config::read_saved` (`config.rs:509`). Each gets an `ask` twin. Writes go through the existing `update_config` path (`app.rs:817-823`).
+*   **Every policy sees them.** Background runs build their own policies: jobs (`app.rs:1549`, `:1551`) and proactive work (`:2034`). Rather than change `Policy::new` at about 30 call sites, the global ask rules live on the live policy as an `RwLock` list with `ask_rules`, `add_ask` and `remove_ask`, mirroring `deny` (`permissions.rs:177`, `:279-349`), and `decide` on any policy reads them from `ctx.store.live_policy()` (`permissions.rs:407`), which `app.rs:808` sets for every clone of the app's store. An agent's own ask rules travel in its overlay. The test `ask_rule_applies_in_job_and_proactive_runs` checks both paths. The same read makes a rule added in Settings apply to the next call in a running turn. Jobs (`app.rs:1549`, `:1551`) and proactive work (`:2034`) are the background policies; `app.rs:3575` is a test.
 *   **Matching.** It uses the existing glob on `tool:summary`. "Ask: `shell` when the command contains `git push`" is the rule `shell:*git push*`.
 *   **Where ask rules sit in `decide`:**
     *   When an ask rule matches, a new step after step 4 (Refused) returns `Verdict::Ask` in every mode, Yolo included.
     *   The call is also once only. `heron-v1-features.md` B2 adds `permissions::once_only(tool)` and wires it into the allow-rule step, `may_grant_for_conversation` (`agent.rs:155`), `can_always` and `set_tool_setting` (`heron-v1-features.md:1001`). P1 makes it a `Policy` method, `once_only(tool, summary)`, which is also true when an ask rule matches. So no conversation grant satisfies it (an earlier "allow `git *` for this conversation" doesn't cover `git push`).
-    *   **The card knows.** `ApprovalRequest` gains `once_only: bool`, set from that method, or when the turn is `heard` ([§1.2](#12-effective-scope)). `can_always()` (`permissions.rs:481-487`) returns false when `once_only` is set or the agent isn't `heron`. The server's `can_session` (`server.rs:489-490`), the terminal approver (`main.rs:177`) and Telegram's (`telegram.rs:1105`) also check `once_only`. So the card offers only **Allow once** and **Deny**. No new verdict is needed.
+    *   **The card knows.** `ApprovalRequest` gains `once_only: bool`, set to `policy.once_only(tool, summary) || overlay.heard` ([§1.2](#12-effective-scope)). `can_always()` (`permissions.rs:481-487`) returns false when `once_only` is set or the agent isn't `heron`. The server's `can_session` (`server.rs:489-490`) and the terminal approver (`main.rs:177`) also check `once_only`. Telegram's approver (`telegram.rs:291-328`) already offers only Once or Deny. So the card offers only **Allow once** and **Deny**. No new verdict is needed.
     *   Never rules stay at step 2 and beat everything.
     *   Allow rules stay at step 8, with their existing guard: a rule for one shell command never covers chained, piped or substituted commands (`allow_rule_covers`, `permissions.rs:449-457`).
     *   An allow rule never beats taint (step 6), secrets (step 5) or a high-risk effect.
 *   **Agent rules.** An agent's own never and ask globs (PQ4) are edited only in its editor sheet and stored in `agents.rules`. When a turn's `Policy` is built with the effective mode ([§1.2](#12-effective-scope)), the agent's rules are added to its deny and ask lists.
-*   **"Always" goes to the live policy.** The default agent's **Always** calls `add_allow` on `ctx.store.live_policy()`, not on the turn's copy (`agent.rs:654-656` today uses `self.policy`), so the rule outlives the turn.
-*   **Settings.** A new **Always ask** section sits beside the existing Never section (`NeverViews.swift`, `SettingsView.swift:267`), which is unchanged, so its snapshot and store tests keep passing. It lists, adds and removes ask rules, with the same confirmation flow as removing a never (`SettingsAndFirstRunStores.swift:79-135`).
+*   **"Always" is unchanged.** The default agent's turns use the live policy itself, so **Always** keeps calling `self.policy.add_allow` (`agent.rs:654-656`), and the existing tests `always_approval_adds_a_rule` and `always_on_an_ask_read_is_one_folder_grant` keep passing.
+*   **Settings.** A new **Always ask** section sits after the existing Never section (`NeverViews.swift`, `SettingsView.swift:267`), which is unchanged, so its snapshot and store tests keep passing. It lists, adds and removes ask rules, with the same confirmation flow as removing a never (`SettingsAndFirstRunStores.swift:79-135`).
 
 **What waits for P2.** Matching on recipient, domain, host and amount needs typed facts from each tool (`Tool::facts(args) -> RuleFacts`). It comes with the first send tool (R2), where it matters, and the amount fact comes with payments. A glob over summary text would break whenever a tool's summary wording changed, so these facts are not faked with globs.
 
@@ -690,7 +691,7 @@ So live voice gets its own model setting, the `[voice]` table in `config.toml` (
 *   The Mac app holds every timestamp, since it sees the end of speech, the first SSE text and the first audio. For each voice turn it appends one line to `voice-timing.jsonl` in its Application Support folder, keeping the last 50 lines.
     *   Each line has: `speech_end`, `transcript_final`, `first_token`, `first_sentence` and `first_audio`, as offsets in ms, plus the agent, the model and whether echo cancellation was on.
     *   No core route or kv key is added.
-*   Settings › Voice shows p50 and p90 over the last 20 lines.
+*   Settings › Voice shows p50 and p90 over the last 20 lines of the file.
 *   The gate G-V ([Verification Plan](#verification-plan)) runs 20 recorded utterances through the pipeline on the owner's Mac.
 
 #### 3.5 Barge-in and soft cancel
@@ -1076,7 +1077,7 @@ The v1 owner trial runs until 2026-12-05. Nothing here merges code before it end
 
 *   **Pros:** fewer false starts from noise.
 *   **Cons:** another model, run on every audio frame.
-*   **Reason for rejection:** an energy detector plus the rule that barge-in needs a partial transcript of at least two letters covers coughs and slams. Gate G-V's set includes noisy utterances to check it.
+*   **Reason for rejection:** an energy detector plus the rule that barge-in needs a partial transcript of at least two letters covers coughs and slams. The V1 test `test_coughDoesNotBargeIn` checks it.
 
 ## Risks & Mitigations
 
@@ -1087,7 +1088,7 @@ The v1 owner trial runs until 2026-12-05. Nothing here merges code before it end
 | A television says "Heron, delete my files" in live voice | the voice surface ceiling is `ask`; outward and destructive actions show a card; voice approval is off by default |
 | CLI providers can't meet the latency goal | the voice model setting (PQ1); the panel shows measured times; G5 is stated only for HTTP providers |
 | Echo cancellation unavailable on some setups | half-duplex fallback; the panel says so |
-| A memory read or write path skips the scope | the scope is bound into the `Memory` handle and every store memory query takes it; `unscoped_memory_fns_not_used_by_tools` fails if a tool or the agent loop calls an unscoped function; tests plant memories in three pools and check reads, dedupe, supersede and `forget` |
+| A memory read or write path skips the scope | the scope is bound into the `Memory` handle and every store memory query takes it; `pool_all_not_used_by_tools` fails if a tool or the agent loop uses `PoolFilter::All`; tests plant memories in three pools and check reads, dedupe, supersede and `forget` |
 | The Messages exception grows into general Messages reading | only the Mac app reads, with one fixed query; tools keep `Refused`; a test greps that no Rust code opens `chat.db` |
 | A guest in Slack injects instructions | guest messages are Outside and taint; guest-facing turns have memory scope `none` and read-only tools |
 | Telephony and AI-call law | calls ask each time, disclose, keep hours, block risky numbers; the calls delta rechecks law |
@@ -1138,7 +1139,19 @@ The v1 owner trial runs until 2026-12-05. Nothing here merges code before it end
 
 This covers **Phase 1 only**: named agents, ask rules and live voice. Later phases have no file list here, because each needs its own design delta.
 
-Line numbers below refer to `main` at `c9dd12c`. Once `feat/v1-features-base` merges, `src/agent.rs` lines shift by about 150. On that branch `tool_schemas` is at 454, `prompt_blocks` at 463, `run_turn` at 618, `delegate` at 885 and `learn` at 994. Builders should find each place by name.
+Line numbers below refer to `main` at `c9dd12c`, and every cite names its function so it can be found after the features base merges.
+
+Measured shifts on the features base:
+
+| File | Shifts |
+|---|---|
+| `agent.rs` | `tool_schemas` 454, `prompt_blocks` 463, `run_turn` 618, `delegate` 885, `learn` 994 |
+| `app.rs` | `DENY_KEY` 369, `Memory::new` 781, `set_live_policy` 823, `update_config` 836, `publish_run_start` 1322, jobs 1643, proactive 2136 |
+| `server.rs` | `can_session` 492, `/nevers` 207, `run_chat` 611, `cancel` 660 |
+| `main.rs` | `can_always` 183 |
+| `permissions.rs` | `can_always` 490 |
+| `store.rs` | fingerprint test 2079 |
+| `tests/integration.rs` | fixture helpers 1445–1470 |
 
 ### Preconditions
 
@@ -1168,6 +1181,7 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
         *   that `all`, `["*"]`, `schedules` and `admin` appear only on `heron`.
     *   `default_agent(cfg) -> AgentProfile`.
     *   `RuleGlob {pattern: String, verdict: RuleVerdict}`, with `RuleVerdict` as `Never` or `Ask`.
+    *   `Overlay {scope, nevers, asks, ceiling, heard}`, the per-turn layer of [§1.2](#12-effective-scope).
     *   `agent_rules(&AgentProfile) -> (Vec<String>, Vec<String>)`, returning the never globs and the ask globs.
 2.  **`src/agents/groups.rs`**
     *   The group table of [§1.1](#11-the-agent-profile).
@@ -1175,14 +1189,17 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
 3.  **`src/agents/scope.rs`**
     *   `Scope {tools: BTreeSet<String>, mode: Mode, memory: MemoryScope, heard: bool}`.
     *   `MemoryScope {Shared, Own(String), Private(String), None}`.
-    *   `effective_scope(global_mode, agent, surface) -> Scope`.
+    *   `effective_scope(global_mode, agent, surface, registry_names: &BTreeSet<String>) -> Scope`. The caller passes `ToolRegistry::names_for(cfg)`.
     *   `enum Surface {App, Voice, Telegram, Background}` and `surface_of(Origin) -> Surface`:
         *   `User` maps to `App`, `Voice` to `Voice` and `Telegram` to `Telegram`;
         *   `Schedule`, `Automation` and `Proactive` map to `Background`, which always runs as `heron`;
-        *   only `Voice` sets `heard`.
+        *   only `Voice` sets `heard` and caps the mode at `ask`.
     *   The `Mode` order is `readonly < ask < auto < yolo`. Ceiling `unlimited` means no cap.
 4.  **`src/agents/address.rs`**
-    *   `address(text, surface, agents) -> Addressed {agent_id, text}`, with the rules of [§1.3](#13-addressing-how-a-message-finds-its-agent).
+    *   `address(text, surface, explicit: Option<&str>, thread_agent: Option<&str>, agents) -> Addressed {agent_id, text, new_thread: bool}`, with the rules of [§1.3](#13-addressing-how-a-message-finds-its-agent).
+    *   The picker's `explicit` agent wins. An `@Name` prefix is removed only when it names that same agent; otherwise it stays in the text.
+    *   Without a prefix or an explicit choice, the result is `thread_agent`, or `heron` for a new thread.
+    *   `new_thread` is true when the result differs from a non-empty thread's agent.
     *   On `Telegram` and `Background` it always returns `heron`.
 5.  **Tests, inline.** Each name is listed in the unit's check:
     *   `scope_never_widens_past_global`
@@ -1191,6 +1208,7 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
     *   `agent_rules_only_never_or_ask`
     *   `telegram_origin_is_default_agent_only`
     *   `background_origins_run_as_heron`
+    *   `voice_surface_caps_mode_at_ask`
     *   `address_needs_leading_at_in_chat`
     *   `address_ignores_mid_text_mention`
     *   `address_voice_needs_comma_or_hey`
@@ -1201,7 +1219,7 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
     *   `schedules_and_admin_refused_for_named_agents`
     *   `all_and_star_only_for_heron`
     *   `groups_all_expands_to_registry`
-    *   `mcp_server_expands_to_its_tools`
+    *   `mcp_server_expands_to_its_tools`: expands `mcp: ["x"]` against `mcp__{sanitize(x)}__`, with `mcp::sanitize` (`mcp.rs:178`) made `pub(crate)`
 
 #### Unit A3: wiring in `src/` (Modify)
 
@@ -1213,58 +1231,72 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
         *   The test at `store.rs:1801-1803` now asserts that version 4 is unknown.
     *   Agent CRUD.
     *   `truncate_message(session_id, run_id, spoken_chars)`: cuts the newest assistant row with that `run_id` after `spoken_chars` Unicode scalar values and appends ` [interrupted]` ([§3.5](#35-barge-in-and-soft-cancel)).
-    *   Memory queries take a `PoolFilter`, which is `All`, `Shared`, `SharedAndOwn(id)` or `Own(id)`. These functions gain the argument:
-        *   `list_memories`, `get_memory`, `update_memory`, `delete_memory`;
-        *   `memory_history`, `confirm_memory`, `touch_memories`, `memories_by_source`, `count_matching`;
+    *   Memory queries take a `PoolFilter`, which is `All`, `Shared`, `SharedAndOwn(id)` or `Own(id)`. These store functions gain the argument:
+        *   `list_memories`, `list_confirmed_memories` (`store.rs:966`, which feeds `core()`), `get_memory`, `update_memory`, `delete_memory`;
+        *   `memory_history`, `confirm_memory`, `touch_memories`, `memories_by_source`, `set_memory_source` (`:1593`);
         *   the FTS and vector reads, and supersede.
-
-        The functions keep their names. Owner-facing callers pass `PoolFilter::All`: `server.rs` (the memory routes), `main.rs:449, 466`, `app.rs:1850`, `sources.rs`, `ui/views.rs` and `bin/desktop/views_*.rs`.
+    *   `insert_memory` (`store.rs:881`) gains `agent: Option<&str>`, the row's pool.
+    *   The functions keep their names. Owner-facing callers pass `PoolFilter::All`: the memory routes in `server.rs` and `main.rs:449, 466`. The Slint views reach memory through the HTTP bridge (`bin/desktop/views_bridge.rs`), so they don't change.
+    *   About 100 test call sites pass `PoolFilter::All` unless the test is about pools. They are in `memory.rs`, `tools/personal.rs`, `agent.rs`, `telegram.rs`, `sources.rs`, `oauth.rs`, `server.rs` and `app.rs`.
+    *   `MemoryItem` gains `agent`.
 2.  **`src/memory.rs`**
     *   `Memory::new(store, remote)` keeps its signature and returns a shared-pool handle (`PoolFilter::Shared` for reads and writes).
-    *   `Memory::scoped(scope)` returns the agent's handle.
-    *   Every read and write in `memory.rs` passes the handle's filter. That covers `rank`, `core`, `search_filtered` and `save_detailed`'s near-duplicate scan, update and supersede, and the `list_memories(None, 3000)` and `get_memory` reads in ranking (`memory.rs:443, 458`).
+    *   `Memory::scoped(scope)` returns the agent's handle. Scope `none` gives a handle whose reads return nothing and whose writes are refused, and `Agent::learn` returns early for it.
+    *   `Memory::owner()` returns a `PoolFilter::All` handle for the Memory screen's search (`server.rs:866-870`) and the CLI's (`main.rs:458`).
+    *   `Memory` gains `get(id)` and `forget(id)`, so `forget` and `replaces` can go through it.
+    *   Every read and write in `memory.rs` passes the handle's filter. That covers `rank`, `core`, `search_filtered`, `count_matching` (`memory.rs:404`), and `save_detailed`'s near-duplicate scan, update and supersede, and the `list_memories(None, 3000)` and `get_memory` reads in ranking (`memory.rs:443, 458`).
     *   `App.memory` (`app.rs:766`) is therefore shared-only. Schedules, proactive runs, Telegram and MCP serving (`main.rs:907-912`) never read an own or private pool.
 3.  **`src/tools/personal.rs`**
-    *   `forget` and `replaces` go through `ctx.memory`, not `ctx.store` (`personal.rs:35, 122`).
+    *   `forget` and `replaces` go through `ctx.memory.forget` and `ctx.memory.get`, not `ctx.store` (`personal.rs:35, 122`).
     *   `recall`'s count uses the scoped `count_matching`.
-    *   `use_skill` refuses a skill that isn't in the agent's `skills` list, unless the agent has `all`.
+    *   `use_skill` refuses a skill that isn't in the agent's `skills` list, unless the agent has `all`. It reads the list from `ctx.agent`.
     *   Scope `none` returns "Memory is off for <name>." from `recall`, `remember` and `forget`.
 4.  **`src/permissions.rs`**
-    *   `Policy` gains `scope: Option<Scope>` and `ask: Vec<(String, GlobMatcher)>`, set with a `with_ask(&[String])` builder, so `Policy::new` keeps its signature.
-    *   `decide` gains two steps:
-        *   step 2b refuses a tool outside `scope.tools`;
-        *   step 4b returns `Verdict::Ask` when an ask rule matches, from the turn's own list or from `ctx.store.live_policy()`.
-    *   Step 6 treats `scope.heard` like `tainted`.
+    *   `Policy` gains `ask: RwLock<Vec<(String, GlobMatcher)>>`, with `ask_rules`, `add_ask` and `remove_ask`, mirroring `deny`. `Policy::new` keeps its signature.
+    *   `decide_with(call, ctx, overlay: Option<&Overlay>)`; `decide` calls it with `None`. The overlay adds:
+        *   step 2b, which refuses a tool outside `overlay.scope.tools`;
+        *   the overlay's never globs at step 2;
+        *   the ceiling, applied to the live mode at call time.
+    *   Step 4b returns `Verdict::Ask` when an ask rule matches, from the overlay or from `ctx.store.live_policy()`.
+    *   Step 6 treats `overlay.heard` like `tainted`.
     *   `Policy::once_only(tool, summary)` is true for B2's once-only tools and for any ask-rule match.
-    *   `ApprovalRequest` gains `agent: Option<AgentRef>` and `once_only: bool`.
+    *   `ApprovalRequest` gains `agent: Option<AgentRef>` and `once_only: bool`, set to `policy.once_only(tool, summary) || overlay.heard`. The struct literals in `main.rs` and `telegram.rs` tests get the new fields.
     *   `can_always()` returns false when `once_only` is set or the agent isn't `heron`.
 5.  **`src/config.rs`**
     *   `SavedRules` and `[permissions]` gain `ask`.
     *   A new `[voice]` table holds `provider`, `base_url`, `api_key_env`, `model` and `end_of_speech_ms` ([§1.10](#110-contracts)).
-6.  **`src/features.rs`:** the keys `agents` and `live_voice`, both off by default.
+6.  **`src/features.rs`:** the keys `agents` (title "Named agents") and `live_voice` (title "Live voice"), both off by default.
 7.  **`src/app.rs`**
     *   The ask rules get the deny rules' last-good kv mirror, repair, start refusal and reconciliation ([§2](#2-action-rules)). It copies the functions at `:354-366`, `:434-459`, `:491-495`, `:637-671`, `:747-760` and `:916-930` for `ask`.
     *   At startup, the core creates the `heron` row if none exists.
-    *   The core looks up the agent for each turn and builds the turn's `Policy`: the effective mode, the agent's never and ask rules, and the scope.
+    *   The core looks up the agent for each turn. A default-agent turn that isn't a voice turn uses `self.policy` as today. Any other turn gets the live policy plus an `Overlay` ([§1.2](#12-effective-scope)).
+    *   **With `agents` off,** every turn runs as `heron`. `POST /api/chat {agent}` with another id returns `400 agents_disabled`. A message to a thread whose agent isn't `heron` opens a new `heron` thread, with `from_session` set.
     *   The voice `HttpLlm` is wrapped in `SwappableLlm` and the usage meter the same way as the main model (`app.rs:763-764`).
 8.  **`src/llm.rs`**
     *   `HttpLlm::from_voice(&VoiceConfig)` builds the voice client.
-    *   `HttpLlm::warm(&[Message])` sends one request with `max_tokens: 1`, bypassing the `MIN_REPLY_TOKENS` clamp (`llm.rs:145, 215`).
+    *   The `Llm` trait gains `warm(&self, messages) -> Result<()>`, with a default that does nothing. CLI providers keep that default.
+    *   `HttpLlm::warm` sends one request with `max_tokens: 1`, bypassing the `MIN_REPLY_TOKENS` clamp (`llm.rs:145, 215`).
+    *   `SwappableLlm::warm` runs `risk_notice::check` and the meter first, as its `chat` does (`llm.rs:437-492`).
 9.  **`src/agent.rs`**
     *   **The turn's entry point.** `run_turn(&self, session, input: TurnInput, sink) -> Result<TurnEnd>`.
-        *   `TurnInput` is `{text, origin: Origin, cancel: CancelToken, context}`. `context` is the features base's `&[ChatContext]`.
-        *   `TurnEnd` is `Done(String)` or `Cancelled { spoken: Option<usize> }`.
-        *   Every caller is updated: `app.rs:1583, 2063, 2253`, `server.rs:601`, `telegram.rs:564`, `main.rs:289`, `permissions.rs:1829, 1875`, `agent.rs:735` and the tests.
+        *   `TurnInput` is `{text, origin: Origin, run_id: String, cancel: CancelToken, context}`. `context` is the features base's `&[ChatContext]`.
+        *   `TurnEnd` is `Done(String)` or `Cancelled`.
+        *   Every caller is updated: `app.rs:1583, 2063, 2253`, `server.rs:601`, `telegram.rs:564`, `App::repl_turn` (on the features base, which replaced `main.rs:289`), `permissions.rs:1829, 1875`, `agent.rs:735`, and the tests, including the features base's `server.rs:1917`.
+    *   **`ToolCtx` gains `agent: Option<Arc<AgentCtx>>`,** where `AgentCtx` is `{profile, scope}`. `None` means `heron`, as for MCP serving and tests.
+        *   The struct literals that need it: `tools/fs.rs:1006, 1339, 1405`, `mcp.rs:321, 356, 397`, `tools/personal.rs:537, 554, 577`, `tools/shell.rs:227, 261, 288, 346`, `permissions.rs:625`, `agent.rs:302` and `tests/integration.rs:350`.
     *   **The agent.** `Agent` carries the `AgentProfile` and the `Scope`.
         *   `prompt_blocks` (`agent.rs:318`) follows [§1.5](#15-the-prompt-for-a-named-agent), and `tool_schemas` filters by scope.
         *   A voice turn adds its prompt line ([§3.4](#34-the-model-path-what-decides-latency)) and uses the slim, cacheable block order.
     *   **`delegate`.** `execute_call` checks scope before `delegate` (`agent.rs:621-622`). The child keeps the parent's scope. The call is audited with decision `delegated`, and its output is wrapped as untrusted.
-    *   **Cancelling.** The `CancelToken` is checked before each model call, between text chunks and before each tool call.
-    *   **Rules.** **Always** writes to `ctx.store.live_policy()`.
+    *   **Cancelling.**
+        *   `CancelToken` is `Arc<CancelState>`, holding an `AtomicBool`, a `tokio::sync::Notify` and `spoken: Mutex<Option<usize>>`.
+        *   `run_turn` runs each `llm.chat` inside `tokio::select!` against `token.cancelled()`. Dropping the chat future ends the HTTP stream, and a CLI child is killed on drop as today (`cli_llm.rs:2161-2175`). No `Llm` trait change is needed for this.
+        *   The delta callback also appends to a shared buffer, so on cancel `run_turn` stores the partial assistant text with its `run_id`.
+        *   The token is also checked before each model call and before each tool call.
     *   **Storage and voice.**
         *   Messages are stored with `agent` and `run_id`.
         *   The voice turn uses the voice model when one is set. If the voice model fails before any text has streamed, it retries once with the main model and sends a notice.
-    *   **Content entries.** `ContentEntry::VoiceUtterance` (Trusted, `taint_kind` none) joins the enum, and the existing walk test `every_content_entry_is_trusted_or_taints` covers it.
+    *   **Content entries.** `ContentEntry::VoiceUtterance` (Trusted, `taint_kind` none) joins the enum. The walk test `every_content_entry_is_trusted_or_taints` gets its match arm, and its count goes up by one, or two with `DelegateResult`.
 10. **`src/server.rs`**
     *   The agents routes of [§1.9](#19-what-the-owner-sees-mac). `DELETE` of `heron` returns `409 default_agent`. With `agents` off, every agents route returns `404 agents_disabled`.
     *   **`POST /api/chat {agent?, origin?}`.**
@@ -1272,15 +1304,17 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
         *   The `session` event gains `agent`.
         *   With `live_voice` off, `origin: "voice"` returns `400 live_voice_disabled`.
     *   **`POST /api/cancel {session_id, run_id?, soft?, spoken_chars?}`.**
-        *   A soft cancel sets the run's token and leaves the run in `running`. `running` becomes `(String, JoinHandle, CancelToken)` (`server.rs:49`).
-        *   `run_chat` handles `TurnEnd::Cancelled`. It publishes `cancelled` and `run_end` as the abort path does (`server.rs:682`), skips learning, and calls `truncate_message` when `spoken_chars` arrived.
+        *   A soft cancel stores `spoken_chars` in the token, sets it, and leaves the run in `running`. `running` becomes `(String, JoinHandle, CancelToken)` (`server.rs:49`).
+        *   `run_chat` handles `TurnEnd::Cancelled`. It publishes `cancelled` and `run_end` as the abort path does (`server.rs:682`), skips learning, and calls `truncate_message` with the token's `spoken`.
+        *   When the run is no longer in `running`, the cancel route calls `Store::truncate_message(session_id, run_id, spoken_chars)` itself.
         *   A soft cancel during `approver.approve` clears that run's cards as Deny (`server.rs:656-663`).
     *   `can_session` (`server.rs:489-490`) also checks `req.once_only`.
     *   `GET /api/ask-rules`, `POST /api/ask-rules` and `DELETE /api/ask-rules`, built on `/api/nevers` (`server.rs:205`) and writing through `update_config` (`app.rs:817-823`).
     *   `POST /api/memories/{id}/share` (owner only) moves a row to the shared pool.
     *   `POST /api/voice/warm {agent}`.
     *   `POST /api/settings` (`server.rs:326-348`) accepts the `voice.*` keys. The API key itself stays in the environment variable named by `api_key_env`, as for `[llm]`.
-11. **`src/main.rs` and `src/telegram.rs`:** the terminal approver (`main.rs:177`) and Telegram's (`telegram.rs:1105`) check `once_only`.
+11. **`src/main.rs`:** the terminal approver (`main.rs:177`) checks `once_only`. Telegram's approver (`telegram.rs:291-328`) offers only Once or Deny already.
+    *   **`src/ui/views.rs`:** `decision_label` (`:580-588`) gains a label for `delegated`.
 12. **Tests, inline.** Each test lives in the file whose code it covers, and each name is listed in the unit's check:
     *   `tool_outside_scope_denied_at_call`
     *   `schemas_filtered_by_scope`
@@ -1293,7 +1327,7 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
     *   `supersede_stays_in_pool`
     *   `forget_refuses_other_pool_id`
     *   `app_memory_reads_shared_only`
-    *   `pool_all_not_used_by_tools`: uses `include_str!` on each of `src/tools/fs.rs`, `mod.rs`, `personal.rs`, `shell.rs` and `web.rs`, plus `src/agent.rs`, `src/workflow.rs`, `src/browser.rs` and `src/mcp.rs`, and fails if any contains `PoolFilter::All`
+    *   `pool_all_not_used_by_tools`, in `src/memory.rs`: at test time it reads every file in `src/tools/`, plus `src/agent.rs`, `src/workflow.rs`, `src/browser.rs`, `src/mcp.rs`, `src/taint.rs` and `src/child.rs`, from `CARGO_MANIFEST_DIR`. It fails if any of them contains `PoolFilter::All`
     *   `soft_cancel_finishes_running_tool`
     *   `soft_cancel_stops_before_next_model_call`
     *   `soft_cancel_keeps_run_busy_until_done`
@@ -1325,20 +1359,25 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
     *   `voice_model_failure_falls_back_to_main`
     *   `warm_sends_one_token_request`
     *   `agent_id_never_reused`
+    *   `heard_turn_card_is_once_only`
+    *   `agents_off_runs_heron_only`
+    *   `scope_none_learns_nothing`
+    *   `owner_search_finds_every_pool`
+    *   `warm_goes_through_risk_notice_and_meter`
 
 #### Unit A3t: API fixtures in `tests/` (Modify)
 
 *   **Make the integration tests build again:** update `tests/integration.rs` for A3's new `ToolCtx` field (`:350`) and the new `run_turn` signature (`:572-685`).
 *   **Turn the `agents` and `live_voice` keys on** in the test config, so the agents routes answer.
 *   **Add two tests:** `api_agents_crud` and `api_ask_rules_round_trip`.
-*   **Re-record the fixtures** whose shape changes. The way to re-record is to delete the file and rerun the test (`integration.rs:1255-1275`).
+*   **Re-record the fixtures** whose shape changes, including `settings.json`, which gains `voice.*`. The way to re-record is to delete the file and rerun the test (`integration.rs:1255-1275`).
     *   Changed: `approvals.json`, `events-approval.jsonl`, `session.json`, `sessions.json` and `audit.json`.
     *   New: `agents.json` and `ask-rules.json`.
 
 #### Unit A4: Mac app, agents and ask rules (Modify, in `macos/HeronMac/`)
 
 1.  **`Sources/HeronCore/`**
-    *   Agents client methods, ask-rules client methods, `chat(agent:origin:)` and `cancel(soft:spokenChars:)`, in:
+    *   Agents client methods, ask-rules client methods, `chat(agent:origin:)` and `cancel(runId:soft:spokenChars:)`, in:
         *   `CoreClient.swift`
         *   `CoreClientProtocol.swift`
         *   `ManagedCoreClient.swift`
@@ -1348,9 +1387,9 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
 3.  **`Sources/HeronUI/Features/Agents/`** (new): `AgentsStore`, `AgentsView`, `AgentEditorSheet`, `AgentPicker`, `MentionCompleter`.
 4.  **`Sources/HeronUI/Stores/AppModel.swift`**
     *   `Destination.agents`.
-    *   A `visibleDestinations` list hides it while `agents` is off (`GET /api/features`). The ⌘ digits come from `visibleDestinations`, not `allCases`.
+    *   A `visibleDestinations` list hides it while `agents` is off (`GET /api/features`). The ⌘ digits (`shortcutDigit`, `AppModel.swift:21`) come from `visibleDestinations`, not `allCases`.
     *   `Tests/HeronUITests/ScreenStoreTests.swift:774` is updated to match.
-5.  **`Sources/HeronUI/Views/RootView.swift`:** the destination route.
+5.  **`Sources/HeronUI/Views/RootView.swift`:** the destination route. The sidebar (`:237`) and the menu and ⌘ shortcuts (`:343`) iterate `visibleDestinations`.
 6.  **`Sources/HeronUI/Views/ChatView.swift` and `Sources/HeronUI/Stores/ChatAndApprovalsStores.swift`**
     *   The agent chip and `@` completion.
     *   Avatar and name on each message.
@@ -1358,7 +1397,7 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
     *   With `agents` off: no chip, and a non-`heron` thread opens read-only.
 7.  **`Sources/HeronUI/Views/ApprovalSheetView.swift`:** the "Lux wants to …" title, the avatar and id, and no **Always** when `once_only` is set.
 8.  **`Sources/HeronUI/Views/NeverViews.swift` and `SettingsView.swift`:**
-    *   a new `AskRulesSection` beside `NeverSection`, with the same confirmation flow (`SettingsAndFirstRunStores.swift:79-135`);
+    *   a new `AskRulesSection` after `NeverSection`, with the same confirmation flow (`SettingsAndFirstRunStores.swift:79-135`). If the `never-long-*` snapshots (`NeverSnapshotTests.swift:50-63`) change, they are re-recorded and the owner reviews them;
     *   a link from Settings › Heron to Agents.
 9.  **The Memory screen** (`ScreenViews.swift`, Memory): an agent filter and **Move to shared**.
 10. **Tests,** in `Tests/HeronUITests/Features/AgentsTests.swift` and `AskRulesTests.swift`. The check looks for each method name, so the names must match exactly:
@@ -1399,7 +1438,7 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
     *   the `listening` and `hearing` cases;
     *   `handle(_ voice: VoiceEvent)`;
     *   the priority order of §3.2;
-    *   their `AvatarLook.make` looks and status lines.
+    *   their `AvatarLook.make` looks and status lines: `listening` uses the `breathe` loop and `hearing` uses `ripple`, neither with the widened inner ring, which `AvatarStateMachineTests.swift:268-279` reserves for `thinking`.
 7.  **Entry points (Modify):**
     *   **Talk** in the chat header (`Views/ChatView.swift`), on agent cards (`Features/Agents/AgentsView.swift`) and in the menu bar (`Views/MenuBarViews.swift`);
     *   the **Listening** menu-bar pill and Esc to end;
@@ -1413,7 +1452,7 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
     *   the voice model choice (PQ1), with the Ollama and LM Studio probes;
     *   the end-of-speech delay (300–1,200 ms);
     *   the shortcut recorder, which reuses F1's;
-    *   p50 and p90, read from the Application Support `voice-timing.jsonl`.
+    *   p50 and p90 over the last 20 lines of the Application Support `voice-timing.jsonl`.
 9.  **`Sources/Heron/HeronApp.swift`** (Modify): the launch argument `--voice-bench --audio-dir <dir> --core <url> --token <t> --out <file>`.
     *   It runs `LiveVoiceSession` over the file source with no window.
     *   It answers any approval card with Deny, writes the timing file and quits.
@@ -1446,22 +1485,44 @@ A1's scope is `src/**`, because it adds `pub mod agents;` to `src/lib.rs` and `O
     *   Six of the utterances name an agent ("Lux, …").
     *   All are clean speech. Noise handling is covered by `test_coughDoesNotBargeIn` in V1.
 2.  **`eval/voice/run_gate.py`**
-    *   It starts the core with the `Core` helper from `eval/run_core_tasks.py` (`:195-201`), running `heron serve --no-open --port 0` in a temporary `HERON_HOME`. That home holds a copy of the owner's `config.toml` and nothing else, so memories and approvals stay apart from the owner's.
+    *   It starts with `sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))`, so it can import `run_core_tasks` from `eval/`. Entry scripts need this under `python3 -I` (`eval/tests/test_runner.py:117-121`).
+    *   It starts the core with `run_core_tasks.Core(binary, home, "envelope", log_dir)`, where `binary` is the cargo-built `target/release/heron`. The core runs `heron serve --no-open --port 0` in a temporary `HERON_HOME` that holds a copy of the owner's `config.toml` and nothing else, so memories and approvals stay apart from the owner's.
+    *   Before the bench it:
+        *   accepts the risk notice with `run_core_tasks`'s `accept_risk_notice`;
+        *   turns on the `agents` and `live_voice` keys (`POST /api/features/{key}`);
+        *   creates each agent named in `utterances.md` (`POST /api/agents`).
     *   It then runs `dist/Heron.app/Contents/MacOS/Heron --voice-bench …` and passes the result to `report.py`.
     *   `bash eval/voice/run.sh` wraps it. The first run shows the macOS microphone and speech prompts.
 3.  **`eval/voice/report.py`**
-    *   It reads a `voice-timing.jsonl` and computes nearest-rank p50 and p90 of `first_audio - speech_end` over the turns.
-    *   It writes `eval/voice/last-run.json`: `{n, p50_ms, p90_ms, pass, turns: [...]}`.
+    *   It reads a `voice-timing.jsonl` and computes nearest-rank p50 and p90 of `first_audio - speech_end` over the turns. Line order doesn't matter, and extra fields are ignored.
+    *   It prints, and writes to `eval/voice/last-run.json`, `{n, p50_ms, p90_ms, pass, error, turns: [...]}`.
     *   Exit codes:
         *   0 when p50 ≤ 1,000 ms and p90 ≤ 1,500 ms, with `n` = 20 (G5's latency bound);
         *   1 when the bound fails;
-        *   2 on missing or malformed input.
-    *   `--self-test` runs it on the bundled cases and needs no model, app or core.
+        *   2 when the input is unusable: a missing file, an empty file, `n` ≠ 20, a duplicate turn, a missing or non-numeric field, or a negative offset. These cases report `pass: false` with `error` set.
+    *   `--self-test` runs it over `eval/voice/grader_cases.jsonl` and checks each expected result. It needs no model, app or core.
 4.  **The grader audit, following `eval/genesis/limit-classifier.yaml`:**
     *   `eval/voice/genesis.yaml`: dataset `eval/voice/grader_cases.jsonl`, evaluator `python3 -I eval/voice/genesis_verifier.py {task_file} {completion_file} {output_file}`, metric `task_success`, threshold `>=0.90`, run with `--suite json`.
-    *   `eval/voice/build_grader_cases.py` writes the 14 cases: clear pass, clear fail, p50 exactly 1,000, p90 exactly 1,500, one turn over the bound, 19 turns, a missing field, a negative offset, unsorted lines, duplicate lines, an empty file, non-numeric offsets, extra fields, and Markdown around the JSON.
-    *   The verifier accepts only `{"pass": <bool>}` equal to `report.py`'s verdict on that case.
-5.  **`eval/voice/__init__.py`** and **`eval/tests/test_voice_report.py`:** unit tests for the percentiles, the bounds and the exit codes. The test adds `eval/voice` to `sys.path`, the way the `eval/tests` tests add `eval/`.
+    *   `eval/voice/build_grader_cases.py` writes 13 rows of the form `{"timing": "<jsonl text>", "expected": {"exit": 0|1|2, "pass": bool}}`:
+
+        | Case | exit | pass |
+        |---|---|---|
+        | clear pass | 0 | true |
+        | p50 exactly 1,000 ms | 0 | true |
+        | p90 exactly 1,500 ms | 0 | true |
+        | unsorted lines | 0 | true |
+        | extra fields | 0 | true |
+        | clear fail | 1 | false |
+        | one turn pushes p90 over 1,500 ms | 1 | false |
+        | 19 turns | 2 | false |
+        | a missing field | 2 | false |
+        | a negative offset | 2 | false |
+        | duplicate lines | 2 | false |
+        | an empty file | 2 | false |
+        | non-numeric offsets | 2 | false |
+
+    *   The subject runs `report.py` on the row's `timing`. The verifier accepts only a completion of `{"pass": <bool>}` whose value equals `expected.pass`. Genesis's own json suite probes cover prose around the JSON, duplicate keys and extra fields, as for the limit classifier.
+5.  **`eval/voice/__init__.py`** and **`eval/tests/test_voice_report.py`:** unit tests for the percentiles, the bounds and the exit codes. `unittest discover -t eval` puts `eval/` on the path, so the test imports `voice.report`.
 
 #### Unit A7: docs (Modify and Create)
 
@@ -1513,21 +1574,21 @@ This table covers Phase 1 only.
 
 | id | what to build | scope | depends on | check | model role |
 |---|---|---|---|---|---|
-| A1 | `src/agents/`: profile, groups, scope, addressing (A1 items 1–5), plus `pub mod agents;` and `Origin::Voice` | `src/**` | none | `cargo test --locked --lib agents:: && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- scope_never_widens_past_global voice_turn_sets_heard_flag ceiling_unlimited_keeps_global_mode agent_rules_only_never_or_ask telegram_origin_is_default_agent_only background_origins_run_as_heron address_needs_leading_at_in_chat address_ignores_mid_text_mention address_voice_needs_comma_or_hey address_tries_longest_name_first explicit_agent_beats_text names_unique_ignoring_case_across_call_names reserved_names_refused schedules_and_admin_refused_for_named_agents all_and_star_only_for_heron groups_all_expands_to_registry mcp_server_expands_to_its_tools` | hardest tasks: opus high |
-| A3 | Wiring: store step, pools, memory handle, permissions, config, features, app, llm, agent loop, server, approvers (A3 items 1–12) | `src/**` | A1 | `cargo test --locked --lib --bins && cargo clippy --locked --lib --bins -- -D warnings && bash eval/require-tests.sh --lib -- tool_outside_scope_denied_at_call schemas_filtered_by_scope delegate_child_keeps_parent_scope delegate_output_is_untrusted delegate_call_is_audited audit_v3_covers_agent planted_private_memory_absent_from_other_agent dedupe_never_touches_other_pool supersede_stays_in_pool forget_refuses_other_pool_id app_memory_reads_shared_only pool_all_not_used_by_tools soft_cancel_finishes_running_tool soft_cancel_stops_before_next_model_call soft_cancel_keeps_run_busy_until_done soft_cancel_during_approval_denies_card spoken_chars_cuts_last_message_at_sentence ask_rule_beats_yolo ask_rule_beats_allow_rule ask_rule_is_once_only ask_rule_applies_in_job_and_proactive_runs allow_rule_never_beats_taint allow_rule_still_skips_compound_shell heard_flag_asks_for_changes_and_sends heard_flag_takes_no_conversation_grant named_agent_card_never_offers_always always_rule_lands_on_live_policy default_agent_created_once delete_heron_is_refused migration_adds_only_nullable_columns agents_routes_need_token agents_routes_404_when_disabled voice_origin_400_when_disabled chat_agent_field_beats_text first_message_sets_thread_agent addressing_other_agent_opens_new_thread unavailable_agent_gets_fixed_reply learning_reads_only_current_agent_reply scope_none_refuses_memory_tools use_skill_refuses_skill_outside_profile voice_model_failure_falls_back_to_main warm_sends_one_token_request agent_id_never_reused` | hardest tasks: opus high |
+| A1 | `src/agents/`: profile, groups, scope, addressing (A1 items 1–5), plus `pub mod agents;` and `Origin::Voice` | `src/**` | none | `cargo test --locked --lib agents:: && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --lib -- scope_never_widens_past_global voice_turn_sets_heard_flag ceiling_unlimited_keeps_global_mode agent_rules_only_never_or_ask telegram_origin_is_default_agent_only background_origins_run_as_heron voice_surface_caps_mode_at_ask address_needs_leading_at_in_chat address_ignores_mid_text_mention address_voice_needs_comma_or_hey address_tries_longest_name_first explicit_agent_beats_text names_unique_ignoring_case_across_call_names reserved_names_refused schedules_and_admin_refused_for_named_agents all_and_star_only_for_heron groups_all_expands_to_registry mcp_server_expands_to_its_tools` | hardest tasks: opus high |
+| A3 | Wiring: store step, pools, memory handle, permissions, config, features, app, llm, agent loop, server, approvers (A3 items 1–12) | `src/**` | A1 | `cargo test --locked --lib --bins && cargo build --locked --features desktop --bins && cargo clippy --locked --lib --bins -- -D warnings && cargo clippy --locked --lib --profile test -- -D warnings && bash eval/require-tests.sh --lib -- tool_outside_scope_denied_at_call schemas_filtered_by_scope delegate_child_keeps_parent_scope delegate_output_is_untrusted delegate_call_is_audited audit_v3_covers_agent planted_private_memory_absent_from_other_agent dedupe_never_touches_other_pool supersede_stays_in_pool forget_refuses_other_pool_id app_memory_reads_shared_only pool_all_not_used_by_tools soft_cancel_finishes_running_tool soft_cancel_stops_before_next_model_call soft_cancel_keeps_run_busy_until_done soft_cancel_during_approval_denies_card spoken_chars_cuts_last_message_at_sentence ask_rule_beats_yolo ask_rule_beats_allow_rule ask_rule_is_once_only ask_rule_applies_in_job_and_proactive_runs allow_rule_never_beats_taint allow_rule_still_skips_compound_shell heard_flag_asks_for_changes_and_sends heard_flag_takes_no_conversation_grant named_agent_card_never_offers_always always_rule_lands_on_live_policy default_agent_created_once delete_heron_is_refused migration_adds_only_nullable_columns agents_routes_need_token agents_routes_404_when_disabled voice_origin_400_when_disabled chat_agent_field_beats_text first_message_sets_thread_agent addressing_other_agent_opens_new_thread unavailable_agent_gets_fixed_reply learning_reads_only_current_agent_reply scope_none_refuses_memory_tools use_skill_refuses_skill_outside_profile voice_model_failure_falls_back_to_main warm_sends_one_token_request agent_id_never_reused heard_turn_card_is_once_only agents_off_runs_heron_only scope_none_learns_nothing owner_search_finds_every_pool warm_goes_through_risk_notice_and_meter` | hardest tasks: opus high |
 | A3t | Integration tests build again; fixtures re-recorded (unit A3t) | `tests/**` | A3 | `cargo test --locked --test integration && cargo clippy --locked --all-targets -- -D warnings && bash eval/require-tests.sh --test integration -- api_agents_crud api_ask_rules_round_trip && test -s tests/fixtures/api/agents.json && test -s tests/fixtures/api/ask-rules.json` | feature, refactoring: sonnet high |
-| A4 | Mac app: core client, decoders, Agents screen, picker, `@`, approval card, Always ask section, Memory filter (A4 items 1–10) | `macos/**` | A3t | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac > .build/tests.txt && for t in test_mentionCompletesCallNames test_pickerSetsAgentOnSend test_archiveHidesAgentFromPicker test_newAgentDefaultsToSharedMemory test_messageShowsAgentName test_destinationHiddenWhenDisabled test_newThreadOnSessionEvent test_approvalCardHidesAlwaysWhenOnceOnly test_askRuleAddAndRemove test_adminGroupShowsWarning; do grep -q "/$t$" .build/tests.txt \|\| exit 1; done` | feature, refactoring: sonnet high |
-| V1 | Mac app: live voice, avatar states, entry points, voice settings, bench mode (V1 items 1–10) | `macos/**` | A4 | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac > .build/tests.txt && for t in test_bargeInStopsSpeechWithin150ms test_bargeInSendsSoftCancel test_coughDoesNotBargeIn test_endOfSpeechAfterSilence test_interruptedReplyStoresSpokenPart test_halfDuplexWhenNoEchoCancel test_goodbyeEndsSession test_timingLineWrittenPerTurn test_agentVoiceUsedForReply test_avatarShowsListeningAndHearing test_recognitionRequestIsOnDevice test_noAudioWrittenToDisk test_utteranceQueuedWhileBusy; do grep -q "/$t$" .build/tests.txt \|\| exit 1; done` | hardest tasks: opus high |
+| A4 | Mac app: core client, decoders, Agents screen, picker, `@`, approval card, Always ask section, Memory filter (A4 items 1–10) | `macos/**` | A3t | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac > macos/HeronMac/.build/tests.txt && for t in test_mentionCompletesCallNames test_pickerSetsAgentOnSend test_archiveHidesAgentFromPicker test_newAgentDefaultsToSharedMemory test_messageShowsAgentName test_destinationHiddenWhenDisabled test_newThreadOnSessionEvent test_approvalCardHidesAlwaysWhenOnceOnly test_askRuleAddAndRemove test_adminGroupShowsWarning; do grep -q "/$t$" macos/HeronMac/.build/tests.txt \|\| exit 1; done` | feature, refactoring: sonnet high |
+| V1 | Mac app: live voice, avatar states, entry points, voice settings, bench mode (V1 items 1–10) | `macos/**` | A4 | `swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && swift test list --package-path macos/HeronMac > macos/HeronMac/.build/tests.txt && for t in test_bargeInStopsSpeechWithin150ms test_bargeInSendsSoftCancel test_coughDoesNotBargeIn test_endOfSpeechAfterSilence test_interruptedReplyStoresSpokenPart test_halfDuplexWhenNoEchoCancel test_goodbyeEndsSession test_timingLineWrittenPerTurn test_agentVoiceUsedForReply test_avatarShowsListeningAndHearing test_recognitionRequestIsOnDevice test_noAudioWrittenToDisk test_utteranceQueuedWhileBusy; do grep -q "/$t$" macos/HeronMac/.build/tests.txt \|\| exit 1; done` | hardest tasks: opus high |
 | V1p | Info.plist usage strings (unit V1p) | `packaging/macos/**` | none | `plutil -lint packaging/macos/Info.plist && plutil -extract NSMicrophoneUsageDescription raw packaging/macos/Info.plist && plutil -extract NSSpeechRecognitionUsageDescription raw packaging/macos/Info.plist` | feature, refactoring: sonnet high |
 | V2 | Voice gate: utterances, runner, report, grader cases, genesis config, tests (unit V2) | `eval/**` | none | `python3 -I -m unittest discover -s eval/tests -t eval -p 'test_voice_report.py' && test "$(ls eval/voice/utterances/*.wav \| wc -l)" -eq 20 && python3 -I eval/voice/report.py --self-test && genesis audit-evaluator eval/voice/genesis.yaml --suite json` | feature, refactoring: sonnet high |
 | A7 | Docs (unit A7) | `docs/**` | A3 | `grep -qx '## Named agents and live voice' docs/engineering/SECURITY_THREAT_MODEL.md && test -s docs/features/agents.md && test -s docs/features/live_voice.md` | judgment and prose: opus high |
-| verify-p1 | Build, suite, required tests, test quality, evaluator audit | `scripts/gates/parity-p1` (a label; the node runs checks and changes no files) | A1, A3, A3t, A4, V1, V1p, V2, A7 | `cargo build --locked --features desktop --bins && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && genesis audit-evaluator eval/voice/genesis.yaml --suite json && testteeth run --base main --fail-under 70 -q` | feature, refactoring: sonnet high |
+| verify-p1 | Build, suites, test quality, evaluator audit | `scripts/gates/parity-p1` (a label; the node runs checks and changes no files) | A1, A3, A3t, A4, V1, V1p, V2, A7 | `cargo build --locked --features desktop --bins && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && swift build --package-path macos/HeronMac && swift test --package-path macos/HeronMac && python3 -I -m unittest discover -s eval/tests -t eval && genesis audit-evaluator eval/voice/genesis.yaml --suite json && testteeth run --base main --fail-under 70 -q` | feature, refactoring: sonnet high |
 
 **Run notes:**
 
 *   **Sandboxing.** The skein supervisor runs every check that calls `cargo`, `swift`, `testteeth` or `genesis` outside the skein node sandbox (Seatbelt). Inside that sandbox, `swift build` fails, and about 27 cargo tests fail for sandbox reasons. Plan one compile-fix pass after A4 and after V1.
 *   **Steps run by hand:**
-    *   gate G-V: `bash eval/voice/run.sh`, after `bash packaging/macos/build-app.sh --unsigned --no-dmg --host-arch`, with the owner's voice model;
+    *   gate G-V: `bash eval/voice/run.sh`, after `cargo build --release` and `bash packaging/macos/build-app.sh --unsigned`, with the owner's voice model;
     *   CUJs P-1 to P-4.
 
     Their output goes in the PR.
