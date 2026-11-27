@@ -552,6 +552,7 @@ export component MainWindow inherits Window {
                     mode: root.chat-mode;
                     can-undo: root.session-id != "";
                     show-empty: root.messages.length == 0;
+                    starting: root.backend-status == "Starting…";
                     has-key: root.has-key;
                     demo: root.demo;
                     paused: root.paused;
