@@ -21,8 +21,16 @@ export component Avatar inherits Rectangle {
     property <int> phase: 1;
     timer := Timer {
         interval: speaking ? 280ms : thinking ? 420ms : 900ms;
-        running: !reduce-motion && !bad;
+        running: !reduce-motion && !bad && born >= 3;
         triggered => { phase = Math.mod(phase + 1, 3); }
+    }
+    // The ripple draws itself once: the core is there, then the rings.
+    // After that the usual breath takes over. Reduced motion is already drawn.
+    property <int> born: 0;
+    birth := Timer {
+        interval: 160ms;
+        running: !reduce-motion && born < 3;
+        triggered => { born += 1; }
     }
 
     accessible-role: image;
@@ -39,7 +47,7 @@ export component Avatar inherits Rectangle {
         border-radius: 14px;
         border-width: live && !reduce-motion && phase == 0 ? 2px : 1px;
         border-color: tone;
-        opacity: reduce-motion || bad ? 0.9 : live ? (phase == 0 ? 1 : 0.35) : (phase == 0 ? 1 : 0.62);
+        opacity: !reduce-motion && born < 1 ? 0 : reduce-motion || bad ? 0.9 : live ? (phase == 0 ? 1 : 0.35) : (phase == 0 ? 1 : 0.62);
         animate opacity { duration: Theme.motion-std; easing: ease-out; }
         animate border-width { duration: Theme.motion-fast; easing: ease-out; }
     }
@@ -51,7 +59,7 @@ export component Avatar inherits Rectangle {
         border-radius: 9px;
         border-width: 1.5px;
         border-color: tone;
-        opacity: reduce-motion ? 0.85 : live ? (phase == 1 ? 1 : 0.4) : 0.8;
+        opacity: !reduce-motion && born < 2 ? 0 : reduce-motion ? 0.85 : live ? (phase == 1 ? 1 : 0.4) : 0.8;
         animate opacity { duration: Theme.motion-std; easing: ease-out; }
     }
     Rectangle {

@@ -932,6 +932,9 @@ mod window_layout_tests {
         // and enabled proactivity choices. Fixture text only, no user data.
         // reduce-motion makes the view fade instant, so the frame drawn
         // right after the switch is the settled view, not a mid-fade one.
+        // The window starts as "Starting…". These frames are the settled
+        // first-run state, so mark it ready before drawing them.
+        ui.set_backend_status("Ready".into());
         ui.set_reduce_motion(true);
         let views = [
             "chat", "onboarding", "awareness", "memory", "tasks", "reminders", "usage", "activity", "settings",
@@ -1042,6 +1045,13 @@ mod window_layout_tests {
             }
         }
         if let Ok(directory) = std::env::var("HERON_UI_SNAPSHOTS_DIR") {
+            ui.set_messages(slint::ModelRc::new(slint::VecModel::<super::ChatMsg>::default()));
+            ui.set_backend_status("Starting…".into());
+            ui.set_current_view("chat".into());
+            ui.set_reduce_motion(true);
+            let pixels = render_frame(&window, 1100, 700);
+            write_bmp(&std::path::Path::new(&directory).join("heron-starting-skeleton-1100x700.bmp"), 1100, 700, &pixels);
+            ui.set_backend_status("Ready".into());
             capture_appearance(&window, &ui, std::path::Path::new(&directory));
         }
     }

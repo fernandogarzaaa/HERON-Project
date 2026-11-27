@@ -176,6 +176,28 @@ component StarterCard inherits TouchArea {
     }
 }
 
+// Three bars while Heron is still starting. The widths stay put under
+// reduced motion; otherwise one bar is bright at a time.
+component LoadingSkeleton inherits VerticalBox {
+    in property <bool> reduce-motion: false;
+    spacing: 10px;
+    property <int> phase: 0;
+    pulse := Timer {
+        interval: 700ms;
+        running: !reduce-motion;
+        triggered => { phase = Math.mod(phase + 1, 3); }
+    }
+    for bar[idx] in [0.86, 0.62, 0.4]: Rectangle {
+        horizontal-stretch: 0;
+        height: 12px;
+        width: parent.width * bar;
+        border-radius: 6px;
+        background: Theme.line;
+        opacity: reduce-motion ? 0.85 : (phase == idx ? 1 : 0.4);
+        animate opacity { duration: reduce-motion ? 0ms : 180ms; easing: ease-out; }
+    }
+}
+
 component EmptyStateView inherits VerticalBox {
     spacing: 12px;
     vertical-stretch: 0;
@@ -263,6 +285,7 @@ export component ChatView inherits FocusScope {
     in property <bool> can-undo;
     in property <[ChatMsg]> thread;
     in property <bool> show-empty;
+    in property <bool> starting: false;
     in property <bool> has-key;
     in property <bool> demo;
     in property <bool> paused;
@@ -397,7 +420,8 @@ export component ChatView inherits FocusScope {
                 width: parent.width;
                 spacing: 12px;
                 alignment: start;
-                if show-empty: EmptyStateView {
+                if show-empty && starting: LoadingSkeleton { reduce-motion: reduce-motion; }
+                if show-empty && !starting: EmptyStateView {
                     has-key: has-key; demo: demo; paused: paused;
                     workspace-short: workspace-short; workspace-full: workspace-full;
                     starters: starters;
