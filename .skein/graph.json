@@ -636,10 +636,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "1a174ada29d4db9fb7e65a4ca3779d6215977f3b",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "408cdf699629542d773d902fc909ea4cf52fef0d",
+        "result_commit": "bffb5f320049ae65234f1c432439ff5f4cf5c8ef",
+        "shipped_at": "2026-11-27T01:59:11.152630+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
     "status": "done",
     "title": "W6a: Phase 1 wiring: `maintain` prune, `RunFrame`, `execute_call` journal, OQ9 gate a",
-    "version": 81,
+    "version": 82,
     "worktree": {
       "base_branch": "skein/HS-W6a__integrate-base",
       "base_commit": "1a174ada29d4db9fb7e65a4ca3779d6215977f3b",
