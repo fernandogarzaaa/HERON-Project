@@ -61,7 +61,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
                 if rest.to_uppercase().starts_with("OK") {
                     return Ok(out);
                 }
-                bail!("{}", rest.splitn(2, ' ').nth(1).unwrap_or(rest));
+                bail!("{}", rest.split_once(' ').map(|x| x.1).unwrap_or(rest));
             }
             let mut item = Untagged { text: String::new(), literals: vec![] };
             // A line ending in {n} is followed by n raw bytes, then the response continues.

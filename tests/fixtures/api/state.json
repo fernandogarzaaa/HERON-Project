@@ -1,0 +1,26 @@
+{
+  "demo": true,
+  "has_key": true,
+  "mcp": [],
+  "memories": 1,
+  "mode": "ask",
+  "model": "anthropic/claude-sonnet-5.5",
+  "model_label": "anthropic/claude-sonnet-5.5",
+  "name": "Heron",
+  "onboarded": false,
+  "os": "macos",
+  "paused": false,
+  "risk_notice_accepted": true,
+  "risk_notice_required": true,
+  "sandbox": "seatbelt",
+  "suggestions": 0,
+  "tools": 30,
+  "unread": 0,
+  "usage": {
+    "completion_tokens": 0,
+    "prompt_tokens": 0
+  },
+  "version": "0.3.1",
+  "waiting": 1,
+  "workspace": "/tmp/heron-fixture/ws"
+}

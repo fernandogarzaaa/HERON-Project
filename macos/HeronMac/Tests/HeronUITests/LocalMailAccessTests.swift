@@ -1,0 +1,217 @@
+import XCTest
+import Foundation
+import HeronCore
+@testable import HeronUI
+
+/// The parts of reading Mail that need no Mail: what the app keeps of what it reads, and how Apple Events answers are read.
+final class LocalMailAccessTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private func message(_ id: String, minutesAgo: Int = 1, account: String = "iCloud", body: String = "hi") -> LocalMailMessage {
+        LocalMailMessage(id: id, from: "a@example.com", subject: "S \(id)", date: Int(now.timeIntervalSince1970) - minutesAgo * 60, account: account, body: body)
+    }
+
+    func testTheSameMessageIdInTwoAccountsIsOneMessageNamingBoth() {
+        let kept = LocalMailPolicy.prepare([message("<d@x>", account: "Gmail"), message("<d@x>", account: "iCloud"), message("<d@x>", account: "Gmail")], now: now)
+        XCTAssertEqual(kept.count, 1)
+        XCTAssertEqual(kept[0].account, "Gmail, iCloud")
+    }
+
+    func testOnlyTheNewestThreeHundredAreKeptNewestFirst() {
+        let many = (0..<350).map { message("<m\($0)@x>", minutesAgo: $0 + 1) }
+        let kept = LocalMailPolicy.prepare(many.shuffled(), now: now)
+        XCTAssertEqual(kept.count, LocalMailPolicy.maxMessages)
+        XCTAssertEqual(kept.first?.id, "<m0@x>")
+        XCTAssertEqual(kept.last?.id, "<m299@x>")
+        XCTAssertEqual(kept.map(\.date), kept.map(\.date).sorted(by: >))
+    }
+
+    func testMessagesOlderThanFourteenDaysOrWithoutAnIdAreDropped() {
+        let old = message("<old@x>", minutesAgo: 14 * 24 * 60 + 5)
+        let edge = message("<edge@x>", minutesAgo: 14 * 24 * 60 - 5)
+        let kept = LocalMailPolicy.prepare([old, edge, message("  "), message("")], now: now)
+        XCTAssertEqual(kept.map(\.id), ["<edge@x>"])
+    }
+
+    func testLongBodiesAreTruncated() {
+        let kept = LocalMailPolicy.prepare([message("<l@x>", body: String(repeating: "b", count: 60_000))], now: now)
+        XCTAssertEqual(kept[0].body.count, LocalMailPolicy.maxBodyCharacters)
+    }
+
+    func testNoMessagesIsAnEmptyListNotAnError() {
+        XCTAssertEqual(LocalMailPolicy.prepare([], now: now), [])
+    }
+
+    func testAppleEventErrorsBecomeTheRightProblem() {
+        XCTAssertEqual(SystemMailAccess.map(errorNumber: -1743, message: "x"), .notAuthorized)
+        XCTAssertEqual(SystemMailAccess.map(errorNumber: -600, message: "x"), .notRunning)
+        XCTAssertEqual(SystemMailAccess.map(errorNumber: -609, message: "x"), .notRunning)
+        XCTAssertEqual(SystemMailAccess.map(errorNumber: 5, message: "Boom"), .failed("Mail couldn't read your inbox (error 5). Try Refresh."), "Mail's own text is not used")
+        XCTAssertEqual(SystemMailAccess.map(errorNumber: 5, message: ""), .failed("Mail couldn't read your inbox (error 5). Try Refresh."))
+    }
+
+    func testTheScriptAsksForTheLastFourteenDaysUpToTheCapAndNeverTouchesTheMailFolder() {
+        let script = SystemMailAccess.script(daysBack: 14, bodyCharacters: 4000, bodyMessages: 25, bodySeconds: 60)
+        XCTAssertTrue(script.contains("14 * days") && script.contains("4000"))
+        XCTAssertTrue(script.contains("tell application \"Mail\""))
+        XCTAssertFalse(script.contains("Library/Mail"), "no reading of Mail's own files")
+        XCTAssertTrue(script.contains("mailboxes of inbox"), "the inbox's sub-mailboxes, not a mailbox looked up by name")
+        XCTAssertFalse(script.contains("mailbox \"INBOX\""), "a mailbox name can miss (Gmail, Exchange, localized names)")
+        XCTAssertTrue(script.contains("timeout"), "the wait for Mail to open is allowed for")
+    }
+
+    func testTheScriptsPrintedTextBecomesMessagesAndNoAccountsIsItsOwnProblem() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let rs = String(SystemMailAccess.recordSeparator), us = String(SystemMailAccess.fieldSeparator)
+        func record(_ id: String, account: String, body: String = "Please pay.\nThanks") -> String {
+            [id, "Dana <d@example.com>", "Invoice: March", "1000", account, body].joined(separator: us)
+        }
+        let output = record("<a@x>", account: "iCloud") + rs + record("<a@x>", account: "Outlook", body: "") + rs + "\n"
+        let parsed = try SystemMailAccess.parse(output, now: now)
+        XCTAssertEqual(parsed.map(\.id), ["<a@x>", "<a@x>"])
+        XCTAssertEqual(parsed[0].date, 1_800_000_000 - 1000)
+        XCTAssertEqual([parsed[0].from, parsed[0].subject, parsed[0].account], ["Dana <d@example.com>", "Invoice: March", "iCloud"])
+        XCTAssertEqual(parsed[0].body, "Please pay.\nThanks", "newlines in the body survive")
+        XCTAssertEqual(parsed[1].body, "", "an empty body is still a message")
+        XCTAssertEqual(try SystemMailAccess.parse("", now: now), [], "no messages in the window is an empty list")
+        XCTAssertEqual(try SystemMailAccess.parse("\n", now: now), [])
+        XCTAssertThrowsError(try SystemMailAccess.parse("no-accounts\n", now: now)) { XCTAssertEqual($0 as? MailAccessError, .noAccounts) }
+        // A damaged record is skipped, not guessed at.
+        XCTAssertEqual(try SystemMailAccess.parse("only" + us + "three" + us + "fields" + rs + record("<b@x>", account: "Gmail"), now: now).map(\.id), ["<b@x>"])
+    }
+
+    func testOsascriptsStderrBecomesTheRightProblem() {
+        XCTAssertEqual(SystemMailAccess.failure(stderr: "execution error: Not authorized to send Apple events to Mail. (-1743)\n", status: 1), .notAuthorized)
+        XCTAssertEqual(SystemMailAccess.failure(stderr: "execution error: Application isn't running. (-600)", status: 1), .notRunning)
+        XCTAssertEqual(SystemMailAccess.failure(stderr: "execution error: Something odd happened. (-1728)", status: 1),
+                       .failed("Mail couldn't read your inbox (error -1728). Try Refresh."), "a short sentence and the number, not Mail's own text")
+        XCTAssertEqual(SystemMailAccess.failure(stderr: "", status: 15), .failed("Mail didn't answer in time. Try again."))
+        XCTAssertEqual(SystemMailAccess.failure(stderr: "", status: 1), .failed("Mail couldn't read your inbox. Try Refresh."))
+    }
+
+    func testAHugeStderrNeverReachesTheRow() {
+        // What Mail once printed: hundreds of message references, ten kilobytes of them.
+        let refs = (0..<400).map { "message id \(83_000 + $0) of mailbox \"[Gmail]/All Mail\" of account id \"1B7AD060\"" }.joined(separator: ", ")
+        let stderr = "943:953: execution error: Can't get message id of {\(refs)}. (-1728)"
+        XCTAssertGreaterThan(stderr.count, 10_000)
+        guard case .failed(let message) = SystemMailAccess.failure(stderr: stderr, status: 1) else { return XCTFail("expected a failure") }
+        XCTAssertEqual(message, "Mail couldn't read your inbox (error -1728). Try Refresh.")
+        XCTAssertLessThan(message.count, 160)
+        XCTAssertFalse(message.contains("All Mail"))
+    }
+
+    func testTheScriptFiltersAndBulkReadsPerSubMailboxNeverOnTheUnifiedInbox() {
+        let script = SystemMailAccess.script(daysBack: 14, bodyCharacters: 4000, bodyMessages: 25, bodySeconds: 60)
+        // Measured on a real Mail: the unified inbox's filter takes 30 s and its bulk reads fail; per sub-mailbox both work.
+        XCTAssertFalse(script.contains("messages of inbox whose"), "the unified inbox's whose-filter is slow and its references can't be bulk read")
+        XCTAssertTrue(script.contains("repeat with m from 1 to count of mbs") && script.contains("messages of mb whose date received > cutoff"))
+        // Bulk reads work only against the live specifier; against a stored list of references they fail with -1728.
+        for property in ["message id", "subject", "sender", "date received"] {
+            XCTAssertTrue(script.contains("\(property) of (messages of mb whose date received > cutoff)"), "\(property) is bulk read from the live specifier")
+            XCTAssertFalse(script.contains("\(property) of recent"), "\(property) of a stored list fails")
+        }
+        XCTAssertTrue(script.contains("set recent to (messages of mb whose date received > cutoff)"), "the stored list is kept for the per-message body reads")
+        // `lists` is the plural of the AppleScript class `list`: using it as a variable fails with -10006.
+        XCTAssertNil(script.range(of: #"\blists\b"#, options: .regularExpression), "no variable named lists")
+        XCTAssertTrue(script.contains("foundLists"))
+        XCTAssertTrue(script.contains("name of account of mb"), "the account name is read once per sub-mailbox")
+        // A failed sub-mailbox is skipped and counted, and all-failed is the unreadable marker.
+        XCTAssertTrue(script.contains("on error") && script.contains("skipped") && script.contains("unreadable:"))
+    }
+
+    func testBodiesAreFetchedOnlyForTheNewestFewWithinATimeBudget() {
+        let script = SystemMailAccess.script(daysBack: 14, bodyCharacters: 4000, bodyMessages: 25, bodySeconds: 60)
+        XCTAssertTrue(script.contains("repeat with n from 1 to 25"), "only the newest 25 get a body")
+        XCTAssertTrue(script.contains("((current date) - bodyStart) > 60"), "and none are started after 60 s of body time")
+        XCTAssertTrue(script.contains("content of msg"))
+        // `content` is read exactly once in the script, inside that bounded loop and a try, never per message in general.
+        XCTAssertEqual(script.components(separatedBy: "content of ").count - 1, 1)
+        XCTAssertEqual(LocalMailPolicy.bodyMessages, 25)
+        XCTAssertEqual(LocalMailPolicy.bodySeconds, 60)
+        XCTAssertLessThan(LocalMailPolicy.bodySeconds, 180, "headers plus the body budget stay under the script's own 180 s timeout")
+    }
+
+    func testAHeadersOnlyRecordIsStillAMessage() throws {
+        // Messages past the newest 25 come back with an empty body and are indexed from sender and subject.
+        let us = String(SystemMailAccess.fieldSeparator), rs = String(SystemMailAccess.recordSeparator)
+        let output = ["<a@x>", "Dana", "Invoice", "30", "iCloud", ""].joined(separator: us) + rs
+        let parsed = try SystemMailAccess.parse(output, now: Date(timeIntervalSince1970: 1_800_000_000))
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertEqual([parsed[0].from, parsed[0].subject, parsed[0].body], ["Dana", "Invoice", ""])
+    }
+
+    func testEveryMessageUnreadableIsAShortErrorNotASilentZero() {
+        XCTAssertThrowsError(try SystemMailAccess.parse("unreadable:37\n")) { error in
+            guard case .failed(let message) = error as? MailAccessError else { return XCTFail("expected a failure") }
+            XCTAssertTrue(message.contains("couldn't read any of them") && message.contains("37"), message)
+            XCTAssertLessThan(message.count, SourceCopy.maxErrorCharacters)
+        }
+    }
+
+    // MARK: A Mail that was only just launched
+
+    private final class Calls: @unchecked Sendable {
+        private let lock = NSLock()
+        private var runs = 0
+        private var naps: [Duration] = []
+        var runCount: Int { lock.withLock { runs } }
+        var sleeps: [Duration] { lock.withLock { naps } }
+        func ran() -> Int { lock.withLock { runs += 1; return runs } }
+        func slept(_ d: Duration) { lock.withLock { naps.append(d) } }
+    }
+
+    private var record: String {
+        ["<a@x>", "Dana", "Hi", "60", "iCloud", "Text"].joined(separator: String(SystemMailAccess.fieldSeparator)) + String(SystemMailAccess.recordSeparator)
+    }
+
+    private func access(running: Bool, answers: [String], calls: Calls) -> SystemMailAccess {
+        SystemMailAccess(runner: { _ in
+            let n = calls.ran()
+            return answers[min(n, answers.count) - 1]
+        }, isRunning: { running }, sleep: { calls.slept($0) }, launchGrace: .seconds(5))
+    }
+
+    func testAnEmptyAnswerFromAMailThatWasJustLaunchedWaitsAndAsksOnce() async throws {
+        let calls = Calls()
+        let mail = access(running: false, answers: ["", record], calls: calls)
+        let messages = try await mail.messages()
+        XCTAssertEqual(messages.map(\.id), ["<a@x>"], "the second answer, after Mail loaded, is used")
+        XCTAssertEqual(calls.runCount, 2)
+        XCTAssertEqual(calls.sleeps, [.seconds(5)])
+    }
+
+    func testStillEmptyAfterTheOneRetryIsEmptyNotAnError() async throws {
+        let calls = Calls()
+        let messages = try await access(running: false, answers: ["", ""], calls: calls).messages()
+        XCTAssertEqual(messages, [])
+        XCTAssertEqual(calls.runCount, 2, "asked once more, not in a loop")
+    }
+
+    func testNoRetryWhenMailWasAlreadyRunningOrAnswered() async throws {
+        let running = Calls()
+        _ = try await access(running: true, answers: [""], calls: running).messages()
+        XCTAssertEqual(running.runCount, 1)
+        XCTAssertEqual(running.sleeps, [])
+        let answered = Calls()
+        _ = try await access(running: false, answers: [record], calls: answered).messages()
+        XCTAssertEqual(answered.runCount, 1)
+        XCTAssertEqual(answered.sleeps, [])
+    }
+
+    func testNoAccountsAndErrorsAreNotRetried() async throws {
+        let calls = Calls()
+        do { _ = try await access(running: false, answers: ["no-accounts"], calls: calls).messages(); XCTFail("expected no accounts") }
+        catch { XCTAssertEqual(error as? MailAccessError, .noAccounts) }
+        XCTAssertEqual(calls.runCount, 1)
+        XCTAssertEqual(calls.sleeps, [])
+        let failing = SystemMailAccess(runner: { _ in throw MailAccessError.notAuthorized }, isRunning: { false }, sleep: { _ in }, launchGrace: .zero)
+        do { _ = try await failing.messages(); XCTFail("expected a refusal") }
+        catch { XCTAssertEqual(error as? MailAccessError, .notAuthorized) }
+    }
+
+    func testTheRealPathRunsOsascriptAsAChildNeverNSAppleScript() throws {
+        // `run` passes the script on stdin to /usr/bin/osascript. Here only a script that touches no app, to check the plumbing
+        // (stdin in, text out, stderr and the exit status on a failure) without Mail or any Automation prompt.
+        XCTAssertEqual(try SystemMailAccess.run("return \"ok\"").trimmingCharacters(in: .whitespacesAndNewlines), "ok")
+        XCTAssertThrowsError(try SystemMailAccess.run("error \"Not authorized\" number -1743")) { XCTAssertEqual($0 as? MailAccessError, .notAuthorized) }
+    }
+}

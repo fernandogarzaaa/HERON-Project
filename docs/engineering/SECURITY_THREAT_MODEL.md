@@ -74,17 +74,29 @@ network egress) or T4 (browser subresource interception). Tests:
 
 ## Chat stream backpressure
 
-HERON's native and web chat clients consume the same `POST /api/chat` SSE endpoint.
-The server caps each pending chat event queue at **128 events**. EventSink is
-synchronous; when a stalled consumer fills that queue, the active run is
-aborted instead of silently dropping model/tool/approval events or allocating
-unbounded memory. A best-effort terminal error is sent once capacity returns
-(with a five-second timeout), otherwise the stream ends early and the desktop
-and web clients show a failed/interrupted turn. When the SSE response is
-dropped, its guard aborts only its original run id and removes outstanding
-approvals; a newer reply in that conversation cannot be cancelled by stale
-cleanup. Approval prompts use bounded, timed delivery and fail closed if the
-client cannot receive them.
+Every event from every session, including background runs and Telegram turns, goes onto one
+event bus (`App.events`, `src/events.rs`). Each event carries a `seq` that starts at 1 for each
+core process. Clients read the bus through `GET /api/events?since=<seq>`, or through the
+`POST /api/chat` SSE response, which is the view of one run's events.
+
+The bus is bounded in two places, so a slow or stalled reader never makes the core allocate
+without limit:
+
+- **A ring of the last 10,000 events** (`RING_CAPACITY`) serves clients that reconnect with
+  `since`. A `since` older than the ring holds, or newer than the last `seq` (after a core
+  restart), gets `resync` at once.
+- **A live channel of 1,024 events** (`LIVE_CAPACITY`) feeds connected readers. A reader that
+  falls further behind gets `resync` and is dropped. The run carries on; nothing is aborted
+  and no event is lost from the bus. After `resync` a client reloads with
+  `GET /api/sessions/{id}` and `GET /api/approvals`, then continues from the newest `seq` it has.
+
+A dropped or lagging `/api/chat` response ends only that response. Only `POST /api/cancel` stops
+a run. Approvals wait on the bus, not on one stream: an approval nobody answers within the
+approval timeout (900 seconds by default, `[server] approval_timeout_secs`) is denied and parked
+(`park_approval`): the run carries on without that call, the bus gets `approval_parked`, and the
+parked call can be approved later from the approvals list. Tests: `events::tests::lagging_subscriber_gets_resync_and_is_dropped`,
+`events::tests::bus_resyncs_when_since_is_too_old`, `server::tests::run_survives_dropped_chat_stream`
+and `server::tests::approval_waits_on_the_bus_then_parks_on_timeout`.
 
 The desktop limits its network-to-UI event queue and pending native UI-thread
 callbacks to **64 each**. Its incremental SSE parser rejects an individual
@@ -93,12 +105,14 @@ against non-terminating lines and huge serialized messages. Both a broken
 connection and parser failure are reported to the UI rather than leaving a
 permanently busy conversation.
 
-**Residual limits:** The server channel bounds the *number* of events, not
-their individual serialized byte lengths. Other application channels and
-event transports require their own audits. A sufficiently slow client can
-still hold one reply or approval until its timeout; the guard prevents it
-from accumulating unlimited queued events, but does not replace per-client
-rate limits or a complete denial-of-service analysis.
+**Residual limits:** The ring and the live channel bound the *number* of
+events, not their individual serialized byte lengths. Other application
+channels and event transports require their own audits. Because a run no
+longer stops when its reader goes away, a run started by a client that then
+disappears keeps using the model until it ends or is cancelled; an approval
+nobody answers is denied and parked after the timeout, and the run carries on.
+The bounds stop a slow reader from growing memory, but do
+not replace per-client rate limits or a complete denial-of-service analysis.
 
 ## Known weaknesses (not mitigated)
 
@@ -114,8 +128,21 @@ rate limits or a complete denial-of-service analysis.
 | T8 | The activity log is hash-chained but lives in the same database. | Someone who can rewrite the database can rewrite the whole chain. |
 | T9 | The local API's own endpoints (the buttons in the app) are not subject to the permission mode. | By design they are the user's direct actions; a program that steals the launch token can use them. |
 | T10 | Installers are unsigned. | A user cannot verify who built them. |
-| T12 | Telegram turns run in the desktop's permission mode. Accepted by the owner (C35-8). | In Auto or Yolo mode, whoever controls the paired Telegram account can run tools, including `shell`, with no prompt. Ask mode still asks for every change, and high-risk or outside-content requests are approved only at the computer. |
+| T12 | Telegram turns run in the desktop's permission mode. Accepted by the owner ([C35-8](../ACCEPTED_RISKS.md#c35-8-phone-turns-inherit-the-desktop-permission-mode)). | In Auto or Yolo mode, whoever controls the paired Telegram account can run tools, including `shell`, with no prompt. Ask mode still asks for every change, and high-risk or outside-content requests are approved only at the computer. |
 | T11 | Undo replaces by atomic exchange and verifies what was displaced (D-13). Removing a file still has only the narrowed check-then-remove gap: the check is repeated at the last moment, after the old version is ready on disk, but the check and the removal are still two steps. | A save from another program that lands in the instant between the removal check and the removal is deleted without a copy. No operating-system primitive closes that one. |
+
+## Accepted risks
+
+The owner-signed register is [ACCEPTED_RISKS.md](../ACCEPTED_RISKS.md). Each risk there links
+back to its entry here.
+
+- **C35-8**: phone turns inherit the desktop permission mode. It is recorded as T12 in the table
+  above, which links to
+  [its register entry](../ACCEPTED_RISKS.md#c35-8-phone-turns-inherit-the-desktop-permission-mode).
+- **R-1**: working-folder reads stay trusted, so injected text in a working-folder file can steer
+  the model to send other working-folder content out without a prompt; reads outside the working
+  folder and secret-looking paths still ask, which breaks the M-1 credential chain.
+  [Register entry](../ACCEPTED_RISKS.md#r-1-working-folder-content-can-be-sent-out-after-an-injected-read).
 
 ## Keeping this current
 

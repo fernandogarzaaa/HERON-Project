@@ -1,4 +1,8 @@
 //! Setup lane views: onboarding, providers and settings, persona.
+
+// `tests/slint_setup_logic.rs` includes this file on its own to test the pure half, without the
+// driver that calls the rest, so unused items there are expected.
+#![cfg_attr(test, allow(dead_code))]
 //!
 //! Pure view state plus the JSON mapping for the server API. This file
 //! uses only `std` and `serde_json`. It makes no HTTP calls, reads no
@@ -1390,22 +1394,14 @@ impl<B: SetupBridge> SettingsState<B> {
 mod tests {
     use super::*;
     use std::future::Future;
-    use std::sync::Arc;
-    use std::task::{Context, Poll, Wake, Waker};
-
-    struct NopWaker;
-
-    impl Wake for NopWaker {
-        fn wake(self: Arc<Self>) {}
-    }
+    use std::task::{Context, Poll, Waker};
 
     /// Drives a future to completion on the calling thread. Only for
     /// tests: the fakes never park, so the first poll always resolves.
     /// A future that parks forever would spin here, so never use this
     /// outside tests.
     fn block_on<F: Future>(f: F) -> F::Output {
-        let waker = Waker::from(Arc::new(NopWaker));
-        let mut cx = Context::from_waker(&waker);
+        let mut cx = Context::from_waker(Waker::noop());
         let mut f = Box::pin(f);
         loop {
             match f.as_mut().poll(&mut cx) {
@@ -1887,12 +1883,10 @@ mod tests {
 
     #[test]
     fn body_builders_match_the_server_shapes() {
-        let mut form = AboutForm::default();
-        form.name = "Fernando".to_string();
+        let form = AboutForm { name: "Fernando".to_string(), ..Default::default() };
         assert_eq!(about_body(&form)["name"], "Fernando");
         assert_eq!(about_body(&form)["notes"], "");
-        let mut fields = SourceFields::default();
-        fields.host = "imap.gmail.com".to_string();
+        let mut fields = SourceFields { host: "imap.gmail.com".to_string(), ..Default::default() };
         fields.username = "me@example.com".to_string();
         assert_eq!(
             source_body(SourceKind::Email, &fields)["host"],

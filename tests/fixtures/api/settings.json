@@ -1,0 +1,162 @@
+{
+  "allow_rules": [
+    "shell:git *"
+  ],
+  "allow_unattended_subscription": false,
+  "auto_memory": false,
+  "base_url": "demo",
+  "browser": "Google Chrome",
+  "browser_visible": false,
+  "cli_allow_agent_tools": false,
+  "cli_allow_api_key": false,
+  "cli_command": "",
+  "cli_config_dir": "",
+  "cli_model": "",
+  "cli_subscription": {},
+  "daemon_mode": "ask",
+  "fallback_models": "",
+  "fast_model": "",
+  "home": "/tmp/heron-fixture/home",
+  "key_source": "none",
+  "mcp": [],
+  "mcp_changed": [],
+  "mode": "ask",
+  "model": "anthropic/claude-sonnet-5.5",
+  "name": "Heron",
+  "neural_available": false,
+  "neural_memory": false,
+  "provider": "http",
+  "providers": [
+    {
+      "auth": "Claude Pro/Max subscription",
+      "cost": "Draws on the plan's usage window; Agent SDK use drains it faster than the CLI directly.",
+      "experimental": false,
+      "id": "claude-cli",
+      "login": "claude auth login",
+      "name": "Claude Code (subscription)"
+    },
+    {
+      "auth": "ChatGPT Plus/Pro/Team subscription",
+      "cost": "Draws on the ChatGPT plan. A stray OPENAI_API_KEY would flip billing to metered API; Heron removes it from the child env.",
+      "experimental": false,
+      "id": "codex-cli",
+      "login": "codex login",
+      "name": "Codex (ChatGPT subscription)"
+    },
+    {
+      "auth": "Cursor subscription",
+      "cost": "Draws on the Cursor plan's usage pool.",
+      "experimental": false,
+      "id": "cursor-cli",
+      "login": "agent login",
+      "name": "Cursor (subscription)"
+    },
+    {
+      "auth": "Grok Build subscription",
+      "cost": "Draws on the Grok plan.",
+      "experimental": true,
+      "id": "grok-cli",
+      "login": "grok login",
+      "name": "Grok Build (subscription)"
+    },
+    {
+      "auth": "Whatever opencode.json routes to: Claude Pro OAuth, OpenRouter free models, Ollama",
+      "cost": "Free when routed to a free model or a local model; otherwise the upstream's price.",
+      "experimental": false,
+      "id": "opencode-cli",
+      "login": "opencode auth login (or configure opencode.json)",
+      "name": "OpenCode (router)"
+    },
+    {
+      "auth": "Google account (successor to Gemini CLI for logins)",
+      "cost": "Google's pricing for the selected method.",
+      "experimental": false,
+      "id": "antigravity-cli",
+      "login": "agy (then sign in with Google)",
+      "name": "Antigravity (Google account)"
+    },
+    {
+      "auth": "Whatever Cline is configured with: cline / openai-codex / oca OAuth, API keys, Ollama",
+      "cost": "Free when routed to a free or local model. One-shot defaults to yolo, so this provider needs cli_allow_agent_tools = true.",
+      "experimental": true,
+      "id": "cline-cli",
+      "login": "cline auth <provider>",
+      "name": "Cline (router, free models)"
+    },
+    {
+      "auth": "GitHub Copilot subscription",
+      "cost": "Draws on the Copilot plan's credit pool.",
+      "experimental": false,
+      "id": "copilot-cli",
+      "login": "copilot (then /login)",
+      "name": "GitHub Copilot (subscription)"
+    },
+    {
+      "auth": "Alibaba Cloud plan, OpenRouter, Fireworks, or local Ollama/vLLM. Free Qwen OAuth ended 2026-04-15.",
+      "cost": "Free with a local model; otherwise the upstream's price.",
+      "experimental": false,
+      "id": "qwen-cli",
+      "login": "qwen (then /auth)",
+      "name": "Qwen Code (paid key or local)"
+    },
+    {
+      "auth": "Gemini API key (free tier) or Vertex AI. Google OAuth free tier ended 2026-06-18; use Antigravity for Google login.",
+      "cost": "Free tier on the API key; otherwise Google's pricing.",
+      "experimental": false,
+      "id": "gemini-cli",
+      "login": "gemini (then pick Gemini API Key)",
+      "name": "Gemini CLI (API key)"
+    },
+    {
+      "auth": "Pi's own providers",
+      "cost": "Whatever Pi is configured with.",
+      "experimental": true,
+      "id": "pi-cli",
+      "login": "pi (then sign in)",
+      "name": "Pi (ACP agent)"
+    },
+    {
+      "auth": "fx's own providers",
+      "cost": "Whatever fx is configured with.",
+      "experimental": true,
+      "id": "fx-cli",
+      "login": "fx login",
+      "name": "fx (ACP agent)"
+    },
+    {
+      "auth": "Kiro's own providers",
+      "cost": "Whatever Kiro is configured with.",
+      "experimental": true,
+      "id": "kiro-cli",
+      "login": "kiro-cli (then sign in)",
+      "name": "Kiro (ACP agent)"
+    },
+    {
+      "auth": "Muse's own providers",
+      "cost": "Whatever Muse is configured with.",
+      "experimental": true,
+      "id": "muse-cli",
+      "login": "muse (then sign in)",
+      "name": "Muse Code (ACP agent)"
+    },
+    {
+      "auth": "Local model or any provider Goose is configured with",
+      "cost": "Free with a local model. Runs its own tool loop, so this provider needs cli_allow_agent_tools = true.",
+      "experimental": true,
+      "id": "goose-cli",
+      "login": "goose configure",
+      "name": "Goose (open source, local/BYOK)"
+    },
+    {
+      "auth": "Whatever the custom CLI uses",
+      "cost": "Whatever the custom CLI uses. Use for Crush, Amp, Kimi, Droid, llm, or anything else not listed.",
+      "experimental": true,
+      "id": "custom-cli",
+      "login": "See the CLI's own docs",
+      "name": "Custom CLI"
+    }
+  ],
+  "rule_notices": [],
+  "secret_storage": "macOS Keychain",
+  "workspace": "/tmp/heron-fixture/ws"
+}

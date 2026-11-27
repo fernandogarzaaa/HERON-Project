@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/fernandogarzaaa/HERON-Project/actions/workflows/ci.yml/badge.svg)](https://github.com/fernandogarzaaa/HERON-Project/actions/workflows/ci.yml)
 
-A personal AI agent that runs on your own computer. Desktop app for macOS and Windows (and Linux), plus a full command-line interface. Written in Rust.
+> **Research preview.** Heron v1 is a research preview for macOS. It has known security gaps that the owner reviewed and accepted, listed in plain language in [docs/ACCEPTED_RISKS.md](docs/ACCEPTED_RISKS.md). Read them before you install. On macOS, Heron shows the same list before your first conversation and runs nothing until you accept it.
+
+A personal AI agent that runs on your own Mac, with a full command-line interface. Written in Rust. macOS is the only qualified platform for the research preview. Windows and Linux builds still exist, but they are unqualified: the preview's security checks, risk notice and task tests cover macOS only.
 
 ![Heron asking permission before writing a file](docs/screenshots/conversation-approval.png)
 
@@ -13,7 +15,7 @@ Heron reads and writes files, runs commands, searches and reads the web, keeps l
 | | |
 |---|---|
 | **Local-first** | One process, one SQLite file in `~/.heron`. No account, no telemetry, no server. Conversations go to the AI model you choose and nowhere else by default. Things you switch on send what they need to the service involved: web search and page fetches (the query or address), a remote embedding model (the text being remembered), Telegram (your messages and Heron's replies), an email or calendar account you connect (your sign-in, to your own provider), and any app you connect through MCP. |
-| **Any model** | Works with any OpenAI-compatible endpoint: OpenRouter, OpenAI, or a model running entirely on your machine (Ollama, LM Studio). Automatic retry and fallback models. |
+| **Uses the CLI you already pay for** | The main way to connect a model is a CLI you are already logged in to, such as Claude Code or Codex. Heron never reads the CLI's login, and runs the CLI with its own tools off, inside a sandbox on macOS. Any OpenAI-compatible endpoint works too: OpenRouter, OpenAI, or a model running entirely on your machine (Ollama, LM Studio), with automatic retry and fallback models. |
 | **Memory that works offline** | Hybrid retrieval (SQLite FTS5 keyword search + vector similarity, fused and weighted by importance and recency). Embeddings are computed locally with no API call; a remote embedding model is optional. Near-duplicates are merged, and credentials are redacted before anything is stored. |
 | **Safety you can reason about** | Every tool call is classified (safe / network / write / exec / dangerous / forbidden) and checked against the permission mode and your allow/deny rules. Catastrophic commands are blocked in every mode. File writes are checkpointed and undoable. Fetches cannot reach localhost or your LAN. |
 | **Outside content restricts what happens next** | Telling a model to ignore instructions hidden in a web page or email is known not to be reliable, so Heron does not rely on it. Once such content has entered a conversation, anything that changes state needs your approval, whatever the mode or your allow rules say, and so does anything that could carry your data out: fetching a web address that was not already in the conversation word for word (data can ride in the path or host name as easily as in a query), calling a connected app's tool, or scheduling a job to run later. Facts saved from then on are held as unconfirmed. Unattended runs do not do these things; they keep them for you to approve. The restriction applies in read-only mode too, follows sub-agents and survives reopening the conversation. |
@@ -23,7 +25,7 @@ Heron reads and writes files, runs commands, searches and reads the web, keeps l
 | **Keys in the OS credential store** | API keys, the email app password, calendar links and the Telegram token go to the macOS Keychain or Windows Credential Manager (an owner-only file on Linux). Never the config file, database, logs, or the environment of commands it runs. |
 | **Uses websites for you** | Heron can drive a real browser already on your computer (Chrome, Edge, Chromium or Brave): open pages that need JavaScript, follow links, fill in forms and press buttons. It uses its own browser profile inside the Heron folder, never yours, so it has none of your logins unless you sign in there (set `browser_visible = true` to see and use its window). Reading and following links is treated like fetching a page; typing and pressing buttons is treated like running a command and asks first, always once a page's content is in the conversation. Passwords already in a field are never shown to the model, downloads are off, and internal addresses are refused. |
 | **Knows what it costs** | A Usage page shows tokens used today and this month, what is left of the limits you set, where the month is heading at the recent pace, and a breakdown by model (plus your remaining OpenRouter credit, if that is your provider). Heron paces itself: with a quarter of the allowance left it takes fewer steps and answers briefly; near the end it uses its cheapest model and stops everything it does on its own. It never refuses to answer you. With a cheaper model configured, short simple requests go to it and anything that turns out to need real work moves to the main model part-way. No extra model call is spent deciding any of this. `heron usage` prints the same figures. |
-| **From your phone** | Connect a Telegram bot and talk to Heron while your computer is on. It answers exactly one chat — the one that sent the pairing code shown in the app. Phone turns use the desktop's permission mode. In Ask mode, permission questions arrive as yes/no and risky actions can only be approved at the computer. In Auto or unrestricted mode, the paired chat runs tools, commands included, without asking (see Known limits). `/stop` halts it. Results of scheduled work are forwarded. |
+| **From your phone** | Connect a Telegram bot and talk to Heron while your computer is on. It answers exactly one chat — the one that sent the pairing code shown in the app. Phone turns use the desktop's permission mode. In Ask mode, permission questions arrive as yes/no. Risky actions, and anything asked after outside content (a web page, an email) entered the conversation, can only be approved at the computer. In Auto or Yolo mode, the paired chat runs tools, commands included, without asking. That is accepted risk C35-8 in [docs/ACCEPTED_RISKS.md](docs/ACCEPTED_RISKS.md); use Ask mode while a phone is paired if that matters to you. `/stop` halts it. Results of scheduled work are forwarded. |
 | **Spending is capped** | Work Heron starts on its own (suggestions, preparing, taking over, reflection) has a daily token allowance (150,000 by default). Reminders you scheduled always run. |
 | **You can see what it did** | Each action appears on a track beside the reply, and in a permanent activity log. |
 | **Extensible** | Connect any MCP server to add tools; drop Markdown files in `~/.heron/skills` to teach procedures; Heron can also *serve* its memory and tasks to other MCP apps. |
@@ -42,17 +44,19 @@ Heron reads and writes files, runs commands, searches and reads the web, keeps l
 
 ## Install
 
-Heron v0.3.1 is a beta. Download from the [releases page](https://github.com/fernandogarzaaa/HERON-Project/releases), or use the one-line installer for your system. The installers check the download against the published checksums before installing anything.
+Heron v1 is a research preview, qualified on macOS only. For a first install on a Mac, follow [Getting started on a Mac](docs/getting-started-mac.md): it takes you from installing a CLI to a first reply. Downloads are on the [releases page](https://github.com/fernandogarzaaa/HERON-Project/releases). The one-line installers below are still pinned to v0.3.1, the last beta, so they install that beta, not the preview. The installers check the download against the published checksums before installing anything.
 
-**macOS** (Apple silicon and Intel, macOS 11 or later)
+**macOS** (Apple silicon and Intel, macOS 14 or later; the qualified platform)
+
+Download `Heron-macos-universal.dmg`, open it, and drag Heron onto Applications. The preview build is signed and notarized, so it opens with a normal double-click.
+
+The v0.3.1 one-line installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.1/scripts/install.sh | sh
 ```
 
-Or download `Heron-macos-universal.dmg`, open it, and drag Heron onto Applications.
-
-**Windows** (10 or 11, 64-bit)
+**Windows** (10 or 11, 64-bit; unqualified)
 
 ```powershell
 irm https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.1/scripts/install.ps1 | iex
@@ -60,16 +64,16 @@ irm https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.1/scrip
 
 Or download `Heron-Setup-windows-x64.exe` and run it (no administrator rights needed), or unzip `Heron-windows-x64.zip` anywhere and open `Heron.exe`.
 
-**Linux** (x86_64, requires fontconfig and OpenGL runtime libraries)
+**Linux** (x86_64, requires fontconfig and OpenGL runtime libraries; unqualified)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/HERON-Project/v0.3.1/scripts/install.sh | sh
 ```
 
-Then open Heron. The first launch walks you through getting set up: choose an AI model (or try the built-in demo, which needs no key), tell Heron about yourself, and connect what you like.
+Then connect a model. The main path is a CLI you already use: install Claude Code or Codex, log in inside the CLI itself (for example `claude auth login`), then open Heron, which looks for it (or pick it as the provider in Settings). The Tier 1 CLIs and their login commands are in [docs/cli-providers.md](docs/cli-providers.md#tier-1-clis). On first launch Heron shows the risk notice, then walks you through the rest: tell Heron about yourself, and connect what you like. An API key, or the built-in demo, which needs no key, also works.
 
-Notes for this beta:
-- The macOS beta has an ad-hoc signature, not Apple Developer ID notarization. macOS may require right-click → Open on first launch. Windows binaries are unsigned and SmartScreen may require More info → Run anyway.
+Notes for the preview:
+- On Windows and Linux, Heron keeps its earlier behaviour and shows no risk notice. Windows binaries are unsigned and SmartScreen may require More info → Run anyway; Windows also has no command sandbox.
 - The native Slint desktop does not require the WebView2 runtime.
 - Your data lives in the `.heron` folder in your home folder. Uninstalling Heron leaves it in place.
 - To remove Heron: drag it out of Applications (macOS), use "Add or remove programs" or delete `%LOCALAPPDATA%\Programs\Heron` (Windows), or run `~/.local/share/heron/install.sh --uninstall` (Linux).
@@ -118,12 +122,16 @@ In chat: `/help`, `/new`, `/resume <id>`, `/memory [query]`, `/forget <id>`, `/t
 
 ## Permission modes
 
-| Mode | Reading | Memories, tasks, reminders | File changes in the working folder | Commands | Acting on websites or other apps | Risky actions | Reading secrets |
-|---|---|---|---|---|---|---|---|
-| `readonly` | allowed | refused | refused | refused (read-only commands allowed) | refused | refused | asks |
-| `ask` (default) | allowed | allowed | asks | asks (read-only commands allowed) | asks | asks | asks |
-| `auto` | allowed | allowed | allowed | allowed | asks | asks | asks |
-| `yolo` | allowed | allowed | allowed | allowed | allowed | allowed | asks |
+| Mode | Reading in the working folder | Reading elsewhere in your files | Memories, tasks, reminders | File changes in the working folder | Commands | Acting on websites or other apps | Risky actions | Reading secrets |
+|---|---|---|---|---|---|---|---|---|
+| `readonly` | allowed | asks | refused | refused | refused (read-only commands allowed) | refused | refused | asks |
+| `ask` (default) | allowed | asks | allowed | asks | asks (read-only commands allowed) | asks | asks | asks |
+| `auto` | allowed | asks | allowed | allowed | allowed | asks | asks | asks |
+| `yolo` | allowed | allowed | allowed | allowed | allowed | allowed | allowed | asks |
+
+Reading a file outside the working folder asks first, in every mode except Yolo.
+
+This is new in v1: earlier versions let every mode read anywhere. "Elsewhere in your files" means the rest of your home folder, other users' folders and external drives; system and temporary folders are read without asking, as before. When you approve such a read you can choose once, this conversation, or always for that folder. In Yolo, these reads ask again once outside content has entered the conversation. Some places are never read in any mode, and no approval opens them: Heron's own folder, your CLIs' login folders, the Keychain, and your browser, Mail, Messages and Safari data.
 
 Two rules apply in every mode, `yolo` included, and no allow rule or setting switches them off:
 
@@ -186,26 +194,31 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Documents"]
 
 The API key is read from the environment, or from the OS credential store when saved from the app (macOS Keychain, Windows Credential Manager; an owner-only `~/.heron/secrets.json` on Linux). It is never written to the config, the database, the logs, or passed to commands the agent runs.
 
-### Subscription CLIs instead of an API key
+### Signing in with a CLI (the main setup path)
 
-Heron can also run through a local CLI instead of an API key: Claude Code,
-Codex, Cursor, Grok Build, OpenCode, Antigravity, Cline, Copilot, Qwen,
-Gemini, Pi, fx, Kiro, Muse, Goose, or a custom CLI. Most of these bill
-through a subscription you already pay for, but not all of them: OpenCode
-routes to whatever providers you configure in it, metered or free, and
-Gemini and Qwen take API keys rather than a subscription. Run
-`heron providers` to check install and login status, then set `[llm] provider`
-in the config (for example `provider = "claude-cli"`) or
-`HERON_PROVIDER=codex-cli`. Login happens in the CLI itself
-(`claude auth login`, `codex login`, ...); Heron never reads a CLI token,
-runs the CLI in a throwaway directory with its own tools off, and keeps its
-own tool loop, permissions, and audit on top. Cline and Goose are the
-exception: their headless modes cannot turn their own tools off, so they
-only run when you explicitly set `cli_allow_agent_tools = true`, and then
-they run their own tool loop outside Heron's permissions and audit. The
-throwaway directory keeps the CLI away from your files; it is not a
-sandbox. Full list, login steps, and safety rules: `docs/cli-providers.md`.
-The design copies the Hermes `claude-subscription-directsdk` plugin and T3
+The main way to connect a model is a local CLI you are already logged in to,
+billed through your own subscription. Two CLIs are Tier 1 in v1: Claude Code
+(`claude-cli`) and Codex (`codex-cli`). OpenCode (`opencode-cli`) is
+**not configured or tested yet in v1**: it passed the containment check, but
+its task gate has not been run, so it is labelled experimental. The rest
+(Antigravity, Cline, Cursor, Grok Build, Copilot, Qwen, Gemini, Pi, fx, Kiro,
+Muse, Goose, or a custom CLI) are labelled experimental too. Not all of them
+bill through a subscription: Gemini and Qwen take API keys.
+
+Log in inside the CLI itself (`claude auth login`, `codex login`, ...). Then
+run `heron providers` to check install and login status, and set `[llm]
+provider` in the config (for example `provider = "claude-cli"`) or
+`HERON_PROVIDER=codex-cli`, or pick the provider in the Mac app's Settings.
+Heron never reads a CLI token. On macOS it runs the CLI with its own tools
+off, in a run folder outside `~/.heron`, with an allowlisted environment,
+inside its own sandbox, and keeps its own tool loop, permissions and audit on
+top. Without the sandbox, Heron won't start a CLI on macOS. Cline and Goose
+are the exception on tools: their headless modes can't turn their own tools
+off, so they only run when you explicitly set `cli_allow_agent_tools = true`,
+and then they run their own tool loop outside Heron's permissions and audit,
+still inside the sandbox. Tier 1 versions, login steps, costs and the full
+containment rules: [docs/cli-providers.md](docs/cli-providers.md). The
+design copies the Hermes `claude-subscription-directsdk` plugin and T3
 Code's provider drivers.
 
 ### Skills
@@ -285,13 +298,13 @@ The built-in column is the same on every system. The neural column was also the 
 
 The built-in method needs nothing and tolerates misspellings, but misses questions that share no words with the answer ("what is her job" → "landscape architect"). The neural model (all-MiniLM-L6-v2, run locally; the approach comes from the ADAM project) fixes those but is not typo-tolerant on its own, so Heron fuses both with keyword search. It is an optional build feature (`cargo build --features desktop,neural`; on Linux this needs glibc 2.38 or newer, for example Ubuntu 24.04) and a switch in Settings; the model (about 23 MB) is downloaded once, on first use. The test suite fails if the default numbers regress. This measures retrieval only — not a model's reasoning, and not Heron against other agents.
 
-Platform verification: every push runs the test suite and builds the desktop app on Linux, macOS and Windows machines (see the CI badge). Before that, the suite was run natively on Linux and as Windows executables under Wine.
+Platform verification: every push runs the test suite and builds the desktop app on Linux, macOS and Windows machines (see the CI badge). Before that, the suite was run natively on Linux and as Windows executables under Wine. Only macOS is qualified for the research preview; Windows and Linux are built and tested but unqualified.
 
 ## Known limits
 
 - Commands run in an operating-system sandbox on Linux (when bubblewrap is installed) and macOS, but not on Windows. The sandbox limits where commands can write and hides Heron's data and your key folders; it does not restrict the network. Where there is no sandbox, risk classification of commands is pattern-based and should be treated as a convenience, not a boundary: the real protections there are approvals and the outside-content rule.
 - The outside-content rule is per conversation and coarse: it does not track which specific data came from where, and files you downloaded and then ask Heron to read are not treated as outside content. A page that lists many addresses could still be used to signal a few bits by which one is fetched. HERON's web-fetch/search client now disables inherited HTTP(S)/ALL_PROXY settings by default to keep the connect-time internal-address check effective, including redirects. If your network requires a **trusted proxy**, explicitly set `HERON_TRUST_WEB_PROXY=1` before starting Heron; the proxy then resolves target hosts and **must enforce its own internal-address/metadata SSRF restrictions**. `HERON_ALLOW_LOCAL_FETCH=1` is a separate, more permissive local-fetch override; `0`, `false`, or an empty value no longer enable it.
-- **Accepted risk:** Telegram turns run in the desktop's permission mode. In Auto or unrestricted mode, whoever controls the paired Telegram account can make Heron run tools, including `shell`, with no prompt. Ask mode keeps every change behind a yes/no, and risky actions behind the computer. Use Ask mode while the phone is paired if that matters to you.
+- **Accepted risk C35-8** ([docs/ACCEPTED_RISKS.md](docs/ACCEPTED_RISKS.md)): Telegram turns run in the desktop's permission mode. In Auto or Yolo mode, whoever controls the paired Telegram account can make Heron run tools, including `shell`, with no prompt. Ask mode keeps every change behind a yes/no, and risky actions, and anything after outside content, behind the computer. Use Ask mode while the phone is paired if that matters to you.
 - The Telegram gateway was tested against a stand-in for Telegram's API, not the real service. Messages pass through Telegram's servers. It works only while Heron is running on your computer.
 - No voice, mobile app, email sending, calendar writing, or one-click OAuth connectors.
 - Browser control needs Chrome, Edge, Chromium or Brave to be installed. It reads pages as text and a numbered list of controls (no screenshots or vision), sees only the top page (not embedded frames), lists at most 80 controls, and does not upload or download files. It has been tested against a local test site with a real browser, not against the public web's sign-in walls and bot checks.

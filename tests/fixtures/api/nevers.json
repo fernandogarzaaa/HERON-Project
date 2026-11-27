@@ -1,0 +1,7 @@
+[
+  {
+    "in_file": true,
+    "rule": "web_fetch:*",
+    "tool": "web_fetch"
+  }
+]

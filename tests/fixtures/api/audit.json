@@ -1,0 +1,16 @@
+{
+  "checked": 1,
+  "entries": [
+    {
+      "args": "{\"content\":\"# Plan\\n\\n1. Connect a real model in Settings\\n2. Ask Heron for the real plan\\n\",\"path\":\"plan.md\"}",
+      "cli_version": "",
+      "decision": "approved",
+      "provider": "demo",
+      "result": "wrote 75 bytes to plan.md",
+      "session_id": "d7b37882d0ad",
+      "tool": "write_file",
+      "ts": 1795043277
+    }
+  ],
+  "intact": true
+}

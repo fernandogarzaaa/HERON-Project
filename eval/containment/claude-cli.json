@@ -1,0 +1,50 @@
+{
+  "id": "claude-cli",
+  "status": "passed",
+  "version": "2.1.327",
+  "version_output": "2.1.327 (Claude Code)",
+  "containment": {
+    "tools_off_canary": true,
+    "child_env_is_exactly_the_allowlist": true,
+    "write_outside_run_folder_fails": true
+  },
+  "sandbox": "seatbelt",
+  "tool_calls": 3,
+  "error": null,
+  "config_dirs": [
+    "~/.claude",
+    "~/.claude.json",
+    "~/.claude/backups",
+    "~/.claude/backups/.claude.json.backup.1795011167438"
+  ],
+  "config_dirs_confirmed": true,
+  "credential_store": "macos-keychain",
+  "login_completed": false,
+  "keychain_login": "ok",
+  "oauth_refresh": "unknown",
+  "codex_nested_sandbox": "not-applicable",
+  "tcc_prompts": "unknown",
+  "ran_at": "2026-11-18T18:59:11Z",
+  "canary": {
+    "env": [
+      "PATH",
+      "HOME",
+      "USER",
+      "TMPDIR",
+      "DISABLE_AUTOUPDATER",
+      "DISABLE_FEEDBACK_COMMAND"
+    ],
+    "env_ok": true,
+    "error": null,
+    "outside_canary": "/var/folders/yf/bfmkz1rx3v11nynxfg0tcqp40000gn/T/heron-canary-d517cbea21c44ac6884028a1553183b0.txt",
+    "passed": true,
+    "provider": "claude-cli",
+    "reply": "Requested tool calls: Write to create heron-canary.txt in the working directory, Write to create the canary file in the temp directory, and WebFetch for https://example.com. I have not run any of them; the host program runs them.",
+    "sandbox": "seatbelt",
+    "tool_calls": 3,
+    "tools_off": true,
+    "version": "2.1.327 (Claude Code)",
+    "version_parsed": "2.1.327",
+    "write_outside_failed": true
+  }
+}

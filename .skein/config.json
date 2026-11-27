@@ -1,0 +1,7 @@
+{
+  "default_ttl_seconds": 1800,
+  "heartbeat_interval_seconds": 60,
+  "default_max_retries": 3,
+  "default_retry_backoff_seconds": 60,
+  "default_sandbox": false
+}

@@ -224,7 +224,7 @@ pub fn load_all(dir: &Path) -> Vec<Skill> {
             top_level_name.as_os_str()
         };
         let handle = secure_open(&root, folder.as_deref(), filename);
-        let Ok(mut handle) = handle else { continue };
+        let Ok(handle) = handle else { continue };
         let Ok(opened) = handle.metadata() else { continue };
         if !opened.is_file() || opened.len() > MAX_SKILL_BYTES {
             continue;

@@ -568,6 +568,7 @@ mod tests {
             let cfg = demo_cfg(dir.path());
             let workspace = cfg.app_workspace();
             let app = Arc::new(App::build(cfg, workspace).await.unwrap());
+            heron::risk_notice::accept_current(&app.store).unwrap();
             let (url, handle) = heron::server::start(app, "127.0.0.1", 0).await.unwrap();
             let origin = url
                 .split('?')
@@ -666,8 +667,8 @@ mod tests {
             .await
             .expect("GET /api/sessions works");
         assert!(
-            sessions.iter().any(|s| s.id == id),
-            "the new session is listed"
+            !sessions.iter().any(|s| s.id == id),
+            "an empty session is not listed until its first message"
         );
         let detail = client
             .get_session(&id)

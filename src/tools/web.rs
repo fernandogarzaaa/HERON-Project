@@ -175,6 +175,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: |a, c| if a.get("url").and_then(|u| u.as_str()).map(|u| c.seen_urls.contains(u)).unwrap_or(false) { Effect::NetworkRead } else { Effect::NetworkEgress },
             detail: None,
             untrusted: true,
+            target: None,
             run: |a, c| Box::pin(web_fetch(a, c)),
         },
         FnTool {
@@ -186,6 +187,7 @@ pub fn tools() -> Vec<FnTool> {
             risk: |_, _| Effect::NetworkEgress,
             detail: None,
             untrusted: true,
+            target: None,
             run: |a, c| Box::pin(web_search(a, c)),
         },
     ]

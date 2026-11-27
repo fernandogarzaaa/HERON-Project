@@ -189,10 +189,9 @@ pub fn parse_trigger(expr: &str) -> Option<String> {
     let lower_rest = original_rest.to_lowercase();
     let target = if let Some(i) = lower_rest.find(" in ") {
         original_rest[i + 4..].trim().trim_end_matches(" changes").trim_end_matches(" change").to_string()
-    } else if let Some(t) = lower_rest.strip_suffix(" changes").or_else(|| lower_rest.strip_suffix(" change")).or_else(|| lower_rest.strip_suffix(" is changed")) {
-        original_rest[..t.len()].trim().to_string()
     } else {
-        return None;
+        let t = lower_rest.strip_suffix(" changes").or_else(|| lower_rest.strip_suffix(" change")).or_else(|| lower_rest.strip_suffix(" is changed"))?;
+        original_rest[..t.len()].trim().to_string()
     };
     let target = target.trim().trim_matches(['"', '\'']).trim_start_matches("./").trim_end_matches('/').to_string();
     if target.is_empty() || ["a file", "any file", "anything", "something", "files", "my files"].contains(&target.to_lowercase().as_str()) {
