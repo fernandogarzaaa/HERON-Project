@@ -149,7 +149,7 @@ pub fn router_with(app: Arc<App>, token: String, loopback_only: bool) -> Router 
     let api = Router::new()
         .route("/state", get(get_state))
         .route("/sessions", get(list_sessions).post(new_session))
-        .route("/sessions/{id}", get(get_session).delete(delete_session))
+        .route("/sessions/{id}", get(get_session).post(update_session).delete(delete_session))
         .route("/chat", post(chat))
         .route("/approve", post(approve))
         .route("/cancel", post(cancel))
@@ -243,6 +243,13 @@ pub struct Started {
 pub async fn start(app: Arc<App>, bind: &str, port: u16) -> Result<(String, tokio::task::JoinHandle<Result<()>>)> {
     let started = start_endpoint(app, bind, port).await?;
     Ok((started.url, started.task))
+}
+
+/// The Mac app's core (`heron serve --print-endpoint`): loopback, a free port, and the app attached
+/// before the scheduler starts, so the owner's notifications go to the app from the first job on.
+pub async fn start_native_endpoint(app: Arc<App>) -> Result<Started> {
+    app.attach_native_app();
+    start_endpoint(app, "127.0.0.1", 0).await
 }
 
 /// Bind and start serving in the background. Loopback-only checking follows the address bound.
@@ -456,8 +463,78 @@ async fn set_mode(State(st): S, Json(b): Json<ModeBody>) -> ApiResult {
 
 // ---------- sessions ----------
 
-async fn list_sessions(State(st): S) -> ApiResult {
-    Ok(Json(json!(st.app.store.list_sessions(100)?)))
+#[derive(Deserialize)]
+struct SessionsQuery {
+    archived: Option<bool>,
+}
+
+/// The sidebar's conversations, pinned ones first, then the most recent. A session with no saved
+/// message is left out: there is nothing in it to open. `?archived=true` lists the archived ones instead.
+async fn list_sessions(State(st): S, Query(q): Query<SessionsQuery>) -> ApiResult {
+    use crate::store::SessionFlag;
+    let want_archived = q.archived.unwrap_or(false);
+    let pinned = st.app.store.sessions_with_flag(SessionFlag::Pinned)?;
+    let archived = st.app.store.sessions_with_flag(SessionFlag::Archived)?;
+    let mut out: Vec<Value> = st
+        .app
+        .store
+        .list_sessions(500)?
+        .into_iter()
+        .filter(|s| s.messages > 0 && archived.contains(&s.id) == want_archived)
+        .take(100)
+        .map(|s| {
+            let mut v = json!(s);
+            v["pinned"] = json!(pinned.contains(&s.id));
+            v["archived"] = json!(want_archived);
+            v
+        })
+        .collect();
+    // Stable, so the most recent stay first within each group.
+    out.sort_by_key(|v| v["pinned"] != true);
+    Ok(Json(json!(out)))
+}
+
+#[derive(Deserialize)]
+struct SessionUpdate {
+    title: Option<String>,
+    pinned: Option<bool>,
+    archived: Option<bool>,
+}
+
+const MAX_SESSION_TITLE_CHARS: usize = 120;
+
+/// Rename, pin or archive one conversation. The id must match exactly. The whole request is checked
+/// before anything is written.
+async fn update_session(State(st): S, Path(id): Path<String>, Json(b): Json<SessionUpdate>) -> ApiResult {
+    use crate::store::SessionFlag;
+    if st.app.store.resolve_session(&id).ok().as_deref() != Some(id.as_str()) {
+        return Err(ApiError(StatusCode::NOT_FOUND, "That conversation no longer exists.".into()));
+    }
+    let title = b.title.as_deref().map(str::trim);
+    if let Some(t) = title {
+        if t.is_empty() {
+            return Err(bad("A conversation needs a name."));
+        }
+        if t.chars().count() > MAX_SESSION_TITLE_CHARS {
+            return Err(bad(&format!("Keep the name to {MAX_SESSION_TITLE_CHARS} characters.")));
+        }
+    }
+    let store = &st.app.store;
+    if let Some(t) = title {
+        store.set_session_title(&id, t)?;
+    }
+    if let Some(on) = b.pinned {
+        store.set_session_flag(&id, SessionFlag::Pinned, on)?;
+    }
+    if let Some(on) = b.archived {
+        store.set_session_flag(&id, SessionFlag::Archived, on)?;
+    }
+    Ok(Json(json!({
+        "id": id,
+        "title": store.session_title(&id),
+        "pinned": store.sessions_with_flag(SessionFlag::Pinned)?.contains(&id),
+        "archived": store.sessions_with_flag(SessionFlag::Archived)?.contains(&id),
+    })))
 }
 
 async fn new_session(State(st): S) -> ApiResult {
@@ -4056,6 +4133,49 @@ mod tests {
         assert_eq!(h.send("POST", &approve, json!({"action": "approve"})).await.status, 400, "and only once");
     }
 
+    /// Start a core on a fresh home with one notify-only automation already due, and return the
+    /// `notification` events its first scheduler tick put on the bus, and the Inbox titles.
+    async fn first_tick_notifications(native: bool) -> (Vec<Value>, Vec<String>) {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        let app = Arc::new(App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), scripted(vec![])).await.unwrap());
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        let id = app.store.add_schedule("digest", "", "automation", 1, "").unwrap();
+        app.store.set_schedule_workflow(id, &json!([{"id": "tell", "do": "notify", "text": "All done."}]).to_string()).unwrap();
+        let mut bus = app.events.subscribe(Some(0));
+        let started = if native { start_native_endpoint(app.clone()).await.unwrap() } else { start_endpoint(app.clone(), "127.0.0.1", 0).await.unwrap() };
+        let mut inbox = vec![];
+        for _ in 0..100 {
+            inbox = app.store.inbox(true, 10).unwrap().into_iter().map(|m| m.title).collect();
+            if !inbox.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let mut notes = vec![];
+        while let Ok(Some(crate::events::Item::Event(e))) = tokio::time::timeout(Duration::from_millis(150), bus.next()).await {
+            if e.kind() == "notification" {
+                notes.push(e.json.clone());
+            }
+        }
+        started.task.abort();
+        (notes, inbox)
+    }
+
+    #[tokio::test]
+    async fn the_mac_apps_core_sends_notifications_to_the_app_from_the_first_tick() {
+        let (notes, inbox) = first_tick_notifications(true).await;
+        assert_eq!(inbox, vec!["digest".to_string()]);
+        assert_eq!(notes, vec![json!({"type": "notification", "title": "digest", "body": "All done."})]);
+    }
+
+    #[tokio::test]
+    async fn plain_serve_has_no_app_attached_so_notifications_stay_in_the_inbox() {
+        let (notes, inbox) = first_tick_notifications(false).await;
+        assert_eq!(inbox, vec!["digest".to_string()], "the job ran and its notice is in the Inbox");
+        assert!(notes.is_empty(), "{notes:?}");
+    }
+
     #[tokio::test]
     async fn print_endpoint_line_has_port_token_and_owner() {
         let dir = tempfile::tempdir().unwrap();
@@ -4125,5 +4245,90 @@ mod tests {
         }
         assert_eq!(kinds.len(), crate::events::LIVE_CAPACITY + 12);
         assert_eq!(&kinds[kinds.len() - 2..], ["done", "run_end"]);
+    }
+
+    /// A conversation the user can see: one saved message is enough.
+    fn saved_session(h: &Harness, text: &str) -> String {
+        let id = h.app.store.create_session("", "user").unwrap();
+        h.app.store.append_message(&id, &Message::user(text)).unwrap();
+        h.app.store.set_session_title(&id, text).unwrap();
+        id
+    }
+
+    fn listed(v: &Value) -> Vec<(String, bool, bool)> {
+        v.as_array().unwrap().iter().map(|s| (s["id"].as_str().unwrap().to_string(), s["pinned"] == true, s["archived"] == true)).collect()
+    }
+
+    /// The sidebar lists conversations, not empty sessions: one left by a turn that failed its first
+    /// checks, or by an earlier app that saved one for every "New conversation", has nothing to show.
+    #[tokio::test]
+    async fn session_list_leaves_out_sessions_with_no_messages() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        h.app.store.create_session("", "user").unwrap();
+        h.app.store.create_session("", "user").unwrap();
+        let kept = saved_session(&h, "Prep my day");
+        assert_eq!(listed(&h.json("GET", "/sessions", Value::Null).await), vec![(kept, false, false)]);
+        assert_eq!(h.app.store.list_sessions(100).unwrap().len(), 3, "the empty ones are hidden, not deleted");
+    }
+
+    #[tokio::test]
+    async fn sessions_can_be_renamed_pinned_and_archived() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let a = saved_session(&h, "look at my downloads folder");
+        let b = saved_session(&h, "remind me in 1 minute");
+
+        let reply = h.json("POST", &format!("/sessions/{a}"), json!({"pinned": true})).await;
+        assert_eq!(reply, json!({"id": a, "title": "look at my downloads folder", "pinned": true, "archived": false}));
+        let list = listed(&h.json("GET", "/sessions", Value::Null).await);
+        assert_eq!(list[0], (a.clone(), true, false), "pinned first: {list:?}");
+        assert_eq!(list[1], (b.clone(), false, false));
+
+        let reply = h.json("POST", &format!("/sessions/{a}"), json!({"title": "  Downloads cleanup  "})).await;
+        assert_eq!(reply["title"], "Downloads cleanup");
+        assert_eq!(reply["pinned"], true, "a rename keeps the pin");
+        assert_eq!(h.app.store.session_title(&a), "Downloads cleanup");
+
+        h.json("POST", &format!("/sessions/{b}"), json!({"archived": true})).await;
+        assert_eq!(listed(&h.json("GET", "/sessions", Value::Null).await), vec![(a.clone(), true, false)]);
+        assert_eq!(listed(&h.json("GET", "/sessions?archived=true", Value::Null).await), vec![(b.clone(), false, true)]);
+
+        h.json("POST", &format!("/sessions/{b}"), json!({"archived": false})).await;
+        h.json("POST", &format!("/sessions/{a}"), json!({"pinned": false})).await;
+        let mut list = listed(&h.json("GET", "/sessions", Value::Null).await);
+        list.sort();
+        let mut want = vec![(a, false, false), (b, false, false)];
+        want.sort();
+        assert_eq!(list, want);
+        assert!(listed(&h.json("GET", "/sessions?archived=true", Value::Null).await).is_empty());
+    }
+
+    /// A bad request changes nothing, not even the parts of it that were fine.
+    #[tokio::test]
+    async fn session_update_refuses_bad_names_and_unknown_conversations() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let a = saved_session(&h, "Prep my day");
+        for title in ["", "   ", &"x".repeat(121)] {
+            let refused = h.send("POST", &format!("/sessions/{a}"), json!({"title": title, "pinned": true})).await;
+            assert_eq!(refused.status, 400, "{title:?}");
+        }
+        assert_eq!(h.app.store.session_title(&a), "Prep my day");
+        assert_eq!(listed(&h.json("GET", "/sessions", Value::Null).await), vec![(a.clone(), false, false)], "the pin was not applied");
+        let at_limit = "y".repeat(120);
+        assert_eq!(h.json("POST", &format!("/sessions/{a}"), json!({"title": at_limit})).await["title"], at_limit);
+        assert_eq!(h.send("POST", "/sessions/nope", json!({"pinned": true})).await.status, 404);
+        // An id is matched exactly here: a prefix of one never renames it.
+        assert_eq!(h.send("POST", &format!("/sessions/{}", &a[..4]), json!({"title": "other"})).await.status, 404);
+        assert_eq!(h.app.store.session_title(&a), at_limit);
+    }
+
+    #[tokio::test]
+    async fn deleting_a_session_drops_its_pin_and_archive() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        let a = saved_session(&h, "Prep my day");
+        h.json("POST", &format!("/sessions/{a}"), json!({"pinned": true, "archived": true})).await;
+        assert_eq!(h.json("DELETE", &format!("/sessions/{a}"), Value::Null).await["ok"], true);
+        assert_eq!(h.app.store.kv_get(&format!("pinned:{a}")), None);
+        assert_eq!(h.app.store.kv_get(&format!("archived:{a}")), None);
+        assert!(listed(&h.json("GET", "/sessions?archived=true", Value::Null).await).is_empty());
     }
 }

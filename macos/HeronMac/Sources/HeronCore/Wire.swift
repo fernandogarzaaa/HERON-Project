@@ -54,8 +54,12 @@ public enum CoreWire {
     // MARK: Sessions
 
     public static func sessions(_ data: Data) throws -> [SessionSummary] {
-        struct DTO: Decodable { var id: String; var title: String; var updatedAt: Int; var messages: Int }
-        return try decode([DTO].self, data).map { SessionSummary(id: $0.id, title: $0.title, updatedAt: date($0.updatedAt), messages: $0.messages) }
+        // `pinned` and `archived` are missing from a core older than the sidebar's menu.
+        struct DTO: Decodable { var id: String; var title: String; var updatedAt: Int; var messages: Int; var pinned: Bool?; var archived: Bool? }
+        return try decode([DTO].self, data).map {
+            SessionSummary(id: $0.id, title: $0.title, updatedAt: date($0.updatedAt), messages: $0.messages,
+                           pinned: $0.pinned ?? false, archived: $0.archived ?? false)
+        }
     }
 
     /// `GET /api/sessions/{id}`. The core serves the model's raw transcript (user, assistant with `tool_calls`,
@@ -452,6 +456,7 @@ public enum CoreWire {
         case "usage": return make(.usage(prompt: o["prompt"] as? Int ?? 0, completion: o["completion"] as? Int ?? 0))
         case "model": return make(.model(name: try str("name"), why: o["why"] as? String ?? ""))
         case "notice": return make(.notice(try str("text")))
+        case "notification": return make(.notification(title: try str("title"), body: o["body"] as? String ?? ""))
         case "learned": return make(.learned(o["items"] as? [String] ?? []))
         case "done": return make(.done(text: o["text"] as? String ?? "", title: o["title"] as? String))
         case "cancelled": return make(.cancelled)
