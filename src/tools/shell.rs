@@ -831,6 +831,42 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn a_linked_worktrees_commondir_cannot_be_redirected() {
+        let (_d, ctx) = fresh_ctx();
+        if !seatbelt(&ctx.cfg) {
+            return;
+        }
+        let ws = ctx.workspace.clone();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .current_dir(&ws)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "x"]);
+        let feature = ws.parent().unwrap().join(format!("{}-feature", ws.file_name().unwrap().to_string_lossy()));
+        git(&["worktree", "add", "-q", &feature.to_string_lossy(), "-b", "feature"]);
+        let admin = ws.join(format!(".git/worktrees/{}", feature.file_name().unwrap().to_string_lossy()));
+        let before: Vec<String> = ["commondir", "gitdir"].iter().map(|f| std::fs::read_to_string(admin.join(f)).unwrap()).collect();
+        let rel = admin.strip_prefix(&ws).unwrap().display().to_string();
+        let out = sh(
+            &ctx,
+            &format!("cp -R .git g && echo evil > g/hooks/pre-commit; echo \"$PWD/g\" > {rel}/commondir; echo elsewhere > {rel}/gitdir; echo '[core] hooksPath = /tmp' > {rel}/config.worktree; ls {rel}"),
+        )
+        .await;
+        let after: Vec<String> = ["commondir", "gitdir"].iter().map(|f| std::fs::read_to_string(admin.join(f)).unwrap()).collect();
+        assert_eq!(after, before, "the linked worktree would take hooks from the copy: {out}");
+        assert!(!admin.join("config.worktree").exists(), "{out}");
+        assert!(out.contains("Operation not permitted"), "{out}");
+        let _ = std::fs::remove_dir_all(&feature);
+    }
+
+    #[tokio::test]
     async fn own_api_port_is_denied_in_the_profile() {
         let (dir, ctx) = fresh_ctx();
         if !seatbelt(&ctx.cfg) {

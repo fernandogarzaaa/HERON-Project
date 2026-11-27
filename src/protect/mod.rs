@@ -321,6 +321,7 @@ fn inside_any(path: &Path, writable: &[PathBuf]) -> bool {
 fn repo_paths(repo: &Repo) -> Vec<PathBuf> {
     let mut out = vec![repo.entry.clone()];
     out.extend(repo.parts());
+    out.extend(repo.worktree_admin());
     out
 }
 
@@ -347,6 +348,9 @@ pub fn seatbelt_rules(workspace: &Path, user_home: &Path, heron_homes: &[PathBuf
     rules.push_str(&format!("(deny file-write*{})\n", regexes(&under_protected_folder)));
     rules.push_str(&format!("(deny file-write*{})\n", regexes(&["(.*/)?\\.git/(.*/)?hooks/.+$".to_string()])));
     rules.push_str(&format!("(allow file-write*{})\n", regexes(&["(.*/)?\\.git/(.*/)?hooks/[^/]+\\.sample$".to_string()])));
+    // The files that tell git where a repository's hooks and config are, for it and for each linked
+    // worktree. `git worktree add` writes them too, so it can't run in a sandboxed command.
+    rules.push_str(&format!("(deny file-write*{})\n", regexes(&["(.*/)?\\.git/(.*/)?(commondir|gitdir|config\\.worktree)$".to_string()])));
 
     let mut refused: Vec<PathBuf> = vec![];
     for repo in &scan.repos {
@@ -354,9 +358,10 @@ pub fn seatbelt_rules(workspace: &Path, user_home: &Path, heron_homes: &[PathBuf
     }
     let mut literal_paths = refused.clone();
 
-    // The rule above covers hooks inside a `.git` folder. A `commondir` can name hooks anywhere else,
-    // and those are denied whole.
-    let mut whole_folders: Vec<PathBuf> = scan.repos.iter().map(|r| r.common_dir.join("hooks")).filter(|h| !has_git_component(h)).collect();
+    // The rule above covers hooks inside a `.git` folder in the workspace. A `commondir` can name hooks
+    // anywhere else, and those are denied whole.
+    let in_reach_of_the_rule = |h: &PathBuf| has_git_component(h) && inside_any(h, &[workspace.to_path_buf()]);
+    let mut whole_folders: Vec<PathBuf> = scan.repos.iter().map(|r| r.common_dir.join("hooks")).filter(|h| !in_reach_of_the_rule(h)).collect();
     for item in HOME_PATHS {
         let path = user_home.join(item);
         if !inside_any(&path, writable) {
@@ -588,7 +593,7 @@ impl Snapshot {
             if !repo.entry.is_dir() {
                 digest_into(&repo.entry, &mut snap.entries);
             }
-            for part in repo.parts() {
+            for part in repo.parts().into_iter().chain(repo.worktree_admin()) {
                 digest_into(&part, &mut snap.entries);
             }
         }
@@ -907,6 +912,53 @@ mod tests {
             assert!(refused.contains(&want), "{want:?} in {refused:?}");
         }
         assert!(!refused.contains(&ws.join("x")), "ancestors are for refused_ancestors to find");
+    }
+
+    #[test]
+    #[cfg_attr(not(unix), ignore = "Seatbelt rules are written for unix paths")]
+    fn git_admin_files_are_denied_at_any_depth() {
+        let d = tree(&["a.txt"]);
+        let (rules, _) = rules_for(d.path());
+        let root = real_path(d.path());
+        let at = |p: &str| format!("{}/{p}", root.display());
+        for p in [".git/commondir", ".git/gitdir", ".git/config.worktree", ".git/worktrees/feature/commondir", ".git/worktrees/feature/gitdir", ".git/worktrees/feature/config.worktree", "sub/.git/worktrees/x/commondir"] {
+            assert!(denied_by(&rules, &at(p)), "{p}\n{rules}");
+        }
+        for p in [".git/worktrees/feature/HEAD", ".git/worktrees/feature/index", "src/commondir", "notes/gitdir"] {
+            assert!(!denied_by(&rules, &at(p)), "{p}\n{rules}");
+        }
+    }
+
+    #[test]
+    #[cfg_attr(not(unix), ignore = "Seatbelt rules are written for unix paths")]
+    fn hooks_a_commondir_names_outside_the_workspace_are_denied_whole() {
+        let root = tempfile::tempdir().unwrap();
+        let ws = root.path().join("ws");
+        std::fs::create_dir_all(ws.join(".git")).unwrap();
+        std::fs::create_dir_all(root.path().join("other/.git/hooks")).unwrap();
+        std::fs::write(ws.join(".git/commondir"), "../../other/.git\n").unwrap();
+        let (rules, _) = rules_for(&ws);
+        let hooks = real_path(&root.path().join("other/.git/hooks"));
+        let whole = |p: &Path| rules.lines().any(|l| l.starts_with("(deny") && l.contains(&format!("(subpath \"{}\")", p.display())));
+        assert!(whole(&hooks), "{rules}");
+        assert!(!whole(&real_path(&ws.join(".git/hooks"))), "git's samples in the workspace stay writable: {rules}");
+    }
+
+    #[test]
+    fn a_linked_worktrees_admin_files_are_snapshotted() {
+        let ws = tempfile::tempdir().unwrap();
+        let admin = ws.path().join(".git/worktrees/feature");
+        std::fs::create_dir_all(ws.path().join(".git/hooks")).unwrap();
+        std::fs::create_dir_all(&admin).unwrap();
+        std::fs::write(admin.join("commondir"), "../..\n").unwrap();
+        std::fs::write(admin.join("gitdir"), "/elsewhere/feature/.git\n").unwrap();
+        for file in ["commondir", "gitdir", "config.worktree"] {
+            let before = snap(ws.path());
+            std::fs::write(admin.join(file), "/tmp/g\n").unwrap();
+            let changed = before.diff(&snap(ws.path()));
+            assert_eq!(ws_paths(ws.path(), &changed).len(), 1, "{file}: {changed:?}");
+            assert!(changed[0].path.ends_with(file), "{file}: {changed:?}");
+        }
     }
 
     #[test]

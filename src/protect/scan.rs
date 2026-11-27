@@ -33,6 +33,21 @@ impl Repo {
             self.git_dir.join("gitdir"),
         ]
     }
+
+    /// The same redirect files for each linked worktree, kept in the shared folder: a worktree whose
+    /// own `.git` file is out of the scan's reach (outside the workspace, or under `.claude/worktrees`)
+    /// still takes its hooks from where these say.
+    pub fn worktree_admin(&self) -> Vec<PathBuf> {
+        let Ok(rd) = std::fs::read_dir(self.common_dir.join("worktrees")) else { return vec![] };
+        let mut out = vec![];
+        for e in rd.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir())) {
+            for file in ["commondir", "gitdir", "config.worktree"] {
+                out.push(e.path().join(file));
+            }
+        }
+        out.sort();
+        out
+    }
 }
 
 fn gitdir_of(entry: &Path) -> Option<PathBuf> {
