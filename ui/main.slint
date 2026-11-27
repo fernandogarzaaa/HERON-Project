@@ -53,7 +53,7 @@ export component AboutDialog inherits Dialog {
             color: Theme.ink;
         }
         Text {
-            text: "A local-first, private, proactive personal AI agent.";
+            text: "Research preview. A local-first personal agent that runs on this computer.";
             color: Theme.ink;
             wrap: word-wrap;
         }
@@ -67,7 +67,7 @@ export component AboutDialog inherits Dialog {
 }
 
 export component MainWindow inherits Window {
-    title: "Heron";
+    title: "Heron — Research preview";
     background: Theme.paper;
     min-width: 880px;
     min-height: 560px;
@@ -157,9 +157,25 @@ export component MainWindow inherits Window {
     // View switching. current-view is the active view id; the content area
     // fades between views.
     in-out property <string> current-view: "chat";
-    // Reduced motion: animations run at 0ms while this is on. Default off.
-    // Wiring it to the OS setting (or a Settings toggle) is still open.
-    in-out property <bool> reduce-motion: false;
+    // Reduced motion: animations run at 0ms while this is on. Bound to the
+    // theme so motion tokens and every view that reads the flag agree.
+    // Rust sets it from the system setting or Settings › Appearance.
+    in-out property <bool> reduce-motion <=> Theme.reduce-motion;
+    // Appearance. Rust loads these from ui.toml and Settings writes them back.
+    in-out property <string> ui-theme <=> Theme.theme;
+    in-out property <bool> dark <=> Theme.dark;
+    in-out property <string> ui-accent <=> Theme.accent;
+    in-out property <string> appearance: "system";
+    in-out property <string> motion-pref: "system";
+    callback theme-changed(string);
+    callback appearance-changed(string);
+    callback accent-changed(string);
+    callback motion-changed(string);
+    // Page changes. The design curve is cubic-bezier(0.2, 0.8, 0.2, 1), 220ms.
+    private property <duration> view-motion: root.reduce-motion ? 0ms : 220ms;
+    // Avatar state is derived. Gold waiting, red error, accent while working.
+    private property <string> avatar-state: root.error-message != "" ? "error" : root.sidebar-waiting-count > 0 ? "waiting" : root.busy ? "thinking" : "idle";
+    private property <string> presence: root.error-message != "" ? "Could not start" : root.sidebar-waiting-count > 0 ? "Waiting for you" : root.busy ? "Working" : "Ready";
 
     // Views lane (sidebar, Memory, Tasks, Reminders, Awareness, Usage,
     // Activity). Forwarded properties and callbacks the glue in
@@ -460,6 +476,8 @@ export component MainWindow inherits Window {
             waiting-count: root.sidebar-waiting-count;
             footer-text: root.sidebar-footer-text;
             status-text: root.backend-status;
+            avatar-state: root.avatar-state;
+            presence: root.presence;
             sessions: root.sidebar-sessions;
             navigate(v) => { root.sidebar-navigate(v); }
             open-session(id) => { root.sidebar-open-session(id); }
@@ -501,7 +519,7 @@ export component MainWindow inherits Window {
                 // clicks meant for the view underneath it.
                 visible: root.current-view == "chat";
                 opacity: root.current-view == "chat" ? 1 : 0;
-                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                animate opacity { duration: root.view-motion; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
 
                 if root.error-message != "" : Text {
                     text: root.error-message;
@@ -557,7 +575,7 @@ export component MainWindow inherits Window {
                 height: parent.height;
                 visible: root.current-view == "onboarding";
                 opacity: root.current-view == "onboarding" ? 1 : 0;
-                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                animate opacity { duration: root.view-motion; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
                 onboarding-view := OnboardingView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
@@ -603,7 +621,7 @@ export component MainWindow inherits Window {
                 height: parent.height;
                 visible: root.current-view == "awareness";
                 opacity: root.current-view == "awareness" ? 1 : 0;
-                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                animate opacity { duration: root.view-motion; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
                 awareness-view := AwarenessView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
@@ -637,7 +655,7 @@ export component MainWindow inherits Window {
                 height: parent.height;
                 visible: root.current-view == "memory";
                 opacity: root.current-view == "memory" ? 1 : 0;
-                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                animate opacity { duration: root.view-motion; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
                 memory-view := MemoryView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
@@ -659,7 +677,7 @@ export component MainWindow inherits Window {
                 height: parent.height;
                 visible: root.current-view == "tasks";
                 opacity: root.current-view == "tasks" ? 1 : 0;
-                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                animate opacity { duration: root.view-motion; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
                 tasks-view := TasksView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
@@ -678,7 +696,7 @@ export component MainWindow inherits Window {
                 height: parent.height;
                 visible: root.current-view == "reminders";
                 opacity: root.current-view == "reminders" ? 1 : 0;
-                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                animate opacity { duration: root.view-motion; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
                 reminders-view := RemindersView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
@@ -709,7 +727,7 @@ export component MainWindow inherits Window {
                 height: parent.height;
                 visible: root.current-view == "usage";
                 opacity: root.current-view == "usage" ? 1 : 0;
-                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                animate opacity { duration: root.view-motion; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
                 usage-view := UsageView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
@@ -756,7 +774,7 @@ export component MainWindow inherits Window {
                 height: parent.height;
                 visible: root.current-view == "activity";
                 opacity: root.current-view == "activity" ? 1 : 0;
-                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                animate opacity { duration: root.view-motion; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
                 activity-view := ActivityView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
@@ -772,7 +790,7 @@ export component MainWindow inherits Window {
                 height: parent.height;
                 visible: root.current-view == "settings";
                 opacity: root.current-view == "settings" ? 1 : 0;
-                animate opacity { duration: root.reduce-motion ? 0ms : 180ms; easing: ease-in-out; }
+                animate opacity { duration: root.view-motion; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
                 settings-view := SettingsView {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
@@ -828,6 +846,22 @@ export component MainWindow inherits Window {
                     error-message: root.settings-error-message;
                     backup-message: root.settings-backup-message;
                     busy: root.settings-busy;
+                    theme-name <=> root.ui-theme;
+                    accent <=> root.ui-accent;
+                    appearance <=> root.appearance;
+                    motion-pref <=> root.motion-pref;
+                    theme-changed(value) => { root.theme-changed(value); }
+                    appearance-changed(value) => {
+                        if (value == "light") { root.dark = false; }
+                        if (value == "dark") { root.dark = true; }
+                        root.appearance-changed(value);
+                    }
+                    accent-changed(value) => { root.accent-changed(value); }
+                    motion-changed(value) => {
+                        if (value == "on") { root.reduce-motion = true; }
+                        if (value == "off") { root.reduce-motion = false; }
+                        root.motion-changed(value);
+                    }
                     apply-preset(preset) => { root.settings-apply-preset(preset); }
                     save-settings => { root.settings-save-settings(); }
                     save-persona => { root.settings-save-persona(); }

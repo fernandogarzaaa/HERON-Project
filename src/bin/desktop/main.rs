@@ -34,6 +34,27 @@ use views_slint::{bind_window, ViewsController};
 
 slint::include_modules!();
 
+fn apply_appearance(window: &MainWindow) {
+    push_appearance(window, &heron::ui_prefs::UiPrefs::load());
+}
+
+fn push_appearance(window: &MainWindow, prefs: &heron::ui_prefs::UiPrefs) {
+    window.set_ui_theme(SharedString::from(prefs.theme.as_str()));
+    window.set_ui_accent(SharedString::from(prefs.accent.as_str()));
+    window.set_appearance(SharedString::from(prefs.appearance.as_str()));
+    window.set_motion_pref(SharedString::from(prefs.reduce_motion.as_str()));
+    window.set_dark(prefs.is_dark(heron::ui_prefs::system_prefers_dark()));
+    window.set_reduce_motion(prefs.reduces_motion(heron::ui_prefs::system_reduce_motion()));
+}
+
+fn save_appearance(window: &MainWindow, edit: impl FnOnce(&mut heron::ui_prefs::UiPrefs)) {
+    let mut prefs = heron::ui_prefs::UiPrefs::load();
+    edit(&mut prefs);
+    let prefs = prefs.normalized();
+    let _ = prefs.save();
+    push_appearance(window, &prefs);
+}
+
 /// Start the agent backend on its own thread. Returns the launch URL, or a message explaining why it could not start.
 fn start_backend() -> Result<String, String> {
     let (tx, rx) = std::sync::mpsc::channel();
@@ -218,6 +239,31 @@ fn main() {
 
     let window = MainWindow::new().expect("could not create the Heron window");
     window.set_messages(ModelRc::new(VecModel::<ChatMsg>::default()));
+    apply_appearance(&window);
+    let weak_theme = window.as_weak();
+    window.on_theme_changed(move |value| {
+        if let Some(window) = weak_theme.upgrade() {
+            save_appearance(&window, |prefs| prefs.theme = value.to_string());
+        }
+    });
+    let weak_accent = window.as_weak();
+    window.on_accent_changed(move |value| {
+        if let Some(window) = weak_accent.upgrade() {
+            save_appearance(&window, |prefs| prefs.accent = value.to_string());
+        }
+    });
+    let weak_appearance = window.as_weak();
+    window.on_appearance_changed(move |value| {
+        if let Some(window) = weak_appearance.upgrade() {
+            save_appearance(&window, |prefs| prefs.appearance = value.to_string());
+        }
+    });
+    let weak_motion = window.as_weak();
+    window.on_motion_changed(move |value| {
+        if let Some(window) = weak_motion.upgrade() {
+            save_appearance(&window, |prefs| prefs.reduce_motion = value.to_string());
+        }
+    });
 
     // The live chat state machine. One Arc, shared by the UI-thread
     // callbacks and the forwarder closures. Every access is on the UI
@@ -982,5 +1028,89 @@ mod window_layout_tests {
                 ui.set_debug_settings_scroll_y(0.0);
             }
         }
+        if let Ok(directory) = std::env::var("HERON_UI_SNAPSHOTS_DIR") {
+            capture_appearance(&window, &ui, std::path::Path::new(&directory));
+        }
+    }
+
+    fn render_frame(window: &MinimalSoftwareWindow, width: u32, height: u32) -> Vec<PremultipliedRgbaColor> {
+        window.set_size(PhysicalSize::new(width, height));
+        window.request_redraw();
+        let mut pixels = vec![PremultipliedRgbaColor::default(); (width * height) as usize];
+        window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, width as usize);
+        });
+        pixels
+    }
+
+    fn capture_appearance(window: &MinimalSoftwareWindow, ui: &MainWindow, directory: &std::path::Path) {
+        use slint::{ModelRc, SharedString, StyledText, VecModel};
+        ui.set_reduce_motion(true);
+        ui.set_sidebar_waiting_count(2);
+        ui.set_ui_accent("system".into());
+        let ask = "Summarise yesterday's notes and leave the draft in the project folder.";
+        let reply = "Writing the file needs your approval. This conversation has already read a web page.";
+        let approval = super::ApprovalRow {
+            id: "preview".into(),
+            tool: "write_file".into(),
+            title: "Write notes/yesterday.md?".into(),
+            warning: "Heron has read content from outside in this conversation. Check that this is something you asked for.".into(),
+            detail: "notes/yesterday.md".into(),
+            danger: false,
+            can_session: false,
+            can_always: false,
+            session_label: "Allow for this conversation".into(),
+            always_label: "Always allow".into(),
+            outside: true,
+        };
+        let messages = vec![
+            super::ChatMsg {
+                role: "user".into(),
+                text: ask.into(),
+                body: StyledText::from_plain_text(ask),
+                steps: ModelRc::new(VecModel::default()),
+                approvals: ModelRc::new(VecModel::default()),
+                notes: ModelRc::new(VecModel::default()),
+                failure: SharedString::default(),
+                complete: true,
+                live: false,
+            },
+            super::ChatMsg {
+                role: "assistant".into(),
+                text: reply.into(),
+                body: StyledText::from_plain_text(reply),
+                steps: ModelRc::new(VecModel::from(vec![super::ToolStep {
+                    id: "step".into(),
+                    name: "read_file".into(),
+                    label: "Read yesterday's notes".into(),
+                    summary: "notes/scratch.md".into(),
+                    risk: "low".into(),
+                    state: "ok".into(),
+                    preview: "Met Maya about the launch.".into(),
+                    expanded: false,
+                }])),
+                approvals: ModelRc::new(VecModel::from(vec![approval])),
+                notes: ModelRc::new(VecModel::default()),
+                failure: SharedString::default(),
+                complete: false,
+                live: false,
+            },
+        ];
+        ui.set_messages(ModelRc::new(VecModel::from(messages)));
+        ui.set_thread_version(ui.get_thread_version() + 1);
+        for (theme, dark, name) in [("dusk", true, "dusk-dark"), ("dusk", false, "dusk-light"), ("shore", false, "shore-light"), ("graphite", true, "graphite-dark")] {
+            ui.set_ui_theme(theme.into());
+            ui.set_dark(dark);
+            ui.set_current_view("chat".into());
+            let pixels = render_frame(window, 1100, 700);
+            write_bmp(&directory.join(format!("appearance-chat-{name}.bmp")), 1100, 700, &pixels);
+            ui.set_current_view("settings".into());
+            ui.set_debug_settings_scroll_y(0.0);
+            let pixels = render_frame(window, 1100, 700);
+            write_bmp(&directory.join(format!("appearance-settings-{name}.bmp")), 1100, 700, &pixels);
+        }
+        ui.set_ui_theme("dusk".into());
+        ui.set_dark(true);
+        ui.set_current_view("chat".into());
     }
 }
