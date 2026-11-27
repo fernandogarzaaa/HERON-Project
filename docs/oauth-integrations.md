@@ -72,7 +72,12 @@ The distributor may bundle **public** Google and Microsoft desktop client IDs at
 using `HERON_GOOGLE_OAUTH_CLIENT_ID` and `HERON_MICROSOFT_OAUTH_CLIENT_ID`.
 These values are not secrets. Without a bundled ID, the user can enter a public desktop
 client ID in the native Settings screen and that ID is remembered on successful consent.
-No application/client secret is supported or required.
+Microsoft public clients use no secret. Google's token endpoint can still ask a Desktop-app client
+for its `client_secret` even with PKCE, so the distributor may also bundle
+`HERON_GOOGLE_OAUTH_CLIENT_SECRET`. Google documents that secret as not confidential for installed apps
+(its native-app guide: "the client cannot keep the client_secret confidential"), and lists it as optional
+in the token and refresh requests. Heron sends it only to Google's token endpoint, only with the bundled
+client ID, and never accepts one from a user.
 
 ## Local API handshake (developer/QA)
 

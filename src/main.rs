@@ -818,9 +818,10 @@ async fn real_main() -> Result<()> {
         Cmd::Serve { port, no_open, print_endpoint } => {
             let cfg = app.cfg();
             if print_endpoint {
-                // The Mac app's core: loopback whatever the config says, a free port, and one line
-                // on stdout for the app to read through the pipe. Nothing is written to disk.
-                let started = heron::server::start_endpoint(app.clone(), "127.0.0.1", 0).await?;
+                // The Mac app's core: loopback whatever the config says, a free port, the app
+                // attached to show notifications, and one line on stdout for the app to read
+                // through the pipe. Nothing is written to disk.
+                let started = heron::server::start_native_endpoint(app.clone()).await?;
                 let mut out = std::io::stdout().lock();
                 writeln!(out, "{}", heron::server::endpoint_line(&started))?;
                 out.flush()?;
