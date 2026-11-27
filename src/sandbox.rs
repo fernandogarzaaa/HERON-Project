@@ -36,11 +36,15 @@ impl Kind {
     }
 }
 
+/// Seatbelt's wrapper, always by absolute path. Looked up by name, a `sandbox-exec` that comes earlier
+/// on `PATH` would run in its place, with Heron's profile on its command line and nothing to enforce it.
+const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
+
 fn probe() -> Kind {
     let ok = |program: &str, args: &[&str]| std::process::Command::new(program).args(args).stdin(std::process::Stdio::null()).output().map(|o| o.status.success()).unwrap_or(false);
     if cfg!(target_os = "linux") && ok("bwrap", &["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--tmpfs", "/tmp", "true"]) {
         Kind::Bubblewrap
-    } else if cfg!(target_os = "macos") && ok("sandbox-exec", &["-p", "(version 1)(allow default)", "/usr/bin/true"]) {
+    } else if cfg!(target_os = "macos") && ok(SANDBOX_EXEC, &["-p", "(version 1)(allow default)", "/usr/bin/true"]) {
         Kind::Seatbelt
     } else {
         Kind::None
@@ -451,7 +455,7 @@ pub fn wrap(cfg: &Config, workdir: &Path, profile: &Profile) -> Option<(String, 
             a.extend(["--chdir".to_string(), s(workdir), "--".to_string()]);
             Some(("bwrap".to_string(), a))
         }
-        (Kind::Seatbelt, profile) => Some(("sandbox-exec".to_string(), vec!["-p".to_string(), seatbelt_profile(cfg, &home, workdir, profile)])),
+        (Kind::Seatbelt, profile) => Some((SANDBOX_EXEC.to_string(), vec!["-p".to_string(), seatbelt_profile(cfg, &home, workdir, profile)])),
     }
 }
 
@@ -739,10 +743,41 @@ mod tests {
         let on = Config::default();
         let wrapped = wrap(&on, Path::new("/tmp"), &Profile::Cli { spec: &spec, binary_dir: PathBuf::from("/usr/bin"), extra_read: vec![] });
         match available() {
-            Kind::Seatbelt => assert_eq!(wrapped.unwrap().0, "sandbox-exec"),
+            Kind::Seatbelt => assert_eq!(wrapped.unwrap().0, "/usr/bin/sandbox-exec"),
             Kind::Bubblewrap | Kind::None => assert!(wrapped.is_none(), "a CLI is never wrapped by bubblewrap"),
         }
         assert_eq!(required(), cfg!(target_os = "macos"));
+    }
+
+    /// A `sandbox-exec` earlier on `PATH` is never the one that runs: the wrapper is named by absolute path.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn a_sandbox_exec_earlier_on_path_is_not_used() {
+        if available() != Kind::Seatbelt {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("fake-ran");
+        let fake = dir.path().join("sandbox-exec");
+        std::fs::write(&fake, format!("#!/bin/sh\ntouch '{}'\nexit 0\n", marker.display())).unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let spec = cli_spec("codex-cli");
+        let (program, prefix) = wrap(&Config::default(), dir.path(), &Profile::Cli { spec: &spec, binary_dir: PathBuf::from("/usr/bin"), extra_read: vec![] }).unwrap();
+        // The child's own PATH puts the fake first, as a hostile or careless PATH would. Only the child's
+        // environment is set: changing this process's PATH would race other tests that spawn children.
+        let status = std::process::Command::new(&program)
+            .args(&prefix)
+            .arg("/usr/bin/true")
+            .env_clear()
+            .env("PATH", format!("{}:/usr/bin:/bin", dir.path().display()))
+            .current_dir(dir.path())
+            .status()
+            .unwrap();
+        assert!(!marker.exists(), "the fake sandbox-exec on PATH ran instead of {SANDBOX_EXEC}");
+        assert!(status.success(), "the real sandbox-exec ran /usr/bin/true: {status}");
     }
 
     #[test]
