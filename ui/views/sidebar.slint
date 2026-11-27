@@ -7,10 +7,11 @@ import { PageScroll } from "../components/page_scroll.slint";
 import { Button } from "../components/button.slint";
 import { SessionRow, Spacer } from "common.slint";
 import { NavItem } from "../components/atoms.slint";
+import { Avatar } from "../components/avatar.slint";
 import { Theme } from "../components/theme.slint";
 
 export component Sidebar inherits Rectangle {
-    background: Theme.paper;
+    background: Theme.sidebar;
     in property <string> current-view: "chat";
     in property <bool> reduce-motion: false;
     in property <int> unread-count: 0;
@@ -22,6 +23,8 @@ export component Sidebar inherits Rectangle {
     // footer above carries the model and token count; this line carries
     // the connection state. The Shell posts it from its state poll.
     in property <string> status-text: "";
+    in property <string> avatar-state: "idle";
+    in property <string> presence: "Ready";
     in property <[SessionRow]> sessions;
     out property <length> sessions-overflow-x: sessions-scroll.overflow-x;
     out property <length> sessions-overflow-y: sessions-scroll.overflow-y;
@@ -40,14 +43,29 @@ export component Sidebar inherits Rectangle {
         spacing: 6px;
         HorizontalBox {
             padding: 0px;
-            padding-bottom: 10px;
+            padding-bottom: 8px;
             spacing: 10px;
-            Text {
-                text: "Heron";
-                font-size: 21px;
-                font-family: Theme.heading-font;
-                font-weight: 600;
-                color: Theme.ink;
+            alignment: start;
+            Avatar {
+                state: root.avatar-state;
+                reduce-motion: root.reduce-motion;
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 0px;
+                Text {
+                    text: "Heron";
+                    font-size: 16px;
+                    font-family: Theme.heading-font;
+                    font-weight: 600;
+                    color: Theme.ink;
+                }
+                Text {
+                    text: root.presence;
+                    font-size: 11px;
+                    color: root.avatar-state == "waiting" ? Theme.talon : root.avatar-state == "error" ? Theme.danger : Theme.muted;
+                    overflow: elide;
+                }
             }
         }
         Button { reduce-motion: root.reduce-motion;
@@ -61,12 +79,12 @@ export component Sidebar inherits Rectangle {
             vertical-stretch: 0;
             spacing: 1px;
             padding-top: 8px;
-            NavItem { icon: @image-url("../icons/chat.svg"); label: root.waiting-count > 0 ? "Conversation ({root.waiting-count})" : "Conversation"; selected: root.current-view == "chat"; reduce-motion: root.reduce-motion; clicked => { root.navigate("chat"); } }
+            NavItem { icon: @image-url("../icons/chat.svg"); label: root.waiting-count > 0 ? "Conversation (" + root.waiting-count + ")" : "Conversation"; selected: root.current-view == "chat"; reduce-motion: root.reduce-motion; clicked => { root.navigate("chat"); } }
             NavItem { icon: @image-url("../icons/sparkles.svg"); label: "Getting to know you"; selected: root.current-view == "onboarding"; reduce-motion: root.reduce-motion; clicked => { root.navigate("onboarding"); } }
-            NavItem { icon: @image-url("../icons/activity.svg"); label: root.suggestions-count > 0 ? "Awareness ({root.suggestions-count})" : "Awareness"; selected: root.current-view == "awareness"; reduce-motion: root.reduce-motion; clicked => { root.navigate("awareness"); } }
+            NavItem { icon: @image-url("../icons/activity.svg"); label: root.suggestions-count > 0 ? "Awareness (" + root.suggestions-count + ")" : "Awareness"; selected: root.current-view == "awareness"; reduce-motion: root.reduce-motion; clicked => { root.navigate("awareness"); } }
             NavItem { icon: @image-url("../icons/memory.svg"); label: "Memory"; selected: root.current-view == "memory"; reduce-motion: root.reduce-motion; clicked => { root.navigate("memory"); } }
             NavItem { icon: @image-url("../icons/tasks.svg"); label: "Tasks"; selected: root.current-view == "tasks"; reduce-motion: root.reduce-motion; clicked => { root.navigate("tasks"); } }
-            NavItem { icon: @image-url("../icons/reminders.svg"); label: root.unread-count > 0 ? "Reminders ({root.unread-count})" : "Reminders"; selected: root.current-view == "reminders"; reduce-motion: root.reduce-motion; clicked => { root.navigate("reminders"); } }
+            NavItem { icon: @image-url("../icons/reminders.svg"); label: root.unread-count > 0 ? "Reminders (" + root.unread-count + ")" : "Reminders"; selected: root.current-view == "reminders"; reduce-motion: root.reduce-motion; clicked => { root.navigate("reminders"); } }
             NavItem { icon: @image-url("../icons/usage.svg"); label: "Usage"; selected: root.current-view == "usage"; reduce-motion: root.reduce-motion; clicked => { root.navigate("usage"); } }
             NavItem { icon: @image-url("../icons/activity.svg"); label: "Activity log"; selected: root.current-view == "activity"; reduce-motion: root.reduce-motion; clicked => { root.navigate("activity"); } }
             NavItem { icon: @image-url("../icons/settings.svg"); label: "Settings"; selected: root.current-view == "settings"; reduce-motion: root.reduce-motion; clicked => { root.navigate("settings"); } }

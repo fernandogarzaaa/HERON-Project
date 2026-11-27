@@ -1,0 +1,28 @@
+# Audit spec for the usability scorer's `completed` verdict (eval/usability/rules.py).
+#
+# Run from the repository root:
+#   genesis audit-evaluator eval/usability/genesis/usability-json.yaml --suite json    # must exit 0
+#
+# The verifier is eval/usability/genesis/verifier.py, U0g's pattern (eval/genesis/): the task is
+# one usability task id, its variant and the evidence of one run; the completion is a verdict
+# record. The rule always comes from eval/usability/tasks.md, never from the task. genesis only
+# changes the completion, so this audit shows a verdict record can't be forged, padded, swapped
+# for another task's or smuggled past the strict parser. Whether each rule leaf refuses bad
+# evidence is tested by eval/usability/tests/test_verifier.py, which runs every known-bad case in
+# cases.jsonl (at least one per leaf kind) through the same verifier. Both parts are needed.
+#
+# Not audited: time, errors and confusion points. They are measurements and gate nothing.
+#
+# Regenerate cases.jsonl with build_cases.py after changing tasks.md or the fixtures.
+name: heron-usability-json
+dataset:
+  path: eval/usability/genesis/cases.jsonl
+subject:
+  command: "cat {task_file}"
+evaluator:
+  type: command
+  command: "python3 -I eval/usability/genesis/verifier.py {task_file} {completion_file} {output_file}"
+metrics:
+  - task_success
+thresholds:
+  task_success: ">=0.90"

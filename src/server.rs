@@ -99,7 +99,7 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 fn host_only(value: &str) -> &str {
     let v = value.trim();
     if v.starts_with('[') {
-        return v.split(']').next().map(|h| &v[..h.len() + 1]).unwrap_or(v);
+        return v.find(']').map(|i| &v[..=i]).unwrap_or(v);
     }
     v.rsplit_once(':').map(|(h, _)| h).unwrap_or(v)
 }
@@ -679,7 +679,47 @@ fn sse(item: &Item) -> SseEvent {
 
 /// One chat run, as its own task. Whoever ends the run publishes its last events: this task when the
 /// turn ends, or `cancel` when it stops the run first.
-async fn run_chat(st: Arc<ServerState>, mut session: Session, message: String, run_id: String) {
+/// How far a run got, so a panic anywhere still leaves it freed and ended exactly once.
+#[derive(Clone, Copy, PartialEq)]
+enum RunStage {
+    Running,
+    Freed,
+    Ended,
+}
+
+async fn run_chat(st: Arc<ServerState>, session: Session, message: String, run_id: String) {
+    use futures_util::FutureExt;
+    let sid = session.id.clone();
+    let stage = Arc::new(Mutex::new(RunStage::Running));
+    // A panic in the turn must still free the conversation and end its stream, or every new
+    // message to it is refused as busy until Heron restarts.
+    let finished = std::panic::AssertUnwindSafe(run_chat_turn(st.clone(), session, message, run_id.clone(), stage.clone())).catch_unwind().await;
+    if finished.is_ok() {
+        return;
+    }
+    let at = *stage.lock().unwrap_or_else(|e| e.into_inner());
+    if at == RunStage::Running {
+        // A run `cancel` already took ends there; only one still registered ends here.
+        if !st.finish(&sid, &run_id) {
+            return;
+        }
+        let left: Vec<(String, PendingApproval)> = {
+            let mut approvals = st.approvals.lock().unwrap_or_else(|e| e.into_inner());
+            let ids: Vec<String> = approvals.iter().filter(|(_, p)| p.run_id == run_id).map(|(id, _)| id.clone()).collect();
+            ids.into_iter().filter_map(|id| approvals.remove(&id).map(|p| (id, p))).collect()
+        };
+        for (id, p) in left {
+            st.app.events.publish(&p.session_id, &p.run_id, json!({"type": "approval_resolved", "id": id, "decision": "cancelled"}));
+        }
+        let err = anyhow::anyhow!("Heron hit an internal error while replying. Try again, or start a new conversation.");
+        st.app.publish_outcome(&sid, &run_id, Err(&err));
+    }
+    if at != RunStage::Ended {
+        st.app.publish_run_end(&sid, &run_id);
+    }
+}
+
+async fn run_chat_turn(st: Arc<ServerState>, mut session: Session, message: String, run_id: String, stage: Arc<Mutex<RunStage>>) {
     let sid = session.id.clone();
     // Rules another Heron on this home revoked or added since this one last looked apply from here.
     st.app.reload_rules();
@@ -689,6 +729,7 @@ async fn run_chat(st: Arc<ServerState>, mut session: Session, message: String, r
     if !st.finish(&sid, &run_id) {
         return;
     }
+    *stage.lock().unwrap_or_else(|e| e.into_inner()) = RunStage::Freed;
     if outcome.is_ok() {
         st.app.persist_rules();
     }
@@ -699,6 +740,7 @@ async fn run_chat(st: Arc<ServerState>, mut session: Session, message: String, r
             st.app.events.publish(&sid, &run_id, json!({"type": "learned", "items": learned}));
         }
     }
+    *stage.lock().unwrap_or_else(|e| e.into_inner()) = RunStage::Ended;
     st.app.publish_run_end(&sid, &run_id);
 }
 
@@ -960,7 +1002,17 @@ async fn list_memories(State(st): S, Query(q): Query<SearchQuery>) -> ApiResult 
 async fn add_memory(State(st): S, Json(b): Json<Value>) -> ApiResult {
     let content = b.get("content").and_then(|c| c.as_str()).map(str::trim).filter(|c| c.len() >= 3).ok_or_else(|| bad("Write what Heron should remember."))?;
     let kind = b.get("kind").and_then(|c| c.as_str()).unwrap_or("fact");
-    let out = st.app.memory.save(content, kind, "", 0.7, "user").await?;
+    // The app sends a forgotten or edited row back with its own source, so an outside fact keeps
+    // its standing. Any source but `user` can only lower trust: `user` is what this route gives.
+    let mut source = b.get("source").and_then(|s| s.as_str()).unwrap_or("user");
+    if source.len() > 32 || !source.bytes().all(|c| c.is_ascii_lowercase() || c == b'_') {
+        return Err(bad("Unknown memory source."));
+    }
+    // A row that was waiting for the owner's confirmation comes back waiting, whatever its source.
+    if b.get("confirmed").and_then(|c| c.as_bool()) == Some(false) && crate::memory::starts_confirmed(source) {
+        source = "outside";
+    }
+    let out = st.app.memory.save(content, kind, "", 0.7, source).await?;
     Ok(Json(json!({"id": out.id()})))
 }
 
@@ -1260,7 +1312,15 @@ async fn list_live_approvals(State(st): S) -> ApiResult {
 
 async fn answer_approval(State(st): S, Path(id): Path<i64>, Json(b): Json<Value>) -> ApiResult {
     match b.get("action").and_then(|a| a.as_str()) {
-        Some("approve") => match st.app.run_parked(id).await {
+        // Carried out on its own task: a client that stops waiting (a timeout, a closed window) must
+        // not cancel the action halfway and leave it marked as running.
+        Some("approve") => match tokio::spawn({
+            let app = st.app.clone();
+            async move { app.run_parked(id).await }
+        })
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("the approved action stopped unexpectedly: {e}")))
+        {
             Ok(result) => Ok(Json(json!({"result": result}))),
             // As for `/api/chat` (Q15): the request stays waiting until the notice is accepted.
             Err(e) if e.downcast_ref::<crate::risk_notice::RiskNoticeNotAccepted>().is_some() => Err(ApiError(StatusCode::PRECONDITION_REQUIRED, "risk_notice_not_accepted".into())),
@@ -1308,12 +1368,12 @@ async fn get_today(State(st): S) -> ApiResult {
     let store = &st.app.store;
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let tasks = store.list_tasks(Some("open"))?;
-    let due: Vec<&crate::store::Task> = tasks.iter().filter(|t| t.due.as_deref().map(|d| d[..d.len().min(10)] <= *today).unwrap_or(false)).collect();
+    let due: Vec<&crate::store::Task> = tasks.iter().filter(|t| t.due.as_deref().map(|d| d.get(..10).unwrap_or(d) <= today.as_str()).unwrap_or(false)).collect();
     let now = crate::util::now_ts();
     let new_mail = store.knowledge_between("email", now - 86_400, now + 3600, 200)?.len();
     Ok(Json(json!({
         "events": crate::sources::upcoming(store, 24, 6),
-        "due_tasks": due.iter().take(6).map(|t| json!({"id": t.id, "title": t.title, "due": t.due, "overdue": t.due.as_deref().map(|d| d[..d.len().min(10)] < *today).unwrap_or(false)})).collect::<Vec<_>>(),
+        "due_tasks": due.iter().take(6).map(|t| json!({"id": t.id, "title": t.title, "due": t.due, "overdue": t.due.as_deref().map(|d| d.get(..10).unwrap_or(d) < today.as_str()).unwrap_or(false)})).collect::<Vec<_>>(),
         "open_tasks": tasks.iter().filter(|t| t.owner != "heron").count(),
         "heron_tasks": tasks.iter().filter(|t| t.owner == "heron").count(),
         "waiting": store.pending_approvals()?.len(),
@@ -2104,6 +2164,68 @@ mod tests {
         assert_eq!(h.json("POST", "/cancel", json!({"session_id": sid})).await["cancelled"], true);
         let mut again = h.chat(json!({"session_id": sid, "message": "again"})).await;
         assert_eq!(again.next().await.unwrap()["id"], sid.as_str());
+    }
+
+    /// A model step that panics, as a slicing bug on odd output would.
+    struct Panics;
+
+    #[async_trait]
+    impl Llm for Panics {
+        async fn chat(&self, _req: ChatRequest, _on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
+            panic!("byte index 3 is not a char boundary");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_run_that_panics_ends_and_frees_its_conversation() {
+        let h = harness(Arc::new(Panics), true, |_| {}).await;
+        let events = tokio::time::timeout(Duration::from_secs(10), async { h.chat(json!({"message": "hi"})).await.all().await }).await.expect("the stream ends");
+        let sid = events[0]["id"].as_str().unwrap().to_string();
+        assert_eq!(events.last().unwrap()["type"], "run_end", "{events:?}");
+        assert!(events.iter().any(|e| e["type"] == "error"), "the owner is told the reply failed: {events:?}");
+        assert_eq!(h.json("GET", &format!("/sessions/{sid}"), Value::Null).await["busy"], false);
+    }
+
+    /// Answers once, then panics: the learning step after the reply is what breaks.
+    struct PanicsWhenLearning(std::sync::atomic::AtomicUsize);
+
+    #[async_trait]
+    impl Llm for PanicsWhenLearning {
+        async fn chat(&self, _req: ChatRequest, _on_delta: DeltaFn<'_>) -> Result<ChatResponse> {
+            if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) > 0 {
+                panic!("odd model output while learning");
+            }
+            Ok(ChatResponse { message: Message::assistant("Hello. I live in Lisbon."), usage: Default::default(), model: "t".into() })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_panic_after_the_reply_still_ends_the_stream_once() {
+        let llm = Arc::new(PanicsWhenLearning(Default::default()));
+        let h = harness(llm.clone(), true, |c| c.agent.auto_memory = true).await;
+        let events = tokio::time::timeout(Duration::from_secs(10), async { h.chat(json!({"message": "I live in Lisbon"})).await.all().await }).await.expect("the stream ends");
+        assert_eq!(find(&events, "done")["text"], "Hello. I live in Lisbon.", "{events:?}");
+        assert_eq!(events.iter().filter(|e| e["type"] == "run_end").count(), 1, "{events:?}");
+        assert!(!events.iter().any(|e| e["type"] == "error"), "the reply itself succeeded: {events:?}");
+        assert!(llm.0.load(std::sync::atomic::Ordering::SeqCst) >= 2, "the learning step called the model");
+    }
+
+    #[tokio::test]
+    async fn today_reads_a_due_date_with_letters_outside_ascii() {
+        let h = harness(scripted(vec![]), true, |_| {}).await;
+        h.app.store.add_task("Call the bank", "", 2, Some("2026-11-2ñ")).unwrap();
+        h.app.store.add_task("File the return", "", 2, Some("2000-01-01 09:00")).unwrap();
+        h.app.store.add_task("Book the flight", "", 2, Some("2999-01-01")).unwrap();
+        let today = h.json("GET", "/today", Value::Null).await;
+        let due: Vec<&str> = today["due_tasks"].as_array().unwrap().iter().map(|t| t["title"].as_str().unwrap()).collect();
+        assert!(due.contains(&"File the return") && !due.contains(&"Book the flight"), "{today}");
+    }
+
+    #[test]
+    fn a_host_header_with_an_unclosed_bracket_is_not_loopback() {
+        assert!(!is_loopback_name(host_only("[::1")));
+        assert_eq!(host_only("[::1]:8080"), "[::1]");
+        assert_eq!(host_only("localhost:3000"), "localhost");
     }
 
     /// A CLI whose installed version Heron has not been tested with.
@@ -4131,6 +4253,58 @@ mod tests {
         assert_eq!(std::fs::read_to_string(h.app.workspace.join("later.txt")).unwrap(), "carried out");
         assert!(h.app.store.pending_approvals().unwrap().is_empty());
         assert_eq!(h.send("POST", &approve, json!({"action": "approve"})).await.status, 400, "and only once");
+    }
+
+    /// An approved action that takes a while, as a build or a test run does.
+    struct Slow;
+
+    #[async_trait]
+    impl crate::tools::Tool for Slow {
+        fn name(&self) -> &str {
+            "slow_step"
+        }
+        fn description(&self) -> &str {
+            "test: takes half a second"
+        }
+        fn parameters(&self) -> Value {
+            crate::tools::schema(json!({}), &[])
+        }
+        fn summary(&self, _args: &Value) -> String {
+            "slow step".into()
+        }
+        fn risk(&self, _args: &Value, _ctx: &crate::tools::ToolCtx) -> crate::permissions::Effect {
+            crate::permissions::Effect::WorkspaceWrite
+        }
+        async fn call(&self, _args: &Value, _ctx: &crate::tools::ToolCtx) -> Result<String> {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            Ok("slow step finished".into())
+        }
+    }
+
+    #[tokio::test]
+    async fn an_approved_action_finishes_after_the_client_gives_up_waiting() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config { home: dir.path().join("home"), ..Default::default() };
+        cfg.ensure_home().unwrap();
+        let mut app = App::assemble(cfg, dir.path().join("ws"), Store::in_memory().unwrap(), scripted(vec![])).await.unwrap();
+        let mut tools = crate::tools::ToolRegistry::builtin();
+        tools.register(Arc::new(Slow));
+        app.tools = Arc::new(tools);
+        crate::risk_notice::accept_current(&app.store).unwrap();
+        let h = serve_app(dir, Arc::new(app));
+        let sid = h.app.store.create_session("build", "user").unwrap();
+        let id = h.app.store.park_approval(&sid, "slow_step", "{}", "slow step", "slow step", crate::permissions::Effect::WorkspaceWrite.label(), false, "build").unwrap();
+        // The app's request gives up (its timeout, a closed window) while the action is still going.
+        assert!(tokio::time::timeout(Duration::from_millis(100), h.send("POST", &format!("/approvals/{id}"), json!({"action": "approve"}))).await.is_err());
+        let mut status = String::new();
+        for _ in 0..40 {
+            status = h.app.store.get_approval(id).unwrap().status;
+            if status != "running" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(status, "approved", "the action ran to the end and recorded its outcome");
     }
 
     /// Start a core on a fresh home with one notify-only automation already due, and return the

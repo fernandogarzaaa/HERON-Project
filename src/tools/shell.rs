@@ -67,6 +67,10 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
                 cmd.env(name, value);
             }
         }
+        if crate::sandbox::active(&ctx.cfg) == crate::sandbox::Kind::Seatbelt {
+            let tmp = crate::sandbox::shell_tmpdir();
+            cmd.env("TMPDIR", &tmp).env("TMP", &tmp).env("TEMP", &tmp);
+        }
         #[cfg(unix)]
         cmd.process_group(0); // so a timeout kills the whole process tree, not just the shell
         match cmd.spawn() {
@@ -99,7 +103,7 @@ async fn run(args: &Value, ctx: &ToolCtx) -> Result<String> {
             // looked up through the shell's process id, so this has to happen before the shell is gone.)
             if let Some(pid) = pid {
                 #[cfg(unix)]
-                let _ = std::process::Command::new("kill").args(["-9", &format!("-{pid}")]).status();
+                crate::cli_llm::kill_group(pid);
                 #[cfg(windows)]
                 let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
             }
@@ -414,6 +418,45 @@ pub(crate) mod tests {
 
     pub(crate) fn q(p: &std::path::Path) -> String {
         format!("'{}'", p.display().to_string().replace('\'', "'\\''"))
+    }
+
+    #[tokio::test]
+    async fn sandboxed_shell_cannot_reach_a_local_agent_socket() {
+        let mut cfg = Config::default();
+        cfg.permissions.mode = "auto".into();
+        if !seatbelt(&cfg) {
+            return;
+        }
+        let ws = tempfile::tempdir().unwrap();
+        // Where launchd puts the ssh agent's socket: a temporary folder the sandbox may write to.
+        let dir = tempfile::Builder::new().prefix("heron-agent-sock").tempdir_in("/private/tmp").unwrap();
+        let socket = dir.path().join("agent.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut conn, _)) = listener.accept() {
+                let _ = std::io::Write::write_all(&mut conn, b"AGENT-ANSWERED\n");
+            }
+        });
+        let ctx = test_ctx(&cfg, &dunce::canonicalize(ws.path()).unwrap(), "t");
+        let out = sh(&ctx, &format!("/usr/bin/nc -U -w 2 {} < /dev/null; echo done", q(&socket))).await;
+        assert!(out.contains("done"), "{out}");
+        assert!(!out.contains("AGENT-ANSWERED"), "a sandboxed command used a local agent socket: {out}");
+        // Nor another program's multiprocessing server under /tmp/pymp-*: those run what they are sent.
+        let pymp = tempfile::Builder::new().prefix("pymp-").tempdir_in("/private/tmp").unwrap();
+        let server = pymp.path().join("listener-test");
+        let forkserver = std::os::unix::net::UnixListener::bind(&server).unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut conn, _)) = forkserver.accept() {
+                let _ = std::io::Write::write_all(&mut conn, b"FORKSERVER-ANSWERED\n");
+            }
+        });
+        let out = sh(&ctx, &format!("/usr/bin/nc -U -w 2 {} < /dev/null; echo done", q(&server))).await;
+        assert!(!out.contains("FORKSERVER-ANSWERED"), "a sandboxed command reached another program's multiprocessing server: {out}");
+        // Its own sockets, in the working folder and in its temporary folder, still work.
+        let own = sh(&ctx, "python3 -c \"import os,socket,tempfile\nfor d in ('.', tempfile.gettempdir()):\n  p=os.path.join(d,'own.sock')\n  s=socket.socket(socket.AF_UNIX); s.bind(p); s.listen(1)\n  c=socket.socket(socket.AF_UNIX); c.connect(p); print('OWN-OK'); os.unlink(p)\"").await;
+        assert_eq!(own.matches("OWN-OK").count(), 2, "{own}");
+        let mp = sh(&ctx, "python3 -c \"import multiprocessing as m\nif __name__=='__main__':\n  m.set_start_method('forkserver')\n  with m.Pool(1) as p: print('MP-OK', p.apply(abs, (-3,)))\"").await;
+        assert!(mp.contains("MP-OK 3"), "a command's own multiprocessing still works: {mp}");
     }
 
     #[tokio::test]
@@ -830,6 +873,26 @@ pub(crate) mod tests {
             let found = out.lines().filter(|l| l.starts_with("keychain: ")).count();
             assert!(ok && found >= 1, "{}: {found} root certificates: {}", spec.id, crate::util::preview(&out, 2000));
         }
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn a_timed_out_command_is_killed_with_its_whole_process_tree() {
+        let cfg = Config::default();
+        if cfg!(target_os = "macos") && !seatbelt(&cfg) {
+            return;
+        }
+        let ws = tempfile::tempdir().unwrap();
+        let ws = dunce::canonicalize(ws.path()).unwrap();
+        let ctx = test_ctx(&cfg, &ws, "t");
+        let out = run(&json!({"command": "sleep 60 & echo $! > child.pid; wait", "timeout_secs": 1}), &ctx).await.unwrap();
+        assert!(out.starts_with("[timed out after 1s"), "{out}");
+        let pid: libc::pid_t = std::fs::read_to_string(ws.join("child.pid")).unwrap().trim().parse().unwrap();
+        let gone = (0..200).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            (unsafe { libc::kill(pid, 0) }) != 0
+        });
+        assert!(gone, "the shell's background child {pid} outlived the timeout");
     }
 
     #[tokio::test]

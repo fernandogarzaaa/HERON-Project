@@ -94,6 +94,8 @@ pub struct ApprovalCard {
     pub can_always: bool,
     pub session_label: String,
     pub always_label: String,
+    /// The conversation has read outside content. Drawn in violet unless `danger` is set.
+    pub outside: bool,
     /// Set once answered. The card is then replaced by this note.
     pub decision_note: Option<String>,
 }
@@ -411,15 +413,20 @@ pub fn json_string_field(json: &str, key: &str) -> Option<String> {
                         b'"' => out.push('"'),
                         b'/' => out.push('/'),
                         b'u' if i + 5 < bytes.len() => {
-                            let hex = &json[i + 2..i + 6];
-                            if let Ok(n) = u32::from_str_radix(hex, 16) {
+                            // Four hex digits, or the escape is skipped and what follows is read as text.
+                            if let Some(n) = json.get(i + 2..i + 6).and_then(|h| u32::from_str_radix(h, 16).ok()) {
                                 if let Some(c) = char::from_u32(n) {
                                     out.push(c);
                                 }
+                                i += 4;
                             }
-                            i += 4;
                         }
-                        other => out.push(other as char),
+                        other if other.is_ascii() => out.push(other as char),
+                        _ => {
+                            let ch = json[i + 1..].chars().next()?;
+                            out.push(ch);
+                            i += ch.len_utf8() - 1;
+                        }
                     }
                     i += 2;
                 }
@@ -693,6 +700,7 @@ impl ChatView {
                         detail,
                         can_session,
                         can_always,
+                        outside: tainted,
                         decision_note: None,
                     });
                 }
@@ -913,6 +921,15 @@ pub fn workspace_short(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_json_string_with_an_odd_escape_before_non_ascii_is_read() {
+        assert_eq!(json_string_field(r#"{"command": "echo \é done"}"#, "command").as_deref(), Some("echo é done"));
+        assert!(json_string_field(r#"{"command": "a\u00é9"}"#, "command").is_some());
+        assert_eq!(json_string_field(r#"{"command": "\u000é"}"#, "command").as_deref(), Some("000é"));
+        assert_eq!(json_string_field(r#"{"command": "caf\u00e9!"}"#, "command").as_deref(), Some("café!"));
+        assert_eq!(json_string_field(r#"{"command": "ab\u00e"}"#, "command").as_deref(), Some("ab00e"), "too few digits before the end: the escape is skipped");
+    }
 
     #[test]
     fn arg_summary_picks_first_field() {

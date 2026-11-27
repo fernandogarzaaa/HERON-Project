@@ -606,6 +606,7 @@ fn make_absolute(p: PathBuf) -> PathBuf {
     }
 }
 
+#[derive(Debug)]
 pub struct ProviderStatus {
     pub id: String,
     pub display_name: String,
@@ -620,7 +621,7 @@ pub struct ProviderStatus {
 /// Ask the CLI who it is logged in as, the T3 Code way. The probe never
 /// sends a model request and never starts a session: `claude auth status`
 /// reads the local credential store, `codex login status` reads the cached
-/// login token. Anything unexpected returns unknown, never a failure.
+/// login token. Output with no login words returns unknown, never logged out.
 /// Whole-word match on lowercased output, so "pro" does not match
 /// "profile" and "max" does not match "maximum".
 fn words_contain(lower: &str, word: &str) -> bool {
@@ -644,13 +645,15 @@ fn parse_login_output(spec_id: &str, out: &str) -> (Option<bool>, Option<String>
                 }
             }
             // "Not logged in" contains "logged in", so the negation check
-            // must come first.
-            let logged = (lower.contains("logged in")
-                || lower.contains("active account")
-                || lower.contains("authenticated"))
-                && !lower.contains("not logged in")
-                && !lower.contains("not authenticated")
-                && !lower.contains("no active account");
+            // must come first. Claude Code 2.1.330 dropped the words "logged
+            // in" from --text and prints "Login method: Claude Max account".
+            if ["not logged in", "not authenticated", "no active account", "logged out"].iter().any(|n| lower.contains(n)) {
+                return (Some(false), None);
+            }
+            let logged = ["logged in", "active account", "authenticated", "login method:"].iter().any(|w| lower.contains(w));
+            if !logged {
+                return (None, None);
+            }
             let plan = logged
                 .then(|| {
                     ["max", "pro", "team", "enterprise"]
@@ -659,23 +662,34 @@ fn parse_login_output(spec_id: &str, out: &str) -> (Option<bool>, Option<String>
                         .map(|p| format!("Claude {p}"))
                 })
                 .flatten();
-            (Some(logged), plan)
+            (Some(true), plan)
         }
         "codex-cli" => {
-            let logged = (lower.contains("logged in using chatgpt") || lower.contains("logged in"))
-                && !lower.contains("not logged in");
-            let plan = logged
-                .then(|| {
-                    ["plus", "pro", "team", "enterprise"]
-                        .iter()
-                        .find(|p| words_contain(&lower, p))
-                        .map(|p| format!("ChatGPT {p}"))
-                })
-                .flatten();
-            (Some(logged), plan)
+            if lower.contains("not logged in") || lower.contains("logged out") {
+                return (Some(false), None);
+            }
+            if !lower.contains("logged in") {
+                return (None, None);
+            }
+            let plan = ["plus", "pro", "team", "enterprise"]
+                .iter()
+                .find(|p| words_contain(&lower, p))
+                .map(|p| format!("ChatGPT {p}"));
+            (Some(true), plan)
         }
         _ => (None, None),
     }
+}
+
+/// The login state a status probe reports. Both streams count whatever the exit code, and a probe
+/// that exited non-zero without any positive "logged in" signal is logged out: the CLIs exit 1 when
+/// logged out, and the wording of what they print has changed between versions.
+fn login_state(spec_id: &str, out: &Captured) -> (Option<bool>, Option<String>) {
+    let parsed = parse_login_output(spec_id, &out.text);
+    if !out.ok && parsed.0 != Some(true) {
+        return (Some(false), None);
+    }
+    parsed
 }
 
 /// Did a login probe say, in so many words, that the CLI is logged out? A probe that failed for some
@@ -739,15 +753,15 @@ pub async fn probe_status(cfg: &Config, spec: &CliSpec) -> ProviderStatus {
     let version = run_capture(&llm, &path, &["--version"], 10)
         .await
         .ok()
-        .map(|o| o.trim().to_string())
+        .map(|o| o.text.trim().to_string())
         .filter(|s| !s.is_empty());
     let (logged_in, plan) = match spec.id {
         "claude-cli" => match run_capture(&llm, &path, &["auth", "status", "--text"], 20).await {
-            Ok(out) => parse_login_output("claude-cli", &out),
+            Ok(out) => login_state("claude-cli", &out),
             Err(_) => (None, None),
         },
         "codex-cli" => match run_capture(&llm, &path, &["login", "status"], 20).await {
-            Ok(out) => parse_login_output("codex-cli", &out),
+            Ok(out) => login_state("codex-cli", &out),
             Err(_) => (None, None),
         },
         _ => (None, None),
@@ -770,7 +784,7 @@ pub async fn probe_status(cfg: &Config, spec: &CliSpec) -> ProviderStatus {
 /// Run a probe of the CLI the way a turn runs it: in a fresh run folder (removed afterwards), with the
 /// allowlisted environment (`child_env`, which carries the account-folder override), inside the CLI's
 /// sandbox, and refused on macOS when there is no sandbox.
-async fn run_capture(llm: &CliLlm, path: &Path, args: &[&str], timeout_secs: u64) -> Result<String> {
+async fn run_capture(llm: &CliLlm, path: &Path, args: &[&str], timeout_secs: u64) -> Result<Captured> {
     let run_dir = make_run_folder()?;
     let _dir_guard = RemoveTempDirOnDrop { dir: run_dir.clone() };
     let (binary_dir, extra_read) = llm.binary_dirs(path);
@@ -781,8 +795,17 @@ async fn run_capture(llm: &CliLlm, path: &Path, args: &[&str], timeout_secs: u64
     llm.run_contained(path, args, timeout_secs, &run_dir, sandbox.as_ref()).await
 }
 
-/// Run a prepared command to completion with a timeout: its stdout on success, its stderr on failure.
-async fn capture(mut cmd: Command, path: &Path, timeout_secs: u64) -> Result<String> {
+/// What a probe printed and whether it exited 0. `text` is stdout when stdout has anything in it,
+/// otherwise stderr (`codex login status` answers on stderr); on a non-zero exit it is both, stdout
+/// first, because `claude auth status` prints "Not logged in" on stdout and exits 1.
+#[derive(Debug)]
+struct Captured {
+    ok: bool,
+    text: String,
+}
+
+/// Run a prepared command to completion with a timeout.
+async fn capture(mut cmd: Command, path: &Path, timeout_secs: u64) -> Result<Captured> {
     // Spawn explicitly instead of cmd.output(): wait_with_output takes
     // ownership of the child, so a timeout would leave a hung probe
     // running after the future is dropped. The chat path already kills
@@ -866,11 +889,14 @@ async fn capture(mut cmd: Command, path: &Path, timeout_secs: u64) -> Result<Str
             return Err(anyhow!("timed out"));
         }
     };
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    let ok = out.status.success();
+    let text = if ok {
+        let stream = if out.stdout.iter().all(u8::is_ascii_whitespace) { &out.stderr } else { &out.stdout };
+        String::from_utf8_lossy(stream).to_string()
     } else {
-        Ok(String::from_utf8_lossy(&out.stderr).to_string())
-    }
+format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    Ok(Captured { ok, text })
 }
 
 /// Tool-rules sentence added only when the request offers `web_fetch`, so a
@@ -1105,7 +1131,13 @@ fn decode_json_string(bytes: &[u8], text: &str, start: usize) -> Option<(String,
                         }
                         k += 4;
                     }
-                    other => out.push(other as char),
+                    other if other.is_ascii() => out.push(other as char),
+                    // An unknown escape before a letter outside ASCII: keep the whole letter.
+                    _ => {
+                        let ch = text[k + 1..].chars().next()?;
+                        out.push(ch);
+                        k += ch.len_utf8() - 1;
+                    }
                 }
                 k += 2;
             }
@@ -1623,7 +1655,7 @@ impl CliLlm {
         if let Some(v) = self.version.lock().unwrap().clone() {
             return v;
         }
-        let out = self.run_contained(path, &["--version"], 10, run_dir, sandbox).await.unwrap_or_default().trim().to_string();
+        let out = self.run_contained(path, &["--version"], 10, run_dir, sandbox).await.map(|c| c.text).unwrap_or_default().trim().to_string();
         *self.version.lock().unwrap() = Some(out.clone());
         out
     }
@@ -1631,7 +1663,7 @@ impl CliLlm {
     /// Run the CLI briefly on the turn path (`--version`, a login check) the way the turn itself runs
     /// it: inside the turn's sandbox, with the allowlisted environment, in the run folder. API keys
     /// and Heron's other variables never reach it this way either.
-    async fn run_contained(&self, path: &Path, args: &[&str], timeout_secs: u64, run_dir: &Path, sandbox: Option<&(String, Vec<String>)>) -> Result<String> {
+    async fn run_contained(&self, path: &Path, args: &[&str], timeout_secs: u64, run_dir: &Path, sandbox: Option<&(String, Vec<String>)>) -> Result<Captured> {
         let mut cmd = match sandbox {
             Some((program, prefix)) => {
                 let mut c = Command::new(program);
@@ -2144,14 +2176,14 @@ impl Accumulator {
 /// Kill a process group by id (Unix only). Best effort: the group may
 /// already be gone.
 #[cfg(unix)]
-fn kill_group(pgid: u32) {
+pub(crate) fn kill_group(pgid: u32) {
     unsafe {
         libc::killpg(pgid as libc::pid_t, libc::SIGKILL);
     }
 }
 
 #[cfg(not(unix))]
-fn kill_group(_pgid: u32) {}
+pub(crate) fn kill_group(_pgid: u32) {}
 
 /// Kill the provider's whole process tree: the group first, then the
 /// direct child. Used on timeout and on read errors, where the child is
@@ -2416,7 +2448,7 @@ impl CliLlm {
                 if matches!(self.spec.id, "claude-cli" | "codex-cli") {
                     let probe: &[&str] = if self.spec.id == "claude-cli" { &["auth", "status", "--text"] } else { &["login", "status"] };
                     if let Ok(out) = self.run_contained(&path, probe, 20, &run_dir, sandbox.as_ref()).await {
-                        if says_logged_out(self.spec.id, &out) {
+                        if says_logged_out(self.spec.id, &out.text) {
                             bail!("{logged_out}, then try again. (CLI said: {preview})");
                         }
                     }
@@ -2436,7 +2468,7 @@ impl CliLlm {
                     bail!("{logged_out}, then try again. (CLI said: {preview})");
                 }
                 // A CLI with no login probe cannot say; the hint goes with the failure.
-                let hint = if parse_login_output(self.spec.id, "").0.is_none() { format!(" If {logged_out}.") } else { String::new() };
+                let hint = if !matches!(self.spec.id, "claude-cli" | "codex-cli") { format!(" If {logged_out}.") } else { String::new() };
                 if names_a_provider_limit(&lower) {
                     bail!("{}", limit_msg(&preview));
                 }
@@ -3318,6 +3350,8 @@ mod tests {
 
     #[test]
     fn envelope_text_prefix_decodes_incrementally() {
+        // A stray backslash before a letter outside ASCII (LaTeX, a Windows path) keeps the letter.
+        assert_eq!(envelope_text_prefix("{\"text\": \"caf\\é \\→ ok\"}"), Some(("café → ok".to_string(), true)));
         assert_eq!(envelope_text_prefix(""), None);
         assert_eq!(envelope_text_prefix("{\"te"), None);
         assert_eq!(
@@ -3854,6 +3888,84 @@ mod tests {
     }
 
     #[test]
+    fn login_status_parsing_reads_current_cli_output() {
+        // Claude Code 2.1.330 `auth status --text`, captured live: no "logged in" words.
+        assert_eq!(
+            parse_login_output("claude-cli", "Login method: Claude Max account\nOrganization: someone's Organization\nEmail: someone@example.com\nSign-in ends: between 2026-12-18 and 2026-12-21"),
+            (Some(true), Some("Claude max".to_string()))
+        );
+        // Output with no login words at all says nothing about the login.
+        assert_eq!(parse_login_output("claude-cli", "Usage: claude auth status [options]"), (None, None));
+        assert_eq!(parse_login_output("codex-cli", ""), (None, None));
+        assert_eq!(parse_login_output("claude-cli", "Logged out"), (Some(false), None));
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn codex_probe_reads_a_login_printed_on_stderr() {
+        // codex-cli 0.169.0 prints "Logged in using ChatGPT" on stderr and nothing on stdout.
+        let dir = tempfile::tempdir().unwrap();
+        let script = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"codex-cli 0.169.0\"\n  exit 0\nfi\necho 'Logged in using ChatGPT' >&2\nexit 0\n";
+        let bin = fake_bin(dir.path(), "codex", script);
+        let spec = spec_for("codex-cli").unwrap();
+        let Some(cfg) = probe_cfg(dir.path(), "codex-cli", &bin, "") else { return };
+        let probed = probe_status(&cfg, &spec).await;
+        assert_eq!(probed.logged_in, Some(true), "a login reported on stderr is still a login");
+    }
+
+    /// Probe a fake CLI whose `--version` works and whose login-status command runs `body`.
+    #[cfg(not(windows))]
+    async fn probe_fake_login(spec_id: &str, binary: &str, body: &str) -> Option<ProviderStatus> {
+        let dir = tempfile::tempdir().unwrap();
+        let script = format!("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"9.9.9\"\n  exit 0\nfi\n{body}\n");
+        let bin = fake_bin(dir.path(), binary, &script);
+        let spec = spec_for(spec_id).unwrap();
+        let cfg = probe_cfg(dir.path(), spec_id, &bin, "")?;
+        Some(probe_status(&cfg, &spec).await)
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn claude_probe_logged_out_on_stdout_with_exit_1_is_not_logged_in() {
+        // Claude Code prints "Not logged in" on stdout and exits 1 when logged out (confirmed live).
+        let Some(p) = probe_fake_login("claude-cli", "claude", "echo 'Not logged in'\nexit 1").await else { return };
+        assert_eq!(p.logged_in, Some(false), "{p:?}");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn codex_probe_logged_out_exit_1_is_not_logged_in_on_either_stream() {
+        // codex-rs `login status` prints "Not logged in" on stderr and exits 1; stdout must work too.
+        let Some(p) = probe_fake_login("codex-cli", "codex", "echo 'Not logged in' >&2\nexit 1").await else { return };
+        assert_eq!(p.logged_in, Some(false), "stderr: {p:?}");
+        let Some(p) = probe_fake_login("codex-cli", "codex", "echo 'Not logged in'\nexit 1").await else { return };
+        assert_eq!(p.logged_in, Some(false), "stdout: {p:?}");
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn login_probe_non_zero_exit_without_a_logged_in_signal_is_logged_out() {
+        for (id, bin) in [("claude-cli", "claude"), ("codex-cli", "codex")] {
+            let Some(p) = probe_fake_login(id, bin, "echo 'something odd'\nexit 1").await else { return };
+            assert_eq!(p.logged_in, Some(false), "{id} with unrecognised output: {p:?}");
+            let Some(p) = probe_fake_login(id, bin, "exit 1").await else { return };
+            assert_eq!(p.logged_in, Some(false), "{id} with no output: {p:?}");
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(not(windows))]
+    async fn login_probe_still_reads_logged_in_on_either_stream() {
+        let Some(p) = probe_fake_login("claude-cli", "claude", "echo 'Login method: Claude Max account'").await else { return };
+        assert_eq!(p.logged_in, Some(true), "{p:?}");
+        let Some(p) = probe_fake_login("codex-cli", "codex", "echo 'Logged in using ChatGPT' >&2").await else { return };
+        assert_eq!(p.logged_in, Some(true), "{p:?}");
+        // Exit 0 with unrecognised output stays unknown, not logged out.
+        let Some(p) = probe_fake_login("claude-cli", "claude", "echo 'hello'").await else { return };
+        assert_eq!(p.logged_in, None, "{p:?}");
+    }
+
+    #[test]
     #[cfg(not(windows))]
     fn prompt_follows_the_value_flag_for_string_prompt_providers() {
         let dir = tempfile::tempdir().unwrap();
@@ -4172,7 +4284,7 @@ mod tests {
         let sandbox = crate::sandbox::wrap(&llm.cfg, &run_dir, &profile);
         let args: Vec<String> = [diary, token, run_dir.join("own.txt")].iter().map(|p| p.display().to_string()).collect();
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let out = llm.run_contained(&bin, &args, 30, &run_dir, sandbox.as_ref()).await.unwrap();
+        let out = llm.run_contained(&bin, &args, 30, &run_dir, sandbox.as_ref()).await.unwrap().text;
         assert!(out.contains("RUN-FOLDER-CONTENT") && out.contains("finished"), "the fake CLI ran and read its run folder: {out}");
         assert!(!out.contains("ASK-TIER-CONTENT"), "an Ask-tier file was readable: {out}");
         assert!(!out.contains("OTHER-CLI-CONTENT"), "another CLI's folder was readable: {out}");
