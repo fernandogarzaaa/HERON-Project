@@ -255,7 +255,7 @@ async fn start(cfg: &Config) -> Result<Live> {
 
 #[cfg(unix)]
 fn is_root() -> bool {
-    std::process::Command::new("id").arg("-u").output().map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0").unwrap_or(false)
+    unsafe { libc::geteuid() == 0 }
 }
 
 async fn attach(conn: Arc<Conn>, child: Option<tokio::process::Child>) -> Result<Live> {
@@ -326,7 +326,7 @@ where
 // ---------------- pages ----------------
 
 fn local_allowed() -> bool {
-    std::env::var("HERON_ALLOW_LOCAL_FETCH").is_ok()
+    crate::permissions::local_web_fetch_allowed()
 }
 
 async fn goto(b: &mut Live, url: &url::Url) -> Result<()> {
@@ -589,4 +589,23 @@ pub fn tools() -> Vec<FnTool> {
             run: |a, c| Box::pin(type_into(a, c)),
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn local_pages_need_an_explicit_yes() {
+        // "0" means no: the same as leaving it unset, so other tests are unaffected.
+        std::env::set_var("HERON_ALLOW_LOCAL_FETCH", "0");
+        assert!(!super::local_allowed());
+        std::env::remove_var("HERON_ALLOW_LOCAL_FETCH");
+        assert!(!super::local_allowed());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn is_root_matches_the_effective_user() {
+        let id = std::process::Command::new("/usr/bin/id").arg("-u").output().unwrap();
+        assert_eq!(super::is_root(), String::from_utf8_lossy(&id.stdout).trim() == "0");
+    }
 }

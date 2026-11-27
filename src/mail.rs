@@ -159,7 +159,7 @@ fn header_value(headers: &str, name: &str) -> String {
             }
             break;
         }
-        if line.len() > name.len() && line[..name.len()].eq_ignore_ascii_case(name) && line.as_bytes()[name.len()] == b':' {
+        if line.get(..name.len()).is_some_and(|h| h.eq_ignore_ascii_case(name)) && line.as_bytes().get(name.len()) == Some(&b':') {
             value = Some(line[name.len() + 1..].trim().to_string());
         }
     }
@@ -331,6 +331,12 @@ pub fn parse_email(headers: &str, body: &[u8]) -> Email {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_header_line_with_letters_outside_ascii_is_read_not_panicked_on() {
+        assert_eq!(header_value("Subjecé: no\r\nSubject: hi", "Subject"), "hi");
+        assert_eq!(header_value("Fromñ\r\nFrom: a@b.test", "From"), "a@b.test");
+    }
 
     #[test]
     fn decodes_headers() {

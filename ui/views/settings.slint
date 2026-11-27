@@ -6,7 +6,7 @@ import { TextEdit, ComboBox, CheckBox, ScrollView, VerticalBox, HorizontalBox } 
 import { PageScroll } from "../components/page_scroll.slint";
 import { Button } from "../components/button.slint";
 import { Theme } from "../components/theme.slint";
-import { SectionTitle, LabeledInput, ChoiceCard } from "../components/atoms.slint";
+import { SectionTitle, LabeledInput, ChoiceCard, ChoiceChip } from "../components/atoms.slint";
 import { WrapText } from "../components/wrap_text.slint";
 
 export struct ToolItem {
@@ -141,6 +141,15 @@ export component SettingsView inherits Rectangle {
     in property <string> backup_message;
     in property <bool> busy;
     in property <bool> reduce-motion: false;
+    // Appearance. The window owns the values; chips write them back.
+    in-out property <string> theme-name: "dusk";
+    in-out property <string> accent: "system";
+    in-out property <string> appearance: "system";
+    in-out property <string> motion-pref: "system";
+    callback theme-changed(string);
+    callback appearance-changed(string);
+    callback accent-changed(string);
+    callback motion-changed(string);
 
     callback apply_preset(string); // openrouter, openai, ollama, demo
     callback save_settings();
@@ -184,6 +193,60 @@ export component SettingsView inherits Rectangle {
                 text: "Heron runs on this computer. The only thing that leaves it is what you send to the AI model you choose here.";
                 font-size: 15px;
                 color: Theme.muted;
+            }
+
+            VerticalBox {
+                padding: 0px;
+                spacing: 10px;
+                SectionTitle { label: "Appearance"; }
+                WrapText {
+                    text: "Dusk is the warm default. Gold means Heron is waiting for you. Violet means a conversation has read something from outside, such as a web page or an email.";
+                    font-size: 13px;
+                    color: Theme.muted;
+                }
+                Text { text: "Theme"; font-size: 14px; font-weight: 600; color: Theme.ink; }
+                HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 6px;
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "Dusk"; selected: root.theme-name == "dusk"; clicked => { root.theme-name = "dusk"; root.theme-changed("dusk"); } }
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "Shore"; selected: root.theme-name == "shore"; clicked => { root.theme-name = "shore"; root.theme-changed("shore"); } }
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "Graphite"; selected: root.theme-name == "graphite"; clicked => { root.theme-name = "graphite"; root.theme-changed("graphite"); } }
+                }
+                Text { text: "Light and dark"; font-size: 14px; font-weight: 600; color: Theme.ink; }
+                HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 6px;
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "System"; selected: root.appearance == "system"; clicked => { root.appearance = "system"; root.appearance-changed("system"); } }
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "Light"; selected: root.appearance == "light"; clicked => { root.appearance = "light"; root.appearance-changed("light"); } }
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "Dark"; selected: root.appearance == "dark"; clicked => { root.appearance = "dark"; root.appearance-changed("dark"); } }
+                }
+                Text { text: "Accent"; font-size: 14px; font-weight: 600; color: Theme.ink; }
+                HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 6px;
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "System"; selected: root.accent == "system"; clicked => { root.accent = "system"; root.accent-changed("system"); } }
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "Slate"; selected: root.accent == "slate"; clicked => { root.accent = "slate"; root.accent-changed("slate"); } }
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "Lagoon"; selected: root.accent == "lagoon"; clicked => { root.accent = "lagoon"; root.accent-changed("lagoon"); } }
+                }
+                HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 6px;
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "Reed"; selected: root.accent == "reed"; clicked => { root.accent = "reed"; root.accent-changed("reed"); } }
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "Rose"; selected: root.accent == "rose"; clicked => { root.accent = "rose"; root.accent-changed("rose"); } }
+                }
+                Text { text: "Motion"; font-size: 14px; font-weight: 600; color: Theme.ink; }
+                HorizontalBox {
+                    alignment: start;
+                    padding: 0px;
+                    spacing: 6px;
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "System"; selected: root.motion-pref == "system"; clicked => { root.motion-pref = "system"; root.motion-changed("system"); } }
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "Full"; selected: root.motion-pref == "off"; clicked => { root.motion-pref = "off"; root.motion-changed("off"); } }
+                    ChoiceChip { reduce-motion: root.reduce-motion; label: "Reduced"; selected: root.motion-pref == "on"; clicked => { root.motion-pref = "on"; root.motion-changed("on"); } }
+                }
             }
 
             // AI model.

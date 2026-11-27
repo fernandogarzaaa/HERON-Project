@@ -1,0 +1,250 @@
+{
+  "_provenance": "Synthetic: written by hand from docs/designs/heron-v1.md section 3 (the event envelope, run_end, /api/events, the risk notice routes) before U3 landed. Not a recording. Replace it with `run.sh --live --record-fixtures` output once the core has U3.",
+  "audit": [],
+  "files": {},
+  "heron_commit": null,
+  "kind": "synthetic",
+  "persona": "lena-teacher",
+  "provider": "demo",
+  "session_id": "s1",
+  "steps": [
+    {
+      "body": "{\"onboarded\":false,\"sandbox\":true,\"risk_notice_accepted\":false}",
+      "error": null,
+      "events": [],
+      "index": 0,
+      "kind": "api",
+      "ms": 3,
+      "reply": "",
+      "request": "GET /api/state",
+      "status": 200
+    },
+    {
+      "body": "{\"version\":1,\"text\":\"Version: 1\\n\\n# Accepted risks\\n\\n## C35-8\\n...\\n\\n## R-1\\n...\",\"accepted_version\":null}",
+      "error": null,
+      "events": [],
+      "index": 1,
+      "kind": "api",
+      "ms": 2,
+      "reply": "",
+      "request": "GET /api/risk-notice",
+      "status": 200
+    },
+    {
+      "body": "{\"error\":\"risk_notice_not_accepted\"}",
+      "decisions": [],
+      "end": "http",
+      "error": null,
+      "events": [],
+      "index": 2,
+      "kind": "say",
+      "message": "Hello! What can you do?",
+      "ms": 2,
+      "reply": "",
+      "status": 428,
+      "ttft_ms": null
+    },
+    {
+      "body": "",
+      "error": null,
+      "events": [],
+      "index": 3,
+      "kind": "api",
+      "ms": 2,
+      "reply": "",
+      "request": "POST /api/risk-notice",
+      "status": 204
+    },
+    {
+      "body": "",
+      "decisions": [],
+      "end": "run_end",
+      "error": null,
+      "events": [
+        {
+          "id": "s1",
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 1,
+          "session_id": "s1",
+          "type": "session"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 2,
+          "session_id": "s1",
+          "text": "Hi! ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 3,
+          "session_id": "s1",
+          "text": "I ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 4,
+          "session_id": "s1",
+          "text": "can ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 5,
+          "session_id": "s1",
+          "text": "read ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 6,
+          "session_id": "s1",
+          "text": "and ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 7,
+          "session_id": "s1",
+          "text": "change ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 8,
+          "session_id": "s1",
+          "text": "files ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 9,
+          "session_id": "s1",
+          "text": "in ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 10,
+          "session_id": "s1",
+          "text": "your ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 11,
+          "session_id": "s1",
+          "text": "working ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 12,
+          "session_id": "s1",
+          "text": "folder, ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 13,
+          "session_id": "s1",
+          "text": "run ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 14,
+          "session_id": "s1",
+          "text": "commands, ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 15,
+          "session_id": "s1",
+          "text": "search ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 16,
+          "session_id": "s1",
+          "text": "the ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 17,
+          "session_id": "s1",
+          "text": "web ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 18,
+          "session_id": "s1",
+          "text": "and ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 19,
+          "session_id": "s1",
+          "text": "remember ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 20,
+          "session_id": "s1",
+          "text": "what ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 21,
+          "session_id": "s1",
+          "text": "matters ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 22,
+          "session_id": "s1",
+          "text": "to ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 23,
+          "session_id": "s1",
+          "text": "you. ",
+          "type": "text"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 24,
+          "session_id": "s1",
+          "text": "Hi! I can read and change files in your working folder, run commands, search the web and remember what matters to you.",
+          "type": "done"
+        },
+        {
+          "run_id": "0b9e3a52-1f7e-4c1a-9d55-3a0c6b1e2f01",
+          "seq": 25,
+          "session_id": "s1",
+          "type": "run_end"
+        }
+      ],
+      "index": 4,
+      "kind": "say",
+      "message": "Hello! What can you do?",
+      "ms": 620,
+      "reply": "Hi! I can read and change files in your working folder, run commands, search the web and remember what matters to you.",
+      "status": 200,
+      "ttft_ms": 40
+    }
+  ],
+  "task": "u01",
+  "web_log": []
+}

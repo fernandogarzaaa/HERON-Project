@@ -1,0 +1,125 @@
+{
+  "_provenance": "Recorded by `run.sh --live --record-fixtures` against a real core; absolute paths, ports and the token are replaced by placeholders.",
+  "audit": [
+    {
+      "decision": "approved",
+      "tool": "write_file"
+    }
+  ],
+  "driver": "direct",
+  "files": {
+    "plan.md": "# Plan\n\n1. Connect a real model in Settings\n2. Ask Heron for the real plan\n"
+  },
+  "heron_commit": "9b2490407022a81559d66ebdfb5235d415dedae6",
+  "kind": "recorded",
+  "persona": "lena-teacher",
+  "provider": "demo",
+  "session_id": "81fa3361933b",
+  "steps": [
+    {
+      "body": "",
+      "decisions": [
+        {
+          "decision": "once",
+          "planned": true,
+          "tool": "write_file"
+        }
+      ],
+      "end": "done",
+      "error": null,
+      "events": [
+        {
+          "id": "81fa3361933b",
+          "type": "session"
+        },
+        {
+          "completion": 0,
+          "prompt": 0,
+          "type": "usage"
+        },
+        {
+          "always_rule": "write_file:*",
+          "can_always": true,
+          "can_session": true,
+          "detail": "Create plan.md (75 bytes)\n# Plan\n\n1. Connect a real model in Settings\n2. Ask Heron for the real plan",
+          "id": "02524dc1833a414e9ea5dd8111e8b0a8",
+          "risk": "write",
+          "summary": "plan.md",
+          "tainted": false,
+          "tool": "write_file",
+          "type": "approval"
+        },
+        {
+          "id": "call_ad17c0831a16416c9e3818c954578af2",
+          "name": "write_file",
+          "risk": "write",
+          "summary": "plan.md",
+          "type": "tool_start"
+        },
+        {
+          "id": "call_ad17c0831a16416c9e3818c954578af2",
+          "name": "write_file",
+          "ok": true,
+          "preview": "wrote 75 bytes to plan.md",
+          "type": "tool_end"
+        },
+        {
+          "text": "Done. ",
+          "type": "text"
+        },
+        {
+          "text": "Here ",
+          "type": "text"
+        },
+        {
+          "text": "is ",
+          "type": "text"
+        },
+        {
+          "text": "the ",
+          "type": "text"
+        },
+        {
+          "text": "result:\n\n```\nwrote ",
+          "type": "text"
+        },
+        {
+          "text": "75 ",
+          "type": "text"
+        },
+        {
+          "text": "bytes ",
+          "type": "text"
+        },
+        {
+          "text": "to ",
+          "type": "text"
+        },
+        {
+          "text": "plan.md\n```",
+          "type": "text"
+        },
+        {
+          "completion": 0,
+          "prompt": 0,
+          "type": "usage"
+        },
+        {
+          "text": "Done. Here is the result:\n\n```\nwrote 75 bytes to plan.md\n```",
+          "title": "Please save a plan as plan.md",
+          "type": "done"
+        }
+      ],
+      "index": 0,
+      "kind": "say",
+      "message": "Please save a plan as plan.md",
+      "ms": 158,
+      "reply": "Done. Here is the result:\n\n```\nwrote 75 bytes to plan.md\n```",
+      "status": 200,
+      "ttft_ms": 22
+    }
+  ],
+  "task": "u03",
+  "variant": "demo",
+  "web_log": []
+}

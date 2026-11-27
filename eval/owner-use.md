@@ -12,9 +12,9 @@ Fill in the first block before the trial starts. Count the days at any point wit
 
 ## Trial
 
-- Tool Heron replaces (Q4):
-- Start date (YYYY-MM-DD):
-- End date (YYYY-MM-DD, 13 days after the start):
+- Tool Heron replaces (Q4): none named (owner's choice, 2026-11-22)
+- Start date (YYYY-MM-DD): 2026-11-22
+- End date (YYYY-MM-DD, 13 days after the start): 2026-12-05
 
 ## Days
 
