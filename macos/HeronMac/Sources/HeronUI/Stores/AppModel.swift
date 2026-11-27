@@ -71,10 +71,17 @@ public final class AppModel {
 
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private let notifier: (any NotificationPosting)?
+    /// The highest `seq` already shown as a notification, so one event never posts twice. Each core
+    /// process numbers events from 1, so a `resync` (which a restart causes) starts the count over.
+    @ObservationIgnored private var lastNotifiedSeq = 0
+    @ObservationIgnored private var notificationGeneration = 0
 
     public init(client: any CoreClientProtocol, preferences: DisplayPreferences? = nil,
-                userFirstName: String? = nil, now: @escaping () -> Date = Date.init) {
+                userFirstName: String? = nil, notifier: (any NotificationPosting)? = nil,
+                now: @escaping () -> Date = Date.init) {
         self.client = client
+        self.notifier = notifier
         self.preferences = preferences ?? DisplayPreferences()
         self.now = now
         avatar = AvatarModel()
@@ -125,6 +132,9 @@ public final class AppModel {
     // MARK: Start
 
     public func bootstrap() async {
+        // First, so nothing the core publishes while the screens load is missed: its scheduler runs
+        // due jobs as soon as it starts, and the stream carries only events after it opens.
+        startEvents()
         async let loadedPersona: Void = persona.load()
         do {
             state = try await client.state()
@@ -136,7 +146,6 @@ public final class AppModel {
         await loadedPersona
         hasBootstrapped = true
         if needsFirstRun { await firstRun.load() } else { await loadAll() }
-        startEvents()
     }
 
     /// Starts the setup steps again: from the risk notice, with what the core already holds.
@@ -198,6 +207,10 @@ public final class AppModel {
 
     /// Sends one event to the avatar and the stores. Public so tests and U4b's replay can drive it directly.
     public func route(_ event: CoreEvent) {
+        if case .notification(let title, let body) = event.kind {
+            postNotification(seq: event.seq, title: title, body: body)
+            return
+        }
         avatar.handle(event)
         switch event.kind {
         case .approval:
@@ -208,6 +221,8 @@ public final class AppModel {
                 addToFeed(event)
             }
         case .resync:
+            lastNotifiedSeq = 0
+            notificationGeneration += 1
             Task { await resynchronize() }
         case .runEnd, .approvalParked:
             chat.handle(event)
@@ -217,6 +232,15 @@ public final class AppModel {
             chat.handle(event)
             approvals.handle(event)
         }
+    }
+
+    /// A notification is not part of any conversation, so it skips the avatar and the stores.
+    private func postNotification(seq: Int, title: String, body: String) {
+        if seq > 0 {
+            guard seq > lastNotifiedSeq else { return }
+            lastNotifiedSeq = seq
+        }
+        notifier?.post(title: title, body: body, identifier: "heron.notification.\(notificationGeneration).\(seq)")
     }
 
     private func addToFeed(_ event: CoreEvent) {

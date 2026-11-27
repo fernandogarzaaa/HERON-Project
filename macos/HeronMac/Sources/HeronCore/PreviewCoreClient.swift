@@ -20,6 +20,7 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     /// Approvals a run is waiting on, as `GET /api/approvals/live` returns them.
     private var liveRequests: [String: ApprovalRequest] = [:]
     private var beforeSendReturns: (@Sendable (String) async -> Void)?
+    private var beforeStateReturns: (@Sendable () async -> Void)?
     private var sendFailure: CoreError?
     private var cancelFailure: CoreError?
     private var pinned: Set<String> = []
@@ -45,6 +46,14 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     /// Runs `body` with the new conversation's id after the run has started but before `sendMessage`
     /// returns, as a real core can deliver events before its `/api/chat` response.
     public func runBeforeSendReturns(_ body: (@Sendable (String) async -> Void)?) { lock.withLock { beforeSendReturns = body } }
+
+    /// Runs `body` once, before the next `state()` answers. A real core's scheduler can publish while the app is still loading. Later `state()` calls do not run it again.
+    public func runBeforeStateReturns(_ body: (@Sendable () async -> Void)?) { lock.withLock { beforeStateReturns = body } }
+
+    /// Publishes a `notification` event, as the core does for a finished job.
+    public func publishNotification(title: String, body: String) {
+        publish("", "", .notification(title: title, body: body))
+    }
 
     /// The risk register changed while a screen was open.
     public func simulateRiskNoticeChange() {
@@ -132,7 +141,13 @@ public final class PreviewCoreClient: CoreClientProtocol, @unchecked Sendable {
     // MARK: State and conversations
 
     public func state() async throws -> CoreState {
-        with { d in
+        let hook = lock.withLock { () -> (@Sendable () async -> Void)? in
+            let hook = beforeStateReturns
+            beforeStateReturns = nil
+            return hook
+        }
+        if let hook { await hook() }
+        return with { d in
             CoreState(name: d.persona.name, version: "1.0.0-preview", model: d.activeModel, modelLabel: d.servesModelLabel ? (d.modelLabel ?? d.activeModel) : nil, mode: d.mode,
                       workspace: d.workspace, paused: d.paused, waiting: d.parked.filter { $0.status == "pending" }.count,
                       unread: d.inbox.filter { !$0.read }.count, memories: d.memories.count, onboarded: d.onboarded,
