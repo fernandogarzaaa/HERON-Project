@@ -283,10 +283,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "122636bc958fab94a639dc98eb783c5796a9c6e7",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "6ab9d897d31f32989fe7bca66339fe09c5540887",
+        "result_commit": "19e69a982d25d3406a974149f70748be7a35b132",
+        "shipped_at": "2026-11-27T01:58:44.417043+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
     "status": "done",
     "title": "W3: Egress proxy ported from anchor-harness `proxy.rs`, Seatbelt network rules, prox",
-    "version": 14,
+    "version": 15,
     "worktree": {
       "base_branch": "feat/harness-safety",
       "base_commit": "122636bc958fab94a639dc98eb783c5796a9c6e7",
