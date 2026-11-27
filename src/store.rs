@@ -53,8 +53,10 @@ pub struct Store {
     live_policy: Arc<std::sync::RwLock<std::sync::Weak<crate::permissions::Policy>>>,
     /// Bumped when a fact's vector or visibility changes. Shared by every clone of this store.
     embed_generation: Arc<AtomicU64>,
-    /// Decoded embedding rows for one embedder and confirmed-filter, valid only at `generation`.
-    embed_cache: Arc<Mutex<HashMap<(String, i8), EmbedSlot>>>,
+    /// Decoded embedding rows for one embedder, confirmed-filter, and vector length.
+    /// Valid only at `generation`. Length is part of the key: a model that starts returning a
+    /// new size must miss and queue the old rows, not replay them.
+    embed_cache: Arc<Mutex<HashMap<EmbedKey, EmbedSlot>>>,
     /// Feature-hash vectors keyed by the exact text. A rewritten fact misses. Capped at 4096.
     hash_cache: Arc<Mutex<HashMap<String, Vec<f32>>>>,
 }
@@ -65,9 +67,18 @@ struct EmbedSlot {
     rows: Vec<(i64, Vec<f32>)>,
 }
 
+/// One cached decode. `dims` is the length the caller asked for, so a longer vector from the
+/// same embedder does not reuse a shorter one.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct EmbedKey {
+    embedder: String,
+    confirmed: i8,
+    dims: usize,
+}
+
 struct EmbedCaches {
     generation: Arc<AtomicU64>,
-    vectors: Arc<Mutex<HashMap<(String, i8), EmbedSlot>>>,
+    vectors: Arc<Mutex<HashMap<EmbedKey, EmbedSlot>>>,
     hashes: Arc<Mutex<HashMap<String, Vec<f32>>>>,
 }
 
@@ -957,19 +968,23 @@ impl Store {
         }
     }
 
-    /// Decoded vectors from the last search with this filter, if nothing has been written since.
-    pub(crate) fn cached_embeddings(&self, embedder: &str, confirmed: Option<bool>, generation: u64) -> Option<Vec<(i64, Vec<f32>)>> {
+    /// Decoded vectors from the last search with this filter and length, if nothing has been written since.
+    pub(crate) fn cached_embeddings(&self, embedder: &str, confirmed: Option<bool>, dims: usize, generation: u64) -> Option<Vec<(i64, Vec<f32>)>> {
         let cache = self.embed_cache.lock().ok()?;
-        let slot = cache.get(&(embedder.to_string(), Self::confirmed_key(confirmed)))?;
+        let slot = cache.get(&Self::embed_key(embedder, confirmed, dims))?;
         if slot.generation == generation { Some(slot.rows.clone()) } else { None }
     }
 
-    pub(crate) fn store_embeddings(&self, embedder: &str, confirmed: Option<bool>, generation: u64, rows: &[(i64, Vec<f32>)]) {
+    fn embed_key(embedder: &str, confirmed: Option<bool>, dims: usize) -> EmbedKey {
+        EmbedKey { embedder: embedder.to_string(), confirmed: Self::confirmed_key(confirmed), dims }
+    }
+
+    pub(crate) fn store_embeddings(&self, embedder: &str, confirmed: Option<bool>, dims: usize, generation: u64, rows: &[(i64, Vec<f32>)]) {
         if self.embed_generation() != generation {
             return;
         }
         if let Ok(mut cache) = self.embed_cache.lock() {
-            cache.insert((embedder.to_string(), Self::confirmed_key(confirmed)), EmbedSlot { generation, rows: rows.to_vec() });
+            cache.insert(Self::embed_key(embedder, confirmed, dims), EmbedSlot { generation, rows: rows.to_vec() });
         }
     }
 

@@ -217,7 +217,7 @@ impl Memory {
     /// Settings. It cannot be compared with anything, so it is left out and queued for re-indexing.
     fn vectors(&self, embedder: &str, dims: usize, confirmed: Option<bool>) -> Result<Vec<(i64, Vec<f32>)>> {
         let generation = self.store.embed_generation();
-        if let Some(rows) = self.store.cached_embeddings(embedder, confirmed, generation) {
+        if let Some(rows) = self.store.cached_embeddings(embedder, confirmed, dims, generation) {
             return Ok(rows);
         }
         let mut out = vec![];
@@ -230,7 +230,7 @@ impl Memory {
             }
         }
         if self.store.embed_generation() == generation {
-            self.store.store_embeddings(embedder, confirmed, generation, &out);
+            self.store.store_embeddings(embedder, confirmed, dims, generation, &out);
         }
         Ok(out)
     }
@@ -673,6 +673,21 @@ mod tests {
         let more = local_embed("shared handle");
         other.store.insert_memory("fact", "shared handle", "", 0.5, "user", Some(&to_blob(&more)), true, crate::embed::HASH_TAG).unwrap();
         assert_eq!(m.vectors(crate::embed::HASH_TAG, LOCAL_DIM, None).unwrap().len(), 42);
+    }
+
+    #[test]
+    fn a_read_at_a_new_vector_length_drops_the_old_vector_and_marks_it_stale() {
+        let m = mem();
+        let short = vec![1.0f32, 0.0, 0.0, 0.0];
+        let id = m.store.insert_memory("fact", "remote fact", "", 0.5, "user", Some(&to_blob(&short)), true, crate::embed::REMOTE_TAG).unwrap();
+        let cached = m.vectors(crate::embed::REMOTE_TAG, short.len(), None).unwrap();
+        assert_eq!(cached, vec![(id, short)]);
+        // The embedder now returns a longer vector. The cached 4-float row cannot answer that
+        // read: it is left out and queued for re-indexing, the same as a decode with no cache.
+        let again = m.vectors(crate::embed::REMOTE_TAG, 8, None).unwrap();
+        assert!(again.is_empty(), "a vector of the old length came back");
+        let queued = m.store.memories_to_reindex(crate::embed::REMOTE_TAG, 10).unwrap();
+        assert_eq!(queued.iter().map(|(row, _)| *row).collect::<Vec<_>>(), vec![id]);
     }
 
     #[test]
