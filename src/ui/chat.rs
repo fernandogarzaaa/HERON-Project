@@ -94,6 +94,8 @@ pub struct ApprovalCard {
     pub can_always: bool,
     pub session_label: String,
     pub always_label: String,
+    /// The conversation has read outside content. Drawn in violet unless `danger` is set.
+    pub outside: bool,
     /// Set once answered. The card is then replaced by this note.
     pub decision_note: Option<String>,
 }
@@ -698,6 +700,7 @@ impl ChatView {
                         detail,
                         can_session,
                         can_always,
+                        outside: tainted,
                         decision_note: None,
                     });
                 }

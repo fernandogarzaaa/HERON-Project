@@ -1281,8 +1281,7 @@ mod tests {
     #[cfg(not(any(target_os = "macos", windows)))]
     fn connector_vault_fails_closed_without_an_os_backend() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.home = tmp.path().join("home");
+        let cfg = Config { home: tmp.path().join("home"), ..Config::default() };
         assert!(cfg.store_vault_only_secret("connector_test_api_key", "never-write-me").is_err());
         assert!(!cfg.vault_only_secret_present("connector_test_api_key"));
         assert!(!cfg.home.join("secrets.json").exists());

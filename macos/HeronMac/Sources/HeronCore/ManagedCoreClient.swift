@@ -157,6 +157,7 @@ public final class ManagedCoreClient: CoreClientProtocol, @unchecked Sendable {
     public func setOnboarded() async throws { try await current().setOnboarded() }
     public func settings() async throws -> CoreSettings { try await current().settings() }
     public func setUnattendedSubscription(_ allowed: Bool) async throws { try await current().setUnattendedSubscription(allowed) }
+    public func setCLIModel(_ model: String) async throws { try await current().setCLIModel(model) }
     public func setAwareness(_ enabled: Bool) async throws { try await current().setAwareness(enabled) }
     public func grants() async throws -> [Grant] { try await current().grants() }
     public func revokeGrant(rule: String) async throws { try await current().revokeGrant(rule: rule) }

@@ -502,6 +502,16 @@ public final class SettingsStore {
         do { try await client.acceptProviderVersion(id: provider.id, version: version); await load() } catch { self.error = describe(error) }
     }
 
+    /// The CLI provider in use, if one is: the Model field applies to it.
+    public var activeCLIProvider: ProviderStatus? { providers.first { $0.isActive } }
+
+    /// Saves the model the CLI provider is asked for. Blank lets the CLI choose; spaces around it are dropped.
+    public func setCLIModel(_ model: String) async {
+        let model = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard model != settings?.cliModel else { return }
+        do { try await client.setCLIModel(model); settings?.cliModel = model } catch { self.error = describe(error) }
+    }
+
     public func setUnattended(_ allowed: Bool) async {
         do { try await client.setUnattendedSubscription(allowed); settings?.allowSubscriptionUnattended = allowed } catch { self.error = describe(error) }
     }
@@ -532,6 +542,7 @@ public extension ProviderStatus {
     var detailText: String {
         switch rowState {
         case .signedIn:
+            if experimental { return "Version \(version ?? "unknown") · experimental, not tested yet" }
             return "Version \(version ?? "unknown")" + (inRange ? " · tested" : " · accepted")
         case .signedOut:
             return "\(displayName) is signed out. Run `\(loginCommand)` in Terminal, then check again."
@@ -601,8 +612,12 @@ public final class FirstRunStore {
     public var canAccept: Bool { accepted && notice != nil }
 
     /// The best signed-in, tested provider, which gets the "Recommended" tag.
-    public var recommendedID: String? {
-        providers.first { $0.rowState == .signedIn && $0.isActive }?.id ?? providers.first { $0.rowState == .signedIn }?.id
+    public var recommendedID: String? { Self.recommendedID(in: providers) }
+
+    /// An experimental provider is never recommended, even when it's the only one signed in.
+    public nonisolated static func recommendedID(in providers: [ProviderStatus]) -> String? {
+        let tested = providers.filter { $0.rowState == .signedIn && !$0.experimental }
+        return tested.first { $0.isActive }?.id ?? tested.first?.id
     }
 
     public func load() async {

@@ -407,12 +407,18 @@ fn apply_settings(body: &Value, cfg: &mut Config) -> std::result::Result<(), Api
                 "Unknown provider. Pick \"http\" or one of the ids listed by `heron providers`.",
             ));
         }
+        // A model name belongs to one CLI: switching drops it, so Claude Code is never started with
+        // an OpenCode model. A cli_model in the same body is applied below.
+        if v != cfg.llm.provider {
+            cfg.llm.cli_model.clear();
+        }
         cfg.llm.provider = v;
     }
     if let Some(v) = text("cli_command") {
         cfg.llm.cli_command = v;
     }
     if let Some(v) = text("cli_model") {
+        crate::cli_llm::check_cli_model(&v).map_err(|_| bad("The model name can't start with - or hold control characters."))?;
         cfg.llm.cli_model = v;
     }
     if let Some(v) = text("cli_config_dir") {
@@ -1894,6 +1900,36 @@ mod tests {
     use crate::store::Store;
     use std::collections::VecDeque;
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream};
+
+    #[test]
+    fn switching_provider_drops_the_old_cli_s_model() {
+        let mut cfg = Config::default();
+        cfg.llm.provider = "opencode-cli".into();
+        cfg.llm.cli_model = "opencode/big-pickle".into();
+        let ok = |body: Value, cfg: &mut Config| assert!(apply_settings(&body, cfg).is_ok(), "{body}");
+        ok(json!({"provider": "opencode-cli"}), &mut cfg);
+        assert_eq!(cfg.llm.cli_model, "opencode/big-pickle", "the same provider keeps its model");
+        ok(json!({"provider": "claude-cli"}), &mut cfg);
+        assert_eq!((cfg.llm.provider.as_str(), cfg.llm.cli_model.as_str()), ("claude-cli", ""));
+        // A body that switches and names a model (the desktop setup form) keeps the one it names.
+        ok(json!({"provider": "opencode-cli", "cli_model": "opencode/big-pickle"}), &mut cfg);
+        assert_eq!(cfg.llm.cli_model, "opencode/big-pickle");
+    }
+
+    #[test]
+    fn a_cli_model_that_reads_as_a_flag_is_refused() {
+        let mut cfg = Config::default();
+        cfg.llm.cli_model = "sonnet".into();
+        for bad in ["--dangerously-skip-permissions", "  -p", "son\nnet", "a\u{7}b"] {
+            let Err(err) = apply_settings(&json!({"cli_model": bad}), &mut cfg) else { panic!("{bad:?} was saved") };
+            assert!(err.1.contains("can't start with -"), "{bad:?}: {}", err.1);
+            assert_eq!(cfg.llm.cli_model, "sonnet", "{bad:?}");
+        }
+        assert!(apply_settings(&json!({"cli_model": " opencode/big-pickle "}), &mut cfg).is_ok());
+        assert_eq!(cfg.llm.cli_model, "opencode/big-pickle");
+        assert!(apply_settings(&json!({"cli_model": ""}), &mut cfg).is_ok());
+        assert_eq!(cfg.llm.cli_model, "");
+    }
 
     /// Connections to the router over in-memory pipes. Every request goes through `router` and
     /// `axum::serve` as it does over TCP, without a port, so these tests also run where binding one

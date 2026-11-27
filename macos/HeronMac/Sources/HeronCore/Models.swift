@@ -685,6 +685,8 @@ public struct CoreSettings: Sendable, Equatable {
     public var connections: [ConnectionInfo]
     public var awareness: Bool
     public var phoneConnected: Bool
+    /// `[llm] cli_model`: the model a CLI provider is asked for. Empty lets the CLI pick its own.
+    public var cliModel: String
     /// `allowlist` (a sandboxed command reaches only `egressAllow`) or `open`.
     public var egress: String
     public var egressAllow: [String]
@@ -693,7 +695,7 @@ public struct CoreSettings: Sendable, Equatable {
     public var maxRepeats: Int
 
     public init(workspace: String, mode: PermissionMode, ruleNotices: [RuleNotice], allowSubscriptionUnattended: Bool, connections: [ConnectionInfo], awareness: Bool, phoneConnected: Bool,
-                egress: String = "allowlist", egressAllow: [String] = [], denyLocalPorts: [Int] = [], maxRepeats: Int = 4) {
+                cliModel: String = "", egress: String = "allowlist", egressAllow: [String] = [], denyLocalPorts: [Int] = [], maxRepeats: Int = 4) {
         self.workspace = workspace
         self.mode = mode
         self.ruleNotices = ruleNotices
@@ -701,6 +703,7 @@ public struct CoreSettings: Sendable, Equatable {
         self.connections = connections
         self.awareness = awareness
         self.phoneConnected = phoneConnected
+        self.cliModel = cliModel
         self.egress = egress
         self.egressAllow = egressAllow
         self.denyLocalPorts = denyLocalPorts

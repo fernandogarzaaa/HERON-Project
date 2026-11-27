@@ -135,6 +135,7 @@ struct PreviewData {
     var connections: [ConnectionInfo] = []
     var usage = UsageReport(days: [], monthTokens: 0)
     var allowSubscriptionUnattended = false
+    var cliModel = ""
     var awareness = true
     var egress = "allowlist"
     var egressAllow = [

@@ -10,7 +10,8 @@
 //!   - writes are allowed only in the working folder, temporary folders and a few tool caches (for a
 //!     CLI: only its run folder and its own config folders).
 //!
-//! Linux uses bubblewrap (`bwrap`) for the shell when installed, with today's rules. Windows has no
+//! Linux uses bubblewrap for the shell when a root-owned `/usr/bin/bwrap` or `/usr/local/bin/bwrap` is
+//! installed, with today's rules, and says once that commands run unsandboxed when not. Windows has no
 //! equivalent here yet. On macOS a missing sandbox is not a fallback: [`required`] is true, and the
 //! callers refuse to run commands or CLIs without one.
 
@@ -36,21 +37,61 @@ impl Kind {
     }
 }
 
-fn probe() -> Kind {
-    let ok = |program: &str, args: &[&str]| std::process::Command::new(program).args(args).stdin(std::process::Stdio::null()).output().map(|o| o.status.success()).unwrap_or(false);
-    if cfg!(target_os = "linux") && ok("bwrap", &["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--tmpfs", "/tmp", "true"]) {
-        Kind::Bubblewrap
-    } else if cfg!(target_os = "macos") && ok("sandbox-exec", &["-p", "(version 1)(allow default)", "/usr/bin/true"]) {
-        Kind::Seatbelt
-    } else {
-        Kind::None
+/// The sandbox programs by absolute path, for the probe and for every wrapped command. A bare name is
+/// looked up on PATH (Heron's own for the probe, the child's for a command), so a program of the same
+/// name earlier on it would run instead.
+const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
+/// The only places bubblewrap is taken from. A candidate must also pass [`trusted_program`].
+#[cfg(any(target_os = "linux", all(test, unix)))]
+const BWRAP_CANDIDATES: &[&str] = &["/usr/bin/bwrap", "/usr/local/bin/bwrap"];
+
+/// What the probe found: the sandbox and the exact program it checked, which [`wrap`] then runs.
+struct Probed {
+    kind: Kind,
+    program: PathBuf,
+}
+
+/// The program at `candidate` when it can be trusted: its real path is an executable file, and that
+/// file and every folder above it have an owner `owner_ok` accepts (root, in use) and are writable by
+/// no group or other user. Anyone who could replace the file, or a folder on its path, could run their
+/// own program in place of the sandbox.
+#[cfg(any(target_os = "linux", all(test, unix)))]
+fn trusted_program(candidate: &Path, owner_ok: impl Fn(u32) -> bool) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let real = std::fs::canonicalize(candidate).ok()?;
+    let meta = std::fs::metadata(&real).ok()?;
+    if !meta.is_file() || meta.mode() & 0o111 == 0 {
+        return None;
     }
+    let safe = |p: &Path| std::fs::metadata(p).is_ok_and(|m| owner_ok(m.uid()) && m.mode() & 0o022 == 0);
+    real.ancestors().all(safe).then_some(real)
+}
+
+fn probe() -> Probed {
+    let ok = |program: &Path, args: &[&str]| std::process::Command::new(program).args(args).stdin(std::process::Stdio::null()).output().map(|o| o.status.success()).unwrap_or(false);
+    #[cfg(target_os = "linux")]
+    {
+        let found = BWRAP_CANDIDATES.iter().find_map(|c| trusted_program(Path::new(c), |uid| uid == 0));
+        if let Some(program) = found.filter(|p| ok(p, &["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--tmpfs", "/tmp", "true"])) {
+            return Probed { kind: Kind::Bubblewrap, program };
+        }
+        // Linux runs commands without a sandbox when there is none (docs/designs/heron-v1.md), so say so once.
+        eprintln!("heron: no usable bubblewrap owned by root at {}, so shell commands run without a sandbox", BWRAP_CANDIDATES.join(" or "));
+    }
+    if cfg!(target_os = "macos") && ok(Path::new(SANDBOX_EXEC), &["-p", "(version 1)(allow default)", "/usr/bin/true"]) {
+        return Probed { kind: Kind::Seatbelt, program: PathBuf::from(SANDBOX_EXEC) };
+    }
+    Probed { kind: Kind::None, program: PathBuf::new() }
+}
+
+fn probed() -> &'static Probed {
+    static PROBED: OnceLock<Probed> = OnceLock::new();
+    PROBED.get_or_init(probe)
 }
 
 /// Which sandbox this computer offers (checked once).
 pub fn available() -> Kind {
-    static KIND: OnceLock<Kind> = OnceLock::new();
-    *KIND.get_or_init(probe)
+    probed().kind
 }
 
 /// The sandbox in effect for this configuration.
@@ -527,9 +568,9 @@ pub fn wrap(cfg: &Config, workdir: &Path, profile: &Profile) -> Option<(String, 
                 }
             }
             a.extend(["--chdir".to_string(), s(workdir), "--".to_string()]);
-            Some(("bwrap".to_string(), a))
+            Some((s(&probed().program), a))
         }
-        (Kind::Seatbelt, profile) => Some(("sandbox-exec".to_string(), vec!["-p".to_string(), seatbelt_profile(cfg, &home, workdir, profile)])),
+        (Kind::Seatbelt, profile) => Some((s(&probed().program), vec!["-p".to_string(), seatbelt_profile(cfg, &home, workdir, profile)])),
     }
 }
 
@@ -843,10 +884,94 @@ mod tests {
         let on = Config::default();
         let wrapped = wrap(&on, Path::new("/tmp"), &Profile::Cli { spec: &spec, binary_dir: PathBuf::from("/usr/bin"), extra_read: vec![] });
         match available() {
-            Kind::Seatbelt => assert_eq!(wrapped.unwrap().0, "sandbox-exec"),
+            Kind::Seatbelt => assert_eq!(wrapped.unwrap().0, "/usr/bin/sandbox-exec"),
             Kind::Bubblewrap | Kind::None => assert!(wrapped.is_none(), "a CLI is never wrapped by bubblewrap"),
         }
         assert_eq!(required(), cfg!(target_os = "macos"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_sandbox_program_is_trusted_only_when_no_one_else_can_replace_it() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let me = unsafe { libc::geteuid() };
+        let mine_or_root = |uid: u32| uid == 0 || uid == me;
+        let chmod = |p: &Path, mode: u32| std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).unwrap();
+        // The system temporary folder is writable by everyone on Linux, so the fixture lives in target/.
+        let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        let dir = tempfile::tempdir_in(&target).unwrap();
+        let bin = dir.path().join("bwrap");
+        std::fs::write(&bin, "#!/bin/sh\n").unwrap();
+        chmod(&bin, 0o755);
+        let real = std::fs::canonicalize(&bin).unwrap();
+        assert_eq!(trusted_program(&bin, mine_or_root), Some(real.clone()), "a file only its owner can change is trusted");
+        assert_eq!(trusted_program(&bin, |uid| uid == 0), None, "a file the user owns is not root's");
+        let link = dir.path().join("link");
+        symlink(&bin, &link).unwrap();
+        assert_eq!(trusted_program(&link, mine_or_root), Some(real.clone()), "a link is judged by its target");
+        chmod(&bin, 0o757);
+        assert_eq!(trusted_program(&bin, mine_or_root), None, "other users can write the file");
+        chmod(&bin, 0o775);
+        assert_eq!(trusted_program(&bin, mine_or_root), None, "the group can write the file");
+        chmod(&bin, 0o644);
+        assert_eq!(trusted_program(&bin, mine_or_root), None, "the file is not executable");
+        chmod(&bin, 0o755);
+        chmod(dir.path(), 0o777);
+        assert_eq!(trusted_program(&bin, mine_or_root), None, "other users can replace the file through its folder");
+        chmod(dir.path(), 0o700);
+        assert_eq!(trusted_program(dir.path(), mine_or_root), None, "a folder is not a program");
+        assert_eq!(trusted_program(&dir.path().join("missing"), mine_or_root), None);
+        assert!(BWRAP_CANDIDATES.iter().all(|c| Path::new(c).is_absolute()));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn wrap_runs_the_program_the_probe_checked() {
+        let wrapped = wrap(&Config::default(), Path::new("/tmp"), &Profile::Shell { grants: vec![] });
+        match available() {
+            Kind::None => assert!(wrapped.is_none()),
+            kind => {
+                let program = wrapped.expect("a sandbox is available").0;
+                assert_eq!(Path::new(&program), probed().program.as_path());
+                if kind == Kind::Bubblewrap {
+                    let trusted: Vec<PathBuf> = BWRAP_CANDIDATES.iter().filter_map(|c| trusted_program(Path::new(c), |uid| uid == 0)).collect();
+                    assert!(trusted.contains(&PathBuf::from(&program)), "{program} is not a trusted bubblewrap ({trusted:?})");
+                } else {
+                    assert_eq!(program, "/usr/bin/sandbox-exec");
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn a_sandbox_exec_earlier_on_the_childs_path_never_runs() {
+        use std::os::unix::fs::PermissionsExt;
+        let cfg = Config::default();
+        if active(&cfg) != Kind::Seatbelt {
+            return skip_seatbelt_test(&format!("Seatbelt is not in effect here ({})", active(&cfg).name()));
+        }
+        let fake_dir = tempfile::tempdir().unwrap();
+        let ran = fake_dir.path().join("fake-ran");
+        let fake = fake_dir.path().join("sandbox-exec");
+        std::fs::write(&fake, format!("#!/bin/sh\ntouch '{}'\necho fake\n", ran.display())).unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let ws = tempfile::tempdir().unwrap();
+        let ws = dunce::canonicalize(ws.path()).unwrap();
+        let (program, prefix) = wrap(&cfg, &ws, &Profile::Shell { grants: vec![] }).expect("Seatbelt wraps a shell command");
+        // The callers clear the environment and hand the child an allowlisted PATH, and the program
+        // is looked up on that PATH.
+        let out = std::process::Command::new(&program)
+            .args(&prefix)
+            .args(["/bin/echo", "real"])
+            .current_dir(&ws)
+            .env_clear()
+            .env("PATH", format!("{}:/usr/bin:/bin", fake_dir.path().display()))
+            .output()
+            .unwrap();
+        assert!(!ran.exists(), "the sandbox-exec on PATH ran instead of the system one (program {program:?})");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "real\n", "{out:?}");
     }
 
     #[test]

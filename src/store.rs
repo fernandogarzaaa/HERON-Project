@@ -8,6 +8,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 fn audit_hash(prev: &str, ts: i64, session: &str, tool: &str, args: &str, decision: &str, result: &str) -> String {
@@ -50,6 +51,43 @@ pub struct Store {
     path: Option<PathBuf>,
     /// The live permission policy of the app that owns this store (see [`Store::live_policy`]).
     live_policy: Arc<std::sync::RwLock<std::sync::Weak<crate::permissions::Policy>>>,
+    /// Bumped when a fact's vector or visibility changes. Shared by every clone of this store.
+    embed_generation: Arc<AtomicU64>,
+    /// Decoded embedding rows for one embedder, confirmed-filter, and vector length.
+    /// Valid only at `generation`. Length is part of the key: a model that starts returning a
+    /// new size must miss and queue the old rows, not replay them.
+    embed_cache: Arc<Mutex<HashMap<EmbedKey, EmbedSlot>>>,
+    /// Feature-hash vectors keyed by the exact text. A rewritten fact misses. Capped at 4096.
+    hash_cache: Arc<Mutex<HashMap<String, Vec<f32>>>>,
+}
+
+#[derive(Clone)]
+struct EmbedSlot {
+    generation: u64,
+    rows: Vec<(i64, Vec<f32>)>,
+}
+
+/// One cached decode. `dims` is the length the caller asked for, so a longer vector from the
+/// same embedder does not reuse a shorter one.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct EmbedKey {
+    embedder: String,
+    confirmed: i8,
+    dims: usize,
+}
+
+struct EmbedCaches {
+    generation: Arc<AtomicU64>,
+    vectors: Arc<Mutex<HashMap<EmbedKey, EmbedSlot>>>,
+    hashes: Arc<Mutex<HashMap<String, Vec<f32>>>>,
+}
+
+fn fresh_embed_caches() -> EmbedCaches {
+    EmbedCaches {
+        generation: Arc::new(AtomicU64::new(0)),
+        vectors: Arc::new(Mutex::new(HashMap::new())),
+        hashes: Arc::new(Mutex::new(HashMap::new())),
+    }
 }
 
 /// A mark the user puts on a conversation in the sidebar.
@@ -656,7 +694,8 @@ impl Store {
                 migrate(&mut conn, STEPS)?;
             }
         }
-        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: Some(path.to_path_buf()), live_policy: Default::default() })
+        let caches = fresh_embed_caches();
+        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: Some(path.to_path_buf()), live_policy: Default::default(), embed_generation: caches.generation, embed_cache: caches.vectors, hash_cache: caches.hashes })
     }
 
     #[cfg(test)]
@@ -669,7 +708,8 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(PRAGMAS)?;
         migrate(&mut conn, STEPS)?;
-        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: None, live_policy: Default::default() })
+        let caches = fresh_embed_caches();
+        Ok(Store { conn: Arc::new(Mutex::new(conn)), path: None, live_policy: Default::default(), embed_generation: caches.generation, embed_cache: caches.vectors, hash_cache: caches.hashes })
     }
 
     /// The data format of the open database.
@@ -923,6 +963,57 @@ impl Store {
         Ok(keys.into_iter().map(|k| k[prefix.len()..].to_string()).collect())
     }
 
+    pub(crate) fn embed_generation(&self) -> u64 {
+        self.embed_generation.load(Ordering::Relaxed)
+    }
+
+    fn invalidate_embed_cache(&self) {
+        self.embed_generation.fetch_add(1, Ordering::Relaxed);
+        if let Ok(mut cache) = self.embed_cache.lock() {
+            cache.clear();
+        }
+    }
+
+    fn confirmed_key(confirmed: Option<bool>) -> i8 {
+        match confirmed {
+            None => -1,
+            Some(false) => 0,
+            Some(true) => 1,
+        }
+    }
+
+    /// Decoded vectors from the last search with this filter and length, if nothing has been written since.
+    pub(crate) fn cached_embeddings(&self, embedder: &str, confirmed: Option<bool>, dims: usize, generation: u64) -> Option<Vec<(i64, Vec<f32>)>> {
+        let cache = self.embed_cache.lock().ok()?;
+        let slot = cache.get(&Self::embed_key(embedder, confirmed, dims))?;
+        if slot.generation == generation { Some(slot.rows.clone()) } else { None }
+    }
+
+    fn embed_key(embedder: &str, confirmed: Option<bool>, dims: usize) -> EmbedKey {
+        EmbedKey { embedder: embedder.to_string(), confirmed: Self::confirmed_key(confirmed), dims }
+    }
+
+    pub(crate) fn store_embeddings(&self, embedder: &str, confirmed: Option<bool>, dims: usize, generation: u64, rows: &[(i64, Vec<f32>)]) {
+        if self.embed_generation() != generation {
+            return;
+        }
+        if let Ok(mut cache) = self.embed_cache.lock() {
+            cache.insert(Self::embed_key(embedder, confirmed, dims), EmbedSlot { generation, rows: rows.to_vec() });
+        }
+    }
+
+    pub(crate) fn cached_hash_vector(&self, text: &str) -> Option<Vec<f32>> {
+        self.hash_cache.lock().ok()?.get(text).cloned()
+    }
+
+    pub(crate) fn store_hash_vector(&self, text: &str, vector: Vec<f32>) {
+        let Ok(mut cache) = self.hash_cache.lock() else { return };
+        if cache.len() >= 4096 && !cache.contains_key(text) {
+            cache.clear();
+        }
+        cache.insert(text.to_string(), vector);
+    }
+
     // ---------- memories ----------
     // A memory is never overwritten when a fact changes: the old row is marked invalid and points
     // at its replacement, so history is kept and only current facts are retrieved.
@@ -935,6 +1026,7 @@ impl Store {
             "INSERT INTO memories(kind, content, tags, importance, source, created_at, updated_at, embedding, confirmed, embedder) VALUES (?,?,?,?,?,?,?,?,?,?)",
             params![kind, content, tags, importance, source, now, now, embedding, confirmed as i64, embedder],
         )?;
+        self.invalidate_embed_cache();
         Ok(db.last_insert_rowid())
     }
 
@@ -944,6 +1036,7 @@ impl Store {
             "UPDATE memories SET content=?, tags=?, importance=?, embedding=?, confirmed=?, embedder=?, updated_at=? WHERE id=?",
             params![content, tags, importance, embedding, confirmed as i64, embedder, now_ts(), id],
         )?;
+        self.invalidate_embed_cache();
         Ok(())
     }
 
@@ -958,18 +1051,21 @@ impl Store {
     /// Flag a vector that no longer fits the current model, so it is made again.
     pub fn mark_embedding_stale(&self, id: i64) -> Result<()> {
         self.db().execute("UPDATE memories SET embedder='stale' WHERE id=?", [id])?;
+        self.invalidate_embed_cache();
         Ok(())
     }
 
     /// Replace only the vector of a memory (re-indexing leaves its text, date and standing untouched).
     pub fn set_memory_embedding(&self, id: i64, embedding: &[u8], embedder: &str) -> Result<()> {
         self.db().execute("UPDATE memories SET embedding=?, embedder=? WHERE id=?", params![embedding, embedder, id])?;
+        self.invalidate_embed_cache();
         Ok(())
     }
 
     /// Retire a fact in favour of a newer one.
     pub fn supersede_memory(&self, old_id: i64, new_id: i64) -> Result<()> {
         self.db().execute("UPDATE memories SET invalid_at=?, superseded_by=? WHERE id=? AND invalid_at IS NULL", params![now_ts(), new_id, old_id])?;
+        self.invalidate_embed_cache();
         Ok(())
     }
 
@@ -993,11 +1089,19 @@ impl Store {
 
     /// The user vouches for a fact that came from an outside source.
     pub fn confirm_memory(&self, id: i64) -> Result<bool> {
-        Ok(self.db().execute("UPDATE memories SET confirmed=1, importance=MAX(importance, 0.7) WHERE id=?", [id])? > 0)
+        let changed = self.db().execute("UPDATE memories SET confirmed=1, importance=MAX(importance, 0.7) WHERE id=?", [id])? > 0;
+        if changed {
+            self.invalidate_embed_cache();
+        }
+        Ok(changed)
     }
 
     pub fn delete_memory(&self, id: i64) -> Result<bool> {
-        Ok(self.db().execute("DELETE FROM memories WHERE id=?", [id])? > 0)
+        let changed = self.db().execute("DELETE FROM memories WHERE id=?", [id])? > 0;
+        if changed {
+            self.invalidate_embed_cache();
+        }
+        Ok(changed)
     }
 
     pub fn get_memory(&self, id: i64) -> Result<Option<MemoryItem>> {
@@ -1655,6 +1759,7 @@ impl Store {
         }
         let deleted = tx.execute("DELETE FROM memories WHERE source=?", [source])?;
         tx.commit()?;
+        self.invalidate_embed_cache();
         Ok(deleted)
     }
 

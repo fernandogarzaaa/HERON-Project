@@ -38,6 +38,7 @@ pub mod tools;
 /// covers them. The desktop binary's `views_slint.rs` glue drives
 /// them through the generated MainWindow.
 pub mod ui;
+pub mod ui_prefs;
 pub mod usage;
 pub mod util;
 pub mod workflow;
