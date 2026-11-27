@@ -454,17 +454,23 @@ pub fn claude_native_model(model: &str) -> String {
 /// directories, so a backend started with a minimal PATH still finds it. An
 /// explicit command is the user's choice and is never second-guessed.
 pub fn resolve_binary(binary: &str, command_override: &str) -> Option<PathBuf> {
+    resolve_binary_in(binary, command_override, &std::env::var_os("PATH").unwrap_or_default())
+}
+
+/// [`resolve_binary`] against `path` (a `PATH` value) instead of this process's `PATH`, so a test
+/// can look up a binary on a `PATH` of its own without changing the process-wide variable.
+fn resolve_binary_in(binary: &str, command_override: &str, path: &std::ffi::OsStr) -> Option<PathBuf> {
     if !command_override.is_empty() {
         let p = PathBuf::from(command_override);
         if p.is_absolute() {
             return if is_executable(&p) { Some(p) } else { None };
         }
-        return find_on_path(command_override);
+        return find_on_path_in(command_override, path);
     }
     if binary.is_empty() {
         return None;
     }
-    if let Some(p) = find_on_path(binary) {
+    if let Some(p) = find_on_path_in(binary, path) {
         return Some(p);
     }
     let home = dirs::home_dir()?;
@@ -532,11 +538,14 @@ fn is_executable(p: &Path) -> bool {
 }
 
 fn find_on_path(name: &str) -> Option<PathBuf> {
-    let path = std::env::var("PATH").unwrap_or_default();
+    find_on_path_in(name, &std::env::var_os("PATH").unwrap_or_default())
+}
+
+fn find_on_path_in(name: &str, path: &std::ffi::OsStr) -> Option<PathBuf> {
     // std::env::split_paths uses the platform separator (`:` on Unix,
     // `;` on Windows). Splitting on `:` by hand breaks Windows paths
     // like `C:\Users\user\bin;C:\Windows`.
-    for dir in std::env::split_paths(&path) {
+    for dir in std::env::split_paths(path) {
         if dir.as_os_str().is_empty() {
             continue;
         }
@@ -3887,12 +3896,8 @@ mod tests {
         // A relative PATH entry used to return a relative path, which chat()
         // then resolved against the per-request temp dir and failed to
         // spawn, while the probes still reported the provider installed.
-        struct RestorePath(String);
-        impl Drop for RestorePath {
-            fn drop(&mut self) {
-                std::env::set_var("PATH", &self.0);
-            }
-        }
+        // The PATH is passed in rather than set on the process: setting the process-wide PATH
+        // races every test that spawns a child meanwhile (`sandbox-exec` is found on PATH).
         fn relative_path(from: &std::path::Path, to: &std::path::Path) -> PathBuf {
             let from: Vec<_> = from.components().collect();
             let to: Vec<_> = to.components().collect();
@@ -3915,16 +3920,14 @@ mod tests {
         let fake = fake_bin(&bin_dir, "mycli", "#!/bin/sh\nexit 0\n");
         let rel = relative_path(&std::env::current_dir().unwrap(), fake.parent().unwrap());
         assert!(!rel.is_absolute(), "the test needs a relative PATH entry");
-        let _guard = RestorePath(std::env::var("PATH").unwrap_or_default());
-        std::env::set_var("PATH", rel.as_os_str());
-        let found = resolve_binary("mycli", "").expect("fake on relative PATH");
+        let found = resolve_binary_in("mycli", "", rel.as_os_str()).expect("fake on relative PATH");
         assert!(found.is_absolute(), "{found:?}");
         assert_eq!(
             std::fs::canonicalize(&found).unwrap(),
             std::fs::canonicalize(&fake).unwrap()
         );
         // A relative command override goes through the same lookup.
-        let via_override = resolve_binary("", "mycli").expect("fake via override");
+        let via_override = resolve_binary_in("", "mycli", rel.as_os_str()).expect("fake via override");
         assert!(via_override.is_absolute(), "{via_override:?}");
     }
 
