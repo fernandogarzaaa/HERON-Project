@@ -178,10 +178,20 @@
     },
     "retry_at": null,
     "retry_backoff_seconds": 60.0,
-    "shipped": {},
+    "shipped": {
+      "feat/harness-safety": {
+        "base_commit": "730a48c5c1c0d3ed3f379c238c87f1ea22563485",
+        "diverged": true,
+        "forced": true,
+        "merge_commit": "bf41c10c4b3a17502500bfaa3dc526981bc03476",
+        "result_commit": "86f690240cbd352e88753f6ddcb13d90a4ade2cc",
+        "shipped_at": "2026-11-27T01:58:43.995379+00:00",
+        "target_branch": "feat/harness-safety"
+      }
+    },
     "status": "done",
     "title": "W2: `RepeatGuard` ported from anchor-harness `repeats.rs`, with the failure rule and",
-    "version": 8,
+    "version": 9,
     "worktree": {
       "base_branch": "feat/harness-safety",
       "base_commit": "730a48c5c1c0d3ed3f379c238c87f1ea22563485",
